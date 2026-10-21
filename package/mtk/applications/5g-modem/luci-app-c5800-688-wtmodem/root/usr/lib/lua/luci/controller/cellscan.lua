@@ -1,12 +1,28 @@
 module("luci.controller.cellscan", package.seeall)
 
+local function detected_model()
+    local file = io.open("/tmp/modconf.conf", "r")
+    if file then
+        local content = file:read("*all") or ""
+        file:close()
+        if content ~= "" then return content end
+    end
+
+    file = io.open("/tmp/infocd/cache/cpestatus", "r")
+    if not file then return "" end
+    local content = file:read("*all") or ""
+    file:close()
+    -- Only the internal modem owns these scan commands.
+    local section = content:match('"name"%s*:%s*"cpe"(.-)"name"%s*:%s*"cpe1"')
+        or content:match('"name"%s*:%s*"cpe"(.*)') or ""
+    return section:match('"model"%s*:%s*"([^"]+)"') or ""
+end
+
 function index()
     -- entry({"admin", "modem"}, firstchild(), _("蜂窝"), 25).dependent=false
-    local file = io.open("/tmp/modconf.conf", "r")
+	local content = detected_model()
 	local template_name = "cellscan/cellscan_null"
-	if file then
-		local content = file:read("*all")
-		file:close()
+	if content ~= "" then
 		if content and string.find(content, "RM520") then
 			template_name = "cellscan/cellscan"
 		elseif content and string.find(content, "RM500U") then
@@ -20,10 +36,18 @@ function index()
     entry({"admin", "modem", "cellscan", "switch2"}, call("action_switch2"), nil)
     entry({"admin", "modem", "cellscan", "switch5g"}, call("action_switch5g"), nil)
     entry({"admin", "modem", "cellscan", "switch4g"}, call("action_switch4g"), nil)
+    entry({"admin", "modem", "cellscan", "snapshot"}, call("action_snapshot"), nil)
 end
 
+function action_snapshot()
+    local http = require "luci.http"
+    local iface = http.formvalue("iface") or "cpe"
+    http.prepare_content("application/json")
+    http.write_json(require("c5800_radio").snapshot(iface))
+end
 
 function action_switch2()
+    if detected_model():find("MT5700", 1, true) then return action_snapshot() end
     local sys = require "luci.sys"
     local http = require "luci.http"
     local confirm = http.formvalue("confirm")
@@ -42,15 +66,14 @@ function action_switch5g()
     local confirm = http.formvalue("confirm")
     
     if confirm and confirm == "yes" then
+        if detected_model():find("MT5700", 1, true) then return action_snapshot() end
         luci.http.redirect(luci.dispatcher.build_url("admin", "modem", "cellscan"))
-        local file = io.open("/tmp/modconf.conf", "r")
-        if file then
-            local content = file:read("*all")
-            file:close()
+        local content = detected_model()
+        if content ~= "" then
             if content and string.find(content, "RM520") then
                 os.execute("/usr/share/modem/keyPairCellScan.sh 5")
             elseif content and string.find(content, "MT5700") then
-                os.execute("/usr/share/modem/keyPairCellScan_mt5700.sh")
+                return action_snapshot()
             end
         end    
     else
@@ -64,15 +87,14 @@ function action_switch4g()
     
     if confirm and confirm == "yes" then
         --sys.call("./usr/share/modem/keyPairCellScan.sh")
+        if detected_model():find("MT5700", 1, true) then return action_snapshot() end
         luci.http.redirect(luci.dispatcher.build_url("admin", "modem", "cellscan"))
-        local file = io.open("/tmp/modconf.conf", "r")
-        if file then
-            local content = file:read("*all")
-            file:close()
+        local content = detected_model()
+        if content ~= "" then
             if content and string.find(content, "RM520") then
                 os.execute("/usr/share/modem/keyPairCellScan.sh 4")
             elseif content and string.find(content, "MT5700") then
-                os.execute("/usr/share/modem/keyPairCellScan_mt5700.sh 4")
+                return action_snapshot()
             end
         end 
     else
@@ -125,6 +147,3 @@ function cellscan_run_time()
     end
     return cellscan_time
 end
-
-
-

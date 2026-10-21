@@ -1,0 +1,15 @@
+{
+  "checks": {
+    "ucode_files": 35,
+    "lua_files": 22,
+    "shell_files": 80,
+    "themes_and_modem_assets": true,
+    "kernel_abi_and_module_tree": true,
+    "vantage_theme_dashboard_and_translation": true,
+    "phone_app_and_server_reporting": true,
+    "version_and_applications": true,
+    "official_odu_and_single_at_transport": true,
+    "ssh_bash_and_system_switch_files": true
+  },
+  "failures": []
+}

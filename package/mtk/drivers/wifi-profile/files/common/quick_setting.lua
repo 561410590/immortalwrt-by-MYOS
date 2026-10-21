@@ -161,7 +161,7 @@ function __set_wifi_apcli_security(cfgs, diff, device, devname)
                 iwpriv %s set ApCliAuthMode=WPAPSKWPA2PSK;
                 iwpriv %s set ApCliEncrypType=%s;
                 iwpriv %s set ApCliWPAPSK="%s";]],
-            vif.vifname, vif.vifname, vif.EncrypType, vif.vifname, vif.WPAPSK)
+            vif.vifname, vif.vifname, vif.EncrypType, vif.vifname, vif.vifname, vif.WPAPSK)
         elseif vif.AuthMode == "WPA2PSKWPA3PSK" then
             commands = string.format([[
                 iwpriv %s set ApCliAuthMode=WPA2PSKWPA3PSK;
@@ -280,6 +280,7 @@ function __set_wifi_security(cfgs, diff, device, devname)
             local vif = {}
             vif.idx = i
             vif.vifname = device.ext_ifname..tostring(i-1)
+            vif.ext_ifname = device.ext_ifname
             vif.AuthMode = auth_new1 and auth_new1[i] or auth_old1[i]
             vif.EncrypType = encr_new1 and encr_new1[i] or encr_old1[i]
             vif.KeyID = keyid_new1 and keyid_new1[i] or keyid_old1[i]
@@ -372,7 +373,7 @@ function __set_wifi_security(cfgs, diff, device, devname)
                 iwpriv %s set AuthMode=WPAPSKWPA2PSK;
                 iwpriv %s set EncrypType=%s;
                 iwpriv %s set WPAPSK="%s";]],
-            vif.vifname, vif.vifname, vif.EncrypType, vif.vifname, vif.WPAPSK)
+            vif.vifname, vif.vifname, vif.EncrypType, vif.vifname, vif.vifname, vif.WPAPSK)
         elseif vif.AuthMode == "WPA2PSKWPA3PSK" then
             commands = string.format([[
                 iwpriv %s set AuthMode=WPA2PSKWPA3PSK;
@@ -403,9 +404,10 @@ function __set_wifi_security(cfgs, diff, device, devname)
                 iwpriv %s set RADIUS_Server=%s;
                 iwpriv %s set RADIUS_Port=%s;
                 iwpriv %s set RADIUS_Key=%s;
-                iwpriv %s set IEEE8021X=0;]],
+                iwpriv %s set IEEE8021X=0;
+                8021xd -p %s -i %s -d 3;]],
             vif.vifname, vif.vifname, vif.EncrypType, vif.vifname, vif.RADIUS_Server,
-            vif.vifname,vif.RADIUS_Port, vif.vifname, vif.RADIUS_Key, vif.vifname)
+            vif.vifname,vif.RADIUS_Port, vif.vifname, vif.RADIUS_Key, vif.vifname, vif.ext_ifname, vif.vifname)
         elseif vif.AuthMode == "WPA3" then
             commands = string.format([[
                 iwpriv %s set AuthMode=WPA3;
@@ -599,6 +601,7 @@ function match_dev_parm_no_ssid(key)
     local dat_iw_table = {
         BeaconPeriod = "BeaconPeriod",
         TxPower = "TxPower",
+        SREnable = "srcfgsren"
     }
 
     return dat_iw_table[key]

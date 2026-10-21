@@ -1,0 +1,1 @@
+'use strict';'require baseclass';return baseclass.extend({title:_('Entropy'),rrdargs:function(graph,host,plugin,plugin_instance,dtype){return{title:"%H: Available entropy",vlabel:"bits",number_format:"%4.0lf",data:{types:["entropy"],options:{entropy:{title:"Entropy %di"}}}};}});

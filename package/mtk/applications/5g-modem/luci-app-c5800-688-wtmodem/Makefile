@@ -17,7 +17,7 @@ define Package/$(PKG_NAME)
   SUBMENU:=3. Applications
   TITLE:=LuCI support for C5800-688 WTModem
   DEFAULT:=y
-  DEPENDS:=+luci-compat +python3-light +libc +libgcc
+  DEPENDS:=+luci-compat +python3-light +libgcc
 endef
 
 define Package/$(PKG_NAME)/conffiles
@@ -29,6 +29,10 @@ define Package/$(PKG_NAME)/description
  C5800-688 5G modem control plugin.
 endef
 
+define Package/$(PKG_NAME)/extra_provides
+	echo libc.so.6
+endef
+
 define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 endef
@@ -38,7 +42,6 @@ endef
 
 define Package/$(PKG_NAME)/install
 	$(CP) ./root/. $(1)/
-	rm -f $(1)/usr/share/modem/mopdu
 endef
 
 $(eval $(call BuildPackage,$(PKG_NAME)))

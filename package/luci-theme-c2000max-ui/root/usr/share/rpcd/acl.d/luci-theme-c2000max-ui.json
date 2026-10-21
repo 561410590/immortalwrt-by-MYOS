@@ -1,0 +1,38 @@
+{
+  "luci-theme-c2000max-ui": {
+    "description": "MYOS MAX and Ultra dashboard",
+    "read": {
+      "ubus": {
+        "file": ["read"],
+        "system": [
+          "info",
+          "board"
+        ],
+        "network.interface": [
+          "dump"
+        ],
+        "network.wireless": [
+          "status"
+        ],
+        "c2000max.ui": [
+          "identity",
+          "modem",
+          "sensors",
+          "clients",
+          "sim"
+        ],
+        "qmodem": [
+          "base_info",
+          "cell_info"
+        ]
+      },
+      "file": {
+        "/proc/sys/net/netfilter/nf_conntrack_count": ["read"]
+      },
+      "uci": [
+        "qmodem",
+        "c2000max_ui"
+      ]
+    }
+  }
+}

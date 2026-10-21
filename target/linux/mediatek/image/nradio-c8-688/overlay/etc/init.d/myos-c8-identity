@@ -1,0 +1,7 @@
+#!/bin/sh /etc/rc.common
+START=29
+boot() {
+    . /lib/functions/myos-c8-identity.sh
+    myos_c8_cloud_identity_apply
+}
+start() { boot; }

@@ -1,0 +1,123 @@
+#!/usr/bin/lua
+local uci = require("luci.model.uci").cursor()
+local json = require("cjson.safe")
+local fs = require("nixio.fs")
+
+local function read(path)
+    local file = io.open(path, "r")
+    if not file then return nil end
+    local data = file:read(1024)
+    file:close()
+    return data
+end
+
+local function write(path, value)
+    local file = io.open(path, "w")
+    if not file then return false end
+    local ok = file:write(tostring(value))
+    local closed = file:close()
+    return ok ~= nil and closed ~= nil
+end
+
+local function apply_sysfs_pwm(pwm)
+    -- The C8 reference DT uses PWM0 on pwm0_0 (GPIO13), normal polarity,
+    -- with a 40000 ns period. Its controller is already bound on 1230;
+    -- support it while the pwm-fan consumer is unavailable.
+    local board = read("/sys/firmware/devicetree/base/compatible") or ""
+    if not board:find("HCMT7981-688-emmc", 1, true) then return nil end
+    local chips = fs.glob("/sys/devices/platform/soc/10048000.pwm/pwm/pwmchip*")
+    if not chips then return nil end
+    for chip in chips do
+        local compatible = read(chip .. "/device/of_node/compatible") or ""
+        if compatible:find("mediatek,mt7981-pwm", 1, true) then
+            local path = chip .. "/pwm0"
+            if not fs.access(path) then write(chip .. "/export", 0) end
+            if fs.access(path) and (read(path .. "/polarity") or ""):match("^normal") then
+                local period = 40000
+                local duty = math.floor(period * pwm / 255 + 0.5)
+                local previous_period = tonumber(read(path .. "/period")) or 0
+                if previous_period ~= period then
+                    if previous_period > 0 then
+                        if tonumber(read(path .. "/enable")) == 1 and
+                           not write(path .. "/enable", 0) then return nil end
+                        if not write(path .. "/duty_cycle", 0) then return nil end
+                    end
+                    if not write(path .. "/period", period) then return nil end
+                end
+                if not write(path .. "/duty_cycle", duty) or
+                   not write(path .. "/enable", pwm > 0 and 1 or 0) then return nil end
+                local observed_period = tonumber(read(path .. "/period"))
+                local observed_duty = tonumber(read(path .. "/duty_cycle"))
+                local enabled = tonumber(read(path .. "/enable"))
+                if observed_period == period and observed_duty == duty and
+                   enabled == (pwm > 0 and 1 or 0) then
+                    return math.floor(observed_duty * 255 / observed_period + 0.5)
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function setting(name, default, low, high)
+    local value = tonumber(uci:get("fanctrl", "fanctrl", name))
+    if not value or value ~= math.floor(value) or value < low or value > high then return default end
+    return value
+end
+
+local function apply()
+    uci:unload("fanctrl")
+    local mode = setting("mode", 0, 0, 5)
+    local temperature = tonumber(read("/sys/class/thermal/thermal_zone0/temp"))
+    temperature = temperature and temperature / 1000 or nil
+    if temperature and (temperature < -20 or temperature > 150) then temperature = nil end
+    local protect = setting("protecttemp", 85, 60, 100)
+    local protected = not temperature or temperature >= protect
+    local pwm, label
+    if protected then
+        pwm, label = 255, "保护"
+    elseif mode == 0 then
+        local thresholds = { setting("temp1", 50, 30, 90), setting("temp2", 60, 30, 90),
+            setting("temp3", 70, 30, 90), setting("temp4", 80, 30, 95) }
+        table.sort(thresholds)
+        pwm = math.floor(setting("smartmin", 30, 0, 50) * 255 / 100)
+        for index, value in ipairs({ 76, 127, 204, 255 }) do
+            if temperature >= thresholds[index] then pwm = math.max(pwm, value) end
+        end
+        label = "智能"
+    elseif mode == 5 then
+        pwm, label = setting("manual_pwm", 127, 0, 255), "无极"
+    else
+        pwm = ({ 76, 127, 204, 255 })[mode]
+        label = ({ "低速", "中速", "高速", "全速" })[mode]
+    end
+    local available, backend = false, nil
+    local nodes = fs.glob("/sys/devices/platform/pwm-fan/hwmon/hwmon*/pwm1")
+    if nodes then
+        for path in nodes do
+            if write(path, pwm) then
+                local observed = tonumber(read(path))
+                if observed and observed >= 0 and observed <= 255 then
+                    pwm, available, backend = math.floor(observed), true, "hwmon"
+                end
+            end
+        end
+    end
+    if not available then
+        local observed = apply_sysfs_pwm(pwm)
+        if observed then pwm, available, backend = observed, true, "pwm-sysfs" end
+    end
+    if available then write("/sys/class/gpio/fan-hw/value", pwm > 0 and 1 or 0) end
+    local state = { available = available, cpu_temperature = temperature, pwm = available and pwm or nil,
+        percent = available and math.floor(pwm * 100 / 255 + 0.5) or nil, mode = mode,
+        mode_label = label, protected = protected, sampled_at = os.time(), temperature_source = "cpu",
+        control_backend = backend }
+    local encoded = json.encode(state)
+    if encoded and write("/tmp/myos-c8-fan.json.new", encoded .. "\n") then
+        os.rename("/tmp/myos-c8-fan.json.new", "/tmp/myos-c8-fan.json")
+    end
+    return setting("interval", 5, 2, 30)
+end
+
+if arg[1] == "apply" then apply(); return end
+while true do os.execute("sleep " .. apply()) end

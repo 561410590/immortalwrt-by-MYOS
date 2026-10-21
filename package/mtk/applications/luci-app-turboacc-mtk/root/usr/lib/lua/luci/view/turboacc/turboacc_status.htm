@@ -1,0 +1,45 @@
+<style>
+#cbi-turboacc .myos-acc-status { padding:24px; }
+#cbi-turboacc .myos-acc-status h3 { margin:0 0 12px; font-size:20px; line-height:1.5; }
+#cbi-turboacc .myos-acc-row,
+#cbi-turboacc .cbi-value { display:grid; grid-template-columns:minmax(150px,28%) minmax(0,1fr); gap:20px; align-items:start; padding:16px 0; }
+#cbi-turboacc .myos-acc-row { align-items:center; border-bottom:1px solid var(--border-soft,#e6edf5); }
+#cbi-turboacc .myos-acc-row:last-child { border-bottom:0; padding-bottom:0; }
+#cbi-turboacc .myos-acc-label { color:var(--text-secondary,#526780); line-height:1.6; }
+#cbi-turboacc .myos-acc-badge { display:inline-flex; align-items:center; gap:8px; width:fit-content; padding:5px 12px; border-radius:8px; background:var(--surface-soft,#f3f6fa); color:var(--text-muted,#66778e); font-size:14px; font-weight:600; line-height:1.5; font-style:normal; }
+#cbi-turboacc .myos-acc-badge::before { content:''; width:7px; height:7px; border-radius:50%; background:currentColor; flex:none; }
+#cbi-turboacc .myos-acc-badge[data-running=true] { color:var(--success,#00856b); background:var(--success-soft,#e4f5ef); }
+#cbi-turboacc .cbi-value .cbi-value-title { float:none; width:auto; padding:2px 0 0; margin:0; text-align:left; line-height:1.6; }
+#cbi-turboacc .cbi-value-field { margin:0; padding:0; min-width:0; }
+#cbi-turboacc input[type=checkbox] { margin:4px 0 0; vertical-align:top; }
+#cbi-turboacc .cbi-value-description { padding-top:8px; line-height:1.6; }
+#cbi-turboacc .cbi-value:last-child { border-bottom:0; }
+@media(max-width:600px) {
+  #cbi-turboacc .myos-acc-status { padding:18px; }
+  #cbi-turboacc .myos-acc-row,
+  #cbi-turboacc .cbi-value { grid-template-columns:1fr; gap:8px; }
+}
+</style>
+<div class="cbi-section myos-acc-status">
+	<h3><%:Running Status%></h3>
+	<div class="myos-acc-row"><span class="myos-acc-label"><%:Flow Offloading%></span><span class="myos-acc-badge" id="_fastpath_state"><%:Collecting data...%></span></div>
+	<div class="myos-acc-row"><span class="myos-acc-label"><%:FullCone NAT%></span><span class="myos-acc-badge" id="_fullconenat_state"><%:Collecting data...%></span></div>
+	<div class="myos-acc-row"><span class="myos-acc-label"><%:BBR CCA%></span><span class="myos-acc-badge" id="_bbr_state"><%:Collecting data...%></span></div>
+</div>
+<script type="text/javascript">
+(function() {
+	var running = <%=luci.util.serialize_json(translate("RUNNING"))%>;
+	var stopped = <%=luci.util.serialize_json(translate("NOT RUNNING"))%>;
+	function setStatus(id, enabled, label) {
+		var node = document.getElementById(id);
+		node.textContent = enabled ? (label || running) : stopped;
+		node.setAttribute('data-running', enabled ? 'true' : 'false');
+	}
+	XHR.poll(5, '<%=luci.dispatcher.build_url("admin", "network", "turboacc", "status")%>', null, function(xhr, status) {
+		if (!xhr || xhr.status !== 200 || !status) return;
+		setStatus('_fastpath_state', status.fastpath_state, status.fastpath_name);
+		setStatus('_fullconenat_state', status.fullconenat_state);
+		setStatus('_bbr_state', status.bbr_state);
+	});
+})();
+</script>

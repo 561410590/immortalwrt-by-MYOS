@@ -1,0 +1,80 @@
+76:		os.execute("mkdir -p " .. shell_quote(CACHE_DIR) ..
+143:			os.execute("rmdir " .. shell_quote(path) .. " 2>/dev/null")
+146:	local result = os.execute("mkdir " .. shell_quote(path) .. " 2>/dev/null")
+151:	os.execute("rmdir " .. shell_quote(lock_path(name)) .. " 2>/dev/null")
+158:		os.execute("sleep 1")
+518:local function sim_gpio_prefix(section)
+531:local function read_sim_gpio(section)
+532:	local prefix = sim_gpio_prefix(section)
+544:local function logical_sim_slot(section, modem_slot)
+545:	local mapping = uci:get("cpesel", "sim", "gval") or ""
+546:	local gpio = read_sim_gpio(section)
+547:	local usim = modem_slot ~= nil and tostring(modem_slot + 1) or ""
+548:	local configured = tonumber(uci:get("cpesel", "sim", "cur") or "")
+552:		local entry_gpio, entry_usim = trim(entry):match("^([^%-]*)%-(%d+)$")
+553:		if entry_gpio and entry_usim and gpio ~= "" and usim ~= "" and
+554:		   entry_gpio == gpio and entry_usim == usim then
+561:		if entry_usim and usim ~= "" and entry_usim == usim then
+720:		fields.sim_status = fields.cpin or fields.simstatus
+730:		if first_field(fields, "imei", "imsi", "sim_status", "cpin") == "" then
+731:			collect_fields(fields, safe_ubus("qmodem", "sim_info", {
+770:	local modem_slot = tonumber(first_field(fields, "sim_slot", "slot"))
+782:	local sim_status = first_field(fields, "sim_status", "cpin")
+783:	if native and sim_status == "0" then sim_status = "READY" end
+784:	if sim_status == "" and iccid ~= "" then sim_status = "READY" end
+815:		simno = native and tostring(fields.simno or fields.sim_no or
+816:			uci:get("cpesel", alias == "cpe1" and "sim1" or "sim", "cur") or "1") or
+817:			tostring(logical_sim_slot(section, modem_slot)),
+818:		simstatus = sim_status,
+1113:function M.sim_swap(slot)
+1117:	if settings:get("myos_nros", "main", "app_sim_swap") == "1" and
+1124:function M.apply_native_cpesel(slot, mode)
+1127:			return require("myos_nbcpe_modem").apply_sim(slot, mode)
+1134:	local mapping = settings:get("cpesel", "sim", "gval") or ""
+1135:	local maximum = tonumber(settings:get("cpesel", "sim", "max")) or 0
+1140:	if tostring(slot) == settings:get("cpesel", "sim", "cur") and
+1141:	   tostring(mode) == settings:get("cpesel", "sim", "mode") then return true end
+1142:	settings:set("cpesel", "sim", "cur", tostring(slot))
+1143:	settings:set("cpesel", "sim", "mode", tostring(mode))
+1145:	local result = os.execute("/etc/init.d/cpesel reload >/dev/null 2>&1")
+1150:local function app_sim_slot(logical)
+1153:	if logical == 1 or logical == 2 then return "0", tostring(M.sim_swap(logical)) end
+1157:local function sim_count()
+1159:	local mapping = tostring(uci:get("cpesel", "sim", "gval") or "")
+1160:	local maximum = uci:get("cpesel", "sim", "max")
+1173:	local simtype, simno = app_sim_slot(summary.simno)
+1175:		simtype = summary.sim_slot == 0 and "0" or (summary.sim_slot == 1 and "4" or "")
+1176:		simno = (summary.sim_slot == 0 or summary.sim_slot == 1) and "1" or ""
+1208:		sim_isp = summary.operator or "",
+1243:		CPIN = ready_cpin(summary.simstatus),
+1244:		simtype = simtype,
+1245:		simno = simno,
+1246:		simcount = tostring(sim_count()),
+1248:		simmode = tostring(uci:get("cpesel", "sim", "mode") or "1"),
+1250:		sim_flow = traffic_total,
+1251:		sim_mon = traffic_total,
+1942:				index = tonumber(indices[1]), sim_indices = indices,
+1990:			reference = { fingerprint = fingerprint, item = item, sim_indices = {}, history_ids = {} }
+2001:			local indices = type(message.sim_indices) == "table" and message.sim_indices or { index }
+2003:				local sim_index = tonumber(value)
+2004:				if sim_index and sim_index >= 0 and sim_index % 1 == 0 and sim_index < 1000000000 then
+2005:					reference.sim_indices[sim_index] = true
+2006:					reference.sim_index = math.min(reference.sim_index or sim_index, sim_index)
+2012:		item.index = reference.history_id and (1000000000 + reference.history_id) or reference.sim_index
+2051:		-- Lua 5.1's os.execute returns the raw exit status; 0 means applied.
+2052:		return os.execute(LED_ENGINE .. " apply >/dev/null 2>&1") == 0
+2210:	local sim = tonumber(data.sim)
+2211:	if not sim and (data.action == nil or data.action == "modify") then
+2212:		sim = M.sim_swap(tonumber(M.summary().simno) or 1)
+2240:				sim = sim, action = "modify", enabled = value } }
+2246:				sim = sim, enabled = enabled and "1" or "0" } }
+2276:						for index in pairs(snapshot.refs[id].sim_indices) do
+2295:			local sim_ids, history_ids = {}, {}
+2298:				for index in pairs(ref.sim_indices) do sim_ids[#sim_ids + 1] = tostring(index) end
+2301:			if #sim_ids > 0 then
+2303:					table.sort(sim_ids, function(left, right) return tonumber(left) > tonumber(right) end)
+2305:					for _, index in ipairs(sim_ids) do
+2312:					safe_ubus("qmodem", "delete_sms", { config_section = section, index = table.concat(sim_ids, " ") })
+2321:			local sim_left, history_left = {}, {}
+2323:				for index in pairs(ref.sim_indices) do sim_left[index] = true end
+2330:				for index in pairs(ref.sim_indices) do if sim_left[index] then success = false end end

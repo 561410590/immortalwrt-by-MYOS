@@ -1,0 +1,29 @@
+{
+  "overlay": "root",
+  "required": [
+    "lua-md5", "lua-mosquitto", "libmosquitto-nossl", "mosquitto-nossl",
+    "libcares", "lua-cjson", "luci-lua-runtime", "luci-compat", "luci-lib-nixio"
+  ],
+  "executable": [
+    "etc/init.d/myos-nros-mqtt", "etc/uci-defaults/29-myos-nros-app",
+    "usr/sbin/myos-nros-app-agent", "usr/sbin/myos-nros-cloudctl",
+    "usr/sbin/myos-nradio-app-fast", "usr/sbin/myos-nradio-discovery",
+    "www/cgi-bin/luci"
+  ],
+  "rc_links": {
+    "S30myos-nros-mqtt": "../init.d/myos-nros-mqtt",
+    "K70myos-nros-mqtt": "../init.d/myos-nros-mqtt",
+    "S32myos-nros-app": "../init.d/myos-nros-app",
+    "K68myos-nros-app": "../init.d/myos-nros-app"
+  },
+  "integration": {
+    "cgi_before_overlay": "Preserve the modern LuCI CGI as www/cgi-bin/luci.ucode before copying the wrapper.",
+    "uhttpd": "Keep HTTP 80 and add 0.0.0.0:82 for the existing APP protocol.",
+    "init": "Use the theme myos-nros-app init containing the myos-usage instance.",
+    "broker": "Disable the stock mosquitto init/rc links; myos-nros-mqtt owns its broker.",
+    "cache": "Install the latest overlay/usr/libexec/myos-nbcpe-status with interfaces/sim_slot fields.",
+    "identity": "No identity files or credentials are included. Existing same-device identity and the original user binding/settings flow remain available.",
+    "default_cloud": "Disabled unless first boot finds an already valid same-device identity and device code.",
+    "modem": "AK68 cache owns signal reads; no additional AT polling. Neighbour data are unknown. Native AK68 modem UI remains available."
+  }
+}

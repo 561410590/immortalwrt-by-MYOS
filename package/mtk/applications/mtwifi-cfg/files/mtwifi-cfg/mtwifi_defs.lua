@@ -101,6 +101,9 @@ mtwifi_defs.iwpriv_ap_cfgs = {
     ["kicklow"] = {"KickStaRssiLow", "0"},
     ["assocthres"] = {"AssocReqRssiThres" , "0"},
     ["steeringthresold"] = {"Steeringthresold" , "0"},
+    ["HtBw"] = {"HtBw" , "0"},
+    ["VhtBw"] = {"VhtBw" , "0"},
+    ["HtBssCoex"] = {"HtBssCoex" , "0"},
 }
 
 mtwifi_defs.enc2dat = {

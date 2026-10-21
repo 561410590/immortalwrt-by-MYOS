@@ -1,0 +1,22 @@
+config cpecfg 'config'
+	option automatic '1'
+
+config cpesim 'cpesim1'
+	option mobility '2'
+	option mode 'auto'
+	option ippass '1'
+
+config cpesim 'cpesim2'
+	option mobility '2'
+	option mode 'auto'
+	option ippass '1'
+
+config cpesim 'cpesim3'
+	option mobility '2'
+	option mode 'auto'
+	option ippass '1'
+
+config cpesim 'cpesim4'
+	option mobility '2'
+	option mode 'auto'
+	option ippass '1'

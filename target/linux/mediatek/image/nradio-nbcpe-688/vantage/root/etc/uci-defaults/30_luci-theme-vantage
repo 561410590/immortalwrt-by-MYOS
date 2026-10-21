@@ -1,0 +1,6 @@
+#!/bin/sh
+# Register Vantage as an additional NBCPE theme. The existing theme defaults
+# and the administrator's selected mediaurlbase remain authoritative.
+uci -q set luci.themes.Vantage=/luci-static/vantage || exit 1
+uci -q commit luci
+exit 0

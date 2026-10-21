@@ -1,0 +1,24 @@
+#!/bin/sh
+# A preserved empty password must receive the same default as a clean install.
+if grep -q '^root::' /etc/shadow; then
+	printf 'admin\nadmin\n' | passwd root || exit 1
+fi
+# Native cellular passthrough shares its on-link /64 with LAN clients.
+# Relay neighbour discovery so the modem can return IPv6 traffic to them.
+uci set dhcp.lan.ndp=relay || exit 1
+for iface in cpe_6 cpe1_6; do
+	uci set "dhcp.$iface=dhcp" || exit 1
+	uci set "dhcp.$iface.interface=$iface" || exit 1
+	uci set "dhcp.$iface.master=1" || exit 1
+	uci set "dhcp.$iface.ndp=relay" || exit 1
+	uci set "dhcp.$iface.ignore=1" || exit 1
+done
+uci commit dhcp || exit 1
+# Keep NR/LTE lock ownership in each modem's NV. There is no default band lock.
+for iface in cpe cpe1; do
+    if uci -q get "network.$iface" >/dev/null; then
+        uci set "network.$iface.radio_lock_owner=modem" || exit 1
+    fi
+done
+uci commit network || exit 1
+exit 0

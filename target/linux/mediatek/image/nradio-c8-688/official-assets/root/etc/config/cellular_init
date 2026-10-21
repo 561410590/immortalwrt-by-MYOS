@@ -1,0 +1,9 @@
+
+config cellular 'cpe'
+	option sn 'tdtech0000000000'
+	option version 'V200R001C20B024'
+	option model 'MT5700M-CN'
+	option imei '864640060011226'
+
+config cellular 'cpe1'
+

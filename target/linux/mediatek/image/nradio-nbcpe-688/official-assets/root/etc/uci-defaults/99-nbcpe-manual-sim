@@ -1,0 +1,9 @@
+#!/bin/sh
+# Keep the user's selected slot. Never start an automatic selector on NBCPE.
+[ "$(uci -q get network.globals.nbcpe)" = "1" ] || exit 0
+/etc/init.d/cpesel stop
+/etc/init.d/cpesel disable
+/etc/init.d/cpeselgpio disable
+uci -q set cpesel.sim.mode=1
+uci -q commit cpesel
+exit 0

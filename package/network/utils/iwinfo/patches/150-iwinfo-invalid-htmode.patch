@@ -1,0 +1,12 @@
+--- a/iwinfo_utils.c
++++ b/iwinfo_utils.c
+@@ -112,6 +112,9 @@ const char * const iwinfo_band_name(int ma
+ 
+ const char * const iwinfo_htmode_name(int mask)
+ {
++	if (mask <= 0)
++		return NULL;
++
+ 	return iwinfo_name(mask, IWINFO_HTMODE_COUNT, IWINFO_HTMODE_NAMES);
+ }
+ 

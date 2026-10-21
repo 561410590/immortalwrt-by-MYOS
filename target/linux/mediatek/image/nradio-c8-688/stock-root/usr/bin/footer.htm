@@ -1,0 +1,1000 @@
+<%#
+	Argon is a clean HTML5 theme for LuCI. It is based on luci-theme-material Argon Template
+
+	luci-theme-argon
+	Copyright 2020 Jerrykuku <jerrykuku@qq.com>
+
+	Have a bug? Please create an issue here on GitHub!
+	https://github.com/jerrykuku/luci-theme-argon/issues
+
+	luci-theme-material: 
+	Copyright 2015 Lutty Yang <lutty@wcan.in>
+	
+	Agron Theme
+	https://demos.creative-tim.com/argon-dashboard/index.html 
+
+	Licensed to the public under the Apache License 2.0 
+-%>
+
+<% local ver = require "luci.version" %>
+</div>
+<footer class="mobile-hide">
+	<div>
+        <span id="osv-switch-link"></span>
+		<a class="luci-link" href="http://www.manper.me/" target="_blank">Mwrt WEB</a> /
+						<a href="https://github.com/jerrykuku/luci-theme-argon" target="_blank">ArgonTheme v2.3.1</a> /
+						<%= ver.distversion %>
+		<ul class="breadcrumb pull-right" id="modemenu" style="display:none"></ul>
+	</div>
+</footer>
+</div>
+</div>
+<script>
+	// thanks for Jo-Philipp Wich <jow@openwrt.org>
+	var luciLocation = <%= luci.http.write_json(luci.dispatcher.context.path) %>;
+	var winHeight = $(window).height();
+	$(window).resize(function () {
+		var winWidth = $(window).width()
+		if(winWidth < 600){
+			var newHeight = $(this).height();
+			var keyboradHeight = newHeight - winHeight;
+			$(".ftc").css("bottom", keyboradHeight + 30);
+		}
+	})
+</script>
+<script type="text/javascript">L.require('menu-argon')</script>
+<!-- 覆盖层HTML（初始隐藏） -->
+<div id="global_msg_overlay" style="
+    position:fixed;
+    top:0; left:0; right:0; bottom:0;
+    width:100vw; height:100vh;
+    background:rgba(0,0,0,0.55);
+    z-index:99999;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    transition:opacity 0.4s;
+    opacity:0;
+    backdrop-filter: blur(7px); /* 黑色虚化 */
+">
+  <div id="global_msg_content" style="
+      background:rgba(0,0,0,0.0); /* 纯虚化，无白色背景 */
+      border-radius:0;
+      padding:40px 36px;
+      color:#fff;
+      font-family: 'Segoe UI', 'PingFang SC', 'Microsoft Yahei', Arial, Helvetica, sans-serif;
+      font-size:2rem;
+      font-weight:700;
+      letter-spacing:0.12em;
+      box-shadow:none;
+      max-width:90vw;
+      max-height:80vh;
+      overflow:auto;
+      text-align:center;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.25);
+      line-height:1.65;
+  "></div>
+</div>
+<script type="text/javascript">
+function showAk68Overlay() {
+    let overlay = document.getElementById("ak68_overlay");
+    if (overlay) overlay.remove();
+
+    overlay = document.createElement("div");
+    overlay.id = "ak68_overlay";
+    overlay.style.cssText = `
+        position:fixed;
+        top:0;left:0;right:0;bottom:0;
+        background:rgba(0,0,0,0.4);
+        backdrop-filter:blur(8px);
+        z-index:999999;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        opacity:0;
+        transition:opacity 1s ease;
+    `;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    overlay.appendChild(canvas);
+    document.body.appendChild(overlay);
+
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width, H = canvas.height;
+
+    const easeInOutQuad = t => t < 0.5
+        ? 2 * t * t
+        : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+    // 尺寸定义
+    const cableBody = 180;
+    const headWidth = 15; // 缩小很多
+    const portWidth = 0;
+    const slotOffset = 10; // 插槽距离外壳边缘
+    const connectY = H / 2 - 40;
+
+    function drawCable(x, y) {
+        // 线体
+        let grad = ctx.createLinearGradient(x, y, x + cableBody, y);
+        grad.addColorStop(0, "#2874a6");
+        grad.addColorStop(1, "#5dade2");
+        ctx.fillStyle = grad;
+        ctx.fillRect(x, y + 30, cableBody, 20);
+
+        // 接头
+        let headGrad = ctx.createLinearGradient(x + cableBody, y + 10, x + cableBody + headWidth, y + 70);
+        headGrad.addColorStop(0, "rgba(255,255,255,0.85)");
+        headGrad.addColorStop(1, "rgba(200,200,200,0.55)");
+        ctx.fillStyle = headGrad;
+        ctx.fillRect(x + cableBody, y + 10, headWidth, 60);
+
+        // 金属触点
+        ctx.fillStyle = "#f1c40f";
+        for (let i = 0; i < 4; i++) {
+            ctx.fillRect(x + cableBody + 3 + i * 3, y + 20, 2, 20);
+        }
+
+        ctx.strokeStyle = "rgba(0,0,0,0.2)";
+        ctx.strokeRect(x + cableBody, y + 10, headWidth, 60);
+    }
+
+    function drawPort(x, y) {
+        // 外壳
+        let shellGrad = ctx.createLinearGradient(x, y, x + portWidth, y);
+        shellGrad.addColorStop(0, "#444");
+        shellGrad.addColorStop(1, "#888");
+        ctx.fillStyle = shellGrad;
+        ctx.fillRect(x, y, portWidth, 80);
+
+        // 插槽
+        let slotGrad = ctx.createLinearGradient(x + slotOffset, y + 20, x + portWidth - slotOffset, y + 60);
+        slotGrad.addColorStop(0, "#111");
+        slotGrad.addColorStop(1, "#333");
+        ctx.fillStyle = slotGrad;
+        ctx.fillRect(x + slotOffset, y + 20, 130, 40);
+
+        // 金属针脚
+        ctx.fillStyle = "#ffb300";
+        for (let i = 0; i < 8; i++) {
+            ctx.fillRect(x + slotOffset + 5 + i * 15, y + 25, 10, 5);
+        }
+    }
+
+    // 位置计算
+    const cableStartX = - (cableBody + headWidth);
+    const portStartX = W + portWidth;
+
+    // 精准对接位置
+    const cableEndX = W / 2 - (cableBody + headWidth - slotOffset);
+    const portEndX = W / 2 - portWidth / 2;
+
+    let startTime = null;
+    let phase = 0;
+    let textAlpha = 0;
+    let cableX = cableStartX;
+    let portX = portStartX;
+
+    const fadeOutDuration = 1500; // 1.5秒淡出
+
+    function drawFrame(ts) {
+        if (!startTime) startTime = ts;
+        const elapsed = ts - startTime;
+
+        ctx.clearRect(0, 0, W, H);
+
+        if (phase === 0) {
+            overlay.style.opacity = 1;
+            // 对接动画 2s
+            const t = Math.min(1, elapsed / 2000);
+            const posT = easeInOutQuad(t);
+            cableX = cableStartX + (cableEndX - cableStartX) * posT;
+            portX = portStartX + (portEndX - portStartX) * posT;
+            drawPort(portX, connectY);
+            drawCable(cableX, connectY);
+            if (t >= 1) {
+                phase = 1;
+                startTime = ts;
+            }
+        }
+        else if (phase === 1) {
+            // 停留 3s
+            drawPort(portEndX, connectY);
+            drawCable(cableEndX, connectY);
+            textAlpha = Math.min(1, textAlpha + 0.02);
+            ctx.save();
+            ctx.globalAlpha = textAlpha;
+            ctx.font = 'bold 36px "Microsoft YaHei"';
+            ctx.fillStyle = "#fff";
+            ctx.textAlign = "center";
+            ctx.fillText("AK68定向天线已连接", W / 2, H / 2 - 100);
+            ctx.restore();
+            if (elapsed >= 3000) {
+                phase = 2;
+                startTime = ts;
+            }
+        }
+        else if (phase === 2) {
+            // 平滑淡出 1.5s
+            const fadeT = Math.min(1, elapsed / fadeOutDuration);
+            overlay.style.opacity = 1 - fadeT;
+            drawPort(portEndX, connectY);
+            drawCable(cableEndX, connectY);
+            if (fadeT >= 1) {
+                overlay.remove();
+                return;
+            }
+        }
+
+        requestAnimationFrame(drawFrame);
+    }
+
+    // 淡入开始
+    overlay.style.opacity = 0;
+    setTimeout(() => {
+        overlay.style.opacity = 1;
+    }, 0);
+
+    requestAnimationFrame(drawFrame);
+}
+
+(function(){
+    var overlay = document.getElementById('global_msg_overlay');
+    var content = document.getElementById('global_msg_content');
+    var fadeDuration = 400; // ms 动画时长
+    var pollingInterval = 1000; // ms 轮询间隔
+    var isShowing = false;
+    var timer = null;
+    var hideTimer = null;
+    function showOverlay(msg, sec, color) {
+        var isRestore = msg && msg.indexOf('系统正在还原配置分区') !== -1;
+        if (isRestore) {
+            overlay.style.background = 'rgba(0,0,0,0.88)';
+            overlay.style.backdropFilter = 'blur(7px)';
+            overlay.style.display = 'flex';
+            overlay.style.alignItems = 'center';
+            overlay.style.justifyContent = 'center';
+            content.style.background = 'none';
+            content.style.borderRadius = '0';
+            content.style.padding = '48px 36px 40px 36px';
+            content.style.boxShadow = 'none';
+            content.style.width = 'auto';
+            content.style.maxWidth = 'none';
+            content.style.color = '#fff';
+            content.style.fontSize = '2rem';
+            content.style.fontWeight = '700';
+            content.style.letterSpacing = '0.12em';
+            content.style.textAlign = 'center';
+            content.style.textShadow = '0 2px 12px rgba(0,0,0,0.24)';
+            content.innerHTML = `
+                <div style="font-size:18px;margin-bottom:38px;color:#fff;text-shadow:0 2px 12px #000;">
+                    用户操作了重置/刷写动作，系统正在刷写配置分区，请等待电源灯闪烁完成后重新访问后台地址，执行中...
+                </div>
+                <div style="display:flex;justify-content:center;align-items:center;flex-direction:column;">
+                    <div class="restore-spinner" style="margin-bottom:32px;">
+                        <svg style="width:50px;height:50px;" viewBox="0 0 56 56">
+                            <circle cx="28" cy="28" r="22" fill="none" stroke="#00bcd4" stroke-width="10" stroke-linecap="round" stroke-dasharray="110" stroke-dashoffset="80">
+                                <animateTransform attributeName="transform" type="rotate" values="0 28 28;360 28 28" dur="1s" repeatCount="indefinite"/>
+                            </circle>
+                        </svg>
+                    </div>
+                    <div class="restore-bar" style="width:200px;height:10px;background:rgba(255,255,255,0.15);border-radius:14px;overflow:hidden;position:relative;box-shadow:0 2px 12px rgba(0,188,212,0.16);margin-bottom:32px;">
+                        <div id="restore-progress" style="width:0%;height:100%;background:linear-gradient(90deg,#03a9f4,#00bcd4 70%);transition:width 0.5s;"></div>
+                    </div>
+                    <div style="color:#FFEB3B;font-size:18px;margin-top:10px;letter-spacing:0.08em;text-shadow:0 2px 8px #000;">
+                        请耐心等待完成，不要将设备断电...
+                    </div>
+                    <div style="color:#B3E5FC;font-size:18px;margin-top:22px;">
+                        后台地址：192.168.66.1，默认密码为 admin<br>
+                        请使用快捷键清理缓存（Windows）：Ctrl+Shift+Delete，(Mac): Command+Shift+Delete
+                    </div>
+                </div>
+            `;
+            overlay.offsetHeight;
+            overlay.style.opacity = 1;
+            isShowing = true;
+
+            var progressBar = document.getElementById('restore-progress');
+            var start = Date.now();
+            var duration = 150000; // 150秒
+            var timerId = setInterval(function() {
+                var elapsed = Date.now() - start;
+                var percent = Math.min(100, (elapsed / duration) * 100);
+                if (progressBar) progressBar.style.width = percent + '%';
+                if (percent >= 100) clearInterval(timerId);
+            }, 200);
+
+            hideTimer && clearTimeout(hideTimer);
+            hideTimer = setTimeout(function(){
+                overlay.style.opacity = 0;
+                setTimeout(function(){
+                    overlay.style.display = 'none';
+                    isShowing = false;
+                    location.reload();
+                }, fadeDuration);
+            }, duration + fadeDuration);
+
+            return;
+        }
+
+        var isReboot = msg && msg.toLowerCase().indexOf('rebooting') !== -1;
+        if (isReboot) {
+            showRebootOverlay();
+            return;
+        }
+
+        var isAk68Conn = msg && msg.indexOf('AK68已连接') !== -1;
+        if (isAk68Conn) {
+            showAk68Overlay();
+            return;
+        }
+
+        var isInit = msg && msg.indexOf('切换完成，重启设备...') !== -1;
+        if (isInit) {
+            overlay.style.opacity = 0;
+            overlay.style.display = 'none';
+            var initOverlay = document.getElementById('init-overlay');
+            if (initOverlay) {
+                initOverlay.style.display = "flex";
+                initOverlay.style.zIndex = "999999"; 
+                animateProgress(); 
+            }
+            isShowing = true;
+            return;
+        }
+
+        overlay.style.background = 'rgba(0,0,0,0.55)';
+        overlay.style.backdropFilter = 'blur(7px)';
+        overlay.style.display = 'flex';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+
+        content.textContent = msg;
+        if (color && typeof color === 'string') {
+            content.style.color = color;
+        } else {
+            content.style.color = '#fff';
+        }
+        overlay.style.opacity = 1;
+        isShowing = true;
+
+        var secNum = Number(sec);
+        var showTime = (!isNaN(secNum) && secNum > 0 ? secNum : 2) * 1000;
+        hideTimer && clearTimeout(hideTimer);
+        hideTimer = setTimeout(hideOverlay, showTime + fadeDuration);
+    }
+
+    // ====  Windows10 ====
+    function showRebootOverlay() {
+        var rebootOverlay = document.getElementById('reboot_overlay');
+        if (!rebootOverlay) {
+            rebootOverlay = document.createElement('div');
+            rebootOverlay.id = 'reboot_overlay';
+            rebootOverlay.style.cssText = `
+                position:fixed;top:0;left:0;right:0;bottom:0;
+                background:#0078d7;
+                z-index:9999;
+                display:flex;flex-direction:column;
+                align-items:center;justify-content:center;
+                color:#fff;font-family:'Segoe UI','Microsoft YaHei',Arial,sans-serif;
+                font-size:24px;text-align:center;
+            `;
+            rebootOverlay.innerHTML = `
+                <div style="margin-bottom:20px;">
+                    <div style="font-size:35px;margin-bottom:10px;">正在重启CPE</div>
+                    <div> </div>
+                    <div>请不要关闭设备电源，这可能需要几分钟</div>
+                </div>
+                <div style="margin:40px 0;">
+                    <svg viewBox="0 0 50 50" style="width:60px;height:60px;">
+                        <circle cx="25" cy="25" r="20" fill="none" stroke="#fff" stroke-width="4"
+                                stroke-linecap="round" stroke-dasharray="100" stroke-dashoffset="75">
+                            <animateTransform attributeName="transform" type="rotate"
+                                              values="0 25 25;360 25 25" dur="1s" repeatCount="indefinite"/>
+                        </circle>
+                    </svg>
+                </div>
+                <div style="width:300px;height:8px;background:rgba(255,255,255,0.3);
+                            border-radius:4px;overflow:hidden;">
+                    <div id="reboot_progress" style="width:0%;height:100%;background:#fff;
+                            transition:width 0.5s;"></div>
+                </div>
+                <div id="reboot_percent" style="margin-top:10px;font-size:18px;">0%</div>
+            `;
+            document.body.appendChild(rebootOverlay);
+        }
+        rebootOverlay.style.display = 'flex';
+
+        // 进度条动画
+        var progressBar = document.getElementById('reboot_progress');
+        var percentText = document.getElementById('reboot_percent');
+        var duration = 120000; // 2分钟完成
+        var start = Date.now();
+
+        var rebootTimer = setInterval(function() {
+            var elapsed = Date.now() - start;
+            var percent = Math.min(100, (elapsed / duration) * 100);
+            if (progressBar) progressBar.style.width = percent + '%';
+            if (percentText) percentText.textContent = Math.floor(percent) + '%';
+            if (percent >= 100) {
+                clearInterval(rebootTimer);
+                location.reload();
+            }
+        }, 200);
+    }
+
+    // 隐藏淡出动画
+    function hideOverlay() {
+        overlay.style.opacity = 0;
+        setTimeout(function(){
+            overlay.style.display = 'none';
+            isShowing = false;
+            scheduleNextPoll();
+        }, fadeDuration);
+    }
+
+    // 请求后端
+    function pollMsg() {
+        if(isShowing) return;
+        XHR.get('<%=luci.dispatcher.build_url("admin", "fancontrol", "msg")%>', 
+            { set: 'msg', p: '1' }, 
+            function(x, rv) {
+                var msg = rv && rv.lucimsg;
+                var sec = rv && rv.sec;
+                var color = rv && rv.color;
+                // color支持HEX如#ff0 或 rgb(255,0,0)
+                if(msg && (typeof msg === 'string') && msg.trim()!=='') {
+                    showOverlay(msg, sec, color);
+                } else {
+                    scheduleNextPoll();
+                }
+            }
+        );
+    }
+
+    function scheduleNextPoll() {
+        timer && clearTimeout(timer);
+        timer = setTimeout(pollMsg, pollingInterval);
+    }
+
+    window.addEventListener('DOMContentLoaded', pollMsg);
+
+    overlay.addEventListener('click', function(e){
+        // hideOverlay();
+    });
+})();
+</script>
+
+<!-- 空闲计时器覆盖层 -->
+<div id="idle_overlay" style="
+    position:fixed;
+    top:0; left:0; right:0; bottom:0;
+    width:100vw; height:100vh;
+    background:rgba(0,0,0,0.85);
+    z-index:10000;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    backdrop-filter: blur(7px);
+    opacity:0;
+    transition:opacity 0.4s;
+">
+    <div style="display:flex;flex-direction:column;align-items:center;min-width:340px;">
+        <!-- 时间部分 -->
+        <div id="idle_time" style="
+            color:#fff;
+            font-size:6.5rem;
+            font-weight:bold;
+            letter-spacing:0.08em;
+            margin-bottom:18px;
+            font-family: 'Segoe UI','PingFang SC','Microsoft Yahei',Arial,sans-serif;
+            text-shadow:0 3px 12px rgba(0,0,0,0.25);
+            text-align:center;
+        ">
+            --:--
+        </div>
+        <div style="color:#4FD1C5;font-size:2.1rem;letter-spacing:0.08em;font-weight:500;margin-bottom:24px;text-shadow:0 2px 8px #000;text-align:center;">
+            NRadio-C8-New688
+        </div>
+        <!-- 网络信息 -->
+        <div id="idle_netinfo" style="color:#eee;font-size:1.28rem;letter-spacing:0.05em;text-align:center;display:flex;flex-direction:column;align-items:center;gap:0.4em;">
+            <!-- 动态填充 -->
+        </div>
+    </div>
+</div>
+<style>
+/* 时间冒号闪烁 */
+@keyframes blinkColon {
+  0%, 49% { opacity:1; }
+  50%, 100% { opacity:0; }
+}
+.idle-colon-blink {
+    animation: blinkColon 1s step-end infinite;
+}
+/* 信号能量条 */
+.idle-bar-wrap{
+    width:170px;height:18px;background:rgba(255,255,255,0.13);
+    border-radius:9px;overflow:hidden;display:flex;align-items:center;box-shadow:0 2px 8px #2222;margin-top:2px;margin-bottom:2px;
+}
+.idle-bar-inner{
+    height:100%;display:flex;flex-direction:row;width:100%;
+}
+.idle-bar-low{
+    height:100%;background:linear-gradient(90deg,#f44336,#FFEB3B 80%);
+    border-radius:9px 0 0 9px;
+    transition:width 0.5s;
+}
+.idle-bar-high{
+    height:100%;background:linear-gradient(90deg,#4FD1C5,#03A9F4 85%);
+    border-radius:0 9px 9px 0;
+    transition:width 0.5s;
+}
+</style>
+<script>
+(function(){
+    var idleOverlay = document.getElementById('idle_overlay');
+    var idleTimeDom = document.getElementById('idle_time');
+    var idleNetInfoDom = document.getElementById('idle_netinfo');
+    var pollIntv = null, pollXHR = null;
+    var idleTimer = null, isIdle = false, fadeDura = 400;
+    var lastAction = Date.now();
+    var showtime = null;    // 由后端返回，单位秒
+    var countdownDom = null;
+    var countdownShow = false;
+
+    // 监听用户操作
+    ['mousedown','mousemove','touchstart','keydown','scroll','wheel','click'].forEach(function(evt){
+        window.addEventListener(evt, function(){
+            lastAction = Date.now();
+            hideCountdown();
+            if(isIdle){
+                hideIdleOverlay();
+            }
+        }, true);
+    });
+
+
+    function renderOSVSwitchLink(osv) {
+        var container = document.getElementById('osv-switch-link');
+        if (!container) return;
+        var html = '';
+        if (osv === "纯净版系统") {
+            html = '<a href="/cgi-bin/luci/admin/system/mwrtst" style="color:#03a9f4;font-weight:600;margin-right:16px;">当前为纯净版系统,点击切换为常规带插件版</a>/ ';
+        } else if (osv === "常规版系统") {
+            html = '<a href="/cgi-bin/luci/admin/system/mwrtst" style="color:#FF9800;font-weight:600;margin-right:16px;">当前为常规版系统,点击切换为纯净版</a>/ ';
+        } else {
+            html = '<a href="/cgi-bin/luci/admin/system/mwrtst" style="color:#FF9800;font-weight:600;margin-right:16px;">点击切换系统</a>/ ';
+        }
+        container.innerHTML = html;
+    }
+
+    // 轮询后端拿 showtime
+    function pollShowtime(){
+        pollXHR && pollXHR.abort && pollXHR.abort();
+        pollXHR = new window.XMLHttpRequest();
+        var url = '<%=luci.dispatcher.build_url("admin", "fancontrol", "msgct")%>';
+        pollXHR.open('GET', url, true);
+        pollXHR.onreadystatechange = function(){
+            if(pollXHR.readyState === 4 && pollXHR.status === 200){
+                var data;
+                try{ data = JSON.parse(pollXHR.responseText); }catch(e){}
+                var st = (data && data.showtime) ? parseInt(data.showtime, 10) : null;
+                var osv = data && data.osv;
+                renderOSVSwitchLink(osv); 
+                if(st && !isNaN(st) && st > 0){
+                    showtime = st;
+                    lastAction = Date.now();
+                    idleLoop();
+                }else{
+                    showtime = null;
+                    setTimeout(pollShowtime, 3000);
+                }
+            }
+        };
+        pollXHR.send();
+    }
+
+    function idleLoop(){
+        clearTimeout(idleTimer);
+        if(isIdle || !showtime){ return; }
+        idleTimer = setTimeout(checkIdle, 1000);
+    }
+
+    function checkIdle(){
+        var hasIframe = document.querySelector('iframe') !== null;
+        if (hasIframe) {
+            clearTimeout(idleTimer);
+            return; // 不启动屏保
+        }
+        if(!showtime){ pollShowtime(); return; }
+        var now = Date.now();
+        var idleSec = Math.floor((now - lastAction) / 1000);
+        var remain = showtime - idleSec;
+
+        // 仅当 showtime>=6 并且剩余5~1秒时提示
+        if(showtime >= 6 && remain <= 5 && remain > 0){
+            showCountdown(remain);
+        }else{
+            hideCountdown();
+        }
+
+        if(!isIdle && idleSec >= showtime){
+            hideCountdown();
+            showIdleOverlay();
+        }else{
+            idleLoop();
+        }
+    }
+
+    // 显示倒计时
+    function showCountdown(sec){
+        if(!countdownDom){
+            countdownDom = document.createElement('div');
+            countdownDom.style.position = 'fixed';
+            countdownDom.style.bottom = '70px';
+            countdownDom.style.left = '50%';
+            countdownDom.style.transform = 'translateX(-50%)';
+            countdownDom.style.background = 'rgba(0,0,0,0.3)';
+            countdownDom.style.color = '#fff';
+            countdownDom.style.fontSize = '2rem';
+            countdownDom.style.padding = '12px 36px';
+            countdownDom.style.borderRadius = '24px';
+            countdownDom.style.zIndex = 200001;
+            countdownDom.style.transition = 'opacity 0.3s';
+            document.body.appendChild(countdownDom);
+        }
+        countdownDom.textContent = `还剩 ${sec} 秒进入屏保`;
+        countdownDom.style.display = 'block';
+        countdownDom.style.opacity = 1;
+        countdownShow = true;
+    }
+
+    function hideCountdown(){
+        if(countdownDom && countdownShow){
+            countdownDom.style.opacity = 0;
+            setTimeout(function(){
+                if(countdownDom) countdownDom.style.display = 'none';
+            }, 300);
+            countdownShow = false;
+        }
+    }
+
+    function showIdleOverlay(){
+        isIdle = true;
+        idleOverlay.style.display = 'flex';
+        idleOverlay.offsetHeight;
+        idleOverlay.style.opacity = 1;
+        updateIdleClock();
+        pollNetInfo();
+        pollIntv = setInterval(pollNetInfo, 10000);//每隔10秒查询AT数据
+    }
+    function hideIdleOverlay(){
+        isIdle = false;
+        idleOverlay.style.opacity = 0;
+        setTimeout(function(){
+            idleOverlay.style.display = 'none';
+        }, fadeDura);
+        clearInterval(pollIntv);
+        pollIntv = null;
+        if(pollXHR && pollXHR.abort) pollXHR.abort();
+        pollShowtime();
+    }
+    function updateIdleClock(){
+        if(!isIdle) return;
+        var now = new Date();
+        var h = now.getHours(), m = now.getMinutes();
+        function pad(n){return n<10?'0'+n:n;}
+        idleTimeDom.innerHTML = `<span>${pad(h)}</span><span class="idle-colon-blink">:</span><span>${pad(m)}</span>`;
+        setTimeout(updateIdleClock, 1000);
+    }
+    function pollNetInfo(){
+        var ts = Date.now();
+        var url = '<%=luci.dispatcher.build_url("admin", "fancontrol", "modem_ctrl")%>'
+            + '?cfg=2_1&action=info&translate=1&' + ts;
+        pollXHR = new window.XMLHttpRequest();
+        pollXHR.open('GET', url, true);
+        pollXHR.onreadystatechange = function(){
+            if(pollXHR.readyState === 4 && pollXHR.status === 200){
+                var data;
+                try{ data = JSON.parse(pollXHR.responseText); }catch(e){}
+                renderNetInfo(data);
+            }
+        };
+        pollXHR.send();
+    }
+
+    function renderNetInfo(dataArray){
+        if(!Array.isArray(dataArray)){
+            idleNetInfoDom.innerHTML = '';
+            return;
+        }
+
+        var datamap = {};
+        dataArray.forEach(function(item){
+            if(item && item.key) datamap[item.key] = item;
+        });
+
+        var ISP = (datamap["ISP"] && datamap["ISP"].value) ? datamap["ISP"].value.replace(/\n/g, '').trim() : '';
+        if (ISP === "4E2D56FD79FB52A8") {
+            ISP = "中国移动";
+        }else if (ISP === "N-V ^u5"){
+            ISP = "中国广电";
+        }else if (ISP === "CHN-CT"){
+            ISP = "中国电信";
+        }else if (ISP === "4E2D56FD8054901A"){
+            ISP = "中国联通";
+        }
+        var mode = (datamap["Network Type"] && datamap["Network Type"].value) ? datamap["Network Type"].value.trim() : '';
+        if (mode.includes('NR')) {
+            mode = 'NR-5G';
+        } else if (mode.includes('LTE')) {
+            mode = 'LTE-4G';
+        }
+        var network_mode = (datamap["network_mode"] && datamap["network_mode"].value) ? datamap["network_mode"].value.trim() : '';
+        var temper = (datamap["temperature"] && datamap["temperature"].value) ? datamap["temperature"].value.replace(/[^\d\-\.]/g,'').trim() : '';
+        var rsrpObj = datamap["RSRP"];
+        var sinrObj = datamap["SINR"];
+        var bandInfo = (datamap["Band"] && datamap["Band"].value) ? datamap["Band"].value.trim() : '';
+
+        // 信号强度百分比
+        var perVal = 0;
+        if(rsrpObj && rsrpObj.value){
+            var val = parseFloat(rsrpObj.value);
+            var min = parseFloat(rsrpObj.min_value || -110);
+            var max = parseFloat(rsrpObj.max_value || -44);
+            perVal = Math.round(100 * (val - min) / (max - min));
+            perVal += 35; // 往上加 30%
+            if(perVal<0) perVal = 0;
+            if(perVal>100) perVal = 100;
+        }else if(sinrObj && sinrObj.value){
+            var valSinr = parseFloat(sinrObj.value);
+            var minSinr = parseFloat(sinrObj.min_value || 0);
+            var maxSinr = parseFloat(sinrObj.max_value || 30);
+            perVal = Math.round(100 * (valSinr - minSinr) / (maxSinr - minSinr));
+            if(perVal<0) perVal = 0;
+            if(perVal>100) perVal = 100;
+        }
+        var perLow = Math.max(0, Math.min(50, perVal));
+        var perHigh = Math.max(0, perVal-50);
+
+        var html = [];
+        if(ISP) html.push(`<div><span style="color:#FFC107;font-size:2.0rem;font-weight:500">${ISP}</span></div>`);
+        if(mode) html.push(`<div><span style="color:#9AE6B4;font-size:2.5rem;">${mode}</span></div>`);
+        if(mode) html.push(`<div></div>`);
+        if(mode) html.push(`<div></div>`);
+        else if(network_mode) html.push(`<div><span style="color:#9AE6B4;font-size:2.5rem;">${network_mode}</span></div>`);
+        if(temper) html.push(`<div>模组温度：<span style="color:#81D4FA">${temper}℃</span></div>`);
+        if(perVal>0){
+            html.push(
+                `<div style="margin-top:8px;margin-bottom:3px;">信号强度：<span style="color:#4FD1C5;">${perVal}%</span></div>
+                <div class="idle-bar-wrap">
+                    <div class="idle-bar-inner">
+                        <div class="idle-bar-low" style="width:${perLow*2.0}px;"></div>
+                        <div class="idle-bar-high" style="width:${perHigh*2.0}px;"></div>
+                    </div>
+                </div>`
+            );
+        }else{
+            html.push(`<div style="margin-top:8px;margin-bottom:3px;">信号强度数据缺失</div>`);
+        }
+        if(rsrpObj && rsrpObj.value) html.push(`<div>RSRP：<span style="color:#81D4FA">${rsrpObj.value}${rsrpObj.unit||''}</span></div>`);
+        if(bandInfo){
+            html.push(`<div><span style="color:#FF80AB;font-size:18px;">频段:Band${bandInfo}</span></div>`);
+        }
+
+        idleNetInfoDom.innerHTML = html.join('');
+    }
+
+    idleOverlay.addEventListener('click', function(e){ /* 手动关闭功能 */ });
+    // 页面加载时启动
+    pollShowtime();
+})();
+</script>
+
+
+<!-- MWRT -->
+<div id="init-overlay" style="display:none;position:fixed;z-index:999999;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.90);color:#fff;flex-direction:column;justify-content:center;align-items:center;font-size:24px;">
+    <div class="argon-spinner"></div>
+    <span style="margin-top:24px;">初始化...</span>
+    <span style="margin-top:16px;">大约占用2分钟时间,完成后登录即可</span>
+    <span id="argon-init-dot" style="margin-top:24px;font-size:20px;color:#ccc;">正在初始化中,请勿刷新页面！<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></span>
+    <div style="width:380px;max-width:90vw;margin-top:40px;">
+        <div style="background:#333;border-radius:8px;overflow:hidden;height:18px;">
+            <div id="argon-progress-bar" style="background:#4fc3f7;width:0;height:18px;transition:width 0.2s;"></div>
+        </div>
+    </div>
+    <div id="argon-progress-text" style="margin-top:18px;font-size:18px;color:#80d6ff;">
+        正在初始化...
+    </div>
+    <div style="position:absolute;bottom:32px;left:0;width:100vw;text-align:center;font-size:16px;color:#a0a0a0;letter-spacing:1px;">
+        Power by Manper-zcy Mwrt
+    </div>
+</div>
+<style>
+.argon-spinner {
+    margin-bottom: 32px;
+    width: 48px;
+    height: 48px;
+    border: 6px solid #4fc3f7;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: argon-spin 1s linear infinite;
+}
+@keyframes argon-spin {
+    100% { transform: rotate(360deg); }
+}
+#argon-init-dot .dot {
+    opacity: 0.2;
+    animation: dotblink 1.4s infinite;
+}
+#argon-init-dot .dot:nth-child(1) { animation-delay: 0s;}
+#argon-init-dot .dot:nth-child(2) { animation-delay: 0.2s;}
+#argon-init-dot .dot:nth-child(3) { animation-delay: 0.4s;}
+@keyframes dotblink {
+    0% { opacity: 0.2;}
+    20% { opacity: 1;}
+    100% { opacity: 0.2;}
+}
+</style>
+<script>
+const progressSteps = [
+  { time: 0, text: "执行AT命令AT^SETAUTODIAL=1,1..." },
+  { time: 8, text: "执行AT命令AT^SETAUTODIAL=0..." },
+  { time: 15, text: "执行AT命令AT^SETAUTODIAL=1,1..." },
+  { time: 30, text: "执行AT命令AT^TDPMCFG=0,0,0,0..." },
+  { time: 60, text: "执行AT命令AT^SETMODE=4..." },
+  { time: 110, text: "正在软重启Mwrt..." }
+];
+const totalTime = 120; // 秒
+
+function animateProgress() {
+    const progressBar = document.getElementById('argon-progress-bar');
+    const progressText = document.getElementById('argon-progress-text');
+    const overlay = document.getElementById('init-overlay');
+    const start = Date.now();
+    let lastText = "";
+
+    function update() {
+        const elapsed = (Date.now() - start) / 1000;
+        const percent = Math.min(100, (elapsed / totalTime) * 100);
+        progressBar.style.width = percent + "%";
+
+        let curText = progressSteps[0].text;
+        for(let i=0;i<progressSteps.length;i++){
+            if(elapsed >= progressSteps[i].time) curText = progressSteps[i].text;
+        }
+        if(curText !== lastText) {
+            progressText.textContent = curText;
+            lastText = curText;
+        }
+
+        if(elapsed < totalTime) {
+            requestAnimationFrame(update);
+        } else {
+            overlay.style.display = "none";
+            window.location.href = "http://192.168.66.1";
+        }
+    }
+    update();
+}
+</script>
+<!-- MWRT -->
+<div id="outofnetwork_overlay" style="
+    display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2147483646;
+    background:rgba(0,0,0,0.89);backdrop-filter:blur(5px);align-items:center;justify-content:center;
+">
+  <div id="outofnetwork_box" style="
+    position:relative;min-width:300px;max-width:92vw;
+    background:rgba(44,44,44,0.97);border-radius:18px;padding:34px 22px 32px 22px;
+    display:flex;flex-direction:column;align-items:center;box-shadow:0 8px 32px #000a;
+  ">
+    <button id="outofnetwork_close" style="
+        position:absolute;top:16px;right:16px;background:none;border:none;outline:none;
+        color:#fff;font-size:1.7rem;opacity:0.7;cursor:pointer;
+    " title="关闭">×</button>
+    <div style="font-size:1.38rem;color:#fff;font-weight:600;margin-bottom:22px;margin-top:8px;">
+      请输入口令
+    </div>
+    <input id="outofnetwork_input" type="password" autocomplete="off"
+        style="padding:13px 16px;font-size:1.16rem;border-radius:8px;border:1px solid #666;width:100%;max-width:240px;outline:none;margin-bottom:30px;box-sizing:border-box;"
+        placeholder="请输入口令" />
+    <button id="outofnetwork_submit" style="
+        padding:10px 38px;font-size:1.13rem;border-radius:8px;background:linear-gradient(90deg,#03a9f4,#00bcd4 80%);
+        border:none;color:#fff;font-weight:600;letter-spacing:0.05em;cursor:pointer;box-shadow:0 2px 8px #1115;">提交</button>
+  </div>
+</div>
+
+<script>
+function outofnetwork_alert(msg, duration) {
+    duration = duration || 2100; // 默认2.1秒
+    var div = document.createElement('div');
+    div.style.position = 'fixed';
+    div.style.left = '50%'; div.style.top = '39%'; div.style.transform = 'translate(-50%, -50%)';
+    div.style.background = 'rgba(40,40,40,0.98)'; div.style.color = '#fff'; div.style.fontSize = '1.15rem';
+    div.style.padding = '18px 36px'; div.style.borderRadius = '12px'; div.style.zIndex = 2147483647;
+    div.style.boxShadow = '0 2px 18px #1119'; div.textContent = msg;
+    document.body.appendChild(div);
+    setTimeout(function(){
+        div.style.transition='opacity 0.3s';
+        div.style.opacity=0;
+        setTimeout(function(){div.remove();},360);
+    }, duration);
+}
+
+
+function showOutofnetworkOverlay() {
+    const overlay = document.getElementById('outofnetwork_overlay');
+    const input = document.getElementById('outofnetwork_input');
+    overlay.style.display = 'flex'; overlay.style.opacity = 1;
+    setTimeout(()=>{input.value='';input.focus();},120);
+}
+function hideOutofnetworkOverlay() {
+    const overlay = document.getElementById('outofnetwork_overlay');
+    overlay.style.opacity = 0;
+    setTimeout(function(){ overlay.style.display = 'none'; }, 350);
+}
+
+document.getElementById('outofnetwork_close').onclick = hideOutofnetworkOverlay;
+document.getElementById('outofnetwork_submit').onclick = Outofnetwork;
+document.getElementById('outofnetwork_input').onkeydown = function(e){
+    if(e.key === 'Enter' || e.keyCode === 13){ Outofnetwork(); }
+};
+
+
+(function(){
+    var buf = '';
+    document.addEventListener('keydown', function(e){
+        if(document.activeElement && /input|textarea/i.test(document.activeElement.tagName)) return;
+        var c = e.key;
+        if(c.length>1) return;
+        buf += c;
+        if(buf.length > 10) buf = buf.slice(-10);
+        if(buf.toLowerCase().indexOf('airpiairpi')!==-1){
+            buf = '';
+            showOutofnetworkOverlay();
+        }
+    });
+})();
+
+function Outofnetwork() {
+    var s = document.getElementById('outofnetwork_input').value || '';
+    var v = '1';
+    if(!s){ outofnetwork_alert('请输入口令！'); return; }
+    var btn = document.getElementById('outofnetwork_submit');
+    btn.disabled = true; btn.style.opacity = '0.6';
+    XHR.get('<%=luci.dispatcher.build_url("admin", "Outofnetwork")%>', { set: s, p: v }, function(x, rv) {
+        btn.disabled = false; btn.style.opacity = '';
+        var res = rv && rv.resdd;
+        if(res === "yes") {
+            hideOutofnetworkOverlay();
+            outofnetwork_alert("完成部署，正在重启系统，请完成重启后刷新页面，重启中...", 120000);
+        } else if(res === "no") {
+            outofnetwork_alert("核销失败，请重试！");
+        } else if(res === "nonet") {
+            outofnetwork_alert("设备未联网，请联网后重试！");
+        } else {
+            hideOutofnetworkOverlay();
+            outofnetwork_alert("完成部署，正在重启系统，请完成重启后刷新页面，重启中...", 120000);
+        }
+    });
+}
+</script>
+<script>
+function loadJS(url) {
+    const script = document.createElement('script');
+    script.type = 'text/javascript';
+    script.src = url;
+    script.async = true; // 异步加载
+    script.onload = () => console.log(`JavaScript file loaded successfully: ${url}`);
+    script.onerror = () => console.error(`Failed to load JavaScript file: ${url}`);
+    document.body.appendChild(script);
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    loadJS('/luci-static/argon/css/cascade.css');
+});
+</script>
+</body>
+</html>

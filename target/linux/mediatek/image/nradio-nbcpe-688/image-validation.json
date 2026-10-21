@@ -1,0 +1,14 @@
+{
+  "file": "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/bin/targets/mediatek/filogic/MYOS-NBCPE-688-3.1.34-202610092000-6.6.110-multi-theme-sysupgrade.bin",
+  "bytes": 57467170,
+  "sha256": "85b3089985d73dd0001a0c45132db6c5b52b44c96f6ec590acf7d06feea93baa",
+  "kernel": "6.6.110",
+  "version": "3.1.34-202610092000",
+  "board": "HCMT7981-emmc-NB68",
+  "rootfs_bytes": 52904885,
+  "fit_hashes_valid": true,
+  "rootfs_hashes_valid": true,
+  "metadata_valid": true,
+  "packed_version_consistent": true,
+  "packed_network_and_reporting_permissions_valid": true
+}

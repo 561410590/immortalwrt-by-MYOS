@@ -1,0 +1,40 @@
+#!/bin/sh /etc/rc.common
+
+START=04
+
+rename_port5_once() {
+	if ip link show port5 >/dev/null 2>&1; then
+		ip link set port5 up
+		return 0
+	fi
+
+	if ip link show BLUE4 >/dev/null 2>&1; then
+		ip link set BLUE4 down
+		ip link set BLUE4 nomaster >/dev/null 2>&1
+		ip link set BLUE4 name port5
+		ip link set port5 up
+		return 0
+	fi
+
+	return 1
+}
+
+rename_port5() {
+	local tries=0
+
+	while [ "$tries" -lt 12 ]; do
+		rename_port5_once && return 0
+		tries=$((tries + 1))
+		sleep 1
+	done
+
+	return 0
+}
+
+boot() {
+	rename_port5
+}
+
+start() {
+	rename_port5
+}

@@ -590,7 +590,7 @@
 			};
 		};
 
-		ssusb: usb@11200000 {
+		ssusb: xhci: usb@11200000 {
 			compatible = "mediatek,mt7987-xhci",
 				     "mediatek,mtk-xhci";
 			reg = <0 0x11200000 0 0x2e00>,

@@ -21,6 +21,8 @@
 #include <linux/u64_stats_sync.h>
 #include <linux/dma-mapping.h>
 #include <linux/netdevice.h>
+#include <linux/phy.h>
+#include <linux/rtnetlink.h>
 #include <linux/ctype.h>
 #include <linux/debugfs.h>
 #include <linux/of_mdio.h>
@@ -538,26 +540,51 @@ EXPORT_SYMBOL(mtk_switch_r32);
 
 static int mtketh_debug_show(struct seq_file *m, void *private)
 {
+	static const u16 regs[] = {
+		MII_PHYSID1, MII_PHYSID2, MII_BMCR,
+		MII_BMSR, MII_BMSR, /* Read twice for the latch-low link bit. */
+		MII_ADVERTISE, MII_LPA, MII_CTRL1000, MII_STAT1000,
+		0x1d, 0x1f, /* EN8811H AUX status and page select. */
+	};
 	struct mtk_eth *eth = m->private;
-	struct mtk_mac *mac = 0;
-	int  i = 0;
+	struct net_device *dev;
+	struct phy_device *phydev;
+	unsigned int i, j;
+	int val;
 
-	for (i = 0 ; i < MTK_MAX_DEVS ; i++) {
-		if (!eth->mac[i] ||
+	seq_puts(m, "PHY registers (read-only; BMSR read twice)\n");
+	/* Keep PHY attachment stable while reading through the MDIO bus lock. */
+	rtnl_lock();
+	for (i = 0; i < MTK_MAX_DEVS; i++) {
+		dev = eth->netdev[i];
+		if (!dev || !eth->mac[i] ||
 		    of_phy_is_fixed_link(eth->mac[i]->of_node))
 			continue;
-		mac = eth->mac[i];
-/* FIXME */
-/*
-		while (j < 30) {
-			d =  _mtk_mdio_read_c22(eth, mac->phy_dev->addr, j);
 
-			seq_printf(m, "phy=%d, reg=0x%08x, data=0x%08x\n",
-				   mac->phy_dev->addr, j, d);
-			j++;
+		phydev = dev->phydev;
+		if (!phydev) {
+			seq_printf(m, "%s: no attached PHY\n", dev->name);
+			continue;
 		}
-*/
+		seq_printf(m, "%s: phy=%d id=0x%08x\n", dev->name,
+			   phydev->mdio.addr, phydev->phy_id);
+		if (phydev->is_c45) {
+			seq_puts(m, "Clause 45 PHY; Clause 22 dump skipped\n");
+			continue;
+		}
+
+		for (j = 0; j < ARRAY_SIZE(regs); j++) {
+			if ((regs[j] == 0x1d || regs[j] == 0x1f) &&
+			    phydev->phy_id != 0x03a2a411)
+				continue;
+			val = phy_read(phydev, regs[j]);
+			if (val < 0)
+				seq_printf(m, "reg=0x%02x error=%d\n", regs[j], val);
+			else
+				seq_printf(m, "reg=0x%02x data=0x%04x\n", regs[j], val);
+		}
 	}
+	rtnl_unlock();
 	return 0;
 }
 

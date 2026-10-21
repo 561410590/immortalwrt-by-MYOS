@@ -1,0 +1,73 @@
+<%+header%>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OPENWRT WEBUI</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      margin: 0;
+    }
+
+    #loadingMessage {
+      margin-bottom: 20px;
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: white;
+      z-index: 10;
+    }
+
+    #embeddedPageContainer {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    #embeddedPage {
+      width: 100%;
+      height: 100%;
+      border: none;
+      transform: translateY(-570px);
+    }
+  </style>
+</head>
+<body>
+  <h2 style="background-color: rgb(83, 83, 83); color: white;">MT5700M-CN巴龙Web管理(TCP AT)</h2>
+  <div id="loadingMessage">正在加载API...</div>
+  <div id="embeddedPageContainer">
+    <iframe id="embeddedPage" src="" onload="showHalfPage()"></iframe>
+  </div>
+  <script>
+    function showHalfPage() {
+      document.getElementById('loadingMessage').style.display = 'none';
+      var embeddedPage = document.getElementById('embeddedPage');
+      embeddedPage.style.transform = 'translateY(0)';
+    }
+
+    function loadIP() {
+      fetch('get_ip')
+        .then(response => response.json())
+        .then(data => {
+          document.getElementById('embeddedPage').src = 'https://' + data.ip + '/console';
+        })
+        .catch(error => {
+          console.error('Error fetching IP:', error);
+          document.getElementById('embeddedPage').src = '/5700'; // fallback
+        });
+    }
+
+    window.onload = loadIP;
+  </script>
+</body>
+<%+footer%>

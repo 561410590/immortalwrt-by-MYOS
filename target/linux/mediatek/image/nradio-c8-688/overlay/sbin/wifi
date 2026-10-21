@@ -1,0 +1,11 @@
+#!/bin/sh
+case "$1" in
+    down|status|detect|config) ;;
+    *)
+        if ! /usr/libexec/myos-c8-calibration check; then
+            logger -t myos-c8-wifi 'Wi-Fi blocked: local calibration is unavailable'
+            exit 1
+        fi
+        ;;
+esac
+exec /usr/libexec/myos-c8-wifi-native "$@"

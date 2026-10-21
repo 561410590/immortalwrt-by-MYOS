@@ -1,0 +1,23 @@
+From: MYOS C8 maintainers
+Subject: [PATCH] net: ethernet: mediatek: initialize max_mtu before DSA probing
+
+DSA requests a 1504-byte master MTU during switch registration. Initializing
+max_mtu only in mtk_open leaves the default 1500 limit during that request,
+which fails with EINVAL. Publish the receive-buffer limit before registration;
+retain the existing interface-specific refinement in mtk_open.
+
+--- a/drivers/net/ethernet/mediatek/mtk_eth_soc.c
++++ b/drivers/net/ethernet/mediatek/mtk_eth_soc.c
+@@ -6323,6 +6323,12 @@
+ 	mac->phylink = phylink;
+ 
++	/* Allow DSA tag overhead before register_netdev() probes the switch.
++	 * mtk_open() can refine this limit after the interface is configured.
++	 */
++	eth->netdev[id]->max_mtu = min_t(unsigned int, MTK_MAX_RX_LENGTH,
++				      MTK_MAX_RX_LENGTH_2K) - MTK_RX_ETH_HLEN;
++
+ 	SET_NETDEV_DEV(eth->netdev[id], eth->dev);
+ 	eth->netdev[id]->watchdog_timeo = 5 * HZ;
+ 	eth->netdev[id]->netdev_ops = &mtk_netdev_ops;
+ 	eth->netdev[id]->base_addr = (unsigned long)eth->base;

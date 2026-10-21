@@ -1,0 +1,1413 @@
+#!/usr/bin/lua
+
+local mosq = require "mosquitto"
+local ok_json, cjson = pcall(require, "cjson.safe")
+if not ok_json then cjson = require "cjson" end
+local uci = require "luci.model.uci".cursor()
+local util = require "luci.util"
+local shared = require "myos_nradio_data"
+local app_session = require "myos_nradio_app_session"
+local ssh_authorization = require "myos_nradio_ssh_authorization"
+
+local ID, client, last_status, last_presence = nil, nil, 0, 0
+local bridge_online = false
+local local_broker_online = false
+local connection_topic = ""
+local cache = { t = 0, data = nil }
+local shared_cache_file = "/tmp/myos-nradio-app-summary.json"
+local cloud_state_file = "/tmp/myos-nros-cloud-state.json"
+local summary_cache_ttl = 120
+local online_interval = 180
+local presence_interval = 10
+local last_state_write = 0
+local ok_nixio, nixio = pcall(require, "nixio")
+local ok_nixiofs, nixiofs = pcall(require, "nixio.fs")
+local mode = (arg and arg[1]) or "status"
+local mqtt_loop_timeout_ms = 5000
+local mqtt_loop_packets = 10
+local sms_pending, last_sms_poll = nil, 0
+
+local function write_cloud_state(now)
+	if mode == "command" then return end
+	now = tonumber(now) or os.time()
+	local ok, payload = pcall(cjson.encode, {
+		updated = now,
+		local_broker_online = local_broker_online,
+		bridge_online = bridge_online
+	})
+	if not ok or not payload then return end
+	local tmp = cloud_state_file .. ".tmp"
+	local f = io.open(tmp, "w")
+	if not f then return end
+	f:write(payload)
+	f:close()
+	if os.rename(tmp, cloud_state_file) then last_state_write = now end
+end
+
+local function idle_sleep(sec)
+	if ok_nixio and nixio and nixio.nanosleep then
+		local seconds = math.floor(tonumber(sec) or 0)
+		local nanoseconds = math.floor(((tonumber(sec) or 0) - seconds) * 1000000000)
+		nixio.nanosleep(seconds, nanoseconds)
+	else
+		os.execute("sleep " .. tostring(sec))
+	end
+end
+
+local function response_timestamp()
+	if ok_nixio and nixio and type(nixio.gettimeofday) == "function" then
+		local ok, seconds, microseconds = pcall(nixio.gettimeofday)
+		seconds = ok and tonumber(seconds) or nil
+		if seconds then
+			local value = string.format("%d.%06d", math.floor(seconds),
+				math.floor(tonumber(microseconds) or 0)):gsub("0+$", "")
+			return value:sub(-1) == "." and (value .. "0") or value
+		end
+	end
+	return tostring(os.time()) .. ".000001"
+end
+
+local function cloud_enabled()
+	uci:load("myos_nros")
+	return tostring(uci:get("myos_nros", "main", "enabled") or "0") == "1"
+end
+
+local function remote_enabled(service)
+	uci:load("myos_nros")
+	local option = service == "rweb" and "remote_web_enabled" or
+		(service == "rssh" and "remote_ssh_enabled" or nil)
+	return option ~= nil and tostring(uci:get("myos_nros", "main", "enabled") or "0") == "1" and
+		tostring(uci:get("myos_nros", "main", option) or "1") ~= "0"
+end
+
+local function write_shared_summary(now, data)
+	local tmp = shared_cache_file .. ".tmp"
+	local f = io.open(tmp, "w")
+	if not f then return end
+	f:write(cjson.encode({ t = now, data = data }) or "{}")
+	f:close()
+	os.rename(tmp, shared_cache_file)
+end
+
+local function trim(v)
+	return (tostring(v or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function read1(path)
+	local f = io.open(path, "r")
+	if not f then return "" end
+	local v = trim(f:read("*l") or "")
+	f:close()
+	return v
+end
+
+local function valid_mac(v)
+	return tostring(v or ""):match("^%x%x:%x%x:%x%x:%x%x:%x%x:%x%x$") ~= nil
+end
+
+local function normalize_mac(v)
+	local mac = trim(v):gsub(":", ""):upper()
+	mac = mac:gsub("%-MYOS$", "")
+	if mac:match("^%x%x%x%x%x%x%x%x%x%x%x%x$") then
+		return mac:gsub("(%x%x)", "%1:"):sub(1, 17)
+	end
+	return trim(v):upper()
+end
+
+local function placeholder_mac(mac)
+	mac = normalize_mac(mac)
+	return mac == "" or mac == "00:00:00:00:00:00" or mac == "FF:FF:FF:FF:FF:FF" or mac == "00:66:88:00:00:00"
+end
+
+local function valid_identity_mac(mac)
+	return valid_mac(mac) and not placeholder_mac(mac)
+end
+
+local function identity_from_blob(path, key)
+	local f = io.open(path, "rb")
+	if not f then return "" end
+	local data = f:read(65536) or ""
+	f:close()
+	for entry in data:gmatch("[^%z\r\n]+") do
+		local k, v = entry:match("^%s*([%w_]+)%s*=%s*(.-)%s*$")
+		if k == key then return trim(v) end
+	end
+	return ""
+end
+
+local function bd_dev()
+	local f = io.open("/proc/mtd", "r")
+	if f then
+		for line in f:lines() do
+			local dev = line:match("^(mtd%d+):")
+			local name = line:match('"(.-)"')
+			if dev and name and (name:match("bdinfo") or name:match("oeminfo")) then f:close(); return "/dev/" .. dev end
+		end
+		f:close()
+	end
+	local p = io.popen("blkid -t PARTLABEL=bdinfo -o device 2>/dev/null")
+	if p then local dev = trim(p:read("*l") or ""); p:close(); if dev ~= "" then return dev end end
+	p = io.popen("[ -e /dev/disk/by-partlabel/bdinfo ] && readlink -f /dev/disk/by-partlabel/bdinfo 2>/dev/null")
+	if p then local dev = trim(p:read("*l") or ""); p:close(); if dev ~= "" then return dev end end
+	return nil
+end
+
+local function identity_get(key)
+	for _, path in ipairs({"/mnt/app_data/bdinfo", "/etc/bdinfo.bin", "/bdinfo/bdinfo.bin"}) do
+		local v = identity_from_blob(path, key)
+		if v ~= "" then return v end
+	end
+	local dev = bd_dev()
+	if dev then
+		local v = identity_from_blob(dev, key)
+		if v ~= "" then return v end
+	end
+	for _, path in ipairs({"/etc/nradio/identity", "/boot/nradio-identity"}) do
+		local v = identity_from_blob(path, key)
+		if v ~= "" then return v end
+	end
+	return ""
+end
+
+local function device_id()
+	if shared then return shared.device_id() end
+	local mac = normalize_mac(identity_get("fac_mac"))
+	if not valid_identity_mac(mac) then mac = normalize_mac(identity_get("mac")) end
+	if not valid_identity_mac(mac) then mac = normalize_mac(uci:get("oem", "board", "id") or "") end
+	if not valid_identity_mac(mac) then mac = normalize_mac(uci:get("mosquitto", "bridge", "remote_clientid") or "") end
+	if not valid_identity_mac(mac) then return "" end
+	return (mac:gsub(":", ""):upper())
+end
+
+local function device_code()
+	if shared then return shared.device_code() end
+	local code = identity_get("device_code")
+	if code ~= "" then return code end
+	code = trim(uci:get("oem", "board", "device_code") or "")
+	if code ~= "" then return code end
+	return ""
+end
+
+local function ubus(path, method, data)
+	local ok, res = pcall(util.ubus, path, method, data or {})
+	if ok and type(res) == "table" then return res end
+	return {}
+end
+
+local function find_qmodem()
+	local sec, net
+	uci:foreach("qmodem", "modem-device", function(s)
+		if not sec and (s.state == "enabled" or not s.state) then
+			sec = s[".name"]
+			net = s.alias or s[".name"]
+			return false
+		end
+	end)
+	if not sec and uci:get("qmodem", "2_1") then
+		sec = "2_1"
+		net = uci:get("qmodem", sec, "alias") or sec
+	end
+	sec = sec or "2_1"
+	net = net or sec
+	if not tostring(sec):match("^[%w_%-]+$") then sec = "2_1" end
+	if not tostring(net):match("^[%w_%-]+$") then net = sec end
+	return sec, net
+end
+
+local function map_info(t)
+	local m = {}
+	for _, item in ipairs((t or {}).modem_info or {}) do
+		local k = trim(item.key or item.name or item.title)
+		if k ~= "" then
+			m[k] = item.value or item.val or item.result or ""
+			m[k:lower()] = m[k]
+		end
+	end
+	for k, v in pairs(t or {}) do
+		if type(v) ~= "table" then
+			m[k] = v
+			m[tostring(k):lower()] = v
+		end
+	end
+	return m
+end
+
+local function merge_info(dst, src)
+	for k, v in pairs(src or {}) do
+		if trim(dst[k]) == "" then dst[k] = v end
+	end
+	return dst
+end
+
+local function pick(m, keys)
+	for _, k in ipairs(keys) do
+		local v = trim(m[k] or m[k:lower()])
+		if v ~= "" and v ~= "N/A" and v ~= "nil" then return v end
+	end
+	return ""
+end
+
+local function first_ip(s, key)
+	local a = s[key] or {}
+	if a[1] and a[1].address then
+		local mask = a[1].mask and ("/" .. tostring(a[1].mask)) or ""
+		return tostring(a[1].address), tostring(a[1].address) .. mask
+	end
+	return "", ""
+end
+
+local function stats(dev)
+	dev = trim(dev)
+	if dev == "" or not dev:match("^[%w_.:%-]+$") then return "0", "0" end
+	local rx = tonumber(read1("/sys/class/net/" .. dev .. "/statistics/rx_bytes")) or 0
+	local tx = tonumber(read1("/sys/class/net/" .. dev .. "/statistics/tx_bytes")) or 0
+	return tostring(tx), tostring(rx)
+end
+
+local function sim_gpio_prefix(sec)
+	for _, prefix in ipairs({ trim(sec), trim(uci:get("network", "globals", "default_cellular") or ""), "cpe" }) do
+		if prefix:match("^[%w_%-]+$") and read1("/sys/class/gpio/" .. prefix .. "-sel0/value") ~= "" then return prefix end
+	end
+	return ""
+end
+
+local function read_sim_gpio(sec)
+	local prefix = sim_gpio_prefix(sec)
+	if prefix == "" then return "" end
+	local value = ""
+	for i = 0, 7 do
+		local bit = read1("/sys/class/gpio/" .. prefix .. "-sel" .. tostring(i) .. "/value")
+		if bit == "" then break end
+		value = bit .. value
+	end
+	return value
+end
+
+local function logical_sim_cur(sec, sim_slot)
+	local gval = uci:get("cpesel", "sim", "gval") or ""
+	local gpio = read_sim_gpio(sec)
+	local usim = sim_slot ~= nil and tostring(sim_slot + 1) or ""
+	if gval ~= "" and (gpio ~= "" or usim ~= "") then
+		local idx, configured = 1, tonumber(uci:get("cpesel", "sim", "cur") or "")
+		local gpio_candidate, gpio_count, slot_candidate, slot_count, configured_match = nil, 0, nil, 0, nil
+		for entry in (gval .. ","):gmatch("([^,]*),") do
+			local g, u = trim(entry):match("^([^%-]*)%-(%d+)$")
+			if g and u and gpio ~= "" and usim ~= "" and g == gpio and u == usim then return idx end
+			if g and gpio ~= "" and g == gpio then
+				gpio_candidate, gpio_count = idx, gpio_count + 1
+				if idx == configured then configured_match = idx end
+			end
+			if u and usim ~= "" and u == usim then slot_candidate, slot_count = idx, slot_count + 1 end
+			idx = idx + 1
+		end
+		if configured_match then return configured_match end
+		if gpio_count == 1 then return gpio_candidate end
+		if slot_count == 1 then return slot_candidate end
+	end
+	return nil
+end
+
+local function clean_num(v)
+	v = trim(v):gsub("dBm", ""):gsub("dB", ""):gsub("%%", "")
+	return trim(v)
+end
+
+local function band_mode(mode)
+	mode = trim(mode)
+	if mode:find("NR") or mode:find("5G") or mode:find("SA") then return "5G" end
+	if mode:find("LTE") or mode:find("4G") then return "4G" end
+	return mode
+end
+
+local function pretty_mode(mode)
+	mode = trim(mode)
+	if mode == "NR" or mode == "NR5G" or mode:find("SA") then return "NR SA" end
+	if mode:find("NSA") then return "NR NSA" end
+	return mode
+end
+
+local function operator_by_iccid(iccid)
+	iccid = trim(iccid)
+	if iccid:match("^898600") or iccid:match("^898602") or iccid:match("^898604") or iccid:match("^898607") then return "China Mobile" end
+	if iccid:match("^898601") or iccid:match("^898606") or iccid:match("^898609") then return "China Unicom" end
+	if iccid:match("^898603") or iccid:match("^898611") then return "China Telecom" end
+	return ""
+end
+
+local plmn_operator = {
+	["46000"] = "China Mobile", ["46002"] = "China Mobile", ["46004"] = "China Mobile", ["46007"] = "China Mobile", ["46008"] = "China Mobile",
+	["46013"] = "China Mobile", ["46020"] = "China Mobile", ["46021"] = "China Mobile", ["46022"] = "China Mobile", ["46023"] = "China Mobile",
+	["46024"] = "China Mobile", ["46025"] = "China Mobile", ["46026"] = "China Mobile", ["46027"] = "China Mobile", ["46028"] = "China Mobile", ["46029"] = "China Mobile",
+	["46003"] = "China Telecom", ["46005"] = "China Telecom", ["46011"] = "China Telecom", ["46012"] = "China Telecom",
+	["46001"] = "China Unicom", ["46006"] = "China Unicom", ["46009"] = "China Unicom", ["46010"] = "China Unicom", ["46015"] = "China Broadnet"
+}
+
+local function operator_by_plmn(plmn)
+	return plmn_operator[trim(plmn):gsub("%D", "")] or ""
+end
+
+local function summary()
+	if shared then return shared.summary() end
+	local now = os.time()
+	if cache.data and now - cache.t < summary_cache_ttl then return cache.data end
+	for _, config in ipairs({ "qmodem", "network", "cpesel", "oem" }) do pcall(function() uci:load(config) end) end
+	local sec, net = find_qmodem()
+	local cell = map_info(ubus("qmodem", "cell_info", { config_section = sec }))
+	merge_info(cell, map_info(ubus("qmodem", "info", { config_section = sec })))
+	local if4 = ubus("network.interface." .. net, "status")
+	local if6 = ubus("network.interface." .. net .. "v6", "status")
+	if not if6.up then if6 = ubus("network.interface." .. net .. "_6", "status") end
+	if not if6.up then if6 = ubus("network.interface." .. net .. "6", "status") end
+	local ip4, ip4p = first_ip(if4, "ipv4-address")
+	local ip6, ip6p = first_ip(if6, "ipv6-address")
+	local dev = if4.device or if6.device or net
+	local tx, rx = stats(dev)
+	local imei = pick(cell, {"IMEI", "imei"})
+	if imei == "" then imei = identity_get("imei") end
+	if imei == "" then imei = uci:get("oem", "board", "imei") or "" end
+	local iccid = pick(cell, {"ICCID", "iccid"})
+	local imsi = pick(cell, {"IMSI", "imsi"})
+	local sim_status = pick(cell, {"SIM Status", "sim_status", "CPIN", "cpin"})
+	local mode = pick(cell, {"Mode", "MODE", "RAT", "Network", "network_mode"})
+	local raw_isp = pick(cell, {"ISP", "Operator", "COPS", "MCCMNC"})
+	local mcc = pick(cell, {"MMC", "MCC", "mcc"})
+	local mnc = pick(cell, {"MNC", "mnc"})
+	local plmn = raw_isp:match("^%d+$") and raw_isp or ""
+	if plmn == "" and mcc ~= "" and mnc ~= "" then plmn = mcc .. mnc end
+	local operator = operator_by_plmn(plmn)
+	if operator == "" and raw_isp ~= "" and not raw_isp:match("^%d+$") then operator = raw_isp end
+	if operator == "" then operator = operator_by_iccid(iccid) end
+	local sim_slot = tonumber(pick(cell, {"SIM Slot", "sim_slot", "slot"}))
+	local simno = tostring(logical_sim_cur(sec, sim_slot) or (sim_slot ~= nil and sim_slot + 1) or (tonumber(uci:get("cpesel", "sim", "cur") or "1") or 1))
+	local data = {
+		section = sec,
+		network = net,
+		dev = dev,
+		up = if4.up or if6.up,
+		uptime = tonumber(if4.uptime or if6.uptime or 0) or 0,
+		ip4 = ip4,
+		ip4p = ip4p,
+		ip6 = ip6,
+		ip6p = ip6p,
+		dns4 = if4["dns-server"] or {},
+		dns6 = if6["dns-server"] or {},
+		tx = tx,
+		rx = rx,
+		mode = pretty_mode(mode),
+		isp = plmn ~= "" and plmn or raw_isp,
+		operator = operator,
+		operatorName = operator,
+		imei = imei,
+		imsi = imsi,
+		iccid = iccid,
+		simno = simno,
+		simstatus = sim_status ~= "" and sim_status:upper() or (iccid ~= "" and "READY" or ""),
+		model = pick(cell, {"name", "model", "Model"}),
+		revision = pick(cell, {"revision", "Revision"}),
+		temp = clean_num(pick(cell, {"Temperature", "temperature", "model_temp", "temp"})),
+		cell = pick(cell, {"Cell ID", "cell", "CellID"}),
+		lac = pick(cell, {"LAC", "lac"}),
+		tac = pick(cell, {"TAC", "tac"}),
+		pci = pick(cell, {"Physical Cell ID", "PCI", "pci"}),
+		earfcn = pick(cell, {"ARFCN", "EARFCN", "earfcn", "arfcn"}),
+		band = pick(cell, {"Band", "band", "NR Band", "LTE Band", "NR_BAND", "LTE_BAND"}),
+		rsrp = clean_num(pick(cell, {"RSRP", "rsrp"})),
+		rsrq = clean_num(pick(cell, {"RSRQ", "rsrq"})),
+		sinr = clean_num(pick(cell, {"SINR", "sinr", "SNR", "snr"})),
+		rssi = clean_num(pick(cell, {"RSSI", "rssi", "RxLev"})),
+		dlbw = clean_num(pick(cell, {"DL Bandwidth", "DLBW", "dl_bw"})),
+		ulbw = clean_num(pick(cell, {"UL Bandwidth", "ULBW", "ul_bw"})),
+		cqi = clean_num(pick(cell, {"CQI", "cqi"}))
+	}
+	if data.model == "" then data.model = "MT5700M" end
+	cache = { t = now, data = data }
+	write_shared_summary(now, data)
+	return data
+end
+
+local function cpe_item()
+	if shared then return shared.cpe_item() end
+	local m = summary()
+	local traffic_total = (tonumber(m.tx) or 0) + (tonumber(m.rx) or 0)
+	local item = {
+		name = "cpe",
+		cpeno = 1,
+		up = m.up and 1 or 0,
+		signal = tonumber(m.rsrp) or tonumber(m.rssi) or -999,
+		traffic = tostring((tonumber(m.tx) or 0) + (tonumber(m.rx) or 0)),
+		device_traffic = tostring((tonumber(m.tx) or 0) + (tonumber(m.rx) or 0)),
+		upload = m.tx,
+		download = m.rx,
+		control = uci:get("qmodem", m.section, "at_port") or "",
+		hwid = "",
+		mode = m.mode,
+		isp = m.isp,
+		operator = m.operator or "",
+		operatorName = m.operator or "",
+		sim_isp = m.operator or "",
+		imei = m.imei,
+		imsi = m.imsi,
+		iccid = m.iccid,
+		cell = m.cell,
+		cellid = m.cell,
+		lac = m.lac,
+		pci = m.pci,
+		earfcn = m.earfcn,
+		tac = m.tac,
+		rsrp = m.rsrp,
+		RSRP = m.rsrp,
+		sinr = m.sinr,
+		SINR = m.sinr,
+		rsrq = m.rsrq,
+		RSRQ = m.rsrq,
+		rssi = m.rssi,
+		RSSI = m.rssi,
+		rscp = "",
+		model = m.model,
+		revision = m.revision,
+		nrcap = "1",
+		simno = m.simno,
+		simmode = "auto",
+		simtype = "0",
+		switchmode = "1",
+		flow_overflow = "",
+		sim_flow = traffic_total,
+		sim_mon = traffic_total,
+		simnumber = "",
+		simcount = "2",
+		model_temp = tonumber(tostring(m.temp or ""):match(
+			"[-+]?%d+%.?%d*")) or 0,
+		status = m.up and 0 or -1,
+		gateway_if = m.up and 1 or -1,
+		cpu_percent = "",
+		mem_percent = "",
+		apn = "",
+		CPIN = m.simstatus,
+		sim_name = "",
+		dl_mode = "",
+		band = m.band,
+		dl_pci = "",
+		dl_fcn = m.earfcn,
+		ul_fcn = m.earfcn,
+		DLBW = m.dlbw,
+		ULBW = m.ulbw,
+		band_count = 1,
+		NR5G_AMBR_DL = "",
+		NR5G_AMBR_UL = "",
+		CQI = m.cqi,
+		NR_MIMO = "",
+		odu = "0",
+		net_prefer = -1
+	}
+	if m.ip4p ~= "" then item.V4 = { ipaddrs = { m.ip4p }, dns = m.dns4 } end
+	if m.ip6p ~= "" then item.V6 = { ipaddrs = { m.ip6p }, dns = m.dns6 } end
+	return item
+end
+
+local function cpeinfo()
+	return { list = shared and shared.cpe_items() or { cpe_item() } }
+end
+
+local function wifistatus()
+	pcall(function() uci:load("wireless") end)
+	local list, idx = {}, 0
+	uci:foreach("wireless", "wifi-iface", function(s)
+		idx = idx + 1
+		local dev = s.device or ""
+		local device_band = tostring(uci:get("wireless", dev, "band") or ""):lower()
+		local band = device_band:find("5", 1, true) and 1 or 0
+		local disabled = s.disabled or uci:get("wireless", dev, "disabled") or "0"
+		list[#list + 1] = {
+			ssid = s.ssid or "",
+			password = s.key or "",
+			rule_name = "wlan" .. tostring(idx - 1),
+			ruleName = "wlan" .. tostring(idx - 1),
+			band = band,
+			dbsc = "0",
+			hidden = s.hidden or "0",
+			encryption = s.encryption or "none",
+			channel = uci:get("wireless", dev, "channel") or "auto",
+			disabled = disabled,
+			max_link = tonumber(s.maxassoc or s.max_inactivity or 0) or 0
+		}
+	end)
+	if #list == 0 then list[1] = {} end
+	return { list = list }
+end
+
+local function radio_status()
+	pcall(function() uci:load("wireless") end)
+	local radio = {}
+	local count = {
+		band2 = 0,
+		band5 = 0,
+		phy2 = 0,
+		phy5 = 0,
+		chlist = {},
+		skip_channels = {},
+		bwlist = {}
+	}
+	local index = 0
+	uci:foreach("wireless", "wifi-iface", function(s)
+		if tostring(s.mode or "ap") ~= "ap" then return end
+		index = index + 1
+		local device = tostring(s.device or "")
+		local band = tostring(uci:get("wireless", device, "band") or
+			uci:get("wireless", device, "hwmode") or ""):lower()
+		local band5 = band:find("5", 1, true) ~= nil or
+			device:lower():find("5g", 1, true) ~= nil or
+			tostring(s.ssid or ""):lower():find("5g", 1, true) ~= nil or
+			index > 1
+		local frequency = band5 and "5G" or "2.4G"
+		count[band5 and "band5" or "band2"] =
+			count[band5 and "band5" or "band2"] + 1
+		count[band5 and "phy5" or "phy2"] =
+			count[band5 and "phy5" or "phy2"] + 1
+		radio[#radio + 1] = {
+			name = s[".name"] or ("wlan" .. tostring(index - 1)),
+			ssid = s.ssid or "",
+			channel = uci:get("wireless", device, "channel") or "auto",
+			frequency = frequency,
+			assoclist = {}
+		}
+	end)
+	return radio, count
+end
+
+local previous_cpu_total, previous_cpu_idle
+
+local function cpu_counters()
+	local line = read1("/proc/stat")
+	if not line:match("^cpu%s") then return nil end
+	local values = {}
+	for value in line:gmatch("%d+") do values[#values + 1] = tonumber(value) or 0 end
+	if #values < 4 then return nil end
+	local total = 0
+	for index = 1, math.min(#values, 8) do total = total + values[index] end
+	return total, values[4] + (values[5] or 0)
+end
+
+local function cpu_percent()
+	local total, idle = cpu_counters()
+	if not total then return 0 end
+	if not previous_cpu_total or total <= previous_cpu_total then
+		previous_cpu_total, previous_cpu_idle = total, idle
+		idle_sleep(0.1)
+		total, idle = cpu_counters()
+		if not total then return 0 end
+	end
+	local elapsed = total - previous_cpu_total
+	local idle_elapsed = idle - previous_cpu_idle
+	previous_cpu_total, previous_cpu_idle = total, idle
+	if elapsed <= 0 then return 0 end
+	local percent = math.floor(((elapsed - idle_elapsed) * 100 / elapsed) + 0.5)
+	if percent < 0 then return 0 end
+	if percent > 100 then return 100 end
+	return percent
+end
+
+local function runtime()
+	local m = summary()
+	local system = ubus("system", "info")
+	local memory = type(system.memory) == "table" and system.memory or {}
+	local total = tonumber(memory.total or 0) or 0
+	local available = tonumber(memory.available or memory.free or 0) or 0
+	local mem_percent = total > 0 and math.floor(
+		((total - available) * 100 / total) + 0.5) or 0
+	return {
+		result = {
+			global = {
+				uptime = tonumber(system.uptime or m.uptime or 0) or 0,
+				cpu_percent = cpu_percent(),
+				mem_percent = mem_percent,
+				net_prefer = "auto"
+			},
+			cpe = shared and shared.cpe_items() or { cpe_item() },
+			link = { { port = 5, mode = 1, speed = 4,
+				status = m.up and 0 or 1 } },
+			wans = { {
+				name = "c2000_wan",
+				status = m.up and "up" or "down",
+				proto = "qmodem",
+				device = m.dev,
+				uptime = m.uptime,
+				gateway = "",
+				upload = tonumber(m.tx) or 0,
+				download = tonumber(m.rx) or 0
+			} }
+		}
+	}
+end
+
+local function diagnosis()
+	local m = summary()
+	return {
+		netlink = m.up and 1 or 0,
+		speedlimit = 0,
+		list = { {
+			using = true,
+			nosignal = (tonumber(m.rsrp) or tonumber(m.rssi)) and 0 or 1,
+			model = m.model ~= "" and 0 or 1,
+			register = m.isp ~= "" and 0 or 1,
+			sim = m.iccid ~= "" and 0 or 1,
+			isp = m.isp
+		} }
+	}
+end
+
+local function cellular_info()
+	local m = summary()
+	local sms = type(shared.sms_supported) == "function" and shared.sms_supported() and 1 or 0
+	return { {
+		earfcn = m.earfcn,
+		pci = m.pci,
+		nrcap = 1,
+		nrrc = 0,
+		ippass = 0,
+		blacklist_band = "",
+		compatibility = 0,
+		automatic = 0,
+		sms = sms,
+		command_equal = 0,
+		mobility = 0,
+		simisolate = 1
+	} }
+end
+
+local function basic_info()
+	return {
+		version = shared.app_software_version(),
+		mac = ID,
+		name = uci:get("oem", "board", "pname") or "C2000-788",
+		net_prefer = uci:get("network", "globals", "net_prefer") or "",
+		active_modem = { 1 },
+		modem_cnt = 1,
+		device_code = device_code()
+	}
+end
+
+local function speed_info(name)
+	if shared then return { code = 0, result = shared.speed(name) } end
+	local m = summary()
+	local tx, rx = stats(m.dev)
+	name = trim(name)
+	if name == "" then name = "cpe" end
+	return {
+		code = 0,
+		result = {
+			list = { {
+				name = name,
+				upload = tonumber(tx) or 0,
+				download = tonumber(rx) or 0
+			} }
+		}
+	}
+end
+
+local function trafficstatus()
+	return {
+		combo = { {} },
+		accumulation = { total = { Dds = 0, Mds = 0, Cds = 0, date = os.date("%Y-%m-%d") }, list = { {} } },
+		sysconf = { SMdtMsd = "", Dsg = 1 }
+	}
+end
+
+local function wifi_traffic()
+	pcall(function() uci:load("wireless") end)
+	local traffic = { txbytes2 = 0, rxbytes2 = 0, txbytes5 = 0, rxbytes5 = 0 }
+	local seen = {}
+	uci:foreach("wireless", "wifi-iface", function(s)
+		local radio = trim(s.device)
+		local dev = trim(s.ifname or uci:get("wireless", radio, "phy") or "")
+		if dev ~= "" and not seen[dev] then
+			seen[dev] = true
+			local tx, rx = stats(dev)
+			local band = trim(uci:get("wireless", radio, "band") or radio):lower()
+			local suffix = band:find("5", 1, true) and "5" or "2"
+			traffic["txbytes" .. suffix] = traffic["txbytes" .. suffix] + (tonumber(tx) or 0)
+			traffic["rxbytes" .. suffix] = traffic["rxbytes" .. suffix] + (tonumber(rx) or 0)
+		end
+	end)
+	return traffic
+end
+
+local function limitstatus()
+	local list = { { name = "cpe", enabled = 0, enable = 0, upload = 0, download = 0, traffic = 0 } }
+	return { code = 0, list = list, result = { list = list } }
+end
+
+local function batstatus()
+	local result = { percent = "-1", charging = false }
+	return { code = 0, percent = result.percent, charging = result.charging, result = result }
+end
+
+local function intinfo()
+	local m = summary()
+	local carrier = (m.operator or "") ~= "" and m.operator or m.isp
+	local v = { mode = carrier ~= "" and (carrier .. "," .. band_mode(m.mode)) or band_mode(m.mode), time = m.uptime }
+	if m.ip4 ~= "" then v.ip = m.ip4 end
+	if m.ip6 ~= "" then v.ipv6 = m.ip6 end
+	return v
+end
+
+local function wanstatus()
+	local m = summary()
+	return { disabled = m.up and "0" or "1", upload = m.tx, download = m.rx }
+end
+
+local function linkstatus()
+	local m = summary()
+	return { link = { { port = 5, mode = 1, speed = 4, status = m.up and 0 or 1 } } }
+end
+
+local function dhcp_clients()
+	if shared and type(shared.clients) == "function" then
+		local clients, count = shared.clients()
+		return { count = count, client = clients }
+	end
+	local clients, count = {}, 0
+	local f = io.open("/tmp/dhcp.leases", "r")
+	if not f then return { count = 0, client = {} } end
+	for line in f:lines() do
+		local expires, mac, ip, host = line:match("^(%S+)%s+(%S+)%s+(%S+)%s+(%S+)")
+		if mac and ip then
+			count = count + 1
+			clients[#clients + 1] = {
+				mac = mac:upper(), ipaddr = ip, hostname = host ~= "*" and host or "",
+				type = "wired", authed = 0, expires = tonumber(expires) or 0,
+				switch = 1, switch_off = 0, qos = 1, exsit = 1, position = 0
+			}
+		end
+	end
+	f:close()
+	return { count = count, client = clients }
+end
+
+local function terminal()
+	local d = dhcp_clients()
+	return { auth_on = 0, client = d.client }
+end
+
+local function stastatus()
+	if shared and shared.station_status then return shared.station_status() end
+	local d = dhcp_clients()
+	return { code = 0, count = d.count, client = d.client, result = { count = d.count, client = d.client } }
+end
+
+local function remote_sms(req)
+	local result = shared.sms(req)
+	local value = { code = tonumber(result.code) or -4 }
+	if req.serial_num ~= nil then value.serial_num = req.serial_num end
+	if req.action == "read" then
+		value.result = type(result.result) == "table" and result.result or {
+			code = -4, smslist = { {} }, ready = 1
+		}
+	elseif req.action == "del" then
+		value.smsdel = type(result.smsdel) == "table" and result.smsdel or {}
+	elseif req.action == "send" then
+		value.item = type(result.item) == "table" and result.item or {}
+	else
+		value.result = type(result.result) == "table" and result.result or {}
+	end
+	return value
+end
+
+local function status(brief)
+	local m = summary()
+	local s = ubus("system", "info")
+	local v = {
+		sversion = shared.app_software_version(),
+		board = uci:get("oem", "board", "name") or "WT9303",
+		name = uci:get("oem", "board", "pname") or "C2000-788",
+		ptype = uci:get("oem", "board", "ptype") or "rt",
+		vendor = uci:get("oem", "board", "vendor") or "nradio",
+		-- 同 sim_count 那处: uci:get 的第二返回值会变成 tonumber 的 base。
+		-- uci-defaults 不写 oem.board.wifiauth,所以这里一定取不到。
+		wifiauth = tonumber((uci:get("oem", "board", "wifiauth"))) or -1,
+		device_code = device_code(),
+		uptime = s.uptime or 0,
+		iccid = { { m.iccid } },
+		simid = { { m.imsi } },
+		-- 上报给云/APP 的是 APP 侧槽位编号(见文件头 (e));tostring 保住
+		-- 原来的字符串类型。
+		cpesel = { { mode = "1", cur = tostring(shared.sim_swap and shared.sim_swap(m.simno) or m.simno), iccid = m.iccid } },
+		cpe = cpe_item(),
+		wired_client = dhcp_clients()
+	}
+	if brief == 1 then return v end
+	v.id = ID
+	v.oid = uci:get("cloudd", "config", "oid") or ID
+	v.ifinfo = { { name = "cpe", ifname = m.dev, proto = "qmodem", up = m.up and true or false, modem = m.section } }
+	v.ipaddr = m.ip4 ~= "" and m.ip4 or (uci:get("network", "lan", "ipaddr") or "")
+	if m.ip6 ~= "" then v.ipv6 = m.ip6 end
+	v.radio, v.radiocnt = radio_status()
+	v.client = {}
+	return v
+end
+
+local function topic_tail(topic)
+	return topic:match("^kp/[^/]+/[^/]+/(.+)$") or
+		topic:match("^mosca/(.+)$") or topic
+end
+
+local function publish(topic, data, retain)
+	data = data or {}
+	if data.uniq == nil then data.uniq = response_timestamp() end
+	local ok, payload = pcall(cjson.encode, data)
+	if ok and payload then client:publish(topic, payload, 1, retain and true or false) end
+end
+
+local function command_state(stage, req)
+	local cmd = tostring(req.cmd or "")
+	local service = cmd:match("%-s%s+(rweb)") or cmd:match("%-s%s+(rssh)") or
+		(cmd:find("NRSSH_", 1, true) and "ssh-authorization" or "command")
+	local path = "/tmp/myos-nros-last-command.json"
+	local f = io.open(path .. ".tmp", "w")
+	if not f then return end
+	f:write(cjson.encode({ updated = os.time(), stage = stage, service = service,
+		code = tostring(req["return"] or ""),
+		result = stage == "completed" and tostring(req.result or ""):sub(1, 1024) or "" }) or "{}")
+	f:close()
+	os.rename(path .. ".tmp", path)
+end
+
+local function reply(event, data, retain, recipient)
+	if event == "command" then
+		data.id = ID
+		command_state("completed", data)
+	end
+	publish("kp/" .. (recipient or "mosca") .. "/" .. ID .. "/reply/" .. event, data, retain)
+end
+
+local function shell_quote(s)
+	s = tostring(s or "")
+	return "'" .. s:gsub("'", "'\\''") .. "'"
+end
+
+local function parse_remote_command(cmd)
+	cmd = trim(cmd)
+	if cmd == "" or #cmd > 4096 or cmd:find("%z") or
+	   cmd:find("[;&`$<>]") then return nil end
+	local _, pipes = cmd:gsub("|", "")
+	if pipes ~= 1 then return nil end
+	local fetch, port, service, remote = cmd:match(
+		"^(.-)%s*|%s*sh%s+%-s%s+%-%-%s+%-p%s+(%d+)%s+%-s%s+(%w+)%s+%-r%s+(%S+)%s*$")
+	if service ~= "rweb" and service ~= "rssh" then return nil end
+	fetch = trim(fetch)
+	remote = trim(remote):gsub("^[\"']", ""):gsub("[\"']$", "")
+	port = tonumber(port or "")
+	if not port or port < 1 or port > 65535 then return nil end
+	if not remote or remote == "" or remote:match("%.%.") then return nil end
+	if not remote:match("^[%w%.%-%_]+$") then return nil end
+	if not (fetch:match("^wget%s+") or fetch:match("^wget%-ssl%s+") or
+	        fetch:match("^/usr/bin/wget%s+") or
+	        fetch:match("^/usr/bin/wget%-ssl%s+") or
+	        fetch:match("^/bin/wget%s+")) then return nil end
+	local path = "nradio-cloud.oss-cn-beijing.aliyuncs.com/cloud-ctrl-new.sh"
+	local matched
+	for _, candidate in ipairs({ "https://" .. path, "http://" .. path, path }) do
+		if fetch:sub(-#candidate) == candidate then
+			matched = candidate
+			break
+		end
+	end
+	if not matched then return nil end
+	local prefix = trim(fetch:sub(1, #fetch - #matched))
+	if prefix:match("https?://") then return nil end
+	return tostring(port), remote, service
+end
+
+local function read_all(path)
+	local f = io.open(path, "r")
+	if not f then return "" end
+	local out = f:read(65536) or ""
+	f:close()
+	return out
+end
+
+local function remote_started(port, service, remote)
+	local needle = tostring(port) .. ":127.0.0.1:" .. (service == "rssh" and "22" or "80")
+	local legacy_needle = tostring(port) .. ":localhost:" .. (service == "rssh" and "22" or "80")
+	if ok_nixiofs and nixiofs and nixiofs.dir then
+		for pid in nixiofs.dir("/proc") do
+			if pid:match("^%d+$") then
+				local f = io.open("/proc/" .. pid .. "/cmdline", "r")
+				if f then
+					local cmd = (f:read("*a") or ""):gsub("%z", " ")
+					f:close()
+					if cmd:find("ssh ", 1, true) and
+					   (cmd:find(needle, 1, true) or cmd:find(legacy_needle, 1, true)) and
+					   cmd:find("debug@" .. tostring(remote), 1, true) then return true end
+				end
+			end
+		end
+		return false
+	end
+	local f = io.popen("pgrep -f -l -a ssh 2>/dev/null | grep -F -e " .. shell_quote(needle) ..
+		" -e " .. shell_quote(legacy_needle) ..
+		" | grep -Fq " .. shell_quote("debug@" .. tostring(remote)) .. " && printf 1 || printf 0")
+	if not f then return false end
+	local ok = trim(f:read("*a") or "") == "1"
+	f:close()
+	return ok
+end
+
+local function remote_ready_output(port, service)
+	return service .. "\n*************\nReady to RSSH\nPort: " .. tostring(port) .. "\n*************\n"
+end
+
+local function run_remote_command(port, remote, service)
+	if service == "rssh" and not app_session.start_ssh() then return "1", "SSH service failed to start" end
+	if remote_started(port, service, remote) then return "0", remote_ready_output(port, service) end
+
+	local key_path = "/usr/share/myos-nros/id_rsa.db"
+	local key = io.open(key_path, "r")
+	if not key then return "127", "Official relay key missing from firmware" end
+	key:close()
+	local wait_seconds = 25
+	local cmd = "/usr/bin/ssh -y -I 60 -i " .. shell_quote(key_path) .. " -p " ..
+		(service == "rssh" and "22" or "23") .. " -gfNTR " ..
+		shell_quote(tostring(port) .. ":127.0.0.1:" .. (service == "rssh" and "22" or "80")) .. " " ..
+		shell_quote("debug@" .. tostring(remote)) .. " </dev/null"
+
+	local out_file = "/tmp/myos-" .. service .. "-last.log"
+	local bg = "( " .. cmd .. "; printf '\\n__MYOS_RWEB_RC__%s\\n' $? ) > " .. shell_quote(out_file) .. " 2>&1 &"
+	local out, rc, started = "", "", os.time()
+	os.execute(bg)
+	for _ = 1, wait_seconds do
+		idle_sleep(1)
+		out = read_all(out_file)
+		rc = out:match("\n__MYOS_RWEB_RC__(%d+)") or ""
+		if rc ~= "" then break end
+	end
+	out = read_all(out_file)
+	rc = out:match("\n__MYOS_RWEB_RC__(%d+)") or ""
+	out = out:gsub("\n__MYOS_RWEB_RC__%d+\n?$", "")
+	if rc == "0" and remote_started(port, service, remote) then
+		out = remote_ready_output(port, service)
+	else
+		out = out:gsub("Ready to RSSH", "SSH relay not confirmed")
+		if rc == "" or rc == "0" then rc = "124" end
+	end
+	if out == "" then out = rc == "0" and remote_ready_output(port, service) or service .. " tunnel not established" end
+	util.exec("logger -t myos-nros-app " .. shell_quote(service .. " port=" .. tostring(port) ..
+		" return=" .. tostring(rc) .. " elapsed=" .. tostring(os.time() - started) .. "s"))
+	return rc, out
+end
+
+local function command_json(data)
+	local ok, payload = pcall(cjson.encode, data or {})
+	if ok and payload then return payload end
+	return "{}"
+end
+
+local function bridge_password()
+	uci:load("mosquitto")
+	local password = trim(uci:get("mosquitto", "bridge", "remote_password") or "")
+	if password ~= "" then return password end
+	return identity_get("remote_password")
+end
+
+local function parse_bridge_update(cmd)
+	cmd = tostring(cmd or "")
+	local username, password, address = cmd:match(
+		"^sed %-i 's/dev%.nradio%.com%.cn/pro%.nradio%.com%.cn/g' /etc/init%.d/mosquitto;uci set mosquitto%.bridge%.remote_username=([^;]+);uci set mosquitto%.bridge%.remote_password=([^;]+);uci set mosquitto%.bridge%.restart_timeout=1;uci set mosquitto%.bridge%.address=([^;]+);uci commit;/etc/init%.d/mosquitto restart;/etc/init%.d/dns_resolve restart;sync$")
+	if not username then
+		username, password = cmd:match("^uci set mosquitto%.bridge%.remote_username=([^;]+);uci set mosquitto%.bridge%.remote_password=([^;]+);uci set mosquitto%.bridge%.restart_timeout=1;uci commit;/etc/init%.d/mosquitto restart$")
+	end
+	if username ~= ID then return nil end
+	if address and address ~= ID .. ".pro.nradio.com.cn" then return nil end
+	local current = bridge_password()
+	if password == "" then return nil end
+	if current ~= "" then
+		if password ~= current then return nil end
+	elseif not password:match("^[0-9a-fA-F]+$") or #password ~= 32 then
+		return nil
+	end
+	return username, password, address
+end
+
+local function schedule_cloud_restart()
+	os.execute("(sleep 1; /etc/init.d/myos-nros-mqtt restart; sleep 2; /etc/init.d/myos-nros-app restart) >/dev/null 2>&1 &")
+end
+
+local function handle_command(req, broadcast, recipient)
+	local cmd = req.cmd or ""
+	local function reply_command()
+		reply("command", req, false, recipient)
+	end
+	if not broadcast and remote_enabled("rssh") then
+		local output, rc = ssh_authorization.command(cmd, ID)
+		if output ~= nil then
+			req.result, req["return"] = output, rc
+			reply_command()
+			return
+		end
+	end
+	local username, password, address
+	req.cmd = cmd
+	if cmd == "uci get mosquitto.bridge.remote_username" then
+		uci:load("mosquitto")
+		req.result = trim(uci:get("mosquitto", "bridge", "remote_username") or "")
+		req["return"] = "0"
+		reply_command()
+		return
+	end
+
+	username, password, address = parse_bridge_update(cmd)
+	if username then
+		uci:load("mosquitto")
+		local current_username = trim(uci:get("mosquitto", "bridge", "remote_username") or "")
+		local current_password = trim(uci:get("mosquitto", "bridge", "remote_password") or "")
+		local current_address = trim(uci:get("mosquitto", "bridge", "address") or "")
+		local current_timeout = trim(uci:get("mosquitto", "bridge", "restart_timeout") or "")
+		local restart_required = current_username ~= username or
+			current_password ~= password or
+			(address and current_address ~= address)
+		if restart_required or current_timeout ~= "5" then
+			uci:set("mosquitto", "bridge", "remote_username", username)
+			uci:set("mosquitto", "bridge", "remote_password", password)
+			uci:set("mosquitto", "bridge", "restart_timeout", "5")
+			if address then uci:set("mosquitto", "bridge", "address", address) end
+			uci:commit("mosquitto")
+		end
+		req.result = ""
+		req["return"] = "0"
+		reply_command()
+		if restart_required then schedule_cloud_restart() end
+		return
+	elseif cmd == "lua /etc/report-status/lua/cpeinfo.lua" then
+		req.result = command_json(cpeinfo())
+		req["return"] = "0"
+		reply_command()
+		return
+	elseif cmd == "lua /etc/report-status/lua/intinfo.lua" then
+		req.result = command_json(intinfo())
+		req["return"] = "0"
+		reply_command()
+		return
+	end
+
+	local port, remote, service = parse_remote_command(cmd)
+	if not port then
+		util.exec("logger -t myos-nros-app 'rejected unsupported command shape'")
+		req.result = "disabled on MYOS"
+		req["return"] = "126"
+		reply_command()
+		return
+	end
+	if broadcast or not remote_enabled(service) then
+		req.result = broadcast and "remote access requires device topic" or (service .. " disabled")
+		req["return"] = "126"
+		reply_command()
+		return
+	end
+
+	local rc, output = run_remote_command(port, remote, service)
+	if service == "rssh" then
+		local path = "/tmp/myos-rssh-relay.json"
+		os.remove(path)
+		if tostring(rc) == "0" and remote_started(port, service, remote) then
+			local uptime = tonumber((read_all("/proc/uptime")):match("^[%d.]+"))
+			local f = io.open(path .. ".tmp", "w")
+			if f then
+				f:write(cjson.encode({ service = service, mac = ID, host = remote,
+					port = tonumber(port), uniq = tostring(req.uniq or ""), started = uptime }))
+				f:close()
+				os.execute("chmod 600 " .. shell_quote(path .. ".tmp"))
+				os.rename(path .. ".tmp", path)
+			end
+		end
+	end
+	req.result = output
+	req["return"] = rc
+	reply_command()
+end
+
+local function info_report()
+	return {
+		status = status(1),
+		basic = basic_info(),
+		diagnosis = diagnosis(),
+		cellular = cellular_info(),
+		wifistatus = wifistatus(),
+		stastatus = stastatus(),
+		cpestatus = cpeinfo(),
+		intstatus = intinfo(),
+		trafficstatus = trafficstatus(),
+		limitstatus = limitstatus(),
+		batstatus = batstatus(),
+		wanstatus = wanstatus(),
+		linkstatus = linkstatus(),
+		runtime = runtime(),
+		speed = speed_info()
+	}
+end
+
+local function send_light_online()
+	local now = os.time()
+	local group = { id = ID .. ":g1", server_id = ID }
+	local online = { id = ID, state = 2, online = 1, status = "online" }
+	publish("sysinfo/group_id", group, true)
+	publish("sysinfo/status", online, true)
+	publish("sysinfo/time", { time = now }, true)
+	publish("sysinfo/device_info", online, true)
+	publish("kp/mosca/" .. ID .. "/group_id", group, false)
+	publish("kp/mosca/" .. ID .. "/status", { id = ID }, false)
+	publish("kp/mosca/" .. ID .. "/time", { time = now }, false)
+end
+
+local function send_report()
+	local now = os.time()
+	local device = status(0)
+	local cpe = cpeinfo()
+	local internet = intinfo()
+	local wifi = wifistatus()
+	local run = runtime()
+	local speed = speed_info()
+	reply("device_info", device, true)
+	reply("cpeinfo", cpe, true)
+	reply("cpestatus", cpe, true)
+	reply("intinfo", internet, true)
+	reply("intstatus", internet, true)
+	reply("wifistatus", wifi, true)
+	reply("runtime", run, true)
+	reply("speed", speed, true)
+	reply("info", info_report(), true)
+	publish("kp/mosca/" .. ID .. "/status", { id = ID, uniq = now }, false)
+	publish("kp/mosca/" .. ID .. "/cpestatus", { uniq = now }, false)
+	publish("kp/mosca/" .. ID .. "/runtime", run, false)
+end
+
+local function send_presence()
+	publish("kp/mosca/" .. ID .. "/cpestatus", { uniq = os.time() }, false)
+end
+
+local function update_sms_record(now)
+	if mode == "command" or not bridge_online then return end
+	uci:unload("myos_nros")
+	uci:load("myos_nros")
+	if uci:get("myos_nros", "main", "sms_enabled") == "0" then
+		sms_pending = nil
+		return
+	end
+	if now >= last_sms_poll and now - last_sms_poll < 30 then return end
+	last_sms_poll = now
+	local section = shared.find_qmodem()
+	if sms_pending and (sms_pending.device_id ~= ID or sms_pending.section ~= section) then sms_pending = nil end
+	if not sms_pending or sms_pending.attempts >= 3 then
+		local record = shared.sms_record()
+		if not record or (sms_pending and record.trans_id == sms_pending.trans_id) then return end
+		sms_pending = record
+		sms_pending.device_id, sms_pending.attempts, sms_pending.sent_at = ID, 0, 0
+	end
+	if sms_pending.attempts > 0 and now >= sms_pending.sent_at and now - sms_pending.sent_at < 60 then return end
+	sms_pending.payload.timestamp = os.date("%Y-%m-%d %H:%M:%S", now)
+	local payload = cjson.encode(sms_pending.payload)
+	if not payload then return end
+	-- Factory sms_record is a report, not reply/sms, and has its own transaction acknowledgement.
+	client:publish("kp/mosca/" .. ID .. "/sms_record", payload, 1, false)
+	sms_pending.attempts = sms_pending.attempts + 1
+	sms_pending.sent_at = now
+end
+
+local function handle(topic, payload)
+	if topic == connection_topic then
+		if payload == "1" and not bridge_online then
+			bridge_online = true
+			if sms_pending then sms_pending.attempts = 0 end
+			write_cloud_state()
+			idle_sleep(5)
+			send_light_online()
+			last_status = os.time()
+			last_presence = 0
+		elseif payload == "0" then
+			bridge_online = false
+			write_cloud_state()
+		end
+		return
+	end
+	local event = topic_tail(topic)
+	if event == "reply/sms_record" then
+		if mode == "command" or not sms_pending or sms_pending.device_id ~= ID or
+		   not topic:match("^kp/" .. ID .. "/") then return end
+		local data = cjson.decode(payload or "")
+		if type(data) ~= "table" or data.trans_id ~= sms_pending.trans_id then return end
+		local channel = type(data.result) == "table" and data.result.channel or nil
+		if channel ~= nil and channel ~= "" and channel ~= "smsd" then return end
+		if shared.sms_record_ack(sms_pending.section, data.trans_id,
+			sms_pending.fingerprints, sms_pending.present) then sms_pending = nil end
+		return
+	end
+	if event:match("^reply/") or event:find("/reply/", 1, true) then return end
+	if payload == "" then return end
+	local req = cjson.decode(payload or "{}") or {}
+	if type(req) ~= "table" then return end
+	if event == "command" then
+		if mode ~= "command" then return end
+		local recipient = topic:match("^kp/[^/]+/([^/]+)/command$")
+		if not recipient or not recipient:match("^[%w_%.:%-]+$") then return end
+		command_state("received", req)
+		local ok, err = pcall(handle_command, req, topic:match("^kp/FFFFFFFFFFFF/") ~= nil, recipient)
+		if not ok then
+			req.result, req["return"] = "Remote command error: " .. tostring(err), "1"
+			reply("command", req, false, recipient)
+		end
+		client:publish(topic, "", 0, true)
+		return
+	end
+	if mode == "command" then return end
+	local function reply_request(name, data)
+		data = data or {}
+		for _, key in ipairs({"trans_id", "request_id", "seq"}) do
+			if req[key] ~= nil then data[key] = req[key] end
+		end
+		reply(name, data, false)
+	end
+	-- Expose fixed reports and narrowly scoped SMS/LED actions. No arbitrary shell path.
+	if event == "heartbeat" then
+		reply_request("heartbeat", { code = "0", errcode = "0" })
+	elseif event == "time" then
+		reply_request("device_info", { id = ID, state = 2 })
+	elseif event == "status" then
+		reply_request("device_info", status(0))
+	elseif event == "device_info" then
+		reply_request("device_info", status(0))
+	elseif event == "cpestatus" or event == "cpeinfo" then
+		reply_request("cpeinfo", cpeinfo())
+	elseif event == "intstatus" or event == "intinfo" then
+		reply_request("intinfo", intinfo())
+	elseif event == "wifistatus" then
+		reply_request("wifistatus", wifistatus())
+	elseif event == "runtime" then
+		reply_request("runtime", runtime())
+	elseif event == "speed" then
+		reply_request("speed", speed_info(req.name))
+	elseif event == "traffic" then
+		reply_request("traffic", { id = ID, traffic = wifi_traffic() })
+	elseif event == "trafficstatus" then
+		if req.setdata ~= nil or req.cleandata ~= nil then
+			reply_request("traffic", { code = 2, result = "unsupported on MYOS" })
+		else
+			reply_request("traffic", { id = ID, traffic = wifi_traffic() })
+		end
+	elseif event == "wifiauth" then
+		reply_request("wifiauth", { wifiauth = -1 })
+	elseif event == "terminal" or event == "client" then
+		if req.client and (req.switch ~= nil or req.hostname ~= nil) then
+			reply_request(event, { code = 2, result = "unsupported on MYOS" })
+		else
+			reply_request(event, terminal())
+		end
+	elseif event == "stastatus" then
+		reply_request("stalist", stastatus())
+	elseif event == "sms" then
+		if req.action ~= nil and req.action ~= "read" and not topic:match("^kp/" .. ID .. "/") then return end
+		reply("sms", remote_sms(req), false)
+	elseif event == "led" then
+		if not topic:match("^kp/" .. ID .. "/") then return end
+		local result = shared.led(req)
+		reply_request("led", result.result or result)
+	elseif event == "batstatus" then
+		reply_request("batinfo", batstatus())
+	elseif event == "limitstatus" then
+		reply_request("limitstatus", limitstatus())
+	elseif event == "wanstatus" then
+		reply_request("wanstatus", wanstatus())
+	elseif event == "linkstatus" then
+		reply_request("linkstatus", linkstatus())
+	elseif event == "info" then
+		reply_request("info", info_report())
+	end
+end
+
+local function run()
+	while true do
+		if mode ~= "command" then pcall(shared.led_tick) end
+		if not cloud_enabled() then
+			local_broker_online = false
+			bridge_online = false
+			write_cloud_state()
+			os.execute("sleep 30")
+		else
+		ID = device_id()
+		if ID == "" then
+			util.exec("logger -t myos-nros-app 'missing factory identity; cloud agent waiting'")
+			os.execute("sleep 30")
+		else
+			client = mosq.new("myos-nros-app-" .. mode .. "-" .. ID)
+			local broker_connected = false
+			client.ON_CONNECT = function()
+				broker_connected = true
+				local_broker_online = true
+				write_cloud_state()
+				if mode == "command" then
+					client:subscribe("kp/" .. ID .. "/+/command")
+					client:subscribe("kp/FFFFFFFFFFFF/+/command")
+				else
+					connection_topic = "$SYS/broker/connection/" .. ID ..
+						"/state"
+					bridge_online = false
+					client:subscribe(connection_topic)
+					client:subscribe("kp/" .. ID .. "/+/#")
+					client:subscribe("kp/FFFFFFFFFFFF/+/#")
+				end
+			end
+			client.ON_DISCONNECT = function()
+				broker_connected = false
+				local_broker_online = false
+				bridge_online = false
+				write_cloud_state()
+			end
+			client.ON_MESSAGE = function(_, topic, payload)
+				local ok, err = pcall(handle, topic, payload)
+				if not ok then util.exec("logger -t myos-nros-app " .. string.format("%q", tostring(err))) end
+			end
+			local ok, connect_rc = pcall(function()
+				return client:connect("127.0.0.1")
+			end)
+			local connect_failed = type(connect_rc) == "number" and connect_rc ~= 0
+			if ok and not connect_failed then
+				while true do
+					if not cloud_enabled() then break end
+					local loop_ok = pcall(function() client:loop(mqtt_loop_timeout_ms, mqtt_loop_packets) end)
+					if not loop_ok then
+						util.exec("logger -t myos-nros-app 'MQTT loop failed'")
+						break
+					end
+					if not broker_connected then break end
+					if mode ~= "command" then
+						pcall(shared.led_tick)
+						local now = os.time()
+						if now - last_state_write >= presence_interval then
+							write_cloud_state(now)
+						end
+						if bridge_online then
+						local sms_ok = pcall(update_sms_record, now)
+						if not sms_ok then util.exec("logger -t myos-nros-app 'SMS report processing failed'") end
+						if now - last_presence >= presence_interval then
+							send_presence()
+							last_presence = now
+						end
+						if now - last_status >= online_interval then
+							publish("kp/mosca/" .. ID .. "/status",
+								{ id = ID, uniq = now }, false)
+							last_status = now
+						end
+						end
+					end
+				end
+			end
+			pcall(function() client:disconnect() end)
+			local_broker_online = false
+			bridge_online = false
+			write_cloud_state()
+			client = nil
+			collectgarbage("collect")
+			idle_sleep(5)
+		end
+		end
+	end
+end
+
+run()

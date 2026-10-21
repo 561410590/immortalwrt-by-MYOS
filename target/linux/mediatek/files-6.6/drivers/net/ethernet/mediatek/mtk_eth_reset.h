@@ -54,9 +54,11 @@ enum mtk_reset_event_id {
 
 extern struct notifier_block mtk_eth_netdevice_nb __read_mostly;
 extern struct completion wait_ser_done;
+extern bool (*mtk_check_wifi_busy)(u32 wdma_idx);
 extern char* mtk_reset_event_name[32];
 extern atomic_t reset_lock;
 
+void mtk_set_pse_drop(u32 config);
 irqreturn_t mtk_handle_fe_irq(int irq, void *_eth);
 u32 mtk_check_reset_event(struct mtk_eth *eth, u32 status);
 int mtk_eth_cold_reset(struct mtk_eth *eth);

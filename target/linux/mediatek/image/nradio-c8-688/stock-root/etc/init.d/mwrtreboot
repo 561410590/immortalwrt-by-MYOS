@@ -1,0 +1,15 @@
+#!/bin/sh /etc/rc.common
+START=99
+STOP=01   # 关机时执行的优先级，数字越小越早运行
+
+start() {
+    # 启动时不做事
+    :
+}
+
+stop() {
+
+    echo "rebooting" > /tmp/lucimsg.file
+    sleep 2
+}
+

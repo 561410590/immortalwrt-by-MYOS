@@ -1,0 +1,35 @@
+{
+  "admin/myos_c8_status/identity": {
+    "auth": {
+      "methods": ["param:auth", "cookie:sysauth_https", "cookie:sysauth_http"],
+      "login": false
+    }
+  },
+  "admin/myos_c8_status/sensors": {
+    "auth": {
+      "methods": ["param:auth", "cookie:sysauth_https", "cookie:sysauth_http"],
+      "login": false
+    }
+  },
+  "admin/modem/cpe_status": {
+    "auth": {
+      "methods": ["param:auth", "cookie:sysauth_https", "cookie:sysauth_http"],
+      "login": false
+    }
+  },
+  "admin/modem/simstat": {
+    "auth": {
+      "methods": ["param:auth", "cookie:sysauth_https", "cookie:sysauth_http"],
+      "login": false
+    }
+  },
+  "admin/status": {
+    "title": "Status",
+    "order": 10,
+    "action": {
+      "type": "firstchild",
+      "preferred": "overview",
+      "recurse": true
+    }
+  }
+}

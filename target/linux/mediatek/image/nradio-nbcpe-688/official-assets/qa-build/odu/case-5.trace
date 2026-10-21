@@ -1,0 +1,10 @@
+case	ipv4v6	0
+cpetools	-t 1 -i cpe -c ATQ0
+cpetools	-t 1 -i cpe -c ATV1
+cpetools	-t 1 -i cpe -c ATE1
+cpetools	-t 1 -i cpe -c ATS0=0
+cpetools	-i cpe -c pdp "" 3 ipv4v6 fixture.apn 1 fixture fixture
+notify	{ "action": 0, "ifname": "port5", "link-up": true, "data": { "manufacturer": "tdtech_mt5700_odu" }, "keep": false, "interface": "cpe" }
+dynamic	{ "name": "cpe_4", "device": "@cpe", "proto": "dhcp", "defaultroute": true, "peerdns": true, "metric": 7, "zone": "wan" }
+dynamic	{ "name": "cpe_6", "device": "@cpe", "proto": "dhcpv6", "extendprefix": "1", "defaultroute": true, "peerdns": true, "metric": 7, "zone": "wan" }
+setup_return	1

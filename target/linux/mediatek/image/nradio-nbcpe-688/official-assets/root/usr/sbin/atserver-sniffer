@@ -1,0 +1,4 @@
+#!/bin/sh
+# Keep official libraries private; do not leak search paths to child programs.
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+exec /lib/ld-musl-aarch64.so.1 --library-path /usr/lib/myos-nbcpe-official:/lib:/usr/lib /usr/libexec/myos-nbcpe-official/atserver-sniffer "$@"

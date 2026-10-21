@@ -1,0 +1,42 @@
+{% let myos_board=ubus.call('system','board') || {};
+ let myos_name=lc(myos_board.board_name || '');
+ let myos_home=match(myos_name,/c5800|hcmt7981/) ? 'c5800' : match(myos_name,/ultra|snsd/) ? 'c2000ultra' : 'c2000max'; %}
+  <button class="header-menu icon-button" data-menu-toggle aria-controls="sidebar" aria-expanded="false" aria-label="打开完整菜单"><svg class="icon"><use href="#menu"/></svg></button>
+  <a class="brand" href="{{ dispatcher.build_url('admin/status/' + myos_home) }}" aria-label="MYOS 首页"><span>MY<span class="brand-max">OS</span></span><small>{{ entityencode(myos_board.model || 'NRadio C5800-688') }}</small></a>
+  <div class="sidebar-backdrop" hidden></div>
+  <aside class="sidebar" id="sidebar" aria-label="OpenWrt 完整菜单">
+    <div class="sidebar-heading"><div><strong>MYOS</strong><small>{{ entityencode(myos_board.model || 'NRadio C2000') }}</small></div><button class="icon-button" id="close-menu" aria-label="关闭菜单"><svg class="icon"><use href="#close"/></svg></button></div>
+    <label class="menu-search"><svg class="icon"><use href="#search"/></svg><input id="menu-search" type="search" placeholder="搜索菜单或插件" aria-label="搜索菜单或插件" autocomplete="off"></label>
+    <nav class="navigation" id="menu-tree" aria-label="OpenWrt 分类与插件"></nav>
+    <p class="menu-empty" hidden>未找到匹配的菜单或插件</p>
+    <div class="sidebar-footer"><span><i></i> {{ entityencode(myos_board.release?.description || 'MYOS by ImmortalWrt') }}</span><small id="menu-source">LuCI · {{ entityencode(myos_board.model || 'NRadio C2000') }}</small></div>
+  </aside>
+
+  <main class="main" id="home">
+    <div class="landscape" aria-hidden="true"><svg class="terrain" viewBox="0 0 1359 190" preserveAspectRatio="none"><defs><linearGradient id="terrain-fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d5dee9" stop-opacity=".72"/><stop offset=".58" stop-color="#e2e9f1" stop-opacity=".4"/><stop offset="1" stop-color="#eef2f7" stop-opacity="0"/></linearGradient></defs><path d="M0 0C155 17 272 73 450 76S657 96 827 67 1110-11 1359 9V190H0Z" fill="url(#terrain-fade)"/></svg><div class="horizon"></div></div>
+    <header class="topbar"><div id="indicators"></div>
+      <div class="theme-picker"><button type="button" class="theme-toggle icon-button" data-theme-toggle aria-label="外观模式" title="外观模式" aria-expanded="false" aria-controls="theme-options"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect width="20" height="14" x="2" y="3" rx="2" />
+  <line x1="8" x2="16" y1="21" y2="21" />
+  <line x1="12" x2="12" y1="17" y2="21" /></svg></button>
+      <div class="theme-control" id="theme-options" role="group" aria-label="外观模式">
+        <div class="theme-festival" hidden><img alt="" width="42" height="42"><span><strong></strong><small></small></span></div>
+        <button type="button" data-theme-choice="light" aria-pressed="false" aria-label="浅色模式" title="浅色模式"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4" />
+  <path d="M12 2v2" />
+  <path d="M12 20v2" />
+  <path d="m4.93 4.93 1.41 1.41" />
+  <path d="m17.66 17.66 1.41 1.41" />
+  <path d="M2 12h2" />
+  <path d="M20 12h2" />
+  <path d="m6.34 17.66-1.41 1.41" />
+  <path d="m19.07 4.93-1.41 1.41" /></svg><span class="theme-choice-label">浅色</span></button>
+        <button type="button" data-theme-choice="dark" aria-pressed="false" aria-label="深色模式" title="深色模式"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" /></svg><span class="theme-choice-label">深色</span></button>
+        <button type="button" data-theme-choice="system" aria-pressed="true" aria-label="跟随系统" title="跟随系统"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect width="20" height="14" x="2" y="3" rx="2" />
+  <line x1="8" x2="16" y1="21" y2="21" />
+  <line x1="12" x2="12" y1="17" y2="21" /></svg><span class="theme-choice-label">跟随系统</span></button>
+      </div>
+      </div>
+      <button class="account" id="account-button" aria-label="管理员菜单" aria-expanded="false" aria-controls="account-menu"><span class="avatar"><svg class="icon" aria-hidden="true"><use href="#user"/></svg></span><span>管理员</span><svg class="icon account-chevron" aria-hidden="true"><use href="#chevron"/></svg></button>
+      <div id="account-menu" class="account-menu" hidden><strong>管理员</strong><button type="button" id="logout-button">退出登录<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m16 17 5-5-5-5" />
+  <path d="M21 12H9" />
+  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /></svg></button></div>
+    </header>

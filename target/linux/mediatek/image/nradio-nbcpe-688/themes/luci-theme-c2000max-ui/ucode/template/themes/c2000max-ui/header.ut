@@ -1,0 +1,47 @@
+{#
+ C2000MAX UI. Bootstrap template contract: Apache-2.0, LuCI contributors.
+ The global LuCI header initializes L after this template returns.
+#}
+{%
+ import { getuid, getspnam } from 'luci.core';
+ const boardinfo = ubus.call('system', 'board') ?? {};
+ const device_model = match(boardinfo.board_name || '', /^(nradio_wt9111_No2-manper_NB68|HCMT7981-emmc-NB68)$/) ? 'NBCPE-688' : (boardinfo.model || 'NBCPE-688');
+ http.prepare_content('text/html; charset=UTF-8');
+-%}
+<!doctype html>
+<html lang="{{ dispatcher.lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#eef3f8">
+<meta name="darkreader-lock">
+<title>{{ entityencode(boardinfo.hostname ?? 'MYOS') }} · {{ entityencode(node?.title ? _(node.title) : 'MYOS') }}</title>
+<script src="{{ media }}/theme.js?v=1.0.16-r5"></script>
+<link rel="stylesheet" href="/luci-static/bootstrap/cascade.css">
+{% for (let file in ['tokens','components','styles','c2000max','luci-adapter']): %}
+<link rel="stylesheet" href="{{ media }}/{{ file }}.css?v=1.0.16-ui-fixes-20261006">
+{% endfor %}
+{% if (node?.css): %}<link rel="stylesheet" href="{{ resource }}/{{ node.css }}">{% endif %}
+{% if (css): %}<style>{{ css }}</style>{% endif %}
+<link rel="stylesheet" href="{{ media }}/density.css?v=1.0.16-r5">
+<script src="{{ dispatcher.build_url('admin/translations', dispatcher.lang) }}"></script>
+<script src="{{ resource }}/cbi.js"></script>
+<script src="{{ media }}/data.js?v=3.1.34-202610092000"></script>
+<script src="{{ media }}/dashboard.js?v=3.1.34-202610092000"></script>
+</head>
+<body class="c2000-ui lang_{{ dispatcher.lang }}" data-page="{{ entityencode(join('-', ctx.request_path), true) }}" data-device-model="{{ entityencode(device_model, true) }}">
+{% if (!blank_page): %}
+<a class="skip-link" href="#maincontent">{{ _('Skip to content') }}</a>
+{% include('themes/c2000max-ui/icons') %}
+{% include('themes/c2000max-ui/shell') %}
+<div id="maincontent" class="luci-content">
+{% if (getuid() == 0 && getspnam('root')?.pwdp === ''): %}
+<div class="alert-message warning"><h4>{{ _('No password set!') }}</h4><p>{{ _('There is no password set on this router. Please configure a root password to protect the web interface.') }}</p><a href="{{ dispatcher.build_url('admin/system/admin') }}">{{ _('Go to password configuration...') }}</a></div>
+{% endif %}
+{% if (boardinfo.rootfs_type == 'initramfs'): %}
+<div class="alert-message warning"><h4>{{ _('System running in recovery (initramfs) mode.') }}</h4><p>{{ _('No changes to settings will be stored and are lost after rebooting. This mode should only be used to install a firmware upgrade') }}</p></div>
+{% endif %}
+<noscript><div class="alert-message warning">{{ _('You must enable JavaScript in your browser or LuCI will not work properly.') }}</div></noscript>
+<div id="tabmenu" hidden></div>
+{% endif %}

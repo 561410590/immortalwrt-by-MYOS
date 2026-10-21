@@ -1,0 +1,33 @@
+#!/bin/sh
+. /lib/functions/myos-c8-identity.sh
+myos_c8_board || exit 1
+destination=/tmp/myos-c8-eeprom.bin
+status=/tmp/myos-c8-calibration.json
+fail() {
+    rm -f "$destination"
+    printf '{"ready":false,"reason":"%s"}\n' "$1" > "$status"
+    logger -t myos-c8-calibration "$1"
+    exit 1
+}
+if [ "$1" = check ]; then
+    [ -f "$destination" ] && [ "$(wc -c < "$destination")" = 4096 ] || exit 1
+    [ "$(hexdump -v -n2 -e '1/1 "%02x"' "$destination")" = 8179 ]
+    exit $?
+fi
+# Only the local GPT factory partition is a calibration source.
+factory="$(blkid -t PARTLABEL=factory -o device 2>/dev/null)"
+case "$factory" in /dev/mmcblk[0-9]p[0-9]*) ;; *) fail factory_partition_unavailable ;; esac
+case "$factory" in *[!A-Za-z0-9/]*) fail ambiguous_factory_partition ;; esac
+[ -b "$factory" ] || fail factory_partition_unavailable
+temporary="$(mktemp /tmp/myos-c8-eeprom.XXXXXX)" || fail temporary_file_failed
+trap 'rm -f "$temporary"' EXIT HUP INT TERM
+dd if="$factory" of="$temporary" bs=4096 count=1 2>/dev/null || fail factory_read_failed
+[ "$(wc -c < "$temporary")" = 4096 ] || fail calibration_length_invalid
+[ "$(hexdump -v -n2 -e '1/1 "%02x"' "$temporary")" = 8179 ] || fail calibration_chip_id_invalid
+/usr/libexec/myos-c8-identity calibrate "$temporary" || fail local_identity_mac_unavailable
+chmod 600 "$temporary"
+mv "$temporary" "$destination" || fail calibration_install_failed
+mkdir -p /lib/firmware
+ln -sfn "$destination" /lib/firmware/myos-c8-eeprom.bin || fail firmware_link_failed
+printf '{"ready":true,"source":"local_factory","size":4096,"mac_source":"local_bdinfo","mac_patched":true}\n' > "$status"
+exit 0

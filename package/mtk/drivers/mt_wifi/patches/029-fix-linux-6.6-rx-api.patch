@@ -1,0 +1,15 @@
+--- a/mt_wifi/os/linux/rt_profile.c
++++ b/mt_wifi/os/linux/rt_profile.c
+@@ -1410,8 +1410,12 @@
+ 
+ 	if (pOSPkt->dev == NULL)
+ 		RELEASE_NDIS_PACKET(pAd, pPacket, NDIS_STATUS_FAILURE);
+ 	else
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 18, 0)
++		netif_rx(pOSPkt);
++#else
+ 		netif_rx_ni(pOSPkt);
++#endif
+ 
+ }
+ #endif

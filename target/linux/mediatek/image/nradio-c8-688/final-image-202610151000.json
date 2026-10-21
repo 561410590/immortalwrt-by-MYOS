@@ -1,0 +1,102 @@
+{
+  "file": "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/bin/targets/mediatek/filogic/MYOS-C8-688-3.1.35-202610151000-6.6.110-sysupgrade.bin",
+  "bytes": 46438677,
+  "sha256": "00976caef09f7e57c8a1a8236c937df0d9caf6757f50f0bccd2109b0fe41e2ef",
+  "version": "3.1.35-202610151000",
+  "board": "HCMT7981-688-emmc",
+  "kernel": "6.6.110",
+  "rootfs_bytes": 41830129,
+  "upgrade_partitions": [
+    "kernel_2nd",
+    "rootfs_2nd"
+  ],
+  "data_device": "eth1",
+  "data_cid": 8,
+  "embedded_fixes": {
+    "usr/libexec/myos-c8-native": "d1ef36dd46c233654af5009e59137a141bb93c8e52a4fd44930658fc3519c679",
+    "lib/netifd/proto/ncm.sh": "49cd0cffebbe5ffac122e9a266cae4c0f6c44302e66abe2724029356b651bd02",
+    "lib/netifd/proto/wwan.sh": "9fe2c0a3a8cb3b5ebcd6f5fa3b79bafbfb92751c29949ac15d7785424c0b342b",
+    "usr/bin/cpetools.sh": "2cecc8cc45c38a39141ba373ad13e29a660fb76f9c90720d19c913534e41f987",
+    "opt/myos-c8-official/share/cpetools.sh": "0d7f68f61b757dfb222ed86be5d9b4922662571177da172a3c9e6031679bf690",
+    "etc/config/cpesel": "3ef7e9f5d1293fa5345d594f58063edaa7b27f80129f249c911c59c415381cc6",
+    "etc/config/cpecfg": "79d19be4f80e153a37cc8291331f6f94fbc770b3e8dd642cbadb2b88cec9225d",
+    "usr/lib/lua/luci/view/myos_c8_modem/menu.htm": "542528bc394fc47bc4ba165a908592173f60fbf1129446f3c954e3e14260c951",
+    "usr/lib/lua/myos_c8_modem.lua": "135fa5efe37f2f53f6d7d076de6f993da00ebc7d92d4357dc97062cb9fec1f75",
+    "usr/lib/lua/luci/controller/modem.lua": "5e20a1dd44a6c9dc151f125fb6a63e132db14364b21c07e269f08f7d561652ad",
+    "usr/lib/lua/luci/model/cbi/myos_c8_modem.lua": "ffac9f944cbe15885c887990748067dc2c6c6918bc56ee90f14f59a2cfa0871b",
+    "usr/share/ucode/luci/template/themes/c2000max-ui/shell.ut": "cccf22667d55e954d9f4f6daa27b524e2f905a4786e3d7932fcc8d06f3fbe5a8",
+    "www/luci-static/myos/c8-cellular.js": "dc61012dace6eb1b99d91d69f1c1d36a4b4d1ad50e75ce86b35d486f9675b84f",
+    "www/luci-static/resources/view/c2000max/home-c8.js": "138af97289fa860bf0917119e83080c5fa59e247fbe49e099f3af128dc789b3c",
+    "usr/lib/lua/luci/view/myos_c8_modem/status.htm": "a48fa1d3af1e68179e8f91dc9bfd166f1473bc823f47f1a2945339a4d0acac3c",
+    "www/luci-static/resources/protocol/wwan.js": "34224e4c1b9eee2a5271f265bd9e22fa85b4d8ab46332d5db4ec5120f13d1d9c",
+    "www/luci-static/resources/view/network/interfaces.js": "cc5e6cef2b7105240141963aa7c2fc2dbf9f2a4e4a3436ff245001aeb4c41173",
+    "etc/uci-defaults/93-myos-c8": "5883df75b18809cd6531ccfd6dad15b50580ea33ac526d418f9bbe402f62bc3c",
+    "usr/libexec/myos-c8-fan": "770dc0dd771803ca0a18bbdf9fa618ca1ca0f6c77e087d2ceca3cc0531f606da",
+    "etc/hotplug.d/iface/32-myos-c8-dsa-mtu": "f0c79b9e947c8ab6f31da42b0617c5781dbaafbaa9a963ccd14689f2d2685a3a",
+    "sbin/mtwifi_cfg": "46afda174a2cb95e92970d18859c9e09e99df44a6b24870d8cd7a1853dd917f5",
+    "usr/libexec/myos-update": "871156fee95e075a1ac7a6620089349e67fc96f5ce59a93d17cd07a4dfc824af",
+    "www/luci-static/resources/view/myos/update.js": "544628acac6d0e201b7b88768dbc222033c05afca77fbfe0a679b1d55c2b8a25",
+    "etc/init.d/myos-update": "16aacb7331a4e77fe5eca8f58fa5d669c01bafaf56e723edb0a8efc7823d7f35",
+    "usr/share/myos-update/ca.pem": "35bfc0f32f717134116a7002cea3e5817bd56f54804ffcd74db5a8a62a669253",
+    "usr/lib/lua/luci/controller/zz_mwrt_c8.lua": "f707ba0b03fc591824a42eb8afab2be0dd536b05835dfc0a935a65f4a6c32af7",
+    "usr/share/luci/menu.d/luci-theme-c2000max-ui.json": "feb79e254c6b907e299673ac18f528c007c28f890d53824a0fd59dbaa268c568",
+    "usr/lib/lua/luci/controller/myos_c8_status.lua": "f0a1c41b12f0c314ec317ac1aa2c1648a7f1b6c92f2e7d439757f70425366afb",
+    "etc/uci-defaults/95-c2000max-ui": "8df3b2de6a6f0499fcaeb902d32c81befed461a635f3db64552aca18249d397a"
+  },
+  "hardware": {
+    "model": "NRadio-C8-New688",
+    "compatible": [
+      "HCMT7981-688-emmc",
+      "mediatek,mt7981"
+    ],
+    "ports": [
+      "port1",
+      "port2",
+      "port3",
+      "port5",
+      "eth1"
+    ],
+    "gpio": {
+      "status": 10,
+      "cmode5": 11,
+      "cmode4": 12,
+      "wifi": 34,
+      "cpe-pwr": 31,
+      "fan-hw": 27,
+      "fan-fg": 28
+    },
+    "manual_sim_slots": 4,
+    "root_partition": "rootfs_2nd",
+    "cellular_phy": {
+      "device": "eth1",
+      "mdio_address": 21,
+      "fixed_link": false
+    }
+  },
+  "modules": {
+    "kernel": "6.6.110",
+    "package_abi": "7b6e534b726d3806dc7bdd177cff3504",
+    "kernel_package_version": "6.6.110~7b6e534b726d3806dc7bdd177cff3504-r1",
+    "module_count": 280,
+    "kmod_package_count": 154,
+    "vermagic": "6.6.110 SMP mod_unload aarch64",
+    "module_package_count": 118,
+    "builtin_package_count": 36,
+    "symbol_versions_enabled": false,
+    "symbol_crcs_checked": 0
+  },
+  "official_runtime": {
+    "files": 19,
+    "architecture": "aarch64",
+    "private_loader": true,
+    "global_libraries_preserved": true,
+    "live_cellular_identity_excluded": true,
+    "script_provenance_verified": 19
+  },
+  "factory_wifi": {
+    "source_identical": true,
+    "hardware_mac_ssid": true,
+    "retained_password_preserved": true
+  },
+  "new_image_live_flash": "not_performed"
+}

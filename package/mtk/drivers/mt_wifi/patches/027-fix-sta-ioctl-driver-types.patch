@@ -1,0 +1,11 @@
+--- a/mt_wifi/os/linux/sta_ioctl.c
++++ b/mt_wifi/os/linux/sta_ioctl.c
+@@ -27,7 +27,7 @@
+ 	Rory Chen   02-14-2005    modify to support RT61
+ */
+ 
+-#define RTMP_MODULE_OS
++#include "rt_config.h"
+ 
+ #include "rtmp_comm.h"
+ #include "rt_os_util.h"

@@ -1,0 +1,27 @@
+<%+header%>
+<%+myos_c8_modem/menu%>
+<div class="c8-cellular" data-c8-cellular="diagnostics" data-status-url="<%=luci.dispatcher.build_url('admin','modem','status')%>">
+ <div class="c8-cellular-heading"><h2>网络诊断</h2><button type="button" class="c8-refresh" data-refresh title="刷新诊断" aria-label="刷新诊断">&#8635;</button></div>
+ <div class="c8-cache-note" data-cache-note role="status" aria-live="polite">正在获取诊断</div>
+ <div class="c8-columns">
+  <section class="c8-section"><h3>采集状态</h3><dl class="c8-details">
+   <div><dt>数据来源</dt><dd data-field="source">--</dd></div><div><dt>缓存状态</dt><dd data-field="cache-state">--</dd></div>
+   <div><dt>采样时间</dt><dd data-field="sampled-at">--</dd></div><div><dt>缓存年龄</dt><dd data-field="cache-age">--</dd></div>
+   <div><dt>模组识别</dt><dd data-field="supported">未知</dd></div><div><dt>采集错误</dt><dd data-field="error">--</dd></div>
+  </dl></section>
+  <section class="c8-section"><h3>设备与路由</h3><dl class="c8-details">
+   <div><dt>USB ID</dt><dd data-field="hwid">--</dd></div><div><dt>AT 通道</dt><dd data-field="endpoint">--</dd></div>
+   <div><dt>网络设备</dt><dd data-field="device">--</dd></div><div><dt>数据 CID</dt><dd data-field="cid">--</dd></div>
+   <div><dt>网关</dt><dd data-field="gateway">--</dd></div><div><dt>默认路由</dt><dd data-field="route-detail">--</dd></div>
+  </dl></section>
+  <section class="c8-section"><h3>SIM 与配置</h3><dl class="c8-details">
+   <div><dt>物理卡槽</dt><dd data-field="sim">未知</dd></div><div><dt>卡槽来源</dt><dd data-field="slot-source">--</dd></div>
+   <div><dt>保存卡槽</dt><dd data-field="configured-slot">--</dd></div><div><dt>保存策略</dt><dd data-field="policy">--</dd></div>
+   <div><dt>策略状态</dt><dd data-field="application-state">--</dd></div>
+  </dl></section>
+ </div>
+ <details class="c8-section"><summary>采集原始数据</summary><pre class="c8-snapshot" data-snapshot>--</pre></details>
+</div>
+<% local base = (resource or "/luci-static/resources"):gsub("/resources/?$", "") %>
+<script src="<%=base%>/myos/c8-cellular.js?v=1"></script>
+<%+footer%>

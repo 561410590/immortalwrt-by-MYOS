@@ -1,0 +1,226 @@
+#!/bin/sh
+
+kill_cloud_processes() {
+	local pid self
+	self="$$"
+	/etc/init.d/myos-nros-app stop >/dev/null 2>&1 || true
+	/etc/init.d/myos-nros-mqtt stop >/dev/null 2>&1 || true
+	ubus call service delete '{"name":"myos-nros-app"}' >/dev/null 2>&1 || true
+	ubus call service delete '{"name":"myos-nros-mqtt"}' >/dev/null 2>&1 || true
+	for pid in $(pgrep -f '/usr/sbin/myos-nros-app-agent' 2>/dev/null); do
+		[ "$pid" = "$self" ] || kill "$pid" 2>/dev/null || true
+	done
+	for pid in $(pidof mosquitto 2>/dev/null); do
+		kill "$pid" 2>/dev/null || true
+	done
+	sleep 1
+	for pid in $(pgrep -f '/usr/sbin/myos-nros-app-agent' 2>/dev/null); do
+		[ "$pid" = "$self" ] || kill -9 "$pid" 2>/dev/null || true
+	done
+	for pid in $(pidof mosquitto 2>/dev/null); do
+		kill -9 "$pid" 2>/dev/null || true
+	done
+}
+
+normalize_label_mac() {
+	local mac
+	mac="$(printf '%s' "$1" | tr -d '[:space:]:-' | tr 'a-f' 'A-F')"
+	printf '%s' "$mac" | grep -qE '^[0-9A-F]{12}$' || return 1
+	mac="$(printf '%s\n' "$mac" | sed 's/../&:/g;s/:$//')"
+	case "$mac" in
+		'00:00:00:00:00:00'|'FF:FF:FF:FF:FF:FF'|'00:66:88:00:00:00') return 1 ;;
+	esac
+	printf '%s\n' "$mac"
+}
+
+apply_manual_mac() {
+	local mac id password username address enabled
+	mac="$(normalize_label_mac "$1")" || {
+		printf '%s\n' 'invalid label MAC' >&2
+		return 2
+	}
+	id="$(printf '%s' "$mac" | tr -d ':')"
+	password="$(uci -q get mosquitto.bridge.remote_password 2>/dev/null || true)"
+	username=router
+	address="$id.dev.nradio.com.cn"
+	if printf '%s' "$password" | grep -qE '^[0-9A-Fa-f]{32}$'; then
+		username="$id"
+		address="$id.pro.nradio.com.cn"
+	fi
+	enabled="$(uci -q get myos_nros.main.enabled 2>/dev/null || printf 0)"
+	uci -q batch <<UCI
+set myos_nros.main.manual_mac='$mac'
+set oem.board.id='$mac'
+set mosquitto.bridge.connection='$id'
+set mosquitto.bridge.remote_clientid='$id'
+set mosquitto.bridge.remote_username='$username'
+set mosquitto.bridge.address='$address'
+delete mosquitto.bridge.topic
+add_list mosquitto.bridge.topic='sysinfo/# out 1 "" $id/'
+add_list mosquitto.bridge.topic='exec/# both 1 rpc/ $id/'
+add_list mosquitto.bridge.topic='kp/mosca/$id/# out 1 "" ""'
+add_list mosquitto.bridge.topic='kp/$id/+/# in 1 "" ""'
+add_list mosquitto.bridge.topic='mosca/# in 1 kp/$id/ kp/FFFFFFFFFFFF/'
+commit myos_nros
+commit oem
+commit mosquitto
+UCI
+	rm -rf /tmp/myos-nradio-data /tmp/myos-nradio-app-auth* \
+		/tmp/myos-nradio-app-summary.json /tmp/myos-nradio-app-response-* 2>/dev/null || true
+	if [ "$enabled" = "1" ]; then
+		enable_cloud
+	else
+		disable_cloud
+	fi
+	printf '%s\n' "$mac"
+}
+
+publish_offline() {
+	/usr/bin/lua <<'LUA' >/dev/null 2>&1 || true
+local mosq = require "mosquitto"
+local ok_json, cjson = pcall(require, "cjson.safe")
+if not ok_json then cjson = require "cjson" end
+local uci = require "luci.model.uci".cursor()
+
+local function trim(v) return (tostring(v or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
+local function identity_from_blob(path, key)
+	local f = io.open(path, "rb")
+	if not f then return "" end
+	local data = f:read(65536) or ""
+	f:close()
+	for entry in data:gmatch("[^%z\r\n]+") do
+		local k, v = entry:match("^%s*([%w_]+)%s*=%s*(.-)%s*$")
+		if k == key then return trim(v) end
+	end
+	return ""
+end
+local function bd_dev()
+	local f = io.open("/proc/mtd", "r")
+	if f then
+		for line in f:lines() do
+			local dev = line:match("^(mtd%d+):")
+			local name = line:match('"(.-)"')
+			if dev and name and (name:match("bdinfo") or name:match("oeminfo")) then f:close(); return "/dev/" .. dev end
+		end
+		f:close()
+	end
+	local p = io.popen("blkid -t PARTLABEL=bdinfo -o device 2>/dev/null")
+	if p then local dev = trim(p:read("*l") or ""); p:close(); if dev ~= "" then return dev end end
+	p = io.popen("[ -e /dev/disk/by-partlabel/bdinfo ] && readlink -f /dev/disk/by-partlabel/bdinfo 2>/dev/null")
+	if p then local dev = trim(p:read("*l") or ""); p:close(); if dev ~= "" then return dev end end
+	return nil
+end
+local function identity_get(key)
+	for _, path in ipairs({"/mnt/app_data/bdinfo", "/etc/bdinfo.bin", "/bdinfo/bdinfo.bin"}) do
+		local v = identity_from_blob(path, key)
+		if v ~= "" then return v end
+	end
+	local dev = bd_dev()
+	if dev then
+		local v = identity_from_blob(dev, key)
+		if v ~= "" then return v end
+	end
+	for _, path in ipairs({"/etc/nradio/identity", "/boot/nradio-identity"}) do
+		local v = identity_from_blob(path, key)
+		if v ~= "" then return v end
+	end
+	return ""
+end
+local function normalize_mac(v)
+	local mac = trim(v):gsub(":", ""):upper()
+	mac = mac:gsub("%-MYOS$", "")
+	if mac:match("^%x%x%x%x%x%x%x%x%x%x%x%x$") then return mac:gsub("(%x%x)", "%1:"):sub(1, 17) end
+	return trim(v):upper()
+end
+local function valid_mac(v) return tostring(v or ""):match("^%x%x:%x%x:%x%x:%x%x:%x%x:%x%x$") ~= nil end
+local function placeholder_mac(mac)
+	mac = normalize_mac(mac)
+	return mac == "" or mac == "00:00:00:00:00:00" or mac == "FF:FF:FF:FF:FF:FF" or mac == "00:66:88:00:00:00"
+end
+local function valid_identity_mac(mac) return valid_mac(mac) and not placeholder_mac(mac) end
+local function device_id()
+	local mac = normalize_mac(uci:get("myos_nros", "main", "manual_mac") or "")
+	if not valid_identity_mac(mac) then mac = normalize_mac(uci:get("oem", "board", "id") or "") end
+	if not valid_identity_mac(mac) then mac = normalize_mac(identity_get("fac_mac")) end
+	if not valid_identity_mac(mac) then mac = normalize_mac(identity_get("mac")) end
+	if not valid_identity_mac(mac) then mac = normalize_mac(uci:get("mosquitto", "bridge", "remote_clientid") or "") end
+	if not valid_identity_mac(mac) then return "" end
+	return mac:gsub(":", ""):upper()
+end
+
+local id = device_id()
+if id == "" then os.exit(0) end
+local client = mosq.new("myos-nros-offline-" .. id .. "-" .. tostring(os.time()))
+local sent = false
+local function publish(topic, data, retain)
+	data = data or {}
+	if not data.uniq then data.uniq = tostring(os.time()) end
+	local ok, payload = pcall(cjson.encode, data)
+	if ok and payload then client:publish(topic, payload, 0, retain and true or false) end
+end
+client.ON_CONNECT = function()
+	local offline = { id = id, state = 0, online = 0, status = "offline" }
+	publish("sysinfo/device_info", offline, true)
+	publish("sysinfo/status", offline, true)
+	publish("kp/FFFFFFFFFFFF/" .. id .. "/status", offline, true)
+	publish("kp/mosca/" .. id .. "/status", offline, true)
+	publish("kp/mosca/" .. id .. "/reply/device_info", offline, true)
+	publish("kp/mosca/" .. id .. "/reply/cpeinfo", { id = id, code = 0, up = 0, status = -1, state = 0, online = 0 }, true)
+	sent = true
+end
+if pcall(function() client:connect("127.0.0.1") end) then
+	local deadline = os.time() + 3
+	while os.time() <= deadline do
+		pcall(function() client:loop(100, 1) end)
+		if sent then break end
+	end
+	pcall(function() client:disconnect() end)
+end
+LUA
+}
+
+enable_cloud() {
+	uci -q set myos_nros.main='cloud'
+	uci -q set myos_nros.main.local_enabled='1'
+	uci -q set myos_nros.main.enabled='1'
+	uci -q commit myos_nros
+	/etc/init.d/myos-nros-mqtt enable >/dev/null 2>&1 || true
+	/etc/init.d/myos-nros-app enable >/dev/null 2>&1 || true
+	/etc/init.d/myos-nros-mqtt restart >/dev/null 2>&1 || true
+	/etc/init.d/myos-nros-app restart >/dev/null 2>&1 || true
+}
+
+disable_cloud() {
+	uci -q set myos_nros.main='cloud'
+	uci -q set myos_nros.main.enabled='0'
+	uci -q commit myos_nros
+	sleep 1
+	publish_offline
+	/etc/init.d/myos-nros-mqtt disable >/dev/null 2>&1 || true
+	rm -f /etc/rc.d/S30myos-nros-mqtt /etc/rc.d/K70myos-nros-mqtt
+	kill_cloud_processes
+	/etc/init.d/myos-nros-app enable >/dev/null 2>&1 || true
+	/etc/init.d/myos-nros-app restart >/dev/null 2>&1 || true
+	rm -rf /tmp/myos-nradio-app-auth* /tmp/myos-nradio-app-summary.json /tmp/myos-nradio-app-response-* 2>/dev/null || true
+}
+
+case "${1:-status}" in
+	enable) enable_cloud ;;
+	disable) disable_cloud ;;
+	set-mac)
+		[ "$#" -eq 2 ] || { printf 'usage: %s set-mac MAC\n' "$0" >&2; exit 2; }
+		apply_manual_mac "$2"
+		;;
+	normalize-mac)
+		[ "$#" -eq 2 ] || exit 2
+		normalize_label_mac "$2"
+		;;
+	status)
+		printf 'local_enabled=%s\n' "$(uci -q get myos_nros.main.local_enabled 2>/dev/null || printf 1)"
+		printf 'enabled=%s\n' "$(uci -q get myos_nros.main.enabled 2>/dev/null || printf 0)"
+		printf 'remote_web_enabled=%s\n' "$(uci -q get myos_nros.main.remote_web_enabled 2>/dev/null || printf 0)"
+		printf 'mosquitto=%s\n' "$(pidof mosquitto 2>/dev/null || true)"
+		pgrep -af '/usr/sbin/myos-nros-app-agent' 2>/dev/null || true
+		;;
+	*) printf 'usage: %s {enable|disable|status|set-mac MAC|normalize-mac MAC}\n' "$0" >&2; exit 1 ;;
+esac

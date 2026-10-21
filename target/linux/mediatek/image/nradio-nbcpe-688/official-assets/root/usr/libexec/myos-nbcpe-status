@@ -1,0 +1,424 @@
+#!/usr/bin/python3
+"""Expose the stock AK68 status cache to MYOS without issuing AT commands."""
+
+import argparse
+import csv
+import html
+import json
+import math
+import os
+import re
+import subprocess
+import time
+from pathlib import Path
+
+
+CACHE_PATH = "tmp/cpe_cell-AK68.file"
+RADIO_PATH = "tmp/myos-nbcpe-radio.json"
+LINE_NAMES = (
+    "manufacturer", "name", "revision", "temperature", "cached_at",
+    "sim_label", "ISP", "IMEI", "IMSI", "ICCID", "phone",
+    "network_mode", "signal_percent", "RSSI", "RSRQ", "RSRP", "SINR",
+    "plmn", "LAC", "CID", "Band", "ARFCN", "PCI", "APN",
+    "downlink", "uplink", "QCI", "carrier_aggregation", "ca2", "ca3",
+)
+EMPTY_VALUES = {"", "-", "--", "n/a", "null", "none", "unknown"}
+
+
+def clean(value):
+    value = html.unescape(re.sub(r"<[^>]*>", " ", value))
+    return " ".join(value.replace("\x00", "").split())[:2048]
+
+
+def number(value):
+    match = re.search(r"(?<![\w.])-?\d+(?:\.\d+)?", clean(value))
+    if not match:
+        return None
+    value = float(match.group())
+    if not math.isfinite(value) or value in (-32768, -999):
+        return None
+    return int(value) if value.is_integer() else value
+
+
+def parse_cache(text):
+    lines = text.replace("\r", "").splitlines()
+    if not lines:
+        return {}, "missing"
+    if "未检测到信息" in lines[0]:
+        return {
+            "name": clean(lines[1]) if len(lines) > 1 else "",
+            "manufacturer": clean(lines[2]) if len(lines) > 2 else "",
+            "sim_status": "未检测到SIM卡",
+        }, "no_sim"
+    # The stock writer redirects its output directly into this file. A short
+    # snapshot can be a write in progress and must not shift the line mapping.
+    if len(lines) < len(LINE_NAMES):
+        return {}, "partial"
+    values = dict(zip(LINE_NAMES, (clean(v) for v in lines)))
+    for key in ("temperature", "RSRQ", "RSRP", "SINR"):
+        raw = values[key]
+        parsed = number(raw)
+        values[key] = parsed if parsed is not None else ""
+        if raw:
+            values[key + "_raw"] = raw
+    match = re.search(r"(?i)(?<![\w])([bn]?)(\d{1,3})(?!\d)", values["Band"])
+    if match:
+        values["Band_raw"] = values["Band"]
+        values["Band"] = match.group(1).lower() + match.group(2)
+    match = re.search(r"(\d{3})\s*/\s*(\d{1,3})", values.pop("plmn"))
+    if match:
+        values["MCC"], values["MNC"] = match.groups()
+    return values, "complete"
+
+
+def read_text(root, relative, maximum=65536):
+    try:
+        with (root / relative).open("r", encoding="utf-8", errors="replace") as handle:
+            return handle.read(maximum)
+    except OSError:
+        return ""
+
+
+def cached_apn(radio, now=None):
+    """Read the fresh ODU context name; never issue another modem query."""
+    if not isinstance(radio, dict):
+        return ""
+    try:
+        age = max(0, int((time.time() if now is None else now) - radio["sampled_at"]))
+    except (KeyError, TypeError, ValueError):
+        return ""
+    dial = radio.get("dial")
+    if age > 120 or not isinstance(dial, dict) or dial.get("cid") != 8:
+        return ""
+    apn = dial.get("apn")
+    return clean(apn) if isinstance(apn, str) else ""
+
+
+def network_connection(network):
+    """Return the official ODU data-plane route without issuing modem probes."""
+    candidates = []
+    for interface in network.get("interface", []):
+        device = interface.get("l3_device") or interface.get("device") or ""
+        if device.split(".", 1)[0] == "port5":
+            candidates.append(interface)
+    if not candidates:
+        return "", {}
+    for interface in candidates:
+        route = next((r for r in interface.get("route", [])
+                      if r.get("target") == "0.0.0.0" and str(r.get("mask")) == "0"), None)
+        addresses = interface.get("ipv4-address", [])
+        if interface.get("up") is True and addresses and route:
+            return "Yes", {
+                "interface": interface.get("interface", ""),
+                "device": interface.get("l3_device") or interface.get("device"),
+                "ipv4": addresses[0].get("address", ""),
+                "gateway": route.get("nexthop", ""),
+                "basis": "port5 ODU interface up with IPv4 address and default route",
+            }
+    if all(interface.get("up") is False for interface in candidates):
+        return "No", {"basis": "port5 ODU interface down"}
+    return "", {"basis": "port5 ODU has no verified IPv4 default route"}
+
+
+def read_network():
+    try:
+        result = subprocess.run(
+            ["ubus", "call", "network.interface", "dump"],
+            capture_output=True, text=True, timeout=2, check=False,
+        )
+        if result.returncode == 0:
+            value = json.loads(result.stdout)
+            return value if isinstance(value, dict) else {}
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        pass
+    return {}
+
+
+def at_rows(text, prefix):
+    result = []
+    for line in text.replace("\r", "").splitlines():
+        if line.strip().startswith(prefix + ":"):
+            try:
+                result.append(next(csv.reader([line.split(":", 1)[1].strip()], skipinitialspace=True)))
+            except (csv.Error, StopIteration):
+                pass
+    return result
+
+
+def parse_registration(text, prefix):
+    rows = at_rows(text, prefix)
+    # Read commands return <n>,<stat>; unsolicited reports return <stat>.
+    try:
+        status = int(rows[-1][1])
+    except (IndexError, ValueError):
+        return {"registered": None, "status": None, "label": "未知", "mode": prefix[1:]}
+    labels = {0: "未注册", 1: "已注册", 2: "正在搜索", 3: "注册被拒绝", 4: "状态未知", 5: "漫游注册"}
+    return {"registered": True if status in (1, 5) else False if status in (0, 2, 3) else None, "status": status,
+            "label": labels.get(status, "状态码 " + str(status)), "mode": prefix[1:]}
+
+
+def parse_sessions(ndis, dconn, cid=8):
+    sessions = {}
+    for row in at_rows(ndis, "^NDISSTATQRY"):
+        try:
+            key = int(row[0])
+        except (IndexError, ValueError):
+            continue
+        entry = sessions.setdefault(key, {"cid": key, "ipv4_connected": None,
+                                         "ipv6_connected": None, "apn": "", "dconn_type": None})
+        for offset in (1, 5):
+            if len(row) > offset + 3 and row[offset] in ("0", "1"):
+                kind = row[offset + 3].upper()
+                if kind in ("IPV4", "IPV6"):
+                    entry[kind.lower() + "_connected"] = row[offset] == "1"
+    for row in at_rows(dconn, "^DCONNSTAT"):
+        try:
+            key = int(row[0])
+        except (IndexError, ValueError):
+            continue
+        entry = sessions.setdefault(key, {"cid": key, "ipv4_connected": None,
+                                         "ipv6_connected": None, "apn": "", "dconn_type": None})
+        if len(row) >= 5 and row[2] in ("0", "1") and row[3] in ("0", "1"):
+            entry.update(apn=clean(row[1]), ipv4_connected=row[2] == "1",
+                         ipv6_connected=row[3] == "1", dconn_type=number(row[4]))
+        elif len(row) == 1:
+            entry.update(ipv4_connected=False, ipv6_connected=False)
+    selected = sessions.get(cid, {})
+    states = [selected.get("ipv4_connected"), selected.get("ipv6_connected")]
+    connected = True if True in states else False if all(v is False for v in states) else None
+    pdp = "IPv4/IPv6" if all(v is True for v in states) else "IPv4" if states[0] is True else "IPv6" if states[1] is True else ""
+    return {"connected": connected, "pdp_type": pdp, "apn": selected.get("apn", ""),
+            "cid": cid, "sessions": list(sessions.values())}
+
+
+def query_at(command):
+    try:
+        result = subprocess.run(["/usr/bin/atsd_tools_cli", "-i", "cpe", "-c", command],
+                                capture_output=True, text=True, timeout=8, check=False)
+        return result.stdout if result.returncode == 0 else ""
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def identified_modem(root):
+    modem = read_text(root, "tmp/modconf-AK68.conf", 256)
+    if str(root) != "/":
+        return modem
+    try:
+        identity = json.loads(read_text(root, "tmp/infocd/cache/cpe_dev"))
+        parameter = identity.get("parameter", {}) if isinstance(identity, dict) else {}
+        if not isinstance(parameter, dict) or parameter.get("driver") != "odu" or parameter.get("alias") != "mt5700":
+            return modem
+        mode = subprocess.run(["uci", "-q", "get", "network.cpe.mode"], capture_output=True,
+                              text=True, timeout=2, check=False)
+        if mode.returncode == 0 and mode.stdout.strip() == "odu":
+            return "MT5700"
+    except (ValueError, OSError, subprocess.TimeoutExpired):
+        pass
+    return modem
+
+
+def refresh_radio(root):
+    # Only the single cache owner invokes this command. Browser status reads
+    # remain passive. NBCPE's MT5700 ODU Ethernet data channel is CID 8.
+    modem = identified_modem(root)
+    if "MT5700" not in modem or str(root) != "/":
+        return
+    radio = {"nr": parse_registration(query_at("AT+C5GREG?"), "+C5GREG"),
+             "lte": parse_registration(query_at("AT+CEREG?"), "+CEREG"),
+             "dial": parse_sessions(query_at("AT^NDISSTATQRY?"), query_at("AT^DCONNSTAT?"))}
+    radio["sampled_at"] = int(time.time())
+    destination = root / RADIO_PATH
+    pending = destination.with_suffix(".new")
+    try:
+        pending.write_text(json.dumps(radio, ensure_ascii=False, allow_nan=False), encoding="utf-8")
+        pending.replace(destination)
+    except OSError:
+        pass
+
+
+def network_details(network):
+    interfaces = (network or {}).get("interface", [])
+    candidates = [i for i in interfaces if (i.get("l3_device") or i.get("device") or "").split(".", 1)[0] == "port5"]
+    def default_routes(interface):
+        return [r for r in interface.get("route", []) if r.get("target") in ("0.0.0.0", "::") and str(r.get("mask")) == "0"]
+    selected = next((i for i in candidates if i.get("up") is True and default_routes(i) and
+                     (i.get("ipv4-address") or i.get("ipv6-address"))), candidates[0] if candidates else {})
+    defaults = [(r.get("metric", 0), i) for i in interfaces if i.get("up") is True
+                for r in default_routes(i) if not r.get("table") or str(r.get("table")) in ("254", "main")]
+    defaults.sort(key=lambda item: int(item[0] or 0))
+    ipv4 = selected.get("ipv4-address", [])
+    ipv6 = selected.get("ipv6-address", [])
+    return {"device": selected.get("l3_device") or selected.get("device") or "",
+            "interface": selected.get("interface", ""), "up": selected.get("up") is True,
+            "ipv4": ipv4[0].get("address", "") if ipv4 else "",
+            "ipv6": [item.get("address", "") for item in ipv6],
+            "default_route": bool(default_routes(selected)),
+            "default_route_device": (defaults[0][1].get("l3_device") or defaults[0][1].get("device") or "") if defaults else "",
+            "basis": "netifd ODU interface, address and route snapshot"}
+
+
+def build_status(text, age, network=None, modem_type="", sim_slot="", radio=None, now=None):
+    values, cache_state = parse_cache(text)
+    sim_slot = sim_slot.strip().splitlines()[-1] if sim_slot.strip() else ""
+    sim_label = values.get("sim_label", "")
+    if not sim_label or sim_label == "SIM未读取":
+        sim_label = {
+            "0": "外置SIM卡", "1": "内置SIM1", "2": "内置SIM2",
+            "3": "外置SIM2", "4": "外置SIM3", "5": "外置SIM4",
+        }.get(sim_slot.strip(), "")
+    radio = radio if isinstance(radio, dict) else {}
+    try:
+        radio_age = max(0, int((time.time() if now is None else now) - radio["sampled_at"]))
+    except (KeyError, TypeError, ValueError):
+        radio_age = None
+    radio_fresh = radio_age is not None and radio_age <= 120
+    mode = values.get("network_mode", "")
+    registration = dict(radio.get("nr" if "NR" in mode.upper() else "lte") or {}) if radio_fresh else {}
+    registration = {"registered": registration.get("registered"), "status": registration.get("status"),
+                    "label": registration.get("label", "未知"), "mode": registration.get("mode", "")}
+    dial = dict(radio.get("dial") or {}) if radio_fresh else {}
+    dial = {"connected": dial.get("connected"), "pdp_type": dial.get("pdp_type", ""),
+            "apn": dial.get("apn", ""), "cid": dial.get("cid"), "sessions": dial.get("sessions", [])}
+    link = network_details(network)
+    verified_link = link["up"] and bool(link["ipv4"] or link["ipv6"]) and link["default_route"]
+    connection = "Yes" if registration["registered"] is True and dial["connected"] is True and verified_link else ""
+    if registration["registered"] is False or dial["connected"] is False:
+        connection = "No"
+    evidence = {"basis": "registration, CID data session and ODU address/default route",
+                "registered": registration["registered"], "dial_connected": dial["connected"],
+                "data_plane": bool(verified_link)}
+    if cache_state == "no_sim":
+        connection = "No"
+        registration.update(registered=False, label="未检测到SIM卡")
+        dial["connected"] = False
+        evidence = {"basis": "stock cache reports no SIM"}
+    if connection:
+        values["connect_status"] = connection
+    entries = [{"key": key, "value": value} for key, value in values.items()
+               if value is not None and str(value).lower() not in EMPTY_VALUES]
+    sources = []
+    if cache_state in ("complete", "no_sim"):
+        sources.append({
+            "kind": "cell", "age": age, "stale": age is None or age > 120,
+            "entries": entries,
+        })
+    return {
+        "section": "AK68", "cache_only": True, "sources": sources,
+        "sim_label": sim_label, "connect_status": connection,
+        "connect_evidence": evidence, "cache_state": cache_state,
+        "registration": registration, "dial": dial, "network": link, "radio_age": radio_age,
+        "serving_cell": {"mode": values.get("network_mode", ""),
+                         "mcc": values.get("MCC", ""), "mnc": values.get("MNC", ""),
+                         "tac": values.get("LAC", ""), "cellid": values.get("CID", ""),
+                         "pci": values.get("PCI", ""), "arfcn": values.get("ARFCN", ""),
+                         "band": values.get("Band", ""), "rsrp": values.get("RSRP"),
+                         "rsrq": values.get("RSRQ"), "sinr": values.get("SINR")},
+        "carriers": [values[key] for key in ("carrier_aggregation", "ca2", "ca3")
+                     if values.get(key) and "Loss" not in values[key]],
+        "cache": {"age": age, "stale": age is None or age > 120, "state": cache_state},
+        "modem_type": modem_type.strip(),
+        "sim_slot": sim_slot.strip(),
+        "interfaces": [{key: interface[key] for key in (
+            "interface", "up", "uptime", "device", "l3_device",
+            "ipv4-address", "ipv6-address", "dns-server", "route",
+        ) if key in interface} for interface in (network or {}).get("interface", [])
+            if (interface.get("l3_device") or interface.get("device") or "")
+            .split(".", 1)[0] == "port5"],
+        "summary": {
+            "model": values.get("name", ""),
+            "manufacturer": values.get("manufacturer", ""),
+            "revision": values.get("revision", ""),
+            "network_mode": values.get("network_mode", ""),
+            "operator": values.get("ISP", ""),
+            "rsrp": values.get("RSRP"), "rsrq": values.get("RSRQ"),
+            "sinr": values.get("SINR"), "band": values.get("Band", ""),
+            "cache_age": age, "cache_state": cache_state,
+        },
+    }
+
+
+def dashboard_snapshot(status):
+    summary = status.get("summary", {})
+    cell = status.get("serving_cell", {})
+    fresh = status.get("cache", {}).get("stale") is False and status.get("cache_state") in ("complete", "no_sim")
+    age = status.get("radio_age")
+    radio_fresh = isinstance(age, int) and 0 <= age <= 120
+    connection = {"Yes": True, "No": False}.get(status.get("connect_status"))
+    def field(value, maximum):
+        return value if isinstance(value, str) and 0 < len(value) <= maximum else None
+    cellular = {"present": status.get("cache_state") in ("complete", "no_sim"), "section": "AK68",
+                "module": field(summary.get("model"), 64), "manufacturer": field(summary.get("manufacturer"), 64),
+                "revision": field(summary.get("revision"), 64),
+                "connected": connection if fresh and (radio_fresh or status.get("cache_state") == "no_sim") else None,
+                "operator": field(summary.get("operator"), 64) if fresh else None, "scs": None,
+                "sim_ready": (False if status.get("cache_state") == "no_sim" else
+                              True if radio_fresh and status.get("registration", {}).get("registered") is True else None) if fresh else None,
+                "updated": int(time.time()) - status["cache"]["age"] if fresh else None}
+    for target, source, maximum in (("tech", "mode", 24), ("rat", "mode", 24), ("mcc", "mcc", 8),
+                                    ("mnc", "mnc", 8), ("cell_id", "cellid", 32), ("pci", "pci", 16),
+                                    ("tac", "tac", 16), ("arfcn", "arfcn", 16), ("band", "band", 16)):
+        cellular[target] = field(cell.get(source), maximum) if fresh else None
+    for key in ("rsrp", "rsrq", "sinr"):
+        value = cell.get(key)
+        cellular[key] = value if fresh and type(value) in (int, float) else None
+    temperature = None
+    if fresh and status.get("cache_state") == "complete":
+        for source in status.get("sources", []):
+            for entry in source.get("entries", []):
+                value = entry.get("value")
+                if entry.get("key") == "temperature" and type(value) in (int, float) and -40 <= value <= 150:
+                    temperature = int(value * 1000)
+    return {"sampled_at": int(time.time()), "cellular": cellular, "modem_temp_mc": temperature}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", nargs="?", choices=("summary", "status", "refresh-radio", "apn", "dashboard"), default="status")
+    parser.add_argument("--root", type=Path, default=Path("/"),
+                        help="Read a staged filesystem instead of the running system")
+    arguments = parser.parse_args()
+    root = arguments.root
+    if arguments.command == "refresh-radio":
+        refresh_radio(root)
+        return
+    if arguments.command == "apn":
+        try:
+            radio = json.loads(read_text(root, RADIO_PATH))
+        except ValueError:
+            radio = {}
+        print(cached_apn(radio))
+        return
+    text = ""
+    age = None
+    try:
+        with (root / CACHE_PATH).open("r", encoding="utf-8", errors="replace") as handle:
+            before = os.fstat(handle.fileno())
+            text = handle.read(65536)
+            after = os.fstat(handle.fileno())
+        if (before.st_mtime_ns, before.st_size) != (after.st_mtime_ns, after.st_size):
+            text = ""
+        else:
+            age = max(0, int(time.time() - after.st_mtime))
+    except OSError:
+        pass
+    network = read_network() if os.name == "posix" and str(root) == "/" else {}
+    try:
+        radio = json.loads(read_text(root, RADIO_PATH))
+    except ValueError:
+        radio = {}
+    result = build_status(text, age, network,
+                          identified_modem(root),
+                          read_text(root, "tmp/sim_sel-AK68", 64).strip()
+                          or read_text(root, "tmp/sim_sel_AK68", 64).strip(), radio)
+    if arguments.command == "dashboard":
+        destination = root / "tmp/myos-nbcpe-dashboard.json"
+        pending = destination.with_suffix(".new")
+        pending.write_text(json.dumps(dashboard_snapshot(result), ensure_ascii=False, allow_nan=False), encoding="utf-8")
+        pending.replace(destination)
+        return
+    print(json.dumps(result, ensure_ascii=False, allow_nan=False, separators=(",", ":")))
+
+
+if __name__ == "__main__":
+    main()

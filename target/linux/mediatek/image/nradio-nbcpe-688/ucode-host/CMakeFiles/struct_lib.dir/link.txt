@@ -1,0 +1,1 @@
+/usr/bin/cc -fPIC -shared  -o struct.so CMakeFiles/struct_lib.dir/lib/struct.c.o 

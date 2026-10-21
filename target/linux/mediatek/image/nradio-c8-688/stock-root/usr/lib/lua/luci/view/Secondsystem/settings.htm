@@ -1,0 +1,135 @@
+<%+header%>
+
+<style>
+    #switch-page {
+        background: linear-gradient(to bottom, #606060, #000000);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        color: white;
+        font-family: Arial, sans-serif;
+        position: relative;
+    }
+
+    #switch-page > div {
+        text-align: center;
+        padding: 20px;
+    }
+
+    .close-button {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background-color: #d32f2f;
+        color: white;
+        padding: 5px 10px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+    }
+    .close-button:hover {
+        background-color: #f44336;
+    }
+
+    .large-button {
+        font-size: 25px;
+        text-align: center;
+        padding: 10px 20px;
+        margin-top: 20px;
+        background-color: #ff9900;
+        color: rgb(0, 0, 0);
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+    }
+    .large-button:hover {
+        background-color: #d32f2f;
+    }
+
+    #switch-page h2, #switch-page h3, #switch-page h4 {
+        margin: 0;
+        background: transparent !important;
+        border: none !important;
+        padding: 0.3em 0;
+    }
+
+    .hidden {
+        display: none;
+    }
+
+    .spacer {
+        height: 1em;
+    }
+</style>
+
+<div id="switch-page">
+    <div>
+        <button onclick="goBack()" class="close-button">返回系统页面</button>
+
+        <h2 style="color: rgb(172, 174, 174);">按键切换到官方系统方式：断电-顶住Reset键(旧版按住WPS键)-接通电源-等待系统电源灯亮起后，马上松开按键-切换成功</h2>
+        <div class="spacer"></div>
+        <h2 style="color: rgb(165, 165, 165);">正在使用第二OP系统,请选择操作:</h2>
+        <div class="spacer"></div>
+        <div class="spacer"></div>
+        <div class="spacer"></div>
+
+        <button class="large-button" onclick="switchToOfficial()">点击切换到官方系统</button>
+        <div class="spacer"></div>
+        <button class="large-button" onclick="rebootSystem()">重启系统（含模组）</button>
+
+        <div class="spacer"></div><div class="spacer"></div><div class="spacer"></div><div class="spacer"></div><div class="spacer"></div>
+        <h2 style="color: rgb(255, 0, 0);">注意:切换系统后WIFI名称和设置与OP系统可能不同，请注意区分！</h2>
+        <h5 style="color: grey;">C8-/660/668/650/C5800/NB68/688-CPE Systemswitch by:zcy-Manper</h5>
+
+        <div id="countdown" class="hidden">正在切换到官方系统，请看到电源灯常亮后刷新此页面，请等待120S...</div>
+        <div id="rebootCountdown" class="hidden">正在重启C8-688，请看到电源灯常亮后刷新此页面，请等待120S...</div>
+    </div>
+</div>
+
+<script type="text/javascript">
+    function goBack() {
+        window.history.back();
+    }
+
+    function switchToOfficial() {
+        if (!confirm('你确定需要切回到官方系统吗？')) return;
+        document.getElementById('countdown').classList.remove('hidden');
+
+        XHR.get('<%= luci.dispatcher.build_url("admin", "system", "Secondsystem", "switch") %>', 
+            { confirm: 'yes' }, 
+            function(x, rv) {
+                startCountdown('countdown', '正在切换到官方系统，请看到电源灯常亮后刷新此页面，请等待', 'http://192.168.66.1/');
+            }
+        );
+    }
+
+    function rebootSystem() {
+        if (!confirm('你确定需要重启系统吗？')) return;
+        document.getElementById('rebootCountdown').classList.remove('hidden');
+
+        XHR.get('<%= luci.dispatcher.build_url("admin", "system", "Secondsystem", "reboots") %>', 
+            { confirm: 'yes' }, 
+            function(x, rv) {
+                startCountdown('rebootCountdown', '正在重启设备，请看到电源灯常亮后刷新此页面，请等待', 'http://192.168.66.1/');
+            }
+        );
+    }
+
+    function startCountdown(elementId, textPrefix, redirectUrl) {
+        var countdownElem = document.getElementById(elementId);
+        var count = 130;
+        countdownElem.textContent = textPrefix + count + "S...";
+        var timer = setInterval(function () {
+            count--;
+            countdownElem.textContent = textPrefix + count + "S...";
+            if (count < 0) {
+                clearInterval(timer);
+                window.location.href = redirectUrl;
+            }
+        }, 1000);
+    }
+</script>
+
+<%+footer%>

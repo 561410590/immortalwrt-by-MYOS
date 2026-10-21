@@ -1,0 +1,34 @@
+{
+  "luci-theme-c2000max-ui": {
+    "description": "MYOS NBCPE-688 dashboard",
+    "read": {
+      "ubus": {
+        "file": ["read"],
+        "luci": ["getMountPoints"],
+        "system": [
+          "info",
+          "board"
+        ],
+        "network.interface": [
+          "dump"
+        ],
+        "network.wireless": [
+          "status"
+        ],
+        "c2000max.ui": [
+          "identity",
+          "modem",
+          "sensors",
+          "clients",
+          "sim"
+        ]
+      },
+      "file": {
+        "/proc/sys/net/netfilter/nf_conntrack_count": ["read"]
+      },
+      "uci": [
+        "c2000max_ui"
+      ]
+    }
+  }
+}

@@ -1,0 +1,122 @@
+#!/bin/sh
+# NBCPE ODU subset of the official cellular_init lifecycle.
+# Metadata/AT/data connection remain owned by official atsd/infocd/WWAN.
+. /lib/functions.sh
+. /usr/share/libubox/jshn.sh
+
+filter_mt5700_revision() {
+	# CGMR can be interleaved with unsolicited ^PLMN/+CEREG reports.
+	# MT5700 firmware revisions are V-prefixed identifiers, never URC lines.
+	tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+		-e 's/^Revision:[[:space:]]*//' -e 's/^+CGMR:[[:space:]]*//' \
+		| grep -E '^V[0-9][[:alnum:]._-]*$' | head -n 1
+}
+
+sync_capabilities() {
+	local model="$1" key value band pci mode
+	json_load "$(cat /etc/freq.json)" || return 1
+	json_select "$model" || return 1
+	for key in nrrc ippass compatibility blacklist_band automatic mobility freq_val freq_text freq_multi nrcap command_equal earfreq_mode sms; do
+		json_get_var value "$key"
+		[ -z "$value" ] || uci -q set "network.cpe.$key=$value"
+	done
+	for key in earfcn4 earfcn5; do
+		if json_select "$key"; then
+			json_get_vars band pci mode
+			uci -q set "network.cpe.$key=$band,$pci,$mode"
+			json_select ..
+		fi
+	done
+	uci -q commit network
+}
+
+initialize_odu() {
+	local info driver ifname configured model revision imei profile atlocal state
+	[ "$(uci -q get network.cpe.disabled)" != 1 ] || return 1
+	[ "$(uci -q get network.cpe.mode)" = odu ] || return 1
+	info=$(ubus call infocd get '{"name":"cpe_dev"}' 2>/dev/null | jsonfilter -e '@.*[@.name="cpe_dev"].parameter')
+	[ -n "$info" ] || return 1
+	driver=$(printf '%s' "$info" | jsonfilter -e '@.driver')
+	ifname=$(printf '%s' "$info" | jsonfilter -e '@.ifname')
+	configured=$(uci -q get network.cpe.phyifname)
+	[ "$driver" = odu ] && [ "$ifname" = "$configured" ] || return 1
+	# Official sniffer (START90) owns this address and its on-link policy route.
+	# Wait in this background instance; do not race it or start a second DHCP client.
+	profile=$(uci -q get network.cpe.odu_model)
+	json_load "$(cat /etc/freq.json)" || return 1
+	json_select "$profile" && json_select odu || return 1
+	json_get_var atlocal atlocal
+	[ -n "$atlocal" ] || return 1
+	ip -4 address show dev "$configured" 2>/dev/null | grep -Fq "inet $atlocal/32 " || return 1
+	ip -4 route show table 250 2>/dev/null | grep -Fq "default dev $configured" || return 1
+	cpetools.sh -i cpe -t 1 -c AT >/dev/null 2>&1 || return 1
+	model=$(cpetools.sh -i cpe -c model 2>/dev/null)
+	[ -n "$model" ] || return 1
+	sync_capabilities "$model" || return 1
+
+	# Query this modem only. Do not manufacture/persist cloud/device identities.
+	revision=$(cpetools.sh -i cpe -t 0 -c AT+CGMR 5 2>/dev/null)
+	case "$model" in
+		MT5700*)
+			revision=$(printf '%s\n' "$revision" | filter_mt5700_revision)
+			if [ -z "$revision" ]; then
+				# A transient AT failure may retain only a previously valid revision.
+				revision=$(uci -q get cellular_init.cpe.version | filter_mt5700_revision)
+			fi
+			;;
+		*) revision=$(printf '%s\n' "$revision" | tr -d '\r' | grep -v -e '^AT' -e '^OK$' -e '^ERROR$' -e '^$' | sed 's/^Revision: *//' | head -n1) ;;
+	esac
+	imei=$(cpetools.sh -i cpe -c imei 2>/dev/null)
+	uci -q set cellular_init.cpe=cellular
+	uci -q set "cellular_init.cpe.model=$model"
+	if [ -n "$revision" ]; then
+		uci -q set "cellular_init.cpe.version=$revision"
+	else
+		case "$model" in MT5700*) uci -q delete cellular_init.cpe.version ;; esac
+	fi
+	[ -z "$imei" ] || uci -q set "cellular_init.cpe.imei=$imei"
+	uci -q commit cellular_init
+	mkdir -p /var/run/cellular_init/cpe /var/run/rpcd /var/state
+	touch /var/run/cellular_init/cpe/ready
+	ubus call network.interface.cpe set_available '{"available":true}' >/dev/null 2>&1
+	# Refreshing metadata must not tear down an established ODU data link.
+	state=$(ubus call network.interface.cpe status 2>/dev/null)
+	if [ "$(printf '%s' "$state" | jsonfilter -e '@.up')" != true ] &&
+	   [ "$(printf '%s' "$state" | jsonfilter -e '@.pending')" != true ]; then
+		ifup cpe
+	fi
+	sync_ak68_cache_inputs
+	logger -t cellular_init 'NBCPE official ODU metadata ready'
+}
+
+sync_ak68_cache_inputs() {
+	local info alias model cur old type
+	info=$(cat /tmp/infocd/cache/cpe_dev 2>/dev/null)
+	alias=$(printf '%s' "$info" | jsonfilter -e '@.parameter.alias')
+	model=$(uci -q get cellular_init.cpe.model)
+	case "$alias:$model" in
+		mt5700:*|*:MT5700*) type=MT5700 ;;
+		*:RM520*) type=RM520N ;;
+		*) return 1 ;;
+	esac
+	old=$(cat /tmp/modconf-AK68.conf 2>/dev/null)
+	[ "$old" = "$type" ] || printf '%s\n' "$type" > /tmp/modconf-AK68.conf
+	cur=$(uci -q get cpesel.sim.cur)
+	case "$cur" in 1|2) cur=$((cur - 1)) ;; *) return 1 ;; esac
+	old=$(cat /tmp/sim_sel_AK68 2>/dev/null)
+	[ "$old" = "$cur" ] || printf '%s\n' "$cur" > /tmp/sim_sel_AK68
+	old=$(cat /tmp/sim_sel-AK68 2>/dev/null)
+	[ "$old" = "$cur" ] || printf '%s\n' "$cur" > /tmp/sim_sel-AK68
+}
+
+mkdir -p /var/run/cellular_init/cpe /var/run/rpcd /var/state
+[ -f /etc/config/cellular_init ] || : > /etc/config/cellular_init
+# A service restart does not invalidate an already identified modem.
+while ! initialize_odu; do sleep 3; done
+/usr/libexec/myos-nbcpe-ipv6
+# Keep one supervised instance alive. Rebuild readiness after daemon restart.
+while sleep 10; do
+	[ -f /var/run/cellular_init/cpe/ready ] || initialize_odu
+	sync_ak68_cache_inputs
+	/usr/libexec/myos-nbcpe-ipv6
+done

@@ -1,0 +1,18 @@
+#!/bin/sh
+# Official atsd consumes the read-only four-column port status contract.
+[ "$#" = 1 ] && [ "$1" = -g ] || exit 77
+for specification in 1:port1 2:port2 3:port3 5:port5 7:eth1; do
+	port=${specification%%:*}
+	device=${specification#*:}
+	path=/sys/class/net/$device
+	carrier=$(cat "$path/carrier" 2>/dev/null)
+	if [ "$carrier" = 1 ]; then
+		duplex=$(cat "$path/duplex" 2>/dev/null)
+		speed=$(cat "$path/speed" 2>/dev/null)
+		case "$duplex" in full|half) ;; *) duplex=n/a ;; esac
+		case "$speed" in ''|*[!0-9]*) speed=n/a ;; esac
+		printf '%s,up,%s,%s\n' "$port" "$duplex" "$speed"
+	else
+		printf '%s,down,n/a,n/a\n' "$port"
+	fi
+done

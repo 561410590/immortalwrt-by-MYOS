@@ -1,0 +1,5 @@
+#!/bin/sh
+[ -n "${IPKG_INSTROOT}" ] && exit 0
+uci -q delete openssl.devcrypto && uci commit openssl
+/etc/init.d/openssl reload
+exit 0

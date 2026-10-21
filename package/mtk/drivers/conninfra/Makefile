@@ -103,14 +103,7 @@ MAKE_OPTS:= \
 	$(KCONFIG_FLAGS)
 
 define Build/Compile
-	if [ "$$(CONFIG_MTK_CONNINFRA_APSOC_MT7981)" = "y" ]; then \
-		$(INSTALL_DIR) $(PKG_BUILD_DIR); \
-		$(CP) ./files/mt7981-ko/conninfra.ko $(PKG_BUILD_DIR)/conninfra.ko; \
-	else \
-		$(MAKE) -C "$(LINUX_DIR)" \
-			$(MAKE_OPTS) \
-			modules; \
-	fi
+	$(MAKE) -C "$(LINUX_DIR)" $(MAKE_OPTS) modules
 endef
 
 $(eval $(call KernelPackage,conninfra))

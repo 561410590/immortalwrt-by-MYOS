@@ -1,0 +1,18 @@
+--- a/mt_wifi/embedded/fsm/sta_mgmt_sync.c
++++ b/mt_wifi/embedded/fsm/sta_mgmt_sync.c
+@@ -988,6 +988,7 @@
+ 					return FALSE;
+ 				}
+ 
++#if defined(DOT11_SAE_SUPPORT) || defined(SUPP_SAE_SUPPORT)
+ 				/* For WiFi 6E cert 5.2.4_6G, cannot connect to AP with WPA3PSK SAE with Hunting and Pecking. */
+ 				if (IS_AKM_WPA3PSK(pInBss->AKMMap) && !IS_AKM_WPA2PSK(pInBss->AKMMap) &&
+ 					(pInBss->sae_conn_type != SAE_CONNECTION_TYPE_H2E)) {
+@@ -996,6 +997,7 @@
+ 						pInBss->sae_conn_type);
+ 					return FALSE;
+ 				}
++#endif
+ 			}
+ 		} else {
+ 			MTWF_DBG(pAd, DBG_CAT_MLME, DBG_SUBCAT_ALL, DBG_LVL_ERROR,

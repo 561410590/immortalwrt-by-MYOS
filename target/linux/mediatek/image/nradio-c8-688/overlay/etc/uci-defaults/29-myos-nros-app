@@ -1,0 +1,8 @@
+#!/bin/sh
+. /lib/functions/myos-c8-identity.sh
+myos_c8_cloud_identity_apply || exit 1
+/etc/init.d/mosquitto disable >/dev/null 2>&1
+/etc/init.d/myos-nros-mqtt enable >/dev/null 2>&1
+/etc/init.d/myos-nros-app enable >/dev/null 2>&1
+/etc/init.d/myos-c8-identity enable >/dev/null 2>&1
+exit 0

@@ -1,0 +1,169 @@
+// Cache-only integration: never opens an AT port or runs a modem command.
+'use strict';
+import { readfile, stat, popen } from 'fs';
+import { connect } from 'ubus';
+import { cursor } from 'uci';
+function native_c5800() {
+ return !!match(lc((readfile('/tmp/sysinfo/model')||'')+' '+(readfile('/tmp/sysinfo/board_name')||'')),/c5800|hcmt7981/);
+}
+function native_entry(value, section, depth) {
+ if(type(value)!='object' && type(value)!='array' || depth>8) return null;
+ if(value.name==section) return value;
+ if(type(value[section])=='object') return value[section];
+ for(let key, item in value) {
+  let found=native_entry(item,section,depth+1);
+  if(found) return found;
+ }
+ return null;
+}
+function native_modem(section) {
+ let path='/tmp/infocd/cache/cpestatus', st=stat(path), data={};
+ if(st && st.size<=1048576) try {data=json(readfile(path));} catch(e) {}
+ let entry=native_entry(data,section,0), entries=[];
+ let names={model:'name',revision:'revision',mode:'network_mode',isp:'ISP',
+  rsrp:'RSRP',rsrq:'RSRQ',sinr:'SINR',band:'Band',model_temp:'temperature',
+  imei:'IMEI',iccid:'ICCID',pci:'PCI',cell:'Cell ID',tac:'TAC'};
+ for(let key, name in names) if(entry?.[key]!=null) {
+  let value=entry[key];
+  if(key=='isp') value=match(''+value,/^460(00|02|04|07|08|20)$/)?'中国移动':
+   match(''+value,/^460(01|06|09)$/)?'中国联通':match(''+value,/^460(03|05|11)$/)?'中国电信':
+   value=='46015'?'中国广电':value;
+  push(entries,{key:name,value});
+ }
+ return {section,cache_only:true,sources:entry?[{kind:'cell',age:max(0,time()-st.mtime),entries}]:[]};
+}
+return {
+ 'c2000max.ui': {
+  identity: {
+   call: function() {
+    let bus=connect(), board=bus?.call('system','board') || {};
+    bus?.disconnect();
+    let qmodem=!!stat('/usr/share/luci/menu.d/luci-app-qmodem-next.json');
+    return {
+     model:board.model || trim(readfile('/tmp/sysinfo/model') || '') || 'NRadio C5800-688',
+     board_name:board.board_name || trim(readfile('/tmp/sysinfo/board_name') || ''),
+     modem_route:native_c5800()?['admin','modem','nets']:qmodem?['admin','modem','qmodem']:null,
+     native_nros:native_c5800(),
+     modem_url:stat('/www/5700/index.html')?'/5700/':null
+    };
+   }
+  },
+  clients: {
+   call: function() {
+    let bus=connect(), macs={}, available=false;
+    if (!bus) return { available:false };
+    let lan=bus.call('network.interface.lan','status');
+    let dev=lan?.l3_device;
+    if (type(dev)=='string' && match(dev,/^[A-Za-z0-9_.:-]+$/)) {
+     let pipe=popen('/sbin/ip neigh show 2>/dev/null','r');
+     if(pipe) {
+      let output=pipe.read('all'); let status=pipe.close();
+      available=(status==0);
+      for(let line in split(output||'', '\n')) {
+       let row=match(line,/ dev ([^ ]+) lladdr ([0-9a-fA-F:]{17}) REACHABLE( |$)/);
+       if(row && row[1]==dev) macs[lc(row[2])]=true;
+      }
+     }
+    }
+    let radios=bus.call('network.wireless','status');
+    if(type(radios)=='object') for(let name, radio in radios) {
+     if(!radio.up) continue;
+     for(let iface in radio.interfaces||[]) {
+      if(type(iface.ifname)!='string') continue;
+      let stations=bus.call('hostapd.'+iface.ifname,'get_clients');
+      if(type(stations?.clients)!='object') continue;
+      available=true;
+      for(let mac, client in stations.clients)
+       if(client.assoc && client.authorized && match(mac,/^[0-9a-fA-F:]{17}$/)) macs[lc(mac)]=true;
+     }
+    }
+    bus.disconnect();
+    return { available, count:available?length(keys(macs)):null, source:'associated-or-reachable' };
+   }
+  },
+  sensors: {
+   call: function() {
+    let settings=cursor(), cpu_sensor=settings.get('fancontrol','settings','thermal_file');
+    if(type(cpu_sensor)!='string' || !match(cpu_sensor,/^\/sys\/[A-Za-z0-9_\/.:-]+$/))
+     cpu_sensor='/sys/class/thermal/thermal_zone0/temp';
+    let cpu_value=trim(readfile(cpu_sensor) || ''), cpu_temp=null;
+    if(match(cpu_value,/^-?[0-9]+$/) && int(cpu_value)>-40000 && int(cpu_value)<150000)
+     cpu_temp=int(cpu_value);
+    let wifi_temps = [];
+    for (let iface in ['ra0', 'rai0', 'rax0']) {
+     if (!stat('/sys/class/net/' + iface)) continue;
+     let command=stat('/usr/sbin/iwpriv')?'/usr/sbin/iwpriv '+iface+' stat':
+      stat('/usr/sbin/mwctl')?'/usr/sbin/mwctl dev '+iface+' stat':null;
+     if(!command) continue;
+     let pipe = popen(command + ' 2>/dev/null', 'r');
+     if (!pipe) continue;
+     let output = pipe.read('all'); pipe.close();
+     let found = match(output || '', /CurrentTemperature\s*=\s*(-?[0-9]+)/);
+     if (found && int(found[1]) > -40 && int(found[1]) < 150)
+      push(wifi_temps, { phy: iface, milli_c: int(found[1]) * 1000 });
+    }
+    let wireless = null, bus = connect();
+    if (bus) {
+     let radios = bus.call('network.wireless', 'status');
+     if (type(radios) == 'object') {
+      wireless = {};
+      for (let name, radio in radios) {
+       let interfaces = [];
+       for (let iface in radio.interfaces || [])
+        push(interfaces, { config: { ssid: iface.config?.ssid, disabled: iface.config?.disabled } });
+       wireless[name] = { up: radio.up, disabled: radio.disabled, interfaces };
+      }
+     }
+     bus.disconnect();
+    }
+    return { cpu_sensor:cpu_temp==null?null:cpu_sensor, cpu_temp, wifi_temps, wireless };
+   }
+  },
+  sim: {
+   args: { section: '' },
+   call: function(req) {
+    let section=req.args.section;
+    if(native_c5800()) {
+     let slot=cursor().get(section=='cpe1'?'cpesel1':'cpesel','sim','cur');
+     return {sim_label:slot?'SIM '+slot:null,cache_only:true};
+    }
+    if(type(section)!='string' || !match(section,/^[A-Za-z0-9_]{1,64}$/))
+     return { sim_label:null };
+    let path='/tmp/huawei_sim_slot_'+section, info=stat(path);
+    if(info && info.size<=16) {
+     let slot=trim(readfile(path) || '');
+     if(match(slot,/^[0-9]$/)) return { sim_label:'SIM '+slot, cache_only:true };
+    }
+    path='/tmp/cache_sim_info_'+section; info=stat(path);
+    if(info && info.size<=262144 && time()-info.mtime<=120) try {
+     let data=json(readfile(path));
+     for(let entry in data.modem_info || [])
+      if(match(lc(''+entry.key),/^sim[ _-]?slot$/) && match(''+entry.value,/^[0-9]$/))
+       return { sim_label:'SIM '+entry.value, cache_only:true };
+    } catch(e) {}
+    return { sim_label:null, cache_only:true };
+   }
+  },
+  modem: {
+   args: { section: '' },
+   call: function(req) {
+    let section = req.args.section;
+    if(native_c5800()) return native_modem(section=='cpe1'?'cpe1':'cpe');
+    if (type(section) != 'string' || !match(section, /^[A-Za-z0-9_]{1,64}$/))
+     return { sources: [], error: 'invalid_section' };
+    let sources = [];
+    for (let kind in ['base', 'cell', 'sim', 'network']) {
+     let path = '/tmp/cache_' + kind + '_info_' + section;
+     let st = stat(path);
+     if (!st || st.size > 262144) continue;
+     try {
+      let data = json(readfile(path));
+      if (type(data.modem_info) == 'array')
+       push(sources, { kind, age: max(0, time() - st.mtime), entries: data.modem_info });
+     } catch (e) {}
+    }
+    return { section, sources, cache_only: true };
+   }
+  }
+ }
+};

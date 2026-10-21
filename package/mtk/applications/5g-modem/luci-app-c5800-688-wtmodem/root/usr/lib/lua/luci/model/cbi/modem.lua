@@ -1,12 +1,45 @@
 local m, section, m2, s2
-m = Map("modem", translate("模组蜂窝-移动网络配置"))
-section = m:section(TypedSection, "ndis", translate("移动蜂窝参数设置"))
+
+local function read_runtime_file(path, default)
+    local file = io.open(path, "r")
+    local data
+
+    if not file then
+        return default or ""
+    end
+
+    data = file:read("*all") or ""
+    file:close()
+
+    return data
+end
+
+local function read_native_cpe_status()
+    local ok, data = pcall(require("luci.jsonc").parse,
+        read_runtime_file("/tmp/infocd/cache/cpestatus", ""))
+    if not ok or type(data) ~= "table" or type(data.result) ~= "table" then
+        return nil
+    end
+    for _, item in ipairs(data.result) do
+        if type(item) == "table" and type(item.status) == "table"
+            and item.status.name == "cpe" then
+            return item.status
+        end
+    end
+end
+
+local native_status = read_native_cpe_status()
+
+m = Map("modem", translate("蜂窝设置"), translate("配置内置主模组、SIM 与移动网络；PoE 副模组供电可独立控制。"))
+local heading = m:section(SimpleSection)
+heading.template = "zmode/cellular_heading"
+section = m:section(TypedSection, "ndis", "")
 section.anonymous = true
 section.addremove = false
-section:tab("general", translate("常规设置"))
-section:tab("advanced", translate("高级设置"))
+section:tab("general", translate("基本连接"))
+section:tab("advanced", translate("网络与频段"))
 
-enable = section:taboption("general", Flag, "enable", translate("模块开关"))
+enable = section:taboption("general", Flag, "enable", translate("启用内置模组"))
 enable.rmempty = false
 
 simsel= section:taboption("general", ListValue, "simsel", translate("卡槽选择"))
@@ -20,22 +53,30 @@ simsel.rmempty = true
 
 pincode = section:taboption("general", Value, "pincode", translate("PIN-密码"))
 pincode.default=""
+pincode.password = true
+pincode.placeholder = translate("未启用 PIN 时留空")
 ------
 apnconfig = section:taboption("general", Value, "apnconfig", translate("APN配置"))
 apnconfig.rmempty = true
+apnconfig.placeholder = translate("留空自动匹配")
 ------
-local cmd = io.popen("cat /tmp/modconf.conf")
-local content = cmd:read("*all") or ""
-cmd:close()
-if (content and string.find(content, "RM520")) or (content and string.find(content, "RM500U")) then
+local content = read_runtime_file("/tmp/modconf.conf", "")
+if native_status then
+    sim_card_stat = section:taboption("general", DummyValue, "sim_card_stat", translate("SIM状态"))
+    local pin = tostring(native_status.CPIN or "未知")
+    if pin == "0" or pin == "READY" then pin = "已就绪" end
+    sim_card_stat.value = string.format("%s · SIM %s · %s",
+        pin, tostring(native_status.simno or "未知"),
+        tostring(native_status.mode or "未知"))
+elseif (content and string.find(content, "RM520")) or (content and string.find(content, "RM500U")) then
     -- RM520NSIN卡状态查询
     sim_card_stat = section:taboption("general", DummyValue, "sim_card_stat", translate("SIM状态"))
-    sim_card_stat.value = luci.sys.exec("cat /tmp/simcardstat")
+    sim_card_stat.value = read_runtime_file("/tmp/simcardstat", "未获取到值,请刷新。")
 else
     -- RM520NSIN卡状态查询
     sim_card_stat = section:taboption("general", DummyValue, "sim_card_stat", translate("SIM状态"))
 
-    local sim_status_output =luci.sys.exec("cat /tmp/simcardstat")
+    local sim_status_output = read_runtime_file("/tmp/simcardstat", "")
     local sim_status_output = luci.sys.exec("sendat 1 'AT^SIMSQ?' | awk '/^\\^SIMSQ:/ {split($0, a, \",\"); print a[2]}'")
     if sim_status_output == "" then
         local sim_status_description = "未获取到值,请刷新。"
@@ -74,13 +115,15 @@ else
     end
     -- MT5700SIN卡状态查询
 
-current_mod = section:taboption("general", Value, "current_mod", translate("当前模组"))
+current_mod = section:taboption("general", DummyValue, "current_mod", translate("当前模组"))
 current_mod.rmempty = true
 current_mod.default = ""
 
 function current_mod.cfgvalue(self, section)
-    if nixio.fs.access("/tmp/modconf.conf") then
-        return luci.sys.exec("cat /tmp/modconf.conf")
+    if native_status and native_status.model and native_status.model ~= "" then
+        return native_status.model
+    elseif nixio.fs.access("/tmp/modconf.conf") then
+        return read_runtime_file("/tmp/modconf.conf", "")
     else
         return "未知模块或未接入模式"
     end
@@ -237,42 +280,15 @@ smode2:depends("switchNetwork","1")
 --turnonipv6.rmempty = true
 --turnonipv6.default = 1
 
--- POE设置
-local poe_status = section:taboption("advanced", Button, "poe_control", translate("正在加载..."),"POE开关仅适用于WT9111主板以上")
-function refreshPoeStatus(section)
-    local value = luci.sys.exec("cat /sys/class/gpio/cpe1-pwr/value 2>/dev/null")
-    value = value:match("%d") or "0"
-
-    if value == "0" then
-        poe_status.title = translate("POE供电")
-        poe_status.inputtitle = translate("POE正在供电(点击关闭POE供电)")
-    else
-        poe_status.title = translate("POE供电")
-        poe_status.inputtitle = translate("POE未供电(点击打开POE供电)")
-    end
-end
-
-function poe_status.render(self, section)
-    refreshPoeStatus(section)
-    Button.render(self, section)
-end
-
-function poe_status.write(self, section)
-    local value = luci.sys.exec("cat /sys/class/gpio/cpe1-pwr/value 2>/dev/null")
-    value = value:match("%d") or "0"
-
-    if value == "1" then
-        os.execute("echo 0 > /sys/class/gpio/cpe1-pwr/value")
-    else
-        os.execute("echo 1 > /sys/class/gpio/cpe1-pwr/value")
-    end
-    refreshPoeStatus(section)
-end
+-- Explicit, independent actions avoid toggling power through a CBI form submit.
+section:tab("extension", translate("PoE 副 5G"))
+local poe_status = section:taboption("extension", DummyValue, "poe_control", translate("PoE 供电"))
+poe_status.template = "zmode/poe_control"
+local route_status = section:taboption("extension", DummyValue, "route_control", translate("双 5G 线路策略"))
+route_status.template = "zmode/route_control"
 ------------
 
-local cmd2 = io.popen("cat /tmp/modconf.conf")
-local content = cmd2:read("*all") or ""
-cmd2:close()
+local content = read_runtime_file("/tmp/modconf.conf", "")
 
 if (content and string.find(content, "MT5700")) or (content and string.find(content, "5700")) then
     enable_imei = section:taboption("advanced", Flag, "enable_imei", translate("ModifyI"))
@@ -359,18 +375,16 @@ function btn_send.write(self, section)
     return nil
 end
 -----------------------------------------------------------------
-local cmd2 = io.popen("cat /tmp/modconf.conf")
-local content2 = cmd2:read("*all") or ""
-cmd2:close()
+local content2 = read_runtime_file("/tmp/modconf.conf", "")
 
 --Check if the content is not empty
 if content2 ~= "" then
     --Check if the content contains "RM520"
    if string.find(content2, "RM520") then
-	   section:tab("ipv6", translate("当前OP固件不适用于RM520N模组,请刷移远固件！"), translate("当前OP固件不适用于RM520N模组,请刷移远固件！"))
+       section:tab("ipv6", translate("当前OP固件不适用于RM520N模组,请刷移远固件！"), translate("当前OP固件不适用于RM520N模组,请刷移远固件！"))
    else
       if string.find(content2, "MT5700") then
-		section:tab("ipv6", translate("巴龙IPV6"), translate("温馨提示：请选择你需要的IPV6执行结果后点击按钮完成设置。"))
+        section:tab("ipv6", translate("巴龙IPV6"), translate("温馨提示：请选择你需要的IPV6执行结果后点击按钮完成设置。"))
         local ipv6mode = section:taboption("ipv6", ListValue, "ipv6mode", translate("IPV6模式选择"))
         ipv6mode:value("full", translate("打开IPV6通信"))
         ipv6mode:value("half", translate("仅限CPE开IPV6"))
@@ -420,7 +434,7 @@ if content2 ~= "" then
        --section:tab("ipv6"):addoption("note", translate("当前模组暂不支持IPV6设置"))
    end
 else
-	section:tab("ipv6", translate("未检测到模组信息或不支持"), translate("当前未检测到模组信息，请不要操作以下参数。"))
+   section:tab("ipv6", translate("未检测到模组信息或不支持"), translate("当前未检测到模组信息，请不要操作以下参数。"))
 end
 
 if content2 ~= "" then
@@ -461,7 +475,7 @@ smsen = section:taboption("general", Flag, "smsen", translate("短信开关"),tr
 --smsen.rmempty = true
 smsen.default = 0
 ----------------------------------
-section:tab("led", translate("LED灯光控制"),translate("说明：永久关闭灯光后,重启依然关闭,自定义LED行为不受本程序影响。"))
+section:tab("led", translate("指示灯"),translate("临时操作重启后恢复；永久关闭会保留到下次手动恢复自动控制。"))
 local btn_send2 = section:taboption("led", Button, "cled2", translate("临时关闭所有灯光"))
 function btn_send2.write()
     os.execute("echo 0 > /sys/class/leds/hc:blue:cmode4/brightness")
@@ -511,7 +525,7 @@ function btn_send4.write()
 end
 -----------------------------------
 --section:tab("ATA", translate("Internal testing"))
-section:tab("ATA", translate("Internal testing"),translate("提示：该功能需要将模组设置-模组参数设置-短信开关勾选打开并提交生效后才能使用;Warning! Warning! Warning! This is an internal engineering testing program, which is limited to testing whether the module is properly mounted. It is strictly prohibited to use it for other purposes, and the user shall bear all consequences arising from using it for other purposes on their own!"))
+section:tab("ATA", translate("工程调试"),translate("用于模组连接测试。需要先启用短信功能；操作可能影响当前连接。"))
 local number5 = section:taboption("ATA", Value, "number1", translate("NUM"))
 local take_btn = section:taboption("ATA", Button, "take", translate("Apply"))
 local takeof_btn = section:taboption("ATA", Button, "takeof", translate("OFF"))
@@ -546,11 +560,9 @@ end
 
 local apply = luci.http.formvalue("cbi.apply")
 local sys = require "luci.sys"
-local file = io.open("/tmp/modconf.conf", "r")
 if apply then
-    if file then
-        local content = file:read("*all")
-        file:close()
+    local content = read_runtime_file("/tmp/modconf.conf", "")
+    if content ~= "" then
         if content and string.find(content, "RM520") then
             io.popen("/usr/share/modem/rm520n.sh &")
         elseif content and string.find(content, "RM500U") then

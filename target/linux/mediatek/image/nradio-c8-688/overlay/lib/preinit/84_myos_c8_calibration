@@ -1,0 +1,5 @@
+#!/bin/sh
+myos_c8_calibration_preinit() {
+    /usr/libexec/myos-c8-calibration >/dev/null 2>&1
+}
+boot_hook_add preinit_main myos_c8_calibration_preinit

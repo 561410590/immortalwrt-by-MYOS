@@ -1,0 +1,6 @@
+#!/bin/sh
+echo "检测到长按重置键超过10秒，系统正在还原配置分区，请等待电源灯闪烁完成后重新访问后台地址，恢复中...
+125
+#B2EBF2" > /tmp/lucimsg.file
+sleep 2
+/sbin/jffs2reset $@

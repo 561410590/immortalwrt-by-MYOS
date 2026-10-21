@@ -1,0 +1,89 @@
+#!/bin/sh /etc/rc.common
+START=98
+
+restart(){                                                                                                       
+  modem_init_AK68
+}
+
+start(){
+  modem_init_AK68
+}
+
+webui() {
+    CONF_FILE="/usr/share/modem-AK68/pysmspdu-AK68.conf"
+    if [ -f "$CONF_FILE" ]; then
+        echo "$CONF_FILE 检测到安装标志文件，跳过webui初始化步骤，直接开启服务..."
+        echo "已尝试开启5700网络AT-webui服务..."
+        python3 /usr/bin/websocket_server-AK68.py &
+        sleep 1
+    else
+        echo "$CONF_FILE 检测到第一次安装webui服务，正在尝试安装中。"
+        cp -r /usr/share/modem-AK68/5700 /www/
+        /etc/init.d/uhttpd restart
+        echo "解压前端文件..."
+        echo "安装缺失Python环境..."
+        #rm -f /var/lock/opkg.lock
+        sleep 3
+        #/usr/share/modem-AK68/info/install.sh
+        #sleep 5
+        #rm -rf /usr/bin/share/modem-AK68/info
+        touch "$CONF_FILE"
+        echo "$CONF_FILE created successfully."
+    fi
+}
+
+modem_init_AK68() {
+    rm -f /usr/bin/config.json
+    if lsusb | grep -q "5700"; then
+        if [ ! -f /usr/bin/AK68EN.file ]; then
+            return 0
+        fi
+    fi
+    echo "AK68-Mode-内置模组停止" > /tmp/modconf.conf
+    if [ -f /usr/bin/ledflagc.conf ]; then
+        echo "0" > /tmp/ledflag.conf
+        echo 0 > /sys/class/leds/hc:blue:cmode4/brightness
+        echo 0 > /sys/class/leds/hc:blue:cmode5/brightness
+        echo 0 > /sys/class/leds/hc:blue:wifi/brightness
+        echo 0 > /sys/class/leds/hc:blue:status/brightness
+        echo 0 > /sys/class/leds/hc:blue:sig1/brightness
+        echo 0 > /sys/class/leds/hc:blue:sig2/brightness
+        echo 0 > /sys/class/leds/hc:blue:sig3/brightness
+        echo 0 > /sys/class/leds/hc:blue:int/brightness
+    else
+        echo 1 > /sys/class/leds/hc:blue:wifi/brightness
+    fi
+
+    echo "自动配置WAN口..."
+    /usr/bin/BLUE4WAN-AK68.sh &
+    echo 1 > /sys/class/leds/hc:blue:wifi/brightness
+    if [ ! -e /usr/share/modem/rm520n.sh ]; then
+        echo 1 >/sys/class/gpio/cpe-pwr/value
+    fi
+    echo "检测到内置模组插件已安装，跳过鲲鹏设备GPIO模组配置。"
+    echo "AK68模块正在获取信息...请等待几分钟后刷新页面。" > /tmp/cpe_cell-AK68.file
+    sleep 1
+    echo "AK设备检测中..." > /tmp/devck.conf
+    echo "模组检测中..." > /tmp/modconf-AK68.conf
+    echo "未检测到模组设备连接,等待连接中..."
+    /usr/share/modem-AK68/MT5700-AK68.sh &
+    sleep 1
+    /usr/share/modem-AK68/netmodeled-AK68.sh &
+    sleep 1
+    /usr/share/modem-AK68/devck-AK68.sh &
+    sleep 1
+    webui
+    echo "已尝试开启5700网络AT-webui服务..."
+    python3 /usr/bin/websocket_server-AK68.py &
+    sleep 3
+    python3 /usr/bin/httpapi-AK68.py &
+    echo "已尝试开启短信转发服务。"
+    sleep 3
+    python3 /usr/bin/smstrun-AK68.py &
+    echo "安装成功！你现在可以关闭安装界面(webui需要重新启动系统后生效！！！)。"
+}
+
+
+
+
+

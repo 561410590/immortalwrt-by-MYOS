@@ -1,0 +1,1 @@
+/usr/bin/cc -fPIC -shared  -o zlib.so CMakeFiles/zlib_lib.dir/lib/zlib.c.o  /vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/staging_dir/host/lib/libz.a 

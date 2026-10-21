@@ -42,12 +42,13 @@ Signed-off-by: SkyLake.Huang <skylake.huang@mediatek.com>
 +obj-$(CONFIG_MEDIATEK_2P5GE_PHY)	+= mtk-2p5ge.o
 --- /dev/null
 +++ b/drivers/net/phy/mediatek/mtk-2p5ge.c
-@@ -0,0 +1,436 @@
+@@ -0,0 +1,450 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +#include <linux/bitfield.h>
 +#include <linux/firmware.h>
 +#include <linux/module.h>
 +#include <linux/nvmem-consumer.h>
++#include <linux/of.h>
 +#include <linux/of_address.h>
 +#include <linux/of_platform.h>
 +#include <linux/pinctrl/consumer.h>
@@ -189,11 +190,24 @@ Signed-off-by: SkyLake.Huang <skylake.huang@mediatek.com>
 +
 +	/* Setup LED */
 +	phy_set_bits_mmd(phydev, MDIO_MMD_VEND2, MTK_PHY_LED0_ON_CTRL,
-+			 MTK_PHY_LED_ON_POLARITY | MTK_PHY_LED_ON_LINK10 |
++			 (of_machine_is_compatible("nradio,c2000-ultra") ?
++			  0 : MTK_PHY_LED_ON_POLARITY) |
++			 MTK_PHY_LED_ON_LINK10 |
 +			 MTK_PHY_LED_ON_LINK100 | MTK_PHY_LED_ON_LINK1000 |
 +			 MTK_PHY_LED_ON_LINK2500);
 +	phy_set_bits_mmd(phydev, MDIO_MMD_VEND2, MTK_PHY_LED1_ON_CTRL,
 +			 MTK_PHY_LED_ON_FDX | MTK_PHY_LED_ON_HDX);
++
++	/* C2000MAX PHY LED is active-high and signals traffic only. */
++	if (of_machine_is_compatible("nradio,c2000-max")) {
++		phy_modify_mmd(phydev, MDIO_MMD_VEND2,
++			       MTK_PHY_LED0_ON_CTRL,
++			       MTK_PHY_LED_ON_POLARITY |
++			       MTK_2P5GPHY_LED_ON_MASK, 0);
++		phy_write_mmd(phydev, MDIO_MMD_VEND2,
++			      MTK_PHY_LED0_BLINK_CTRL,
++			      GENMASK(5, 0) | GENMASK(11, 10));
++	}
 +
 +	/* Switch pinctrl after setting polarity to avoid bogus blinking */
 +	pinctrl = devm_pinctrl_get_select(&phydev->mdio.dev, "i2p5gbe-led");

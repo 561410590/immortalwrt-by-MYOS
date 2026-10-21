@@ -1,0 +1,109 @@
+#!/bin/sh /etc/rc.common
+START=99
+
+printMsg() {
+    local msg="$1"
+    logger -t "${PROGRAM}" "${msg}"
+} 
+
+
+check_storage_and_update_config() {
+    if [ ! -f /usr/bin/faninitair.conf ]; then
+      storage_size=$(df -h / | awk 'NR==2{gsub("G","",$2); print $2}')
+      storage_int=${storage_size%.*}
+
+      if [ "$storage_int" -gt 8 ]; then
+          echo "检测到你的设备是早期版本，已自动切换到软PWM风扇模拟驱动。
+  2
+  #3ed8ff" > /tmp/lucimsg.file
+          sed -i "s/option fan_driver 'pwm'/option fan_driver 'softpwm'/g" /etc/config/mwrt
+          grep -q "option fan_gpio" /etc/config/mwrt || echo "	option fan_gpio '540'" >> /etc/config/mwrt
+          grep -q "option fan_freq" /etc/config/mwrt || echo "	option fan_freq '66666'" >> /etc/config/mwrt
+      elif [ "$storage_int" -lt 10 ]; then
+          echo "检测到你的设备是较新版本，已自动切换到硬PWM风扇驱动。
+  2
+  #3ed8ff" > /tmp/lucimsg.file
+      fi
+      touch /usr/bin/faninitair.conf
+    fi
+    
+}
+
+move_luci_files() {
+    files="luci-app-upnp.json luci-app-quickstart.json luci-app-statistics.json luci-app-ksmbd.json luci-app-samba4.json"
+    if [ -f /etc/config/mwrtinfo.file ]; then
+        for f in $files; do
+            if [ -f /usr/share/luci/$f ]; then
+                mv /usr/share/luci/$f /usr/share/luci/menu.d/
+            fi
+        done
+    else
+        for f in $files; do
+            if [ -f /usr/share/luci/menu.d/$f ]; then
+                mv /usr/share/luci/menu.d/$f /usr/share/luci/
+            fi
+        done
+    fi
+}
+
+
+restart(){
+    check_storage_and_update_config
+    move_luci_files
+    fandiver=$(uci get mwrt.@ndis[0].fan_driver 2>/dev/null)
+    if [ "$fandiver" != "pwm" ]; then
+        #fan_gpio=$(uci get mwrt.@ndis[0].fan_gpio 2>/dev/null)
+        #fan_freq=$(uci get mwrt.@ndis[0].fan_freq 2>/dev/null)
+        rmmod Airpi_gpio_fan
+        insmod Airpi-gpio-fan.ko fangpio=540 cycle=255 period=66666 fanen=1
+    fi
+  /usr/bin/fancts.sh &
+  printMsg "Airpi风扇控制模块开始工作！"
+
+  if lsusb | grep -q "5700"; then
+    cp /usr/bin/footer5700.htm /usr/lib/lua/luci/view/themes/argon/footer.htm
+    cp /usr/bin/index5700.js /www/luci-static/quickstart/index.js
+    cp /usr/bin/fancontrol5700.htm /usr/lib/lua/luci/view/Airpifanctrl/fancontrol.htm
+  else
+    cp /usr/bin/footer.htm /usr/lib/lua/luci/view/themes/argon/footer.htm
+    cp /usr/bin/index1.js /www/luci-static/quickstart/index.js
+    cp /usr/bin/fancontrol2.htm /usr/lib/lua/luci/view/Airpifanctrl/fancontrol.htm
+  fi
+
+  cp /usr/bin/wps /etc/rc.button/wps
+  cp /usr/bin/resetf /etc/rc.button/reset
+}
+
+start(){
+  check_storage_and_update_config
+  move_luci_files
+  fandiver=$(uci get mwrt.@ndis[0].fan_driver 2>/dev/null)
+    if [ "$fandiver" != "pwm" ]; then
+        #fan_gpio=$(uci get mwrt.@ndis[0].fan_gpio 2>/dev/null)
+        #fan_freq=$(uci get mwrt.@ndis[0].fan_freq 2>/dev/null)
+        rmmod Airpi_gpio_fan
+        insmod Airpi-gpio-fan.ko fangpio=540 cycle=255 period=66666 fanen=1
+    fi
+  /usr/bin/fancts.sh &
+  printMsg "Airpi风扇控制模块开始工作！"
+
+  if lsusb | grep -q "5700"; then
+    cp /usr/bin/footer5700.htm /usr/lib/lua/luci/view/themes/argon/footer.htm
+    cp /usr/bin/index5700.js /www/luci-static/quickstart/index.js
+    cp /usr/bin/fancontrol5700.htm /usr/lib/lua/luci/view/Airpifanctrl/fancontrol.htm
+  else
+    cp /usr/bin/footer.htm /usr/lib/lua/luci/view/themes/argon/footer.htm
+    cp /usr/bin/index1.js /www/luci-static/quickstart/index.js
+    cp /usr/bin/fancontrol2.htm /usr/lib/lua/luci/view/Airpifanctrl/fancontrol.htm
+  fi
+
+  cp /usr/bin/wps /etc/rc.button/wps
+  cp /usr/bin/resetf /etc/rc.button/reset
+  cp /usr/share/modem/cascade.css /www/luci-static/argon/css/cascade.css
+  cp /usr/share/modem/info/dashboard.js /usr/share/netdata/web/
+  cp /usr/share/modem/info/dashboard_info.js /usr/share/netdata/web/
+  cp /usr/share/modem/info/index.html /usr/share/netdata/web/
+  cp /usr/share/modem/info/main.js /usr/share/netdata/web/
+  cp /usr/share/modem/info/jquery-2.2.4.min.js /usr/share/netdata/web/lib/
+  /etc/init.d/uhttpd restart
+}

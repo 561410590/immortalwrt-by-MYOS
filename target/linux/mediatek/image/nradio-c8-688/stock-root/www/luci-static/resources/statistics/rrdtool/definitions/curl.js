@@ -1,0 +1,1 @@
+'use strict';'require baseclass';return baseclass.extend({title:_('cUrl'),rrdargs:function(graph,host,plugin,plugin_instance,dtype){return{title:"%H: cUrl Response Time for #%pi",y_min:"0",alt_autoscale_max:true,vlabel:"Response Time",number_format:"%5.1lf%Ss",data:{types:["response_time"],options:{response_time:{title:""}}}};}});

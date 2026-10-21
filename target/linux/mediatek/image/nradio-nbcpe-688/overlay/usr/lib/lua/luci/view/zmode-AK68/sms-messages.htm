@@ -1,0 +1,18 @@
+<%+header%>
+<%+zmode-AK68/cellular-menu%>
+<div class="nb-cellular nb-tool" id="nb-sms-messages" data-token="<%=luci.dispatcher.context.authtoken%>" data-url="<%=luci.dispatcher.build_url('admin','modem-AK68','smscs')%>">
+ <header class="nb-cellular-heading"><div><div class="nb-eyebrow">NBCPE · 消息服务</div><h2>设备短信</h2><p>查看当前 SIM 中的短信，按实际存储编号管理。</p></div><div class="nb-actions"><button class="nb-button" type="button" data-refresh>刷新短信</button><button class="nb-button nb-danger" type="button" data-delete-all>删除全部短信</button><a class="nb-button nb-primary" href="<%=luci.dispatcher.build_url('admin','modem-AK68','modem')%>#cbi-modem-AK68">发送短信</a></div></header>
+ <div class="nb-state-note" role="status" data-status>正在读取短信…</div>
+ <section class="nb-card"><div class="nb-message-list" data-messages></div><p class="nb-footnote">接收短信需在模组设置中开启短信功能。</p></section>
+</div>
+<script>
+(function(){
+ var root=document.getElementById('nb-sms-messages'),status=root.querySelector('[data-status]'),list=root.querySelector('[data-messages]');
+ function request(values){if(values)values.token=root.dataset.token;return fetch(root.dataset.url,{method:values?'POST':'GET',body:values?new URLSearchParams(values):undefined,headers:values?{'Content-Type':'application/x-www-form-urlencoded'}:undefined,cache:'no-store'}).then(function(r){if(!r.ok)throw new Error();return r.json();});}
+ function refresh(){status.textContent='正在读取短信…';request().then(function(data){list.replaceChildren();var messages=Array.isArray(data.msg)?data.msg:[];status.textContent=messages.length?'共 '+messages.length+' 条短信':'暂无短信';messages.forEach(function(message){var card=document.createElement('article');card.className='nb-message';var heading=document.createElement('div');heading.className='nb-card-heading';var sender=document.createElement('strong');sender.textContent=message.contact||message.phone||'未知发件人';var stamp=document.createElement('small');stamp.textContent=message.timestamp?new Date(Number(message.timestamp)*1000).toLocaleString():message.date||message.datetime||message.time||'';heading.append(sender,stamp);var content=document.createElement('p');content.textContent=message.content||'';var footer=document.createElement('div');footer.className='nb-actions';var remove=document.createElement('button');remove.type='button';remove.className='nb-button nb-danger';remove.textContent='删除';remove.addEventListener('click',function(){if(!confirm('删除这条短信？'))return;var indexes=message.sim_indices||message.indexes||[message.index];var valid=indexes.filter(function(index){return /^\d+$/.test(String(index));});if(!valid.length){status.textContent='短信存储编号未获取，无法删除。';return;}valid.reduce(function(chain,index){return chain.then(function(){return request({action:'delete',index:index});});},Promise.resolve()).then(refresh).catch(function(){status.textContent='删除失败，请稍后重试。';});});footer.append(remove);card.append(heading,content,footer);list.append(card);});}).catch(function(){status.textContent='读取短信失败，请稍后重试。';});}
+ root.querySelector('[data-refresh]').addEventListener('click',refresh);
+ root.querySelector('[data-delete-all]').addEventListener('click',function(){if(confirm('删除当前 SIM 的全部短信？此操作无法撤销。'))request({action:'delete_all'}).then(refresh).catch(function(){status.textContent='删除失败，请稍后重试。';});});
+ refresh();
+})();
+</script>
+<%+footer%>

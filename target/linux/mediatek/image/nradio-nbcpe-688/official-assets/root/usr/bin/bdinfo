@@ -1,0 +1,9 @@
+#!/bin/sh
+# Read the booted unit's valid board data through the original parser.
+[ "$#" = 2 ] && [ "$1" = -g ] && [ -n "$2" ] || {
+	printf '%s\n' 'Usage: bdinfo -g key' >&2
+	exit 2
+}
+# libbdinfo discovers GPT data using blkid; select the full utility at preinit.
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+exec /lib/ld-musl-aarch64.so.1 --library-path /usr/lib/myos-nbcpe-official:/lib:/usr/lib /usr/libexec/myos-nbcpe-official/bdinfo -g "$2"

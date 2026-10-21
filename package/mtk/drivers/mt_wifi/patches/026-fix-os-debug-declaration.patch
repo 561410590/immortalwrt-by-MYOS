@@ -1,0 +1,18 @@
+--- a/mt_wifi/include/common/debug.h
++++ b/mt_wifi/include/common/debug.h
+@@ -203,6 +203,15 @@
+ 	} while (0)
+ 
+ #ifdef DBG_ENHANCE
++struct _RTMP_ADAPTER;
++void mtwf_dbg_prt(
++	struct _RTMP_ADAPTER *pAd,
++	const UINT32 dbgCat,
++	const UINT32 dbgLvl,
++	const INT8 *pFunc,
++	const UINT32 line,
++	const INT8 *pFmt,
++	...);
+ #define MTWF_DBG(pAd, Category, SubCategory, Level, ...)	\
+ 	do {	\
+ 		if (((0x1 << Category) & DebugCategory)	\

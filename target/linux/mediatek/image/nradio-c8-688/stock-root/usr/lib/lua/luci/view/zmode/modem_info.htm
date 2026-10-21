@@ -1,0 +1,1898 @@
+<%+header%>
+<link rel="stylesheet" href="/fontawesome/all.min.css">
+<style>
+body {
+    background-color: #ffffff;
+    font-family: "Segoe UI", Roboto, Arial, sans-serif;
+    color: #ffffff;
+    margin: 0;
+    padding: 0;
+}
+
+/* 系统状态卡片整体商业化风格 */
+.device-info-item#item-system-info {
+    background: linear-gradient(135deg, #fff4f4, hsl(145, 100%, 93%));
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+    min-height: auto;
+}
+
+/* 行样式：加背景、图标、圆角、间距 */
+.device-info-item#item-system-info .info-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    margin-bottom: 6px;
+
+
+
+    transition: background 0.3s ease;
+}
+.device-info-item#item-system-info .info-line:hover {
+    background: rgba(255,255,255,1);
+}
+
+/* 左侧标题加图标 */
+.device-info-item#item-system-info .info-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: bold;
+    color: #444;
+}
+
+/* 右侧值 */
+.device-info-item#item-system-info .info-value {
+    font-weight: bold;
+    color: #222;
+}
+
+/* 能量条保持原有效果 */
+.device-info-item#item-system-info .energy-bar-wrap {
+    position: relative;
+    width: 100%;
+    height: 10px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 5px;
+    overflow: hidden;
+    margin-top: 8px;
+}
+.device-info-item#item-system-info .energy-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #3aff3a, #00b36b);
+    width: 0%;
+    transition: width 0.6s ease;
+}
+
+
+.row-rsrp-net {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    justify-content: space-between;
+    gap: 15px;
+    width: 100%;
+    grid-column: 1 / -1; 
+}
+
+.row-rsrp-net .rsrp-card {
+    flex: 2 1 65%; /* 左边 RSRP 占更宽 */
+}
+.row-rsrp-net .base-info-item:not(.rsrp-card) {
+    flex: 1 1 35%; /* 右边网络模式卡稍窄 */
+}
+
+/* 让内部两卡视觉独立但保持统一高度 */
+.row-rsrp-net .base-info-item {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+
+/* 模组型号卡片背景：蓝色渐变 */
+.module-model-card {
+    background: linear-gradient(135deg, #58c0ef, #bfe9ff) !important;
+    color: #fff !important;
+    box-shadow: 0 4px 12px rgba(0,136,209,0.3);
+}
+
+/* 制造商卡片背景：紫色渐变 */
+.manufacturer-card {
+    background: linear-gradient(135deg, #ce93d8, #c761e3) !important;
+    color: #fff !important;
+    box-shadow: 0 4px 12px rgba(142,36,170,0.3);
+}
+
+/* 确保内部文字和图标都是白色 */
+.module-model-card .base-info-key i,
+.module-model-card .base-info-key,
+.module-model-card .base-info-value,
+.manufacturer-card .base-info-key i,
+.manufacturer-card .base-info-key,
+.manufacturer-card .base-info-value {
+    color: #fff !important;
+}
+
+/* RSRP 卡片背景：绿色渐变表示信号强度 */
+.rsrp-card {
+    background: linear-gradient(135deg, #85a7c7, #8aa9c7) !important;
+    color: #fff !important;
+    box-shadow: 0 4px 12px rgba(56,142,60,0.3);
+}
+
+/* 确保内部文字和图标都是白色 */
+.rsrp-card .base-info-key i,
+.rsrp-card .base-info-key,
+.rsrp-card .base-info-value {
+    color: #fff !important;
+}
+
+.single-line-item {
+    grid-column: 1 / -1; /* 从第一列跨到最后一列 */
+}
+
+/* 居中加载容器 */
+#loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    color: #fff;
+    font-size: 1.4em;
+}
+
+/* 圆形旋转动画 */
+.loader {
+    border: 6px solid rgba(255,255,255,0.2);
+    border-top: 6px solid #ff9100;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    animation: spin 1s linear infinite;
+    margin-bottom: 15px;
+}
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+#modem_selector_select {
+    display: none;
+}
+
+.cbi-map {
+    max-width: 1400px;
+    margin: 30px auto;
+    padding: 20px;
+    
+}
+.section-title {
+    font-size: 1.8em;
+    font-weight: bold;
+    text-align: left;
+    padding: 8px 0;
+    margin-bottom: 12px;
+    background: linear-gradient(90deg, #ff9100, #ff6900);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.card-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.operator-card {
+    color: #fff !important;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    text-align: center;
+    padding-bottom: 10px;
+}
+
+/* 背景颜色 */
+.operator-chinamobile {
+    background: linear-gradient(135deg, #00c700, #009e00);
+}
+.operator-chinaunicom {
+    background: linear-gradient(135deg, #ffaa00, #cc8400);
+}
+.operator-ctc {
+    background: linear-gradient(135deg, #0099ff, #0066cc);
+}
+.operator-cbn {
+    background: linear-gradient(135deg, #b94fff, #8a2be2);
+}
+
+.operator-logo {
+    max-height: 40px;
+    height: auto;
+    width: auto;
+    object-fit: contain;
+    margin-top: 8px;
+}
+
+.info-card {
+    background: #1c212d;
+    border-radius: 12px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.35);
+    padding: 20px;
+    width: 300px;
+    min-height: 120px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.info-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+}
+.info-title {
+    font-size: 1.05em;
+    font-weight: bold;
+    margin-bottom: 8px;
+    text-align: center;
+    color: #ffa95c;
+}
+.info-value {
+    font-size: 1.2em;
+    text-align: center;
+    word-break: break-word;
+}
+.progress-wrap {
+    background: #2d3342;
+    border-radius: 10px;
+    overflow: hidden;
+    height: 14px;
+    margin-top: 8px;
+    box-shadow: inset 0 2px 5px rgba(0,0,0,0.3);
+}
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #74f778, #ee914d);
+    transition: width 0.4s ease;
+}
+.status-green { color: #00dc07; }
+.status-red { color: #ff3b3b; }
+.status-neutral { color: #ffffff; }
+.fade-in { animation: fadeIn 0.4s ease-in; }
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(5px);}
+    to { opacity: 1; transform: translateY(0);}
+}
+.selector-box {
+    text-align: center;
+    margin-bottom: 20px;
+}
+.selector-box select {
+    padding: 10px 14px;
+    border-radius: 6px;
+    border: none;
+    font-size: 1em;
+    outline: none;
+    background: #222833;
+    color: #fff;
+}
+.warning-box {
+    background: rgba(255,105,0,0.12);
+    border-left: 4px solid #ff6900;
+    padding: 10px;
+    border-radius: 8px;
+    color: #ff9100;
+    margin-top: 15px;
+    font-weight: bold;
+    white-space: pre-wrap;
+}
+
+/* 能量条卡片两列布局 */
+.half-width-card {
+    flex: 1 1 calc(50% - 20px);
+    max-width: calc(50% - 20px);
+}
+
+/* 单行卡片布局（用于温度或特殊大卡） */
+.single-line-card {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.energy-bar-wrap {
+    height: 20px;
+    background: #2d3342;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-top: 8px;
+    box-shadow: inset 0 2px 5px rgba(0,0,0,0.35);
+}
+
+.energy-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #3aff3a, #00b36b);
+    transition: width 0.4s ease;
+}
+
+/* 错误覆盖层样式 */
+#error-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+}
+
+.error-modal {
+    background: #fff;
+    color: #333;
+    border-radius: 12px;
+    padding: 25px 30px;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+    text-align: center;
+    animation: fadeIn 0.3s ease;
+}
+.error-title {
+    font-size: 1.4em;
+    font-weight: bold;
+    color: #ff3b3b;
+    margin-bottom: 15px;
+}
+.error-message {
+    font-size: 1.1em;
+    margin-bottom: 20px;
+    word-wrap: break-word;
+}
+#error-close-btn {
+    background: #ff9100;
+    color: #fff;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+}
+#error-close-btn:hover {
+    background: #ff6900;
+}
+
+
+
+/* SIM状态标记 */
+.sim-ready {
+    color: #00c700;
+    font-weight: bold;
+}
+.sim-notready {
+    color: #ff3b3b;
+    font-weight: bold;
+}
+
+
+/* 网络模式下方显示原数据（缩小版） */
+.net-mode-value {
+    font-size: 0.85em;
+    display: block;
+    text-align: center;
+    margin-top: 6px;
+}
+
+/* 空数据卡片占位 */
+.null-value {
+    color: #888;
+    font-style: italic;
+}
+
+/* SIM + 连接状态卡片 */
+.status-dual {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    font-size: 1.4em;
+    gap: 10px;
+}
+
+/* ===== 网络模式覆盖整个卡片样式 ===== */
+.net-card-5g {
+    background: linear-gradient(135deg, #00ff95, #00d86b);
+    color: #003322;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Orbitron', sans-serif;
+}
+.net-card-4g {
+    background: linear-gradient(135deg, #0099ff, #0066cc);
+    color: #ffffff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Orbitron', sans-serif;
+}
+.net-card-value {
+    font-size: 3em;
+    font-weight: bold;
+}
+.net-card-desc {
+    font-size: 1em;
+    margin-top: 8px;
+    opacity: 0.85;
+}
+
+/* ===== 基本信息大卡片样式 ===== */
+.base-info-top {
+    max-width: 1400px;       /* 居中限制最大宽度 */
+    margin: 0 auto 25px;   /* 上下间距 */
+
+}
+
+/* 大卡片样式，保持之前的美化改动 */
+.base-info-card {
+
+    color: #333;
+    border-radius: 0;
+
+    padding: 25px 30px;
+    width: 100%;              /* 占满容器宽度 */
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+
+}
+
+
+/* 标题更大、更显眼 */
+.base-info-title {
+    font-size: 2em;
+    font-weight: 700;
+    margin-bottom: 22px;
+    background: linear-gradient(90deg, #ff9100, #ff6900);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* 网格布局调大每列大小 */
+.base-info-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 20px;
+}
+
+/* 单项美化 */
+.base-info-item {
+    display: flex;
+    flex-direction: column;
+    padding: 15px;
+    background: #f8f8f8;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    transition: background 0.3s ease;
+}
+.base-info-item:hover {
+    background: #fff3e5;
+}
+.base-info-key {
+    font-size: 0.95em;
+    font-weight: 500;
+    color: #888;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.base-info-key i {
+    color: #ff9100;
+    font-size: 1.2em;
+}
+.base-info-value {
+    font-size: 1.4em;
+    font-weight: 700;
+    margin-top: 6px;
+    color: #222;
+}
+
+/* 网络模式 + 连接状态并排卡片 */
+.net-conn-row {
+    display: flex;
+    flex-direction: column; /* 让二卡垂直排列 */
+    gap: 15px;
+    justify-content: space-between;
+}
+.net-mode-card {
+    flex: 1;
+    padding: 15px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.6em;
+    font-weight: bold;
+    color: #fff;
+    gap: 10px;
+}
+.conn-status-card {
+    flex: 1;
+    padding: 15px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4em;
+    font-weight: bold;
+    gap: 10px;
+    color: #fff;
+    margin-top: 8px;
+}
+.net-card-5g {
+    background: linear-gradient(135deg, #00ff95, #00b36b);
+    box-shadow: 0 4px 12px rgba(0,255,149,0.3);
+}
+.net-card-4g {
+    background: linear-gradient(135deg, #0099ff, #0066cc);
+    box-shadow: 0 4px 12px rgba(0,153,255,0.3);
+}
+.conn-online {
+    background: linear-gradient(135deg, #4caf50, #2e7d32);
+    box-shadow: 0 4px 12px rgba(76,175,80,0.3);
+}
+.conn-offline {
+    background: linear-gradient(135deg, #f44336, #b71c1c);
+    box-shadow: 0 4px 12px rgba(244,67,54,0.3);
+}
+/* === 响应式优化：手机和平板显示修正 === */
+/* ===== 手机端自适应优化 ===== */
+@media screen and (max-width: 768px) {
+    /* 所有主体容器去掉最大宽度限制 */
+    .cbi-map,
+    .base-info-top,
+    .base-info-card,
+    .device-info-card {
+        max-width: 100% !important;
+        padding-left: 12px !important;
+        padding-right: 12px !important;
+
+        box-sizing: border-box;
+    }
+
+    /* 卡片全宽显示 */
+    .info-card,
+    .base-info-item,
+    .single-line-item,
+    .half-width-card,
+    .temp-card,
+    .energy-card {
+        flex: 1 1 100% !important;
+        max-width: 100% !important;
+        width: 100% !important;
+    }
+
+
+    /* 文本缩放，卡片内部留空更紧凑 */
+    .base-info-key,
+    .device-info-label {
+        font-size: 0.9em !important;
+    }
+    .base-info-value,
+    .device-info-value {
+        font-size: 1.05em !important;
+    }
+
+    /* 移除复杂阴影，视觉简洁 */
+    .base-info-item,
+    .info-card {
+        box-shadow: 0 1px 4px rgba(0,0,0,0.08) !important;
+        padding: 12px !important;
+    }
+
+    /* 状态条对齐修复 */
+    .energy-bar-wrap {
+        height: 14px !important;
+    }
+
+    /* 错误提示弹窗缩小边距 */
+    .error-modal {
+        width: 90% !important;
+        padding: 20px 16px !important;
+    }
+}
+
+/* ===== 超小屏（≤480px）进一步优化 ===== */
+@media screen and (max-width: 480px) {
+    html, body {
+        font-size: 14px !important;
+    }
+
+    /* 内边距更紧凑 */
+    .base-info-card,
+    .device-info-card {
+        padding: 10px !important;
+    }
+
+    /* 卡片文字对齐中间 */
+    .base-info-item,
+    .device-info-item {
+        text-align: center !important;
+        padding: 10px !important;
+    }
+
+    /* 标题缩小 */
+    .base-info-title,
+    .device-info-title {
+        font-size: 1.3em !important;
+        text-align: center !important;
+        margin-bottom: 10px !important;
+    }
+
+    /* 圆环指标进一步缩小 */
+    .circle-card {
+        width: 85px;
+        height: 85px;
+    }
+    .circle-label {
+        font-size: 0.8em;
+    }
+    .circle-value {
+        font-size: 1em;
+    }
+
+    /* 适配滚动条 */
+    body {
+        overflow-x: hidden;
+    }
+}
+
+</style>
+
+<style>
+    #content:hover {
+        box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+        transform: translateY(-3px);
+    }
+</style>
+
+
+
+<script>
+
+function updateCircleChart(id, percent, color) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const valEl = el.querySelector('.circle-value');
+    
+    // 设置动态数值动画
+    let current = parseInt(valEl.textContent.replace('%','')) || 0;
+    const step = (percent - current) / 20;
+    let i = 0;
+    const timer = setInterval(() => {
+        current += step;
+        i++;
+        valEl.textContent = Math.round(current) + '%';
+        if (i >= 20) clearInterval(timer);
+    }, 30);
+
+    // 绘制圆弧动画
+    const endDeg = percent * 3.6;
+    el.style.background = `conic-gradient(${color} ${endDeg}deg, #e5e5e5 ${endDeg}deg)`;
+}
+
+
+class CardView {
+    constructor(container) {
+        this.container = container;
+    }
+
+    update(entries) {
+        this.container.innerHTML = '';
+
+        // 检测 SIM + 连接状态合并卡片
+        const simEntry = entries.find(e => /sim\s*status/i.test(e.key));
+        const connEntry = entries.find(e => /connect/i.test(e.key) || /connection/i.test(e.key));
+        if (simEntry && connEntry) {
+            entries = entries.filter(e => e !== simEntry && e !== connEntry);
+            entries.unshift({
+                key: 'sim_connect_combined',
+                type: 'dual_status',
+                simValue: simEntry.value,
+                connValue: connEntry.value,
+                full_name: 'SIM & 连接状态'
+            });
+        }
+
+        entries.forEach(entry => {
+            const isTemp = /温度|temperature/i.test(entry.full_name || entry.key);
+            const isProgress = entry.type === 'progress_bar';
+            const isDualStatus = entry.type === 'dual_status';
+            const isNetworkMode = /mode|network/i.test(entry.key);
+
+            const card = document.createElement('div');
+
+            if (isNetworkMode) {
+                // 网络模式覆盖卡片颜色
+                card.className = `info-card fade-in ${this.getNetworkCardClass(entry.value)}`;
+                card.innerHTML = this.renderNetworkMode(entry);
+            } else if (isDualStatus) {
+                card.className = 'info-card fade-in single-line-card';
+                card.innerHTML = this.renderDualStatus(entry);
+            } else {
+                card.className = 'info-card fade-in';
+                if (isTemp || isProgress) card.classList.add('half-width-card');
+                if (isTemp) card.classList.add('temp-card');
+
+                card.innerHTML = `
+                    <div class="info-title">${entry.full_name || entry.key}</div>
+                    <div class="info-value">${this.formatValue(entry)}</div>
+                    ${isTemp ? this.renderTempBar(entry)
+                             : isProgress ? this.renderProgressBar(entry)
+                             : ''}
+                `;
+            }
+
+            this.container.appendChild(card);
+        });
+    }
+
+    /* 获取网络模式卡片类 */
+    getNetworkCardClass(value) {
+        if (/5g/i.test(value)) return 'net-card-5g';
+        if (/lte|4g/i.test(value)) return 'net-card-4g';
+        return '';
+    }
+
+    /* 网络模式渲染 */
+    renderNetworkMode(entry) {
+        let value = entry.value || 'null';
+        return `
+            <div class="net-card-value">${/5g|NR/i.test(value) ? '5G-NR' : /lte|4g/i.test(value) ? '4G' : value}</div>
+            <div class="net-card-desc">${entry.full_name || entry.key}</div>
+        `;
+    }
+
+    /* SIM+连接 合并卡片 */
+    renderDualStatus(entry) {
+        const simHTML = this.colorSim(entry.simValue);
+        const connHTML = this.colorConn(entry.connValue);
+        return `
+            <div class="info-title">${entry.full_name}</div>
+            <div class="status-dual">
+                <div>${simHTML}</div>
+                <div>${connHTML}</div>
+            </div>
+        `;
+    }
+
+
+    colorSim(val) {
+        if (/ready/i.test(val)) return `<span class="sim-ready">${val}</span>`;
+        return `<span class="sim-notready">${val}</span>`;
+    }
+
+    colorConn(val) {
+        if (/yes|up|connected|在线/i.test(val)) return `<span class="status-green">${val}</span>`;
+        if (/no|down|disconnected|离线/i.test(val)) return `<span class="status-red">${val}</span>`;
+        return `<span class="status-neutral">${val}</span>`;
+    }
+
+
+
+    formatValue(entry) {
+        if (entry.value == null || entry.value === "")
+            return `<span class="null-value">null</span>`;
+        return entry.value;
+    }
+
+    /* 温度条 */
+    renderTempBar(entry) {
+        const val = parseFloat(entry.value) || 0;
+        const percent = Math.min(100, Math.max(0, val));
+        return `
+            <div class="energy-bar-wrap">
+                <div class="energy-bar" style="width:${percent}%;background:linear-gradient(90deg,#ff9100,#ff0000)"></div>
+            </div>
+        `;
+    }
+
+    renderProgressBar(entry) {
+        let percent;
+        let isRSRP = /rsrp/i.test(entry.full_name || entry.key);
+
+        if (isRSRP) {
+            const val = parseFloat(entry.value);
+            if (isNaN(val)) {
+                percent = 0;
+            } else {
+                // 新分段映射
+                if (val >= -80) percent = 100;
+                else if (val >= -90) percent = 95;
+                else if (val >= -105) percent = 75;
+                else if (val >= -120) percent = 50;
+                else percent = 20;
+            }
+        } else {
+            percent = ((entry.value - entry.min_value) / (entry.max_value - entry.min_value)) * 100;
+        }
+
+        percent = Math.min(100, Math.max(0, percent));
+
+        // 基础进度条
+        let html = `
+            <div class="energy-bar-wrap">
+                <div class="energy-bar" style="width:${percent}%;"></div>
+            </div>
+        `;
+
+
+        if (isRSRP) {
+            // 计算亮格数量 (0~5格)
+            let bars = Math.round(percent / 20);
+
+            // 信号格 HTML
+            let signalHTML = `<div style="display:flex;align-items:flex-end;gap:2px;">`;
+            for (let i = 1; i <= 5; i++) {
+                let height = i * 6 + 8; // 每格递增高度
+                let color = (i <= bars) ? 
+                    (percent > 60 ? '#00dc07' : percent > 40 ? '#ffaa00' : '#ff3b3b') 
+                    : '#555';
+                signalHTML += `<div style="width:5px;height:${height}px;background:${color};border-radius:2px;"></div>`;
+            }
+            signalHTML += `</div>`;
+
+            // 组合成一行：能量条 + 信号格 + 百分比
+            html = `
+                <div style="display:flex;align-items:center;gap:10px;justify-content:center;margin-top:6px;">
+                    <div class="energy-bar-wrap" style="flex:1;">
+                        <div class="energy-bar" style="width:${percent}%;"></div>
+                    </div>
+                    ${signalHTML}
+                    <div style="font-size:0.9em;color:#ccc;white-space:nowrap;">
+                        ${percent.toFixed(0)}%
+                    </div>
+                </div>
+            `;
+        }
+
+        return html;
+    }
+
+
+
+
+}
+
+/* 主类逻辑保持不变，仅对数据类型标记支持新卡片 */
+class ModemUI {
+    constructor() {
+        this.selectorEl = document.getElementById('modem_selector_select');
+        this.containerEl = document.getElementById('sections-container');
+        this.cfg_id = null;
+        this.modem_cfg_list = [];
+        this.autoRefreshTimer = null; // 定时器句柄
+        this.autoRefreshEnabled = false; // 默认关闭
+
+        this.initSelector();
+        this.initAutoRefreshToggle(); // 初始化开关
+        this.updateCfgList();
+        this.selectorEl = document.getElementById('modem_selector_select');
+        this.containerEl = document.getElementById('sections-container');
+        this.cfg_id = null;
+        this.modem_cfg_list = [];
+        this.initSelector();
+        this.updateCfgList();
+    }
+
+        initAutoRefreshToggle() {
+        const toggleBtn = document.getElementById('auto-refresh-toggle');
+        toggleBtn.addEventListener('click', () => {
+            this.autoRefreshEnabled = !this.autoRefreshEnabled;
+            toggleBtn.textContent = `自动刷新：${this.autoRefreshEnabled ? '开' : '关'}`;
+            if (this.autoRefreshEnabled) {
+                // 开启定时器，每隔10秒调用 fetchInfo
+                this.autoRefreshTimer = setInterval(() => {
+                    this.fetchInfo();
+                }, 10000);
+                toggleBtn.style.background = "#4caf50"; // 绿色背景表示开启
+            } else {
+                // 关闭定时器
+                if (this.autoRefreshTimer) {
+                    clearInterval(this.autoRefreshTimer);
+                    this.autoRefreshTimer = null;
+                }
+                toggleBtn.style.background = "#ff9100"; // 橙色背景表示关闭
+            }
+        });
+    }
+    getNetworkCardClass(value) {
+        if (/5g|NR/i.test(value)) return 'net-card-5g';
+        if (/lte|4g/i.test(value)) return 'net-card-4g';
+        return '';
+    }
+
+    initSelector() {
+        this.selectorEl.addEventListener('change', e => {
+            this.cfg_id = e.target.value;
+            this.fetchInfo();
+        });
+    }
+    updateCfgList() {
+        XHR.poll(5, '<%=luci.dispatcher.build_url("admin","modem","qmodem","get_modem_cfg")%>', {}, (x, data) => {
+            if (data && data.cfgs) {
+                this.modem_cfg_list = data.cfgs;
+                this.renderSelector();
+                if (!this.cfg_id && this.modem_cfg_list.length) {
+                    this.cfg_id = this.modem_cfg_list[0].cfg;
+                    this.fetchInfo();
+                }
+            }
+        });
+    }
+    renderSelector() {
+        this.selectorEl.innerHTML = '';
+        this.modem_cfg_list.forEach(cfg => {
+            const opt = document.createElement('option');
+            opt.value = cfg.cfg;
+            opt.textContent = cfg.name;
+            this.selectorEl.appendChild(opt);
+        });
+    }
+    fetchInfo() {
+        if (!this.cfg_id) return;
+        document.getElementById('loading-overlay').style.display = 'flex'; // 显示加载动画
+        XHR.get('<%=luci.dispatcher.build_url("admin","modem","qmodem","modem_ctrl")%>', {
+            cfg: this.cfg_id, action: 'info', translate: '1'
+        }, (x, data) => {
+            this.renderData(data);
+            document.getElementById('loading-overlay').style.display = 'none'; // 请求结束隐藏加载动画
+        });
+    }
+
+fetchGatewayStatus() {
+    XHR.get('<%=luci.dispatcher.build_url("admin","network","mwrt_assurance_status")%>', {}, (x, data) => {
+        if (!data) return;
+        const gwInfoWrap = document.querySelector('.gateway-info');
+        if (!gwInfoWrap) return;
+
+        gwInfoWrap.innerHTML = `
+            <div class="gateway-item">
+                <span class="gateway-label">有线联网</span>
+                <span class="gateway-value ${/在线|Online/i.test(data["宽带接口状态 / Primary Status"]) ? 'status-online' : 'status-offline'}">
+                    ${data["宽带接口状态 / Primary Status"] || '未知'}
+                </span>
+            </div>
+            <div class="gateway-item">
+                <span class="gateway-label">蜂窝联网</span>
+                <span class="gateway-value ${/在线|Online/i.test(data["蜂窝接口状态 / Secondary Status"]) ? 'status-online' : 'status-offline'}">
+                    ${data["蜂窝接口状态 / Secondary Status"] || '未知'}
+                </span>
+            </div>
+            <div class="gateway-item">
+                <span class="gateway-label">当前网关</span>
+                <span class="gateway-value">${data["当前网关 / Gateway"] || '未知'}</span>
+            </div>
+            <div class="gateway-item">
+                <span class="gateway-label">物理接口</span>
+                <span class="gateway-value">${data["当前物理接口 / Current Interface"] || '未知'}</span>
+            </div>
+        `;
+    });
+}
+    
+    fetchDeviceInfo() {
+        XHR.get('<%=luci.dispatcher.build_url("admin","fancontrol","devinfo")%>', {}, (x, data) => {
+        if (!data) return;
+                const kernelEl = document.querySelector('#kernel-version');
+                const cpuEl = document.querySelector('#cpu-usage');
+                const memEl = document.querySelector('#memory-free');
+                const memBar = document.querySelector('#memory-free-bar');
+
+                if (kernelEl) kernelEl.textContent = data["内核版本"] || data["Kernel Version"] || '未知';
+
+                // ===== CPU占用率 =====
+                let cpuPercent = 0;
+                if (data["CPU占用"]) 
+                    cpuPercent = parseInt(data["CPU占用"]) || 0;
+                else if (data["CPU使用率"])
+                    cpuPercent = parseInt(data["CPU使用率"]) || 0;
+
+                if (cpuEl) cpuEl.textContent = cpuPercent + '%';
+                updateCircleChart('circle-cpu', cpuPercent, '#2196f3');
+
+                // ===== 内存剩余率 =====
+                let memPercent = 0;
+                if (data["剩余内存百分比"]) 
+                    memPercent = parseInt(data["剩余内存百分比"]) || 0;
+                else if (data["内存占用"]) 
+                    memPercent = 100 - parseFloat(data["内存占用"]);
+
+                if (memEl) memEl.textContent = memPercent + '%';
+                updateCircleChart('circle-memory', memPercent, '#ff9100');
+
+                // ==== 更新条形能量条动画 ====
+                if (memBar) {
+                    memBar.style.width = memPercent + '%';
+                    if (memPercent > 60) memBar.style.background = "linear-gradient(90deg,#3aff3a,#00b36b)";
+                    else if (memPercent > 30) memBar.style.background = "linear-gradient(90deg,#ff9100,#ff3b3b)";
+                    else memBar.style.background = "linear-gradient(90deg,#ff3b3b,#b71c1c)";
+                }
+
+            // 设备型号
+            const modelEl = document.querySelector('#device-model');
+            if (modelEl) modelEl.textContent = data["设备型号"]?.name || data["设备型号"] || '未知';
+
+            // 固件版本
+            const fwEl = document.querySelector('#firmware-version');
+            if (fwEl) fwEl.textContent = data["固件版本"] || '未知';
+
+            // Wi‑Fi 名称（只显示名字，不设置能量条）
+            const wifi24El = document.querySelector('#wifi-24g-name');
+            if (wifi24El) wifi24El.textContent = data["2.4G无线信号名称"] || '未知';
+
+            const wifi5El = document.querySelector('#wifi-5g-name');
+            if (wifi5El) wifi5El.textContent = data["5G无线信号名称"] || '未知';
+
+            // 如果存在能量条节点，才执行隐藏或设置值
+            const wifi24Bar = document.querySelector('#wifi-24g-bar');
+            if (wifi24Bar) wifi24Bar.style.display = 'none';
+
+            const wifi5Bar = document.querySelector('#wifi-5g-bar');
+            if (wifi5Bar) wifi5Bar.style.display = 'none';
+
+            // 设备温度
+            const tempEl = document.querySelector('#device-temp');
+            if (tempEl) tempEl.textContent = data["设备温度"] || '未知';
+
+            const tempBar = document.querySelector('#device-temp-bar');
+            if (tempBar) {
+                let tempPercent = parseInt((data["设备温度"] || '0').replace('℃','')) || 0;
+                tempBar.style.width = tempPercent + '%';
+                tempBar.style.background = 'linear-gradient(90deg,#ff9100,#ff0000)';
+            }
+        });
+    }
+
+
+
+
+
+    renderData(data) {
+        if (!data) return;
+
+        this.containerEl.innerHTML = '';
+
+        const warnings = [];
+        let baseInfoEntries = [];
+        const singleLineEntries = [];
+        const tablesMap = {};
+        const simInfoEntries = [];
+        const cellInfoEntries = [];
+        
+        const selectorText = this.selectorEl.options[this.selectorEl.selectedIndex]?.text || '';
+        if (selectorText) {
+            baseInfoEntries.push({
+                full_name: '模组型号',
+                value: selectorText,
+                key: 'module_model'
+            });
+        }
+
+        data.forEach(entry => {
+            if (entry.type === 'warning_message') {
+                warnings.push(entry);
+                return;
+            }
+
+            const cls = entry.class || '';
+            const clsOrigin = entry.class_origin || '';
+            const nameLower = (entry.full_name || entry.key || '').toLowerCase();
+
+            // 精确分类 SIM卡信息
+            if (/SIM卡信息|SIM Information/i.test(cls) || /SIM卡信息|SIM Information/i.test(clsOrigin)) {
+                simInfoEntries.push(entry);
+                return;
+            }
+
+            // 精确分类 基站信息
+            if (/基站信息|Cell Information/i.test(cls) || /基站信息|Cell Information/i.test(clsOrigin)) {
+                cellInfoEntries.push(entry);
+                return;
+            }
+
+            // 基本信息
+            if (/基本信息|Base Information/i.test(cls) || /基本信息|Base Information/i.test(clsOrigin)) {
+                baseInfoEntries.push(entry);
+                return;
+            }
+
+            // 温度 / 进度条
+            if (/温度|temperature/i.test(entry.full_name || entry.key) || entry.type === 'progress_bar') {
+                singleLineEntries.push(entry);
+                return;
+            }
+
+            // 其他分组
+           //const group = entry.class || '未分类';
+           //if (!tablesMap[group]) tablesMap[group] = [];
+            //tablesMap[group].push(entry);
+        });
+
+        const netModeEntry = data.find(e => /mode|network/i.test(e.key));
+        const connEntry = data.find(e => /connect|connection/i.test(e.key));
+
+        if (netModeEntry && connEntry) {
+            baseInfoEntries.push({
+                type: 'net_conn_combined',
+                netMode: netModeEntry.value,
+                connStatus: connEntry.value
+            });
+        }
+
+        // 加入进度条项
+        const energyEntries = data.filter(e => e.type === 'progress_bar');
+        energyEntries.forEach(e => baseInfoEntries.push(e));
+        const rsrpItems = baseInfoEntries.filter(e => /参考信号接收功率|RSRP/i.test(e.full_name || e.key));
+        if (rsrpItems.length) {
+            // 去掉已有 RSRP 项
+            for (let i = baseInfoEntries.length - 1; i >= 0; i--) {
+                if (/参考信号接收功率|RSRP/i.test(baseInfoEntries[i].full_name || baseInfoEntries[i].key)) {
+                    baseInfoEntries.splice(i, 1);
+                }
+            }
+            // 再追加到末尾
+            baseInfoEntries.push(...rsrpItems);
+        }
+
+        // 温度项也移动到最后
+        const tempItems = baseInfoEntries.filter(e => /温度|temperature/i.test(e.full_name || e.key));
+        if (tempItems.length) {
+            for (let i = baseInfoEntries.length - 1; i >= 0; i--) {
+                if (/温度|temperature/i.test(baseInfoEntries[i].full_name || baseInfoEntries[i].key)) {
+                    baseInfoEntries.splice(i, 1);
+                }
+            }
+            baseInfoEntries.push(...tempItems);
+        }
+
+
+        const cardView = new CardView({});
+
+        // ==== 合并 RSRP 卡片与 网络类型+连接状态 二合一卡片 同行显示 ====
+        let rsrpEntry = baseInfoEntries.find(e => /参考信号接收功率|RSRP/i.test(e.full_name || e.key));
+        let netConnEntry = baseInfoEntries.find(e => e.type === 'net_conn_combined');
+
+        if (rsrpEntry && netConnEntry) {
+            // 删除原位置的两个单卡
+            baseInfoEntries = baseInfoEntries.filter(e => e !== rsrpEntry && e !== netConnEntry);
+
+            // 插入组合行卡片（并排）
+            baseInfoEntries.unshift({
+                type: 'rsrp_net_row',
+                rsrp: rsrpEntry,
+                netConn: netConnEntry
+            });
+        }
+
+        // ==== 保留卡片图标映射表 ====
+        const iconMap = {
+            '模组型号': 'fa-microchip',
+            '型号': 'fa-microchip',
+            'IMEI': 'fa-id-card',
+            '序列号': 'fa-barcode',
+            '制造商': 'fa-industry',
+            '更改': 'fa-code-branch',
+            'Revision': 'fa-code-branch',
+            '连接状态': 'fa-signal',
+            '温度': 'fa-thermometer-half',
+            '网络模式': 'fa-network-wired',
+            '能量': 'fa-bolt'
+        };
+
+        const topWrap = document.createElement('div');
+        topWrap.className = 'base-info-top fade-in';
+
+        const baseCard = document.createElement('div');
+        baseCard.className = 'base-info-card';
+
+        // ==== 基本信息总览卡片 ====
+        if (baseInfoEntries.length) {
+            const iconMap = {
+                '模组型号': 'fa-microchip',
+                '型号': 'fa-microchip',
+                'IMEI': 'fa-id-card',
+                '序列号': 'fa-barcode',
+                '制造商': 'fa-industry',
+                '更改': 'fa-code-branch',
+                'Revision': 'fa-code-branch',
+                '连接状态': 'fa-signal',
+                '温度': 'fa-thermometer-half',
+                '网络模式': 'fa-network-wired',
+                '能量': 'fa-bolt'
+            };
+
+            const topWrap = document.createElement('div');
+            topWrap.className = 'base-info-top fade-in';
+
+            const baseCard = document.createElement('div');
+            baseCard.className = 'base-info-card';
+            const cardView = new CardView({});
+            
+            baseCard.innerHTML = `
+
+                <div class="base-info-list">
+                    ${baseInfoEntries.map(e => {
+                    if (e.type === 'rsrp_net_row') {
+                        let rsrpHTML = `
+                            <div class="base-info-item rsrp-card" style="flex:3;">
+                                <div class="base-info-key"><i class="fas fa-bolt"></i> ${e.rsrp.full_name || e.rsrp.key}</div>
+                                <div class="base-info-value">${e.rsrp.value}</div>
+                                ${cardView.renderProgressBar(e.rsrp)}
+                            </div>
+                        `;
+                        let netHTML = `
+                            <div class="base-info-item" style="flex:1;">
+                                <div class="net-mode-card ${this.getNetworkCardClass(e.netConn.netMode)}">
+                                    <i class="fas ${/5g/i.test(e.netConn.netMode) ? 'fa-satellite-dish' : 'fa-signal'}"></i>
+                                    <span>${/5g|NR/i.test(e.netConn.netMode) ? '5G-NR' : /4g|lte/i.test(e.netConn.netMode) ? '4G' : e.netConn.netMode}</span>
+                                </div>
+                                <div class="conn-status-card ${/yes|up|connected|在线/i.test(e.netConn.connStatus) ? 'conn-online' : 'conn-offline'}">
+                                    <i class="fas ${/yes|up|connected|在线/i.test(e.netConn.connStatus) ? 'fa-check-circle' : 'fa-times-circle'}"></i>
+                                    <span>${e.netConn.connStatus}</span>
+                                </div>
+                            </div>
+                        `;
+                        return `<div class="row-rsrp-net">${rsrpHTML}${netHTML}</div>`;
+                    }
+
+                 
+                        if (e.type === 'net_conn_combined') {
+                            return `
+                            <div class="base-info-item net-conn-row">
+                                <div class="net-mode-card ${this.getNetworkCardClass(e.netMode)}">
+                                    <i class="fas ${/5g/i.test(e.netMode) ? 'fa-satellite-dish' : 'fa-signal'}"></i>
+                                    <span>${/5g|NR/i.test(e.netMode) ? '5G-NR' : /4g|lte/i.test(e.netMode) ? '4G' : e.netMode}</span>
+                                </div>
+                                <div class="conn-status-card ${/yes|up|connected|在线/i.test(e.connStatus) ? 'conn-online' : 'conn-offline'}">
+                                    <i class="fas ${/yes|up|connected|在线/i.test(e.connStatus) ? 'fa-check-circle' : 'fa-times-circle'}"></i>
+                                    <span>${e.connStatus}</span>
+                                </div>
+                            </div>
+                            `;
+                        }
+                        let icon = iconMap[e.full_name] || 'fa-info-circle';
+                        let key = e.full_name || e.key;
+                        let value = e.value ? e.value : '<span class="null-value">null</span>';
+
+                        // ===== 运营商信息的专属渲染 =====
+                        if (key === '运营商信息') {
+                            icon = e.icon || icon;
+                            let color = e.iconColor || '#fff';
+                            let bgClass = '';
+                            let logoSrc = '';
+
+                            if (/移动|CM|Mobile|4E2D56FD79FB52A8/i.test(value)) {
+                                bgClass = 'operator-chinamobile';
+                                logoSrc = '/logo/chinamobile.png';
+                            } else if (/联通|CU|United|4E2D56FD8054901A/i.test(value)) {
+                                bgClass = 'operator-chinaunicom';
+                                logoSrc = '/logo/chinaunicom.png';
+                            } else if (/电信|CHN-CT|Telecom|CT/i.test(value)) {
+                                bgClass = 'operator-ctc';
+                                logoSrc = '/logo/ctc.png';
+                            } else if (/广电|CBN|N-V ^u5/i.test(value)) {
+                                bgClass = 'operator-cbn';
+                                logoSrc = '/logo/cbn.png';
+                            } else {
+                                return '';  
+                            }
+
+                            return `
+                            <div class="base-info-item operator-card-square ${bgClass}">
+
+                                <div class="base-info-value" style="text-align:center;font-size:0.95em;"></div>
+                                ${logoSrc ? `<img class="operator-logo" src="${logoSrc}" alt="${value} LOGO">` : ''}
+                            </div>
+                            `;
+                        }
+
+                        // 模组型号
+                        if (/模组型号/i.test(key)) {
+                            return `
+                            <div class="base-info-item single-line-item module-model-card">
+                                <div class="base-info-key"><i class="fas ${icon}"></i> ${key}</div>
+                                <div class="base-info-value">${value}</div>
+                            </div>`;
+                        }
+
+                        // 制造商
+                        if (/制造商/i.test(key)) {
+                            return `
+                            <div class="base-info-item single-line-item manufacturer-card">
+                                <div class="base-info-key"><i class="fas ${icon}"></i> ${key}</div>
+                                <div class="base-info-value">${value}</div>
+                            </div>`;
+                        }
+                        // RSRP
+                        if (/参考信号接收功率|RSRP/i.test(key)) {
+                            return `
+                            <div class="base-info-item single-line-item rsrp-card">
+                                <div class="base-info-key"><i class="fas ${icon}"></i> ${key}</div>
+                                <div class="base-info-value">${value}</div>
+                                ${cardView.renderProgressBar(e)}
+                            </div>`;
+                        }
+
+                        if (/温度|temperature/i.test(key)) {
+                            return `
+                            <div class="base-info-item single-line-item temp-card">
+                                <div class="base-info-key"><i class="fas ${icon}"></i> ${key}</div>
+                                <div class="base-info-value">${value}</div>
+                                ${cardView.renderTempBar(e)}
+                            </div>`;
+                        }
+                        
+                        if (/连接状态/i.test(key)) {
+                            if (/yes|up|connected|在线/i.test(value)) value = `<span class="status-green">${value}</span>`;
+                            else if (/no|down|disconnected|离线/i.test(value)) value = `<span class="status-red">${value}</span>`;
+                        }
+                        if (e.type === 'progress_bar') {
+                            return `
+                            <div class="base-info-item energy-card">
+                                <div class="base-info-key"><i class="fas ${iconMap['能量']}"></i> ${e.full_name || e.key}</div>
+                                <div class="base-info-value">${value}</div>
+                                ${cardView.renderProgressBar(e)}
+                            </div>`;
+                        }
+                        return `
+                            <div class="base-info-item">
+                                <div class="base-info-key"><i class="fas ${icon}"></i> ${key}</div>
+                                <div class="base-info-value">${value}</div>
+                            </div>`;
+                    }).join('')}
+                </div>
+            `;
+            topWrap.appendChild(baseCard);
+            this.containerEl.appendChild(topWrap);
+        }
+        /* ==== 2. SIM卡信息独立卡片（白色） ==== */
+        if (simInfoEntries.length) {
+            const iconMapSIM = {
+                'SIM卡状态': 'fa-sim-card',
+                'IMSI': 'fa-id-card',
+                'ICCID': 'fa-barcode',
+                '运营商': 'fa-building',
+                '手机号': 'fa-phone',
+                '卡槽': 'fa-warehouse'
+            };
+
+            const simWrap = document.createElement('div');
+            simWrap.className = 'base-info-top fade-in';
+
+            const simCard = document.createElement('div');
+            simCard.className = 'base-info-card';
+
+            simCard.innerHTML = `
+                <div class="base-info-title">📑 SIM卡信息</div>
+                <div class="base-info-list">
+                    ${simInfoEntries.map(e => {
+                        let icon = iconMapSIM[e.full_name] || 'fa-info-circle';
+                        let key = e.full_name || e.key;
+                        let value = e.value ? e.value : '<span class="null-value">null</span>';
+
+                        if (/status|状态/i.test(key)) {
+                            if (/ready/i.test(value)) value = `<span class="sim-ready">${value}</span>`;
+                            else value = `<span class="sim-notready">${value}</span>`;
+                        }
+                        return `
+                            <div class="base-info-item">
+                                <div class="base-info-key"><i class="fas ${icon}"></i> ${key}</div>
+                                <div class="base-info-value">${value}</div>
+                            </div>`;
+                    }).join('')}
+                </div>
+            `;
+            simWrap.appendChild(simCard);
+            this.containerEl.appendChild(simWrap);
+        }
+
+        /* ==== 3. 基站信息独立卡片（白色） ==== */
+        if (cellInfoEntries.length) {
+            const iconMapCell = {
+                '基站ID': 'fa-broadcast-tower',
+                'Cell ID': 'fa-broadcast-tower',
+                'ECI': 'fa-map-marker-alt',
+                'EARFCN': 'fa-wave-square',
+                'PCI': 'fa-signal',
+                'TAC': 'fa-map',
+                '信号强度': 'fa-signal',
+                '频点': 'fa-wave-square'
+            };
+
+            const cellWrap = document.createElement('div');
+            cellWrap.className = 'base-info-top fade-in';
+
+            const cellCard = document.createElement('div');
+            cellCard.className = 'base-info-card';
+
+            cellCard.innerHTML = `
+                <div class="base-info-title">📡 基站信息</div>
+                <div class="base-info-list">
+                    ${cellInfoEntries.map(e => {
+                        let icon = iconMapCell[e.full_name] || 'fa-info-circle';
+                        let key = e.full_name || e.key;
+                        let value = e.value ? e.value : '<span class="null-value">null</span>';
+                        return `
+                            <div class="base-info-item">
+                                <div class="base-info-key"><i class="fas ${icon}"></i> ${key}</div>
+                                <div class="base-info-value">${value}</div>
+                            </div>`;
+                    }).join('')}
+                </div>
+            `;
+            cellWrap.appendChild(cellCard);
+            this.containerEl.appendChild(cellWrap);
+            
+        }
+
+        /* ==== 4. 能量 & 温度监控 ==== */
+        if (singleLineEntries.length) {
+            const sec = document.createElement('div');
+            const title = document.createElement('div');
+            title.className = 'section-title';
+            title.textContent = '能量 & 温度监控';
+            sec.appendChild(title);
+
+            const container = document.createElement('div');
+            container.className = 'card-container';
+            sec.appendChild(container);
+            new CardView(container).update(singleLineEntries);
+
+            this.containerEl.appendChild(sec);
+        }
+
+        /* ==== 5. 其他分组卡片 ==== */
+        for (const name in tablesMap) {
+            const sec = document.createElement('div');
+            const title = document.createElement('div');
+            title.className = 'section-title';
+            title.textContent = name;
+            sec.appendChild(title);
+
+            const container = document.createElement('div');
+            container.className = 'card-container';
+            sec.appendChild(container);
+            new CardView(container).update(tablesMap[name]);
+
+            this.containerEl.appendChild(sec);
+        }
+
+        /* ==== 6. 警告信息 ==== */
+        if (warnings.length) {
+            const errorOverlay = document.getElementById('error-overlay');
+            const errorMsgBox = document.getElementById('error-message');
+            errorMsgBox.textContent = warnings.map(w => `${w.full_name || w.key}: ${w.value}`).join('\n');
+            errorOverlay.style.display = 'flex';
+        } else {
+            document.getElementById('error-overlay').style.display = 'none';
+        }
+
+    }
+
+
+}
+
+window.onload = () => {
+    // 初始化 ModemUI
+    const modemUI = new ModemUI();
+
+    // 绑定错误信息弹窗关闭事件
+    const errorCloseBtn = document.getElementById('error-close-btn');
+    if (errorCloseBtn) {
+        errorCloseBtn.addEventListener('click', () => {
+            document.getElementById('error-overlay').style.display = 'none';
+        });
+    }
+
+    // 重写渲染警告信息的方法，用弹窗形式显示
+    const originalRenderData = modemUI.renderData.bind(modemUI);
+    modemUI.renderData = (data) => {
+        // 先补充运营商信息进 data 数组
+        if (data && Array.isArray(data)) {
+            const operatorEntry = data.find(e => /互联网服务提供商|operator|isp/i.test(e.full_name || e.key));
+            if (operatorEntry) {
+                const opVal = operatorEntry.value ? operatorEntry.value.trim() : null;
+                let opIcon = 'fa-info-circle';
+                let opColor = '#888';
+
+                if (/移动|4E2D56FD79FB52A8/i.test(opVal)) { opIcon = 'fa-mobile-alt'; opColor = '#00c700'; }
+                else if (/联通/i.test(opVal)) { opIcon = 'fa-network-wired'; opColor = '#ffaa00'; }
+                else if (/广电/i.test(opVal)) { opIcon = 'fa-tv'; opColor = '#b94fff'; }
+                else if (/电信/i.test(opVal)) { opIcon = 'fa-phone-alt'; opColor = '#0099ff'; }
+
+                // 直接塞一个新对象进原 data
+                data.push({
+                    class: '基本信息',
+                    full_name: '运营商信息',
+                    value: opVal || '<span class="null-value">null</span>',
+                    icon: opIcon,
+                    iconColor: opColor
+                });
+            }
+        }
+
+        // 调回原渲染方法
+        originalRenderData(data);
+
+        // 检查是否有 warning message 并弹出
+        const warnings = [];
+        if (data && Array.isArray(data)) {
+            data.forEach(entry => {
+                if (entry.type === 'warning_message') warnings.push(entry);
+            });
+        }
+
+        if (warnings.length) {
+            const errorOverlay = document.getElementById('error-overlay');
+            const errorMsgBox = document.getElementById('error-message');
+            errorMsgBox.textContent = warnings.map(w =>
+                `${w.full_name || w.key}: ${w.value}`
+            ).join('\n');
+            errorOverlay.style.display = 'flex';
+        } else {
+            document.getElementById('error-overlay').style.display = 'none';
+        }
+    };
+    //调用网关存活信息
+    modemUI.fetchGatewayStatus();
+    modemUI.fetchDeviceInfo();
+
+};
+
+
+</script>
+
+<div class="cbi-map">
+    <div class="selector-box" style="display:none;justify-content:space-between;align-items:center;">
+        <select id="modem_selector_select"></select>
+        <!-- 自动刷新开关按钮 -->
+        <button id="auto-refresh-toggle" style="
+            background:#ff9100;
+            color:#fff;
+            border:none;
+            padding:8px 14px;
+            border-radius:6px;
+            cursor:pointer;
+            font-weight:bold;
+            transition:background 0.3s;">
+           
+        </button>
+    </div>
+    <div id="warning-box" class="warning-box" style="display:none;"></div>
+    <style>
+    .device-info-card {
+
+        border-radius: 0px;
+        box-shadow: none;
+        padding: 25px 30px;
+        margin-bottom: 25px;
+        font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
+    .device-info-title {
+        font-size: 1.6em;
+        font-weight: 700;
+        margin-bottom: 18px;
+        background: linear-gradient(90deg, #ff9100, #ff6900);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .device-info-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 12px;
+    }
+    /* 设备信息卡片的每个小卡片通用样式 */
+    .device-info-item {
+        flex: 1;
+        padding: 15px;
+        border-radius: 12px;
+        margin: 5px;
+        text-align: center;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        color: #fff; /* 文字改成白色，避免和渐变背景冲突 */
+    }
+    .device-info-label {
+        font-size: 0.9em;
+        color: #888;
+    }
+    .device-info-value {
+        font-size: 1.2em;
+        font-weight: bold;
+        margin-top: 4px;
+        color: #888;
+    }
+    .energy-bar-wrap {
+        height: 10px;
+        background: #e5e5e5;
+        border-radius: 6px;
+        overflow: hidden;
+        margin-top: 6px;
+    }
+    .energy-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #3aff3a, #00b36b);
+    }
+    .status-online { color: #00c700; font-weight:bold; }
+    .status-offline { color: #ff3b3b; font-weight:bold; }
+    .gateway-info {
+        margin-top: 20px;
+        padding-top: 12px;
+        border-top: 1px solid #ddd;
+    }
+    .gateway-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 5px 0;
+    }
+    .gateway-label {
+        font-weight: 500;
+        color: #545454;
+    }
+    
+    .gateway-value {
+        font-weight: bold;
+        color: #4d4d4d;
+    }
+
+    .device-info-value {
+        font-size: 1.2em;
+        margin-top: 4px;
+        color: #696969;
+    }
+    /* 根据不同数据类型应用不同渐变背景色 */
+    .device-info-item#item-device-model {
+        color: #fff;
+        background: linear-gradient(135deg, #86d8ff, #bfe9ff);
+    }
+    .device-info-item#item-firmware-version {
+        background: linear-gradient(135deg,  #b7dffa, #7dbaf7);
+    }
+    .device-info-item#item-wifi-24g {
+        background: linear-gradient(135deg, #f3d7a0, #f1bc58);
+    }
+    .device-info-item#item-wifi-5g {
+        background: linear-gradient(135deg, #f1c9f8, #df8ff5);
+    }
+    .device-info-item#item-device-temp {
+        background: linear-gradient(135deg,  #a6b1b6, #dbe6ec);
+    }
+    /* 默认网关值颜色深灰，方便在白色背景显示 */
+    .gateway-value {
+        color: #333;
+        padding: 4px 8px;
+        border-radius: 6px;
+    }
+
+    /* 在线状态背景 + 白字 */
+    .status-online.gateway-value {
+        background: linear-gradient(135deg, #4caf50, #2e7d32);
+        color: #fff;
+    }
+
+    /* 离线状态背景 + 白字 */
+    .status-offline.gateway-value {
+        background: linear-gradient(135deg, #f44336, #b71c1c);
+        color: #fff;
+    }
+
+
+    #wifi-24g-bar,
+    #wifi-5g-bar {
+        display: none !important;
+    }
+
+    #wifi-24g-bar.parent,
+    #wifi-5g-bar.parent {
+        display: none !important;
+    }
+    </style>
+
+
+<style>
+/* ==== 圆环进度动画效果（商业化扁平风格） ==== */
+.circle-progress-wrap {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    margin: 20px 0;
+    flex-wrap: wrap;
+}
+
+.circle-card {
+    position: relative;
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    background: conic-gradient(#00c853 0deg, #00c853 0deg, #e5e5e5 0deg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 1s ease;
+}
+
+.circle-inner {
+    position: absolute;
+    width: 110px;
+    height: 110px;
+    background: #ffffff;
+    border-radius: 50%;
+    box-shadow: inset 0 0 8px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+.circle-value {
+    font-size: 1.6em;
+    font-weight: bold;
+    color: #333;
+}
+
+.circle-label {
+    font-size: 0.9em;
+    color: #777;
+}
+
+.circle-card.cpu {
+    background: conic-gradient(#2196f3 0deg, #2196f3 0deg, #e5e5e5 0deg);
+}
+.circle-card.memory {
+    background: conic-gradient(#ff9100 0deg, #ff9100 0deg, #e5e5e5 0deg);
+}
+
+.circle-glow {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: radial-gradient(rgba(255,255,255,0.2), transparent 70%);
+    filter: blur(6px);
+    z-index: 0;
+}
+</style>
+
+    <div class="device-info-card">
+        <!-- 系统状态卡片（单独一整行） -->
+    <div class="device-info-row">
+    <div class="device-info-item" id="item-system-info" style="flex: 1;">
+
+        <div class="device-info-value-group">
+            <div class="info-line">
+                <span class="info-title"><i class="fas fa-database"></i> 固件内核</span>
+                <span class="info-value" id="kernel-version">加载中...</span>
+            </div>
+            <div class="info-line">
+                <span class="info-title"><i class="fas fa-microchip"></i> CPU占用</span>
+                <span class="info-value" id="cpu-usage">加载中...</span>
+            </div>
+
+            <div class="info-line">
+                <span class="info-title"><i class="fas fa-memory"></i> 剩余内存</span>
+                <span class="info-value" id="memory-free">加载中...</span>
+            </div>
+            <div class="energy-bar-wrap">
+                <div class="energy-bar" id="memory-free-bar" style="width:0%;"></div>
+            </div>
+        </div>
+    </div>
+
+    </div>
+
+
+    <div class="device-info-row">
+        <div class="device-info-item" id="item-device-model">
+            <div class="device-info-label">设备型号</div>
+            <div class="device-info-value" id="device-model">加载中...</div>
+        </div>
+        <div class="device-info-item" id="item-firmware-version">
+            <div class="device-info-label">固件版本</div>
+            <div class="device-info-value" id="firmware-version">加载中...</div>
+        </div>
+    </div>
+
+    <div class="device-info-row">
+        <div class="device-info-item" id="item-wifi-24g">
+            <div class="device-info-label">2.4G Wi‑Fi 信号</div>
+            <div class="device-info-value" id="wifi-24g-name">加载中...</div>
+        </div>
+        <div class="device-info-item" id="item-wifi-5g">
+            <div class="device-info-label">5G Wi‑Fi 信号</div>
+            <div class="device-info-value" id="wifi-5g-name">加载中...</div>
+        </div>
+    </div>
+
+    <div class="device-info-row">
+        <div class="device-info-item" id="item-device-temp">
+            <div class="device-info-label">设备温度</div>
+            <div class="device-info-value" id="device-temp">加载中...</div>
+            <div class="energy-bar-wrap">
+                <div class="energy-bar" id="device-temp-bar"></div>
+            </div>
+        </div>
+    </div>
+
+     <!-- ==== 新增 CPU / 内存 圆形占用率指标 ==== -->
+        <div class="circle-progress-wrap">
+            <div class="circle-card cpu" id="circle-cpu">
+                <div class="circle-glow"></div>
+                <div class="circle-inner">
+                    <div class="circle-value" id="circle-cpu-value">0%</div>
+                    <div class="circle-label">CPU 占用率</div>
+                </div>
+            </div>
+            <div class="circle-card memory" id="circle-memory">
+                <div class="circle-glow"></div>
+                <div class="circle-inner">
+                    <div class="circle-value" id="circle-memory-value">0%</div>
+                    <div class="circle-label">内存剩余</div>
+                </div>
+            </div>
+        </div>
+        <!-- 网关存活信息 -->
+        <div class="gateway-info">
+            <div class="gateway-item">
+                <span class="gateway-label">有线联网</span>
+                <span class="gateway-value status-offline">null</span>
+            </div>
+            <div class="gateway-item">
+                <span class="gateway-label">蜂窝联网</span>
+                <span class="gateway-value status-online">null</span>
+            </div>
+            <div class="gateway-item">
+                <span class="gateway-label">当前网关</span>
+                <span class="gateway-value">null</span>
+            </div>
+            <div class="gateway-item">
+                <span class="gateway-label">物理接口</span>
+                <span class="gateway-value">null</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="sections-container"></div>
+</div>
+
+
+
+
+<div class="cbi-map">
+    <div class="selector-box">
+        <select id="modem_selector_select"></select>
+    </div>
+    <div id="warning-box" class="warning-box" style="display:none;"></div>
+    <div id="sections-container"></div>
+</div>
+
+<div id="loading-overlay" style="display:none;">
+    <div class="loader"></div>
+    <div>数据加载中，请稍候...</div>
+</div>
+
+<!-- 错误信息覆盖层 -->
+<div id="error-overlay" style="display:none;">
+    <div class="error-modal">
+        <div class="error-title">❗ 错误提示</div>
+        <div class="error-message" id="error-message"></div>
+        <button id="error-close-btn">关闭</button>
+    </div>
+</div>
+
+<%+footer%>

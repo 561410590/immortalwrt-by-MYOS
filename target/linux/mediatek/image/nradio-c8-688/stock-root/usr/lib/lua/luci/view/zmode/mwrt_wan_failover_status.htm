@@ -1,0 +1,245 @@
+<%+header%>
+<script type="text/javascript" src="<%=resource%>/xhr.js?v=1.4"></script>
+<script type="text/javascript">
+var status_url = "<%= luci.dispatcher.build_url('admin', 'network', 'mwrt_assurance_status') %>";
+var logs_url   = "<%= luci.dispatcher.build_url('admin', 'network', 'mwrt_assurance_logs') %>";
+var switch_url = "<%= luci.dispatcher.build_url('admin', 'network', 'mwrt_assurance_switch') %>";
+
+function colorizeStatusValue(value) {
+    var valStr = String(value);
+    if (valStr.indexOf("在线") !== -1 || valStr.indexOf("Enabled") !== -1 || valStr.indexOf("已启用") !== -1) {
+        return '<span class="status-green pulse">' + valStr + '</span>';
+    }
+    else if (valStr.indexOf("离线") !== -1 || valStr.indexOf("Disabled") !== -1 || valStr.indexOf("已关闭") !== -1) {
+        return '<span class="status-red pulse">' + valStr + '</span>';
+    }
+    else {
+        return '<span class="status-white">' + valStr + '</span>';
+    }
+}
+
+function updateStatus(isAuto) {
+    XHR.get(status_url, null, function(x, data) {
+        var container = document.getElementById("status-output");
+
+        if (!isAuto) {
+            container.innerHTML = "";
+        }
+
+        if (data && typeof data === "object") {
+            if (!isAuto) {
+                for (var key in data) {
+                    if (data.hasOwnProperty(key)) {
+                        var card = document.createElement("div");
+                        card.className = "status-card fade-in";
+                        card.innerHTML = `
+                            <div class="status-title">${key}</div>
+                            <div class="status-value">${colorizeStatusValue(data[key])}</div>
+                        `;
+                        container.appendChild(card);
+                    }
+                }
+            } else {
+                var cards = container.getElementsByClassName("status-card");
+                Array.prototype.forEach.call(cards, function(card) {
+                    var titleEl = card.querySelector(".status-title");
+                    var valueEl = card.querySelector(".status-value");
+                    var key = titleEl ? titleEl.textContent : null;
+                    if (key && data[key] !== undefined && valueEl) {
+                        valueEl.innerHTML = colorizeStatusValue(data[key]);
+                    }
+                });
+            }
+        } else {
+            if (!isAuto) {
+                container.innerHTML = '<div class="status-card"><span class="status-red">获取失败 / Failed to retrieve</span></div>';
+            }
+        }
+    });
+}
+
+function updateLogs(isAuto) {
+    XHR.get(logs_url, null, function(x, data) {
+        var logsContainer = document.getElementById("logs-output");
+        if (!isAuto) {
+            logsContainer.classList.add("fade-in");
+        }
+
+        var logsContent = x.responseText || "";
+        if (logsContent.trim() !== "") {
+            logsContainer.textContent = logsContent;
+        } else {
+            logsContainer.textContent = "无日志数据 / No log data";
+        }
+    });
+}
+
+window.onload = function() {
+    updateStatus();
+    updateLogs();
+    toggleAutoRefresh();
+};
+
+
+var autoRefreshTimer = null;
+var autoRefreshEnabled = false;
+
+function toggleAutoRefresh() {
+    var btn = document.getElementById("auto-refresh-toggle");
+
+    if (!autoRefreshEnabled) {
+        autoRefreshEnabled = true;
+        btn.textContent = "关闭自动刷新 / Disable Auto Refresh";
+        btn.style.backgroundColor = "#3b7a57";
+        autoRefreshTimer = setInterval(function() {
+            updateStatus(true); 
+            updateLogs(true); 
+        }, 1000);
+    } else {
+        autoRefreshEnabled = false;
+        btn.textContent = "开启自动刷新 / Enable Auto Refresh";
+        btn.style.backgroundColor = "";
+        clearInterval(autoRefreshTimer);
+    }
+}
+
+</script>
+
+<style>
+body {
+    background-color: #1a1f28;
+    font-family: "Segoe UI", Roboto, Arial, sans-serif;
+}
+.cbi-map {
+    background: #202630;
+    border-radius: 12px;
+    padding: 20px;
+    color: #f5d8ba;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.4);
+}
+h2 {
+    background: linear-gradient(90deg, #2196f3, #00bcd4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-size: 1.8em;
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 20px;
+}
+.status-card {
+    background: #2a313d;
+    border-radius: 8px;
+    padding: 15px;
+    margin: 10px;
+    flex: 1 1 300px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+    transition: transform 0.3s ease;
+}
+.status-card:hover {
+    transform: translateY(-3px);
+}
+.status-title {
+    font-size: 1.2em;
+    font-weight: bold;
+    margin-bottom: 8px;
+    text-align: center;
+}
+.status-value {
+    font-size: 1.4em;
+    font-weight: bold;
+}
+#status-output {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+pre {
+    background: #000;
+    color: #9c9c9c;
+    font-size: 0.8em;
+    padding: 10px;
+    border-radius: 5px;
+    min-height: 100px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+}
+button {
+    display: block;   
+    width: 97%;         
+    padding: 12px;        
+    margin: 10px 10px;       
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 1em;
+    transition: background-color 0.3s ease, transform 0.2s ease;
+    box-sizing: border-box; 
+}
+
+
+button:hover {
+    transform: scale(1.02);
+}
+
+.btn-logs {
+    background-color: #2a313d;
+    color: #f5d8ba;
+}
+
+
+@media (max-width: 768px) {
+    button {
+        font-size: 0.95em;
+        padding: 10px;
+    }
+}
+
+.status-green { color: #45ff4b; }
+.status-red { color: #ff1100; }
+.status-white { color: #ffffff; }
+.pulse { animation: pulseAnim 2.5s infinite; }
+@keyframes pulseAnim {
+    0% { opacity: 1; }
+    50% { opacity: 1; }
+    100% { opacity: 1; }
+}
+.fade-in { animation: fadeIn 0.5s ease-in; }
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(5px);}
+    to { opacity: 1; transform: translateY(0);}
+}
+</style>
+
+<div class="cbi-map">
+    <h2>Mwrt-网关存活状态监控 /WAN Failover Status Monitor</h2>
+
+    <fieldset class="cbi-section">
+        <legend>当前状态 / Current Status</legend>
+        <div id="status-output" class="fade-in"></div>
+        <div style="text-align:center;">
+            <button class="btn-logs" onclick="updateStatus()">刷新状态 / Refresh Status</button>
+        </div>
+    </fieldset>
+
+    <fieldset class="cbi-section">
+        <legend>Failover 日志 / Failover Logs</legend>
+        <pre id="logs-output">加载中... / Loading...</pre>
+        <div style="text-align:center;">
+            <button class="btn-logs" onclick="updateLogs()">刷新日志 / Refresh Logs</button>
+        </div>
+    </fieldset>
+
+    <fieldset class="cbi-section">
+        <legend>自动刷新 / Auto Refresh</legend>
+        <div style="text-align:center;">
+            <button id="auto-refresh-toggle" class="btn-logs" onclick="toggleAutoRefresh()">开启自动刷新 / Enable Auto Refresh</button>
+        </div>
+    </fieldset>
+
+</div>
+
+<%+footer%>

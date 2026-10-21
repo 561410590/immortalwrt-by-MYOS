@@ -1,0 +1,24 @@
+/dts-v1/;
+/ {
+ description = "MYOS C8-688 ARM64 FIT";
+ #address-cells = <1>;
+ images {
+  kernel-1 {
+   description = "ARM64 OpenWrt Linux-6.6.110";
+   data = /incbin/("/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/target/linux/mediatek/image/nradio-c8-688/kernel-6.6.110.lzma");
+   type = "kernel"; arch = "arm64"; os = "linux"; compression = "lzma";
+   load = <0x48000000>; entry = <0x48000000>;
+   hash-1 { algo = "crc32"; }; hash-2 { algo = "sha1"; };
+  };
+  fdt-1 {
+   description = "NRadio-C8-New688 device tree";
+   data = /incbin/("/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/target/linux/mediatek/image/nradio-c8-688/c8-6.6.dtb");
+   type = "flat_dt"; arch = "arm64"; compression = "none";
+   hash-1 { algo = "crc32"; }; hash-2 { algo = "sha1"; };
+  };
+ };
+ configurations {
+  default = "config-1";
+  config-1 { description = "C8-688 second system"; kernel = "kernel-1"; fdt = "fdt-1"; };
+ };
+};

@@ -1,0 +1,12 @@
+--- a/mt_wifi/embedded/ap/ap.c
++++ b/mt_wifi/embedded/ap/ap.c
+@@ -7377,9 +7377,7 @@
+ */
+ INT ap_inf_close(struct wifi_dev *wdev)
+ {
+-#if defined(CONFIG_AP_SUPPORT) && defined(CONFIG_STA_SUPPORT)
+ 	struct _RTMP_ADAPTER *pAd = (struct _RTMP_ADAPTER *)wdev->sys_handle;
+-#endif	/* CONFIG_AP_SUPPORT && CONFIG_STA_SUPPORT */
+ 
+ 	if (!wdev->state)
+ 		return TRUE;

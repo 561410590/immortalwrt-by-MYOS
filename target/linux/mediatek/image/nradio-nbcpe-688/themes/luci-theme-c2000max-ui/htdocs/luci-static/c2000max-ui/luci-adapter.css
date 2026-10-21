@@ -1,0 +1,229 @@
+/* Real LuCI selectors mapped to the C2000MAX design tokens.
+   LuCI retains validation, ACL filtering, save/apply, rollback and plugin logic. */
+:root[data-theme] {
+ --background-color-high:var(--surface); --background-color-medium:var(--surface-soft); --background-color-low:var(--surface-soft);
+ --text-color-highest:var(--text); --text-color-high:var(--text-secondary); --text-color-medium:var(--text-muted); --text-color-low:var(--text-muted);
+ --border-color-high:var(--control-border); --border-color-medium:var(--border); --border-color-low:var(--border-soft);
+ --primary-color-high:var(--accent); --primary-color-medium:var(--accent); --primary-color-low:var(--accent-hover); --on-primary-color:var(--on-accent);
+ --success-color-high:var(--success); --success-color-medium:var(--success-soft); --success-color-low:var(--success-soft); --on-success-color:var(--success);
+ --error-color-high:var(--danger); --error-color-medium:var(--danger); --error-color-low:var(--danger-soft); --on-error-color:var(--danger);
+ --warn-color-high:var(--warning); --warn-color-medium:var(--warning-soft); --warn-color-low:var(--warning-soft); --on-warn-color:var(--warning);
+}
+body.c2000-ui { padding-top:0; background:var(--page); color:var(--text); font:var(--text-sm)/var(--leading) var(--font-sans); }
+.c2000-ui h1,.c2000-ui h2,.c2000-ui h3,.c2000-ui h4 { color:var(--text); text-shadow:none; }
+.c2000-ui :where(.cbi-map,.modal) > h2 { font-size:var(--text-xl); line-height:1.4; }
+.c2000-ui :where(.cbi-section,.modal) > h3 { font-size:var(--text-lg); line-height:1.5; }
+.c2000-ui p { line-height:1.65; }
+.c2000-ui .main { width:auto; max-width:none; }
+.luci-content { max-width:1440px; margin:auto; min-width:0; }
+#view { min-width:0; }
+.skip-link { position:fixed; z-index:2000; left:16px; top:12px; padding:12px; color:var(--text); background:var(--surface); transform:translateY(-180%); }
+.skip-link:focus { transform:none; }
+.c2000-ui .brand { float:none; padding:0; color:var(--text); }
+.c2000-ui .topbar { background:none; box-shadow:none; border:0; width:auto; padding-block:0; padding-right:0; color:var(--text); }
+.c2000-ui .dashboard header { position:static; z-index:auto; background:none; box-shadow:none; color:var(--text); margin-left:0; margin-right:0; padding-inline:0; }
+.c2000-ui .ui-card-header { margin-top:0; }
+.c2000-ui header p { line-height:1.65; }
+.c2000-ui .menu-search input { height:auto; margin:0; padding:0; box-shadow:none; border:0; }
+.c2000-ui .account-menu strong { color:var(--text); }
+.c2000-ui .main-footer { border-top:1px solid var(--border); padding:16px 0; }
+.c2000-ui .ui-data-row dt { font-weight:400; }
+.c2000-ui a.quick-card:hover { background:var(--surface-soft); border-color:var(--border); }
+.c2000-ui .mobile-nav a { display:flex; flex-direction:column; justify-content:center; align-items:center; gap:4px; min-height:56px; border-radius:var(--radius-md); color:var(--text-secondary); font-size:var(--text-xs); }
+.c2000-ui .mobile-nav a.active { background:var(--accent-soft); color:var(--accent); }
+.c2000-ui .sidebar nav { float:none; }
+.c2000-ui #indicators { display:flex; flex-wrap:wrap; gap:8px; margin-right:auto; }
+.c2000-ui #indicators > * { font-size:var(--text-xs); background:var(--warning-soft); color:var(--warning); border-radius:8px; padding:6px 10px; cursor:pointer; }
+.c2000-ui #indicators:empty { display:none; }
+.c2000-ui .dashboard dl,.c2000-ui .dashboard dd { margin-left:0; }
+.c2000-ui .dashboard .quick-card,.c2000-ui .dashboard .modem-link,.c2000-ui .dashboard .signal-health { cursor:pointer; text-decoration:none; }
+.c2000-ui .operator-reading > strong { font-size:var(--text-lg); font-weight:600; }
+.c2000-ui .ui-data-row dd { overflow-wrap:anywhere; }
+.c2000-ui .modem-note { overflow-wrap:anywhere; }
+.c2000-ui .cbi-map { margin:0 0 24px; }
+.c2000-ui .cbi-map-descr,.c2000-ui .cbi-section-descr { color:var(--text-secondary); font-size:var(--text-sm); margin-bottom:20px; }
+.c2000-ui .cbi-section { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:24px; margin:20px 0; box-shadow:none; min-width:0; }
+.c2000-ui .cbi-section .cbi-section { background:var(--surface-soft); border-radius:var(--radius-md); padding:18px; }
+.c2000-ui .cbi-section > legend { padding:0 8px; font-size:var(--text-lg); color:var(--text); border:0; }
+.c2000-ui .cbi-value { display:grid; grid-template-columns:minmax(120px,28%) minmax(0,1fr); gap:0 20px; align-items:start; padding:16px 0; border-bottom:1px solid var(--border-soft); background:transparent; min-width:0; }
+.c2000-ui .cbi-value .cbi-value-title { color:var(--text-secondary); font-size:var(--text-sm); line-height:1.6; padding-top:10px; width:auto; padding-right:0; text-align:left; }
+.c2000-ui .cbi-value-field { margin-left:0; min-width:0; line-height:1.6; }
+.c2000-ui .cbi-value > .cbi-section { grid-column:1/-1; }
+.c2000-ui .cbi-dynlist { min-width:0; max-width:100%; }
+.c2000-ui .cbi-value-description { font-size:var(--text-sm); color:var(--text-muted); line-height:1.6; padding-top:8px; }
+.c2000-ui .cbi-value-description a,.c2000-ui .cbi-map-descr a { color:var(--info); text-decoration:underline; text-underline-offset:3px; }
+.luci-content input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]):not([type=range]),
+.c2000-ui select,.c2000-ui textarea { background:var(--surface-soft); color:var(--text); border:1px solid var(--control-border); border-radius:var(--radius-sm); font:var(--text-md)/1.5 var(--font-sans); min-height:44px; padding:9px 12px; max-width:100%; box-shadow:none; box-sizing:border-box; }
+.c2000-ui .menu-search input[type=search] { border:0; min-height:24px; padding:0; background:none; font-size:var(--text-sm); }
+.c2000-ui textarea { min-height:130px; resize:vertical; }
+.c2000-ui textarea.cbi-input-textarea,.c2000-ui pre,.c2000-ui #syslog { font-family:var(--font-mono); font-size:var(--text-sm); line-height:1.65; background:var(--surface-soft); color:var(--text-secondary); border-color:var(--border); border-radius:var(--radius-md); }
+.c2000-ui input[type=checkbox],.c2000-ui input[type=radio] { width:20px; height:20px; accent-color:var(--accent); vertical-align:middle; margin:12px 8px 12px 0; cursor:pointer; }
+.c2000-ui input[type=checkbox],.c2000-ui input[type=radio] { appearance:auto; }
+.c2000-ui input[type=checkbox]::before,.c2000-ui input[type=checkbox]::after,.c2000-ui input[type=radio]::before,.c2000-ui input[type=radio]::after { display:none; }
+.c2000-ui input[type=range] { accent-color:var(--accent); min-height:44px; max-width:100%; }
+.c2000-ui input:disabled,.c2000-ui select:disabled,.c2000-ui textarea:disabled { opacity:.55; cursor:not-allowed; }
+.c2000-ui input.cbi-input-invalid,.c2000-ui textarea.cbi-input-invalid,.c2000-ui .cbi-input-invalid { border-color:var(--danger)!important; color:var(--danger); }
+.c2000-ui .cbi-value-error { border-color:var(--danger); }
+.c2000-ui .cbi-value-error .cbi-value-description { color:var(--danger); }
+.c2000-ui .cbi-button,.c2000-ui .btn,.c2000-ui input[type=submit],.c2000-ui input[type=reset] { min-height:44px; height:auto; padding:10px 16px; border:1px solid var(--control-border); border-radius:var(--radius-md); background:var(--surface-soft); color:var(--text); font:600 var(--text-sm)/1.5 var(--font-sans); text-shadow:none; box-shadow:none; cursor:pointer; white-space:normal; }
+.c2000-ui .cbi-button:hover,.c2000-ui .btn:hover { background:var(--hover); }
+.c2000-ui .cbi-button-positive,.c2000-ui .cbi-button-apply,.c2000-ui .cbi-button-save,.c2000-ui .cbi-button-action,.c2000-ui .btn.primary { color:var(--on-accent); background:var(--accent); border-color:var(--accent); }
+.c2000-ui .cbi-button-negative,.c2000-ui .cbi-button-remove,.c2000-ui .cbi-button-reset { color:var(--danger); background:var(--danger-soft); border-color:var(--danger); }
+.c2000-ui .cbi-page-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:12px; margin-top:24px; padding:16px 0; background:transparent; border-top:1px solid var(--border); }
+.c2000-ui .cbi-page-actions > * { margin:0; }
+.c2000-ui .cbi-page-actions .cbi-button-save { background:var(--surface-soft); border-color:var(--control-border); color:var(--text); }
+.c2000-ui .tabs,.c2000-ui .cbi-tabmenu { display:flex; flex-wrap:wrap; gap:4px; border:0; border-bottom:1px solid var(--border); background:transparent; padding:0 0 8px; margin:0 0 20px; box-shadow:none; }
+.c2000-ui .tabs > li,.c2000-ui .cbi-tabmenu > li { float:none; margin:0; border:0; padding:0; background:none; }
+.c2000-ui .tabs > li > a,.c2000-ui .cbi-tabmenu > li > a { display:flex; align-items:center; min-height:44px; padding:10px 16px; color:var(--text-secondary); border-radius:var(--radius-md); background:transparent; border:0; font-size:var(--text-sm); }
+.c2000-ui .tabs > li.active > a,.c2000-ui .cbi-tabmenu > .cbi-tab > a { color:var(--accent); background:var(--accent-soft); font-weight:600; }
+.c2000-ui .table,.c2000-ui table { width:100%; border-collapse:separate; border-spacing:0; color:var(--text); background:transparent; font-size:var(--text-sm); border-color:var(--border); }
+.c2000-ui .table .tr,.c2000-ui .table .tr:nth-child(odd),.c2000-ui table tr:nth-child(odd) { background:transparent; }
+.c2000-ui .table .tr:hover { background:var(--hover); }
+.c2000-ui .table .th,.c2000-ui .table .td,.c2000-ui table th,.c2000-ui table td { padding:14px 12px; color:var(--text); border-bottom:1px solid var(--border-soft); background:transparent; vertical-align:middle; height:auto; }
+.c2000-ui .table .th,.c2000-ui table th { color:var(--text-secondary); background:var(--surface-soft); font-weight:600; text-shadow:none; }
+.c2000-ui .cbi-section-table .cbi-value-field { margin:0; }
+.c2000-ui .cbi-section-table .cbi-button { margin:3px; }
+.c2000-ui .cbi-section-actions { white-space:normal; }
+.c2000-ui .cbi-dropdown { min-height:44px; border:1px solid var(--control-border); border-radius:var(--radius-sm); background:var(--surface-soft); color:var(--text); font-size:var(--text-md); max-width:100%; box-shadow:none; }
+.c2000-ui .cbi-dropdown > ul > li { padding:10px 12px; line-height:1.5; color:var(--text); }
+.c2000-ui .cbi-dropdown .open,.c2000-ui .cbi-dropdown > ul.dropdown { background:var(--surface-raised); border-color:var(--border); border-radius:var(--radius-sm); box-shadow:var(--shadow-raised); color:var(--text); }
+.c2000-ui .cbi-dropdown > ul > li[selected],.c2000-ui .cbi-dropdown > ul > li:hover { background:var(--accent-soft); color:var(--accent); }
+.c2000-ui .cbi-dropdown .more { color:var(--text-secondary); }
+.c2000-ui .cbi-dynlist > .item { min-height:40px; background:var(--surface-soft); color:var(--text); border:1px solid var(--border); border-radius:var(--radius-sm); margin:4px 0; }
+.c2000-ui .cbi-dynlist > .add-item { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+.c2000-ui .cbi-dynlist > .item > span { padding:9px 12px; }
+.c2000-ui .cbi-dynlist > .item::after { color:var(--danger); }
+.c2000-ui .cbi-filebrowser { background:var(--surface-soft); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px; color:var(--text); }
+.c2000-ui .cbi-filebrowser .breadcrumb { color:var(--text-secondary); background:transparent; }
+.c2000-ui .alert-message { border:1px solid var(--border); border-radius:var(--radius-md); padding:18px 20px; background:var(--surface-soft); color:var(--text); text-shadow:none; box-shadow:none; font-size:var(--text-sm); }
+.c2000-ui .alert-message.warning { background:var(--warning-soft); color:var(--warning); border-color:var(--warning); }
+.c2000-ui .alert-message.error,.c2000-ui .alert-message.danger { background:var(--danger-soft); color:var(--danger); border-color:var(--danger); }
+.c2000-ui .alert-message.success { background:var(--success-soft); color:var(--success); border-color:var(--success); }
+.c2000-ui .alert-message.notice { background:var(--info-soft); color:var(--info); border-color:var(--info); }
+.c2000-ui .alert-message h4 { color:inherit; font-size:var(--text-lg); }
+.c2000-ui #modal_overlay { background:var(--overlay); backdrop-filter:blur(4px); }
+.c2000-ui .modal { background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:var(--radius-lg); box-shadow:var(--shadow-raised); padding:28px; max-width:calc(100vw - 32px); max-height:calc(100dvh - 32px); overflow:auto; }
+.c2000-ui .modal h4 { font-size:var(--text-xl); }
+.c2000-ui .modal .button-row { display:flex; flex-wrap:wrap; gap:12px; justify-content:flex-end; }
+.c2000-ui .cbi-tooltip { background:var(--surface-raised); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:var(--text-sm); box-shadow:var(--shadow-raised); text-shadow:none; }
+.c2000-ui .cbi-progressbar { min-height:20px; height:20px; border:0; border-radius:10px; background:var(--track); overflow:hidden; color:var(--text); box-shadow:none; }
+.c2000-ui .cbi-progressbar > div { height:100%; background:var(--ram-active); }
+.c2000-ui .cbi-progressbar > div::after { color:var(--text); text-shadow:0 0 2px var(--surface); line-height:20px; font-size:var(--text-xs); }
+.c2000-ui .ifacebox { border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface); color:var(--text); margin:8px; overflow:hidden; }
+.c2000-ui .ifacebox-head { padding:14px; background:var(--surface-soft); color:var(--text-secondary); }
+.c2000-ui .ifacebox-head.active { background:var(--success-soft); color:var(--success); }
+.c2000-ui .ifacebox-body { padding:16px; background:transparent; }
+.c2000-ui .ifacebadge { border:1px solid var(--border); background:var(--surface-soft); color:var(--text); border-radius:8px; padding:6px 10px; }
+.c2000-ui .zonebadge { border-radius:8px; padding:6px 10px; color:#171717; }
+.c2000-ui .spinning { color:var(--text-muted); padding:20px; }
+.c2000-ui .cbi-section-create { margin-top:18px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+.c2000-ui .cbi-section-node { min-width:0; }
+@media(max-width:700px) {
+ .c2000-ui .cbi-section { padding:18px 14px; border-radius:var(--radius-md); }
+ .c2000-ui .cbi-value { grid-template-columns:minmax(0,1fr); }
+ .c2000-ui .cbi-value .cbi-value-title { float:none; display:block; width:100%; padding:0 0 8px; text-align:left; }
+ .c2000-ui .cbi-value-field { margin-left:0; }
+ .c2000-ui .cbi-value-field > input:not([type=checkbox]):not([type=radio]),.c2000-ui .cbi-value-field > select { width:100%; }
+ .c2000-ui .table { display:block; overflow-x:auto; overscroll-behavior-x:contain; overscroll-behavior-y:auto; }
+ .c2000-ui .table .td,.c2000-ui .table .th { min-width:110px; }
+ .c2000-ui .cbi-page-actions { position:sticky; bottom:76px; background:var(--page); z-index:4; padding:12px 0; }
+ .c2000-ui .modal { padding:20px; }
+ .c2000-ui #indicators { position:absolute; top:86px; right:0; z-index:2; }
+}
+@media(prefers-reduced-motion:reduce) { .c2000-ui *, .c2000-ui *::before,.c2000-ui *::after { scroll-behavior:auto!important; transition:none!important; } }
+/* v1.0.1: native LuCI sizing and layout corrections. */
+.c2000-ui .tabs,.c2000-ui .cbi-tabmenu { gap:6px; padding:6px; margin:16px 0 22px; background:var(--surface-soft); border:1px solid var(--border); border-radius:12px; }
+.c2000-ui .tabs > li,.c2000-ui .cbi-tabmenu > li { height:auto; max-width:none; background:none!important; flex:0 0 auto; }
+.c2000-ui .tabs > li > a,.c2000-ui .cbi-tabmenu > li > a { min-height:36px; line-height:20px; padding:8px 14px; border-radius:8px; }
+.c2000-ui .cbi-map > h2 { margin:0 0 18px; line-height:1.4; }
+.c2000-ui .cbi-button,.c2000-ui .btn,.c2000-ui input[type=submit],.c2000-ui input[type=reset] { min-height:36px; padding:7px 12px; white-space:nowrap; flex-shrink:0; line-height:20px; border-radius:8px; }
+.c2000-ui .cbi-page-actions { gap:8px; padding:12px 0; }
+.c2000-ui .cbi-page-actions > * { float:none!important; margin:0!important; }
+.c2000-ui .cbi-page-actions::after { display:none; }
+.c2000-ui .cbi-section-actions > div { flex-wrap:wrap; gap:6px; }
+.c2000-ui .cbi-section-table .cbi-button { margin:0; }
+.c2000-ui .cbi-dropdown.btn { display:inline-flex; align-items:center; padding:0; min-height:36px; overflow:visible; }
+.c2000-ui .cbi-dropdown.btn > ul:not(.dropdown) { margin:0!important; padding:0; background:none; }
+.c2000-ui .cbi-dropdown.btn > ul:not(.dropdown) > li { background:none!important; color:inherit; padding:7px 12px; line-height:20px; }
+.c2000-ui .cbi-dropdown.btn > .open { align-self:stretch; display:flex; align-items:center; padding:0 10px; margin:0; border:0; border-left:1px solid var(--border); background:none; box-shadow:none; border-radius:0 8px 8px 0; }
+.c2000-ui .cbi-dropdown > ul.dropdown { padding:6px; border:1px solid var(--control-border); background:var(--surface-raised); z-index:20; }
+.c2000-ui .cbi-dropdown[open] > ul.dropdown > li { border:0; border-radius:6px; margin:2px 0; padding:9px 10px; font-size:14px; background:transparent; color:var(--text); }
+.c2000-ui .cbi-dropdown[open] > ul.dropdown > li:is([selected],.focus,:hover) { background:var(--accent-soft); color:var(--text); }
+.c2000-ui .cbi-dropdown:not(.btn) { min-height:40px; }
+.c2000-ui .cbi-dropdown:not(.btn) > ul:not(.dropdown) > li { padding:8px 12px; line-height:22px; }
+.c2000-ui .cbi-section-create input,.c2000-ui .modal input:not([type=checkbox]):not([type=radio]),.c2000-ui .cbi-value-field > input:not([type=checkbox]):not([type=radio]) { min-height:40px; height:40px; padding:8px 12px; border-radius:8px; line-height:22px; }
+.c2000-ui .alert-message a { color:inherit; font-weight:600; text-decoration:underline; text-underline-offset:4px; }
+.c2000-ui .cbi-progressbar { height:24px; min-height:24px; min-width:120px; margin:4px 0; border-radius:8px; }
+.c2000-ui .cbi-progressbar::before { content:attr(title); position:absolute; inset:0; display:flex; justify-content:center; align-items:center; color:var(--text); font-size:12px; font-weight:600; line-height:24px; z-index:1; text-shadow:0 1px 2px var(--surface); }
+.c2000-ui .cbi-progressbar > div::after { display:none; }
+.c2000-ui .account-menu { box-shadow:0 8px 24px #0002; }
+.c2000-ui .account-menu button { background:none; box-shadow:none; border-radius:0; }
+.c2000-ui .account-menu button:focus:not(:focus-visible) { outline:none; }
+.c2000-ui .menu-root-link { display:flex; align-items:center; gap:16px; padding:12px 16px; }
+.c2000-ui .theme-control { padding:3px; border-radius:10px; }
+.c2000-ui .theme-control button { width:34px; height:34px; }
+.c2000-ui .theme-control button .icon { width:18px; height:18px; }
+.c2000-ui #indicators { position:static; margin:0; order:0; flex:0 0 auto; }
+.c2000-ui #indicators > [data-indicator=poll-status] { display:grid; place-items:center; width:34px; height:34px; padding:0; font-size:0; background:var(--surface-soft); color:var(--text-muted); border:1px solid var(--border); border-radius:10px; }
+.c2000-ui #indicators > [data-indicator=poll-status]::before { content:'⟳'; font-size:24px; line-height:1; }
+.c2000-ui #indicators > [data-indicator=poll-status][data-style=active] { color:var(--icon-signal); }
+.c2000-ui .topbar { gap:12px; }
+.c2000-ui .modem-note,.c2000-ui #thermal-note { display:none; }
+.c2000-ui .signal-health[data-quality=good] > .icon:first-child { color:var(--success); }
+.c2000-ui .signal-health[data-quality=fair] > .icon:first-child { color:var(--warning); }
+.c2000-ui .signal-health[data-quality=weak] > .icon:first-child { color:var(--danger); }
+.c2000-ui .signal-health[data-quality=unknown] > .icon:first-child { color:var(--text-muted); }
+.c2000-ui .thermal-card { align-self:start; }
+.c2000-ui .operator-logo { max-height:48px; object-fit:contain; object-position:left center; }
+@media(min-width:1101px) { .c2000-dashboard-root { zoom:.9; } }
+@media(max-width:700px) {
+ .c2000-ui .theme-picker > .theme-control { width:auto; padding:6px; top:68px; gap:4px; }
+ .c2000-ui .theme-picker .theme-control button { flex:none; width:40px; height:40px; padding:0; }
+ .c2000-ui .theme-choice-label { display:none; }
+ .c2000-ui .topbar { gap:8px; }
+ .c2000-ui .cbi-page-actions { position:relative; bottom:auto; flex-wrap:wrap; padding:12px 0; }
+ .c2000-ui .cbi-button,.c2000-ui .btn { min-height:40px; }
+ .c2000-ui .cbi-tabmenu,.c2000-ui .tabs { flex-wrap:nowrap; overflow-x:auto; }
+ .c2000-ui .cbi-tabmenu > li > a,.c2000-ui .tabs > li > a { min-height:40px; }
+ .c2000-ui #cbi-wireless-wifi-device { overflow:visible; }
+ .c2000-ui #cbi-wireless-wifi-device .table { display:block; overflow:visible; }
+ .c2000-ui #cbi-wireless-wifi-device .tr { display:grid; grid-template-columns:100px minmax(0,1fr); gap:12px; padding:16px 0; border-bottom:1px solid var(--border); }
+ .c2000-ui #cbi-wireless-wifi-device .tr.table-titles { display:none; }
+ .c2000-ui #cbi-wireless-wifi-device .td { display:block; min-width:0; width:auto!important; padding:0; border:0; overflow-wrap:anywhere; }
+ .c2000-ui #cbi-wireless-wifi-device .td.cbi-section-actions { grid-column:1/-1; }
+ .c2000-ui #cbi-wireless-wifi-device .td.cbi-section-actions > div { display:flex; justify-content:flex-end; flex-wrap:wrap; }
+ .c2000-ui #cbi-wireless-wifi-device .ifacebadge { margin:0; max-width:100%; white-space:normal; }
+}
+.c2000-ui .operator-logo[data-operator=unicom] { background:#252525; padding:6px; width:144px; border-radius:6px; }
+/* Let wide LuCI tables scroll inside their card on tablets as well. */
+.c2000-ui .cbi-section-actions button { flex:0 0 auto; }
+@media(max-width:1100px) {
+ .c2000-ui .table { display:block; max-width:100%; overflow-x:auto; overscroll-behavior-x:contain; overscroll-behavior-y:auto; }
+ .c2000-ui #cbi-wireless-wifi-device .table { display:block; overflow:visible; }
+ .c2000-ui #cbi-wireless-wifi-device .tbody { display:block; }
+ .c2000-ui #cbi-wireless-wifi-device .tr { display:grid; grid-template-columns:100px minmax(0,1fr); gap:12px; padding:16px 0; border-bottom:1px solid var(--border); }
+ .c2000-ui #cbi-wireless-wifi-device .td { display:block; min-width:0!important; width:auto!important; padding:0; border:0; overflow-wrap:anywhere; }
+ .c2000-ui #cbi-wireless-wifi-device .td:is(.cbi-section-actions,[colspan]) { grid-column:1/-1; }
+ .c2000-ui #cbi-wireless-wifi-device .td[colspan] > div { flex-wrap:wrap; }
+ .c2000-ui #cbi-wireless-wifi-device .td.cbi-section-actions > div { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+}
+.c2000-ui .quick-access .thermal-card { width:100%; box-sizing:border-box; align-self:stretch; }
+.c2000-ui .td.cbi-section-actions > div > button { flex:0 0 auto; }
+@media(max-width:1279px) { .c2000-ui .quick-access .thermal-card { align-self:start; } }
+.c2000-ui .cbi-dropdown[open] > ul.dropdown { transition:none; }
+/* OpenClash's log template has two direct children, not a label/field pair. */
+.c2000-ui[data-page="admin-services-openclash-log"] .cbi-value[id$="-clog"] {
+ display:block;
+ padding:0;
+ border-bottom:0;
+}
+.c2000-ui[data-page="admin-services-openclash-log"] .cbi-value[id$="-clog"] > #tab,
+.c2000-ui[data-page="admin-services-openclash-log"] .cbi-value[id$="-clog"] > .oc-w100 {
+ width:100%;
+ max-width:100%;
+ min-width:0;
+ box-sizing:border-box;
+}
+.c2000-ui[data-page="admin-services-openclash-log"] .cbi-value[id$="-clog"] > .oc-w100 {
+ margin-top:16px;
+}

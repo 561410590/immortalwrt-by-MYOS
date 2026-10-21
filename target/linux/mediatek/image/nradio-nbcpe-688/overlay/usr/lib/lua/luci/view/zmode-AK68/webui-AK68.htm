@@ -1,0 +1,22 @@
+<%+header%>
+<%+zmode-AK68/cellular-menu%>
+<div class="cbi-map nbcpe-webui-host">
+  <h2 name="content"><%:MT5700M-CN 巴龙 Web 管理%></h2>
+  <p><a href="/5700/?v=2.2.2-2230" target="_blank" rel="noopener"><%:在新窗口打开%></a></p>
+  <iframe id="nbcpe-modem-webui" title="MT5700M-CN Web UI" src="/5700/?embed=1&amp;v=2.2.2-2230" scrolling="no"
+    style="display:block;width:100%;max-width:100%;height:640px;min-height:480px;border:0;background:transparent"></iframe>
+</div>
+<style>.nbcpe-webui-host{min-width:0;max-width:100%;overflow:hidden}.nbcpe-webui-host iframe{box-sizing:border-box}</style>
+<script>
+(function () {
+  var frame = document.getElementById('nbcpe-modem-webui');
+  window.addEventListener('message', function (event) {
+    if (event.origin !== location.origin || event.source !== frame.contentWindow ||
+        !event.data || event.data.type !== 'myos-nbcpe-webui-height') return;
+    var height = Number(event.data.height);
+    if (isFinite(height) && height >= 0 && height <= 20000)
+      frame.style.height = Math.max(480, Math.ceil(height)) + 'px';
+  });
+})();
+</script>
+<%+footer%>

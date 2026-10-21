@@ -1,0 +1,17 @@
+#!/bin/sh
+# The live cellular path includes 1280-byte PMTU segments. Advertise and
+# clamp IPv6 at that size; retain the Ethernet/IPv4 link MTU.
+[ "$(uci -q get network.globals.nbcpe)" = "1" ] || exit 0
+case "$ACTION:$INTERFACE" in
+    ifup:cpe_4|ifupdate:cpe_4)
+        /usr/libexec/myos-nbcpe-ipv6
+        exit 0
+        ;;
+    ifup:lan|ifup:cpe_6|ifupdate:lan|ifupdate:cpe_6) ;;
+    *) exit 0 ;;
+esac
+if [ -e /proc/sys/net/ipv6/conf/br-lan/mtu ]; then
+    sysctl -q -w net.ipv6.conf.br-lan.mtu=1280
+fi
+# Announce the current prefix promptly after a cellular reconnect.
+[ "$ACTION" != ifup ] || /etc/init.d/odhcpd reload

@@ -1,0 +1,68 @@
+<%+header%>
+<div class="embedded-web-page" style="margin: 0; padding: 0; box-sizing: border-box;">
+    <iframe 
+        id="embedded-iframe"
+        src="http://192.168.66.1:19999/#menu_system;theme=slate;help=false" 
+        style="height: 100vh; border: none;"
+        title="mwrt-info">
+    </iframe>
+</div>
+
+<style>
+    #embedded-iframe {
+        position: fixed;
+        top: 0;
+        left: 240px; 
+        width: calc(100% - 240px); 
+        height: 100vh;
+        border: none;
+        z-index: 9999;
+        transition: left 0.3s, width 0.3s; 
+    }
+
+
+    @media (max-width: 768px) {
+        #embedded-iframe {
+            left: 0; 
+            width: 100%; 
+        }
+    }
+
+    .embedded-web-page {
+        margin: 0; 
+        padding: 0; 
+        box-sizing: border-box; 
+    }
+</style>
+
+<script>
+    function adjustIframePosition() {
+        const iframe = document.getElementById('embedded-iframe'); 
+        const menu = document.getElementById('mainmenu'); 
+
+        if (menu && iframe) {
+            const menuWidth = menu.offsetWidth; 
+            
+            iframe.style.left = `${menuWidth}px`; 
+            iframe.style.width = `calc(100% - ${menuWidth}px)`; 
+        }
+    }
+
+    window.addEventListener('resize', () => {
+        setTimeout(() => {
+            adjustIframePosition();
+        }, 50);
+    });
+
+    document.addEventListener('DOMContentLoaded', adjustIframePosition);
+
+    const menuElement = document.getElementById('mainmenu');
+    if (menuElement) {
+        const observer = new MutationObserver(() => {
+            adjustIframePosition(); 
+        });
+
+        observer.observe(menuElement, { attributes: true, childList: true, subtree: true }); 
+</script>
+
+<%+footer%>

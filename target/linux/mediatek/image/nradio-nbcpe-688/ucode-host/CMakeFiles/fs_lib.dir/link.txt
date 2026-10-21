@@ -1,0 +1,1 @@
+/usr/bin/cc -fPIC -shared  -o fs.so CMakeFiles/fs_lib.dir/lib/fs.c.o 

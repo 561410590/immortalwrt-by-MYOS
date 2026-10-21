@@ -1,0 +1,12 @@
+--- a/mt_wifi/embedded/fsm/ap_mgmt_sync.c
++++ b/mt_wifi/embedded/fsm/ap_mgmt_sync.c
+@@ -334,8 +334,8 @@
+ 	struct legacy_rate *legacy_rate = &ie_list->cmm_ies.rate;
+ #if defined(MWDS) || defined(DOT11K_RRM_SUPPORT)
+ 	int BssIdx = 0;
+-	BSS_TABLE *ScanTab = get_scan_tab_by_wdev(pAd, wdev);
+ #endif
++	BSS_TABLE *ScanTab = get_scan_tab_by_wdev(pAd, wdev);
+ #ifdef OCE_SUPPORT
+ 	P_OCE_CTRL	pOceCtrl = &wdev->OceCtrl;
+ 	INT OceBOnlyPresentOldValue;

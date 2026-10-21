@@ -1,0 +1,24 @@
+# Preserve access to this NBCPE's existing board data before APP defaults run.
+# The official preinit also formats/restores partitions; this hook only mounts.
+nbcpe_mount_existing_app_data() {
+	local compatible device parent fstype options
+	compatible=$(tr '\000' '\n' < /proc/device-tree/compatible 2>/dev/null)
+	printf '%s\n' "$compatible" | grep -qx HCMT7981-emmc-NB68 || return 0
+	grep -qs ' /mnt/app_data ' /proc/mounts && return 0
+	device=$(/usr/sbin/blkid -t PARTLABEL=app_data -o device 2>/dev/null | head -n1)
+	case "$device" in /dev/mmcblk*p[0-9]*) ;; *) return 0 ;; esac
+	parent=${device%p*}
+	[ "$(cat /sys/class/block/${parent##*/}/removable 2>/dev/null)" = 0 ] || return 0
+	fstype=$(/usr/sbin/blkid -s TYPE -o value "$device" 2>/dev/null)
+	case "$fstype" in
+		ext4) options=ro,noload ;;
+		f2fs) options=ro,norecovery ;;
+		*) return 0 ;;
+	esac
+	mkdir -p /mnt/app_data
+	mount -t "$fstype" -o "$options" "$device" /mnt/app_data || {
+		echo 'NBCPE existing app_data mount failed; preserve partition as-is'
+		return 0
+	}
+}
+[ "$INITRAMFS" = 1 ] || boot_hook_add preinit_main nbcpe_mount_existing_app_data

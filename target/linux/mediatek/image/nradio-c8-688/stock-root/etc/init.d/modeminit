@@ -1,0 +1,164 @@
+#!/bin/sh /etc/rc.common
+START=99
+
+restart(){
+  /usr/bin/fancts.sh &                                                                                                       
+  if lsusb | grep -q "5700"; then
+    if [ ! -f /usr/bin/AK68EN.file ]; then
+         modem_init
+  	/usr/bin/initmwr.sh &
+    else
+    	return 0
+    fi
+  fi
+}
+
+
+start(){
+  /usr/bin/fancts.sh &
+  if lsusb | grep -q "5700"; then
+    if [ ! -f /usr/bin/AK68EN.file ]; then
+         modem_init
+  	/usr/bin/initmwr.sh &
+    else
+    	return 0
+    fi
+  fi
+}
+
+printMsg() {
+    local msg="$1"
+    logger -t "${PROGRAM}" "${msg}"
+} #日志输出调用API
+
+webui() {
+    CONF_FILE="/usr/share/modem/pysmspdu.conf"
+    if [ -f "$CONF_FILE" ]; then
+        echo "$CONF_FILE 检测到安装标志文件，跳过webui初始化步骤，直接开启服务..."
+        echo "已尝试开启webui服务。"
+        python3 /usr/bin/websocket_server.py &
+    else
+        echo "$CONF_FILE not found. Proceeding with installation..."
+        echo "$CONF_FILE 检测到第一次安装webui服务，正在尝试安装中。"
+        cp -r /usr/share/modem/5700 /www/
+        /etc/init.d/uhttpd restart
+        echo "解压前端文件..."
+        echo "安装缺失Python环境..."
+        echo "已尝试开启5700-webui服务..."
+        python3 /usr/bin/websocket_server.py &
+        touch "$CONF_FILE"
+        echo "$CONF_FILE created successfully."
+    fi
+}
+
+ModuleCheck(){
+  local count=0
+  while [ $count -lt 10 ]; do
+    echo 1 >/sys/class/gpio/cpe-pwr/value
+    echo "USB串口1模式已连接" >>/tmp/stsss_u.file
+
+    #Read the Balong module
+    Read_mt5700_USB=$(lsusb | grep 'MT5700M' |grep -v grep)
+    if ! [ "$Read_mt5700_USB" == "" ] ; then
+      Readmodule=$(sendat 1 'ATI' | sed -n '3p')
+      if echo "$Readmodule" | grep -q 'MT5700' ; then
+          echo "The module is working properly"
+          check_and_update_simsel_mt5700
+          return 0
+      fi    
+    fi
+
+    sleep 3
+    count=$((count + 1)) 
+  done
+  echo "Failed to confirm the module status after 10 attempts."
+  return 1
+}
+
+modem_init(){
+  /usr/bin/mwrt_wan_failover.sh &
+  /usr/bin/usbwan.sh &
+  cp -r /usr/share/modem/fontawesome /www/
+  cp -r /usr/share/modem/logo /www/
+  ipcheckLOCKFILE="/tmp/ipcheck.lock"
+  rm -f /usr/bin/config.json
+  telnetd -l /bin/login
+  #/usr/bin/fancts.sh &
+  if [ -f /usr/bin/ledflagc.conf ]; then
+      echo "0" > /tmp/ledflag.conf
+      echo 0 > /sys/class/leds/hc:blue:cmode4/brightness
+      echo 0 > /sys/class/leds/hc:blue:cmode5/brightness
+      echo 0 > /sys/class/leds/hc:blue:wifi/brightness
+      echo 0 > /sys/class/leds/hc:blue:status/brightness
+      echo 0 > /sys/class/leds/hc:blue:sig1/brightness
+      echo 0 > /sys/class/leds/hc:blue:sig2/brightness
+      echo 0 > /sys/class/leds/hc:blue:sig3/brightness
+      echo 0 > /sys/class/leds/hc:blue:int/brightness
+  else
+      echo 1 > /sys/class/leds/hc:blue:wifi/brightness
+  fi
+  # Check if lockfile exists
+  if [ -f $ipcheckLOCKFILE ]; then
+      OLD_PID=$(cat $ipcheckLOCKFILE)
+      echo "$(date): Kill $OLD_PID" 
+      kill $OLD_PID
+  fi
+    lock_file="/tmp/moduleInit.lock"
+
+    if [ -e "$lock_file" ]; then
+    # 锁文件存在，获取锁定的进程 ID，并终止它
+    locked_pid=$(cat "$lock_file")
+        if [ -n "$locked_pid" ]; then
+            echo "Terminating existing moduleInit process (PID: $locked_pid)..." >>/tmp/moduleInit
+            kill "$locked_pid"
+            sleep 2  # 等待一段时间确保进程终止
+        fi
+    fi
+     
+      Modem_Enable=`uci -q get modem.@ndis[0].enable` || Modem_Enable=1
+      # 模块启动
+      # 模块开关
+      if [ "$Modem_Enable" == 0 ]; then
+          echo 0 >/sys/class/gpio/cpe-pwr/value
+          printMsg "禁用模块，退出"
+          rm $lock_file
+          exit 0
+      else
+          #加载MT5700（模组）端口
+          echo "3466 3301" > /sys/bus/usb-serial/drivers/generic/new_id
+          sleep 1
+          printMsg "模块启用"
+          ModuleCheck
+          sleep 1
+          /usr/bin/BLUE4WAN.sh &
+          third_line2=$(sendat 1 'ATI' | grep 'Model' | sed -n '1p')
+          if [ -n "$third_line2" ]; then
+              if echo "$third_line2" | grep -q 'MT5700'; then
+                echo "$third_line2" > /tmp/modconf.conf
+                echo "set" > "/tmp/CPEstartupSettings"
+                webui
+                /usr/share/modem/mt5700m.sh &
+                /usr/share/modem/netmodeled.sh &
+                /usr/share/modem/5700netchek.sh &
+                #/usr/bin/full_ipv6.run &
+                #/usr/bin/BLUE4WAN.sh &
+              fi
+          else
+              echo "未检测到模组" > /tmp/modconf.conf
+              echo "未检测到模组5700"
+              ps w | grep websocket_server.py | grep -v grep | awk '{print $1}' | xargs kill -9
+          fi
+          echo "已尝试开启短信转发服务。"
+          python3 /usr/bin/smstrun.py &
+          #python3 /usr/bin/httpapi.py &
+      fi
+}
+
+
+check_and_update_simsel_mt5700() {
+  local sim_sel_file="/etc/simsel"
+  if [ ! -e "$sim_sel_file" ]; then
+    echo 0 > "$sim_sel_file"
+    #sendat 1 "AT^SCICHG=0,1"
+  fi
+}

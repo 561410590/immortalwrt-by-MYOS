@@ -1,0 +1,9 @@
+#!/bin/sh
+
+myos_c8_factory_wifi_preinit() {
+    . /lib/functions/myos-c8-identity.sh
+    . /lib/functions/myos-c8-factory-wifi.sh
+    myos_c8_wifi_mark_if_new
+}
+
+boot_hook_add preinit_main myos_c8_factory_wifi_preinit

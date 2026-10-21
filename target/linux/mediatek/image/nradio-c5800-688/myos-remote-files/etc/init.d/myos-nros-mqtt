@@ -1,0 +1,178 @@
+#!/bin/sh /etc/rc.common
+START=30
+STOP=70
+USE_PROCD=1
+
+cloud_enabled() {
+	[ "$(uci -q get myos_nros.main.enabled 2>/dev/null)" = "1" ]
+}
+
+valid_mac() {
+	printf '%s' "$1" | grep -iqE '^[0-9a-f]{2}(:[0-9a-f]{2}){5}$'
+}
+
+placeholder_mac() {
+	case "$(printf '%s' "$1" | tr 'a-f' 'A-F')" in
+		''|'00:00:00:00:00:00'|'FF:FF:FF:FF:FF:FF'|'00:66:88:00:00:00') return 0 ;;
+	esac
+	return 1
+}
+
+valid_identity_mac() {
+	valid_mac "$1" && ! placeholder_mac "$1"
+}
+
+bd_dev() {
+	local dev
+	dev="$(awk -F: '/"(bd|oem)info"/ {print "/dev/" $1; exit}' /proc/mtd 2>/dev/null)"
+	[ -n "$dev" ] && { printf '%s\n' "$dev"; return; }
+	dev="$(blkid -t PARTLABEL=bdinfo -o device 2>/dev/null | head -n 1)"
+	[ -n "$dev" ] && { printf '%s\n' "$dev"; return; }
+	[ -e /dev/disk/by-partlabel/bdinfo ] && readlink -f /dev/disk/by-partlabel/bdinfo 2>/dev/null
+}
+
+bd_get() {
+	local key="$1" file dev val
+	if command -v bdinfo >/dev/null 2>&1; then
+		val="$(bdinfo -g "$key" 2>/dev/null | head -n 1)"
+		[ -n "$val" ] && { printf '%s\n' "$val"; return; }
+	fi
+	for file in /mnt/app_data/bdinfo /etc/bdinfo.bin /bdinfo/bdinfo.bin; do
+		[ -f "$file" ] || continue
+		val="$(tr '\000' '\n' < "$file" 2>/dev/null | sed -n "s/^${key}[[:space:]]*=[[:space:]]*//p" | head -n 1)"
+		[ -n "$val" ] && { printf '%s\n' "$val"; return; }
+	done
+	dev="$(bd_dev)"
+	if [ -n "$dev" ]; then
+		val="$(dd if="$dev" bs=65536 count=1 2>/dev/null | tr '\000' '\n' | sed -n "s/^${key}[[:space:]]*=[[:space:]]*//p" | head -n 1)"
+		[ -n "$val" ] && { printf '%s\n' "$val"; return; }
+	fi
+	for file in /etc/nradio/identity /boot/nradio-identity; do
+		[ -f "$file" ] || continue
+		val="$(tr '\000' '\n' < "$file" 2>/dev/null | sed -n "s/^${key}[[:space:]]*=[[:space:]]*//p" | head -n 1)"
+		[ -n "$val" ] && { printf '%s\n' "$val"; return; }
+	done
+}
+
+normalize_mac() {
+	local mac
+	mac="$(printf '%s' "$1" | tr -d '[:space:]' | tr 'a-f' 'A-F')"
+	mac="${mac%-MYOS}"
+	if printf '%s' "$mac" | grep -qE '^[0-9A-F]{12}$'; then
+		printf '%s\n' "$mac" | sed 's/../&:/g;s/:$//'
+	elif printf '%s' "$mac" | grep -qE '^([0-9A-F]{2}:){5}[0-9A-F]{2}$'; then
+		printf '%s\n' "$mac"
+	fi
+}
+
+factory_mac() {
+	local dev hex
+	dev="$(blkid -t PARTLABEL=factory -o device 2>/dev/null | head -n 1)"
+	[ -n "$dev" ] || {
+		[ -e /dev/disk/by-partlabel/factory ] || return
+		dev="$(readlink -f /dev/disk/by-partlabel/factory 2>/dev/null)"
+	}
+	[ -n "$dev" ] || return
+	hex="$(dd if="$dev" bs=1 skip=4 count=6 2>/dev/null | hexdump -v -e '1/1 "%02X"')"
+	case "$hex" in
+		????????????) printf '%s\n' "$hex" | sed 's/../&:/g;s/:$//' ;;
+	esac
+}
+
+pick_mac() {
+	local mac
+	mac="$(uci -q get myos_nros.main.manual_mac 2>/dev/null || true)"
+	mac="$(normalize_mac "$mac")"
+	valid_identity_mac "$mac" && { printf '%s\n' "$mac"; return; }
+	mac="$(uci -q get oem.board.id 2>/dev/null || true)"
+	mac="$(normalize_mac "$mac")"
+	valid_identity_mac "$mac" && { printf '%s\n' "$mac"; return; }
+	mac="$(normalize_mac "$(bd_get fac_mac)")"
+	valid_identity_mac "$mac" && { printf '%s\n' "$mac"; return; }
+	mac="$(normalize_mac "$(bd_get mac)")"
+	valid_identity_mac "$mac" && { printf '%s\n' "$mac"; return; }
+	mac="$(normalize_mac "$(factory_mac)")"
+	valid_identity_mac "$mac" && { printf '%s\n' "$mac"; return; }
+	mac="$(uci -q get mosquitto.bridge.remote_clientid 2>/dev/null || true)"
+	mac="$(normalize_mac "$mac")"
+	valid_identity_mac "$mac" && { printf '%s\n' "$mac"; return; }
+	printf '%s\n' '00:66:88:00:00:00'
+}
+
+device_id() {
+	pick_mac | tr -d ':' | tr 'a-f' 'A-F'
+}
+
+scoped_bridge_address() {
+	local value="$1" landev port
+	printf '%s' "$value" | grep -iqE '^(fe80:[0-9a-f:]+%br-lan|\[fe80:[0-9a-f:]+%br-lan\]):[0-9]{1,5}$' || return 1
+	port="${value##*:}"
+	[ "$port" -ge 1 ] && [ "$port" -le 65535 ] || return 1
+	landev="$(uci -q get network.lan.device 2>/dev/null || true)"
+	printf '%s' "$landev" | grep -qE '^[A-Za-z0-9_.-]+$' || return 1
+	printf '%s\n' "$value" | sed "s/%br-lan/%${landev}/"
+}
+
+start_service() {
+	local mac id conf username password address restart_timeout
+	cloud_enabled || return 0
+	mac="$(pick_mac)"
+	id="$(printf '%s' "$mac" | tr -d ':' | tr 'a-f' 'A-F')"
+	conf=/var/run/mosquitto/mosquitto.conf
+	username="$(uci -q get mosquitto.bridge.remote_username 2>/dev/null || true)"
+	password="$(uci -q get mosquitto.bridge.remote_password 2>/dev/null || true)"
+	address="$(uci -q get mosquitto.bridge.address 2>/dev/null || true)"
+	restart_timeout="$(uci -q get mosquitto.bridge.restart_timeout 2>/dev/null || true)"
+	[ -n "$username" ] || username="router"
+	[ -n "$password" ] && [ "$username" = "router" ] && username="$id"
+	case "$address" in
+		"$id.dev.nradio.com.cn"|"$id.pro.nradio.com.cn") ;;
+		*) address="$(scoped_bridge_address "$address")" || address="$id.dev.nradio.com.cn" ;;
+	esac
+	case "$restart_timeout" in ''|*[!0-9]*|0|1|2|3|4) restart_timeout=5 ;; esac
+
+	ubus -t 10 wait_for network.interface.loopback >/dev/null 2>&1 || true
+	mkdir -p /var/run/mosquitto
+	{
+		printf '%s\n' 'log_dest syslog'
+		printf '%s\n' 'allow_anonymous true'
+		printf '%s\n' 'log_type warning'
+		printf '%s\n' 'listener 1883 127.0.0.1'
+		if ! valid_identity_mac "$mac"; then
+			printf '%s\n' '# NROS cloud bridge disabled: missing factory identity'
+		else
+			printf '\n# NROS cloud bridge\n'
+			printf 'connection %s\n' "$id"
+			printf 'address %s\n' "$address"
+			printf '%s\n' 'keepalive_interval 10'
+			printf '%s\n' 'bridge_protocol_version mqttv311'
+			printf '%s\n' 'cleansession false'
+			printf '%s\n' 'start_type automatic'
+			printf '%s\n' 'notifications true'
+			printf '%s\n' 'notifications_local_only true'
+			printf 'remote_clientid %s\n' "$id"
+			printf 'remote_username %s\n' "$username"
+			[ -n "$password" ] && printf 'remote_password %s\n' "$password"
+			printf 'restart_timeout %s\n' "$restart_timeout"
+			printf 'topic sysinfo/# out 1 "" %s/\n' "$id"
+			printf 'topic exec/# both 1 rpc/ %s/\n' "$id"
+			printf 'topic kp/+/%s/# out 1 "" ""\n' "$id"
+			printf 'topic kp/%s/+/# in 1 "" ""\n' "$id"
+			printf 'topic mosca/# in 1 kp/%s/ kp/FFFFFFFFFFFF/\n' "$id"
+			printf '%s\n' 'try_private false'
+		fi
+	} > "$conf"
+
+	procd_open_instance
+	procd_set_param command /usr/sbin/mosquitto -c "$conf"
+	procd_set_param respawn 5 5 -1
+	procd_close_instance
+}
+
+stop_service() {
+	local pid
+	for pid in $(pidof mosquitto 2>/dev/null); do
+		kill "$pid" 2>/dev/null || true
+	done
+}
+

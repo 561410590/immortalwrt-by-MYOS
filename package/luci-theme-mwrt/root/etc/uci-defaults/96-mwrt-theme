@@ -1,0 +1,5 @@
+#!/bin/sh
+uci -q delete luci.themes.Argon
+uci -q set luci.themes.MWRT='/luci-static/argon'
+uci -q commit luci
+exit 0

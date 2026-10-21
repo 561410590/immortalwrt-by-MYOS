@@ -40,6 +40,7 @@ proto_dhcpv6_init_config() {
 	proto_config_add_boolean sourcefilter
 	proto_config_add_boolean keep_ra_dnslifetime
 	proto_config_add_int "ra_holdoff"
+	proto_config_add_int metric
 	proto_config_add_boolean verbose
 }
 
@@ -55,8 +56,8 @@ proto_dhcpv6_setup() {
 	local config="$1"
 	local iface="$2"
 
-	local reqaddress reqprefix clientid reqopts defaultreqopts noslaaconly forceprefix extendprefix norelease noserverunicast noclientfqdn noacceptreconfig ip6prefix ip6prefixes iface_dslite iface_map iface_464xlat ifaceid userclass vendorclass sendopts delegate zone_dslite zone_map zone_464xlat zone encaplimit_dslite encaplimit_map skpriority soltimeout fakeroutes sourcefilter keep_ra_dnslifetime ra_holdoff verbose
-	json_get_vars reqaddress reqprefix clientid reqopts defaultreqopts noslaaconly forceprefix extendprefix norelease noserverunicast noclientfqdn noacceptreconfig iface_dslite iface_map iface_464xlat ifaceid userclass vendorclass delegate zone_dslite zone_map zone_464xlat zone encaplimit_dslite encaplimit_map skpriority soltimeout fakeroutes sourcefilter keep_ra_dnslifetime ra_holdoff verbose
+	local reqaddress reqprefix clientid reqopts defaultreqopts noslaaconly forceprefix extendprefix norelease noserverunicast noclientfqdn noacceptreconfig ip6prefix ip6prefixes iface_dslite iface_map iface_464xlat ifaceid userclass vendorclass sendopts delegate zone_dslite zone_map zone_464xlat zone encaplimit_dslite encaplimit_map skpriority soltimeout fakeroutes sourcefilter keep_ra_dnslifetime ra_holdoff metric verbose
+	json_get_vars reqaddress reqprefix clientid reqopts defaultreqopts noslaaconly forceprefix extendprefix norelease noserverunicast noclientfqdn noacceptreconfig iface_dslite iface_map iface_464xlat ifaceid userclass vendorclass delegate zone_dslite zone_map zone_464xlat zone encaplimit_dslite encaplimit_map skpriority soltimeout fakeroutes sourcefilter keep_ra_dnslifetime ra_holdoff metric verbose
 	json_for_each_item proto_dhcpv6_add_prefix ip6prefix ip6prefixes
 
 	# Configure
@@ -121,6 +122,7 @@ proto_dhcpv6_setup() {
 	[ "$fakeroutes" != "0" ] && proto_export "FAKE_ROUTES=1"
 	[ "$sourcefilter" = "0" ] && proto_export "NOSOURCEFILTER=1"
 	[ "$extendprefix" = "1" ] && proto_export "EXTENDPREFIX=1"
+	[ -n "$metric" ] && proto_export "IFACE_METRIC=$metric"
 
 	proto_export "INTERFACE=$config"
 	proto_run_command "$config" odhcp6c \
@@ -141,4 +143,3 @@ proto_dhcpv6_teardown() {
 }
 
 add_protocol dhcpv6
-

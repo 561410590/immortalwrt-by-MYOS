@@ -1,0 +1,123 @@
+#!/bin/sh
+# Install the scheduled-LED-blackout config and its cron tick.
+#
+# MyOS MAX and Ultra share this scheduler and keep their own LED hardware names.
+#
+# Idempotent: safe to re-run, keeps any config the user has already written.
+
+CRONTAB=/etc/crontabs/root
+TICK='* * * * * /usr/bin/mwrt-ledsched apply >/dev/null 2>&1'
+
+# ---- config ---------------------------------------------------------------
+
+[ -f /etc/config/mwrt_led ] || cat > /etc/config/mwrt_led <<'CFG'
+config sched 'main'
+	option enabled '0'
+	option mode 'schedule'
+	option starttime '23:00'
+	option endtime '07:00'
+	option weekdays ''
+	list leds 'hc:blue:status'
+	list leds 'hc:blue:sig1'
+	list leds 'hc:blue:sig2'
+	list leds 'hc:blue:sig3'
+	list leds 'hc:red:error'
+CFG
+
+# A config from an older build may predate the 'main' section.
+uci -q get mwrt_led.main >/dev/null || {
+	uci -q set mwrt_led.main=sched
+	uci -q set mwrt_led.main.enabled=0
+	uci -q set mwrt_led.main.mode=schedule
+	uci -q set mwrt_led.main.starttime=23:00
+	uci -q set mwrt_led.main.endtime=07:00
+	uci -q commit mwrt_led
+}
+
+# ---- one-time migration ----------------------------------------------------
+# MAX uses ledctrl; Ultra used myos_nros. Save the original values alongside the
+# migration marker, then make mwrt_led the only owner of blackout scheduling.
+# The ledctrl daemon keeps its normal network/signal behavior and autostart.
+normalize_time() {
+	local h="${1%%:*}" m="${1##*:}"
+	case "$1" in *:*) ;; *) return 1 ;; esac
+	case "$h:$m" in *[!0-9:]*) return 1 ;; esac
+	case "$h" in ?|??) ;; *) return 1 ;; esac
+	case "$m" in ?|??) ;; *) return 1 ;; esac
+	h=${h#0}; h=${h:-0}
+	m=${m#0}; m=${m:-0}
+	[ "$h" -le 23 ] && [ "$m" -le 59 ] || return 1
+	printf '%02d:%02d' "$h" "$m"
+}
+
+if [ "$(uci -q get mwrt_led.main.migrated)" != "1" ]; then
+	old_source=myos_nros
+	old_sched=$(uci -q get myos_nros.main.led_schedule)
+	old_start=$(uci -q get myos_nros.main.led_starttime)
+	old_end=$(uci -q get myos_nros.main.led_endtime)
+	old_dis=$(uci -q get myos_nros.main.led_disabled)
+	if [ -f /etc/config/ledctrl ]; then
+		old_source=ledctrl
+		old_sched=$(uci -q get ledctrl.ledctrl.schedule)
+		old_start=$(uci -q get ledctrl.ledctrl.starttime)
+		old_end=$(uci -q get ledctrl.ledctrl.endtime)
+		old_dis=$(uci -q get ledctrl.ledctrl.disabled)
+	fi
+	uci -q set mwrt_led.main.migrated_from="$old_source"
+	uci -q set mwrt_led.main.legacy_disabled="${old_dis:-0}"
+	uci -q set mwrt_led.main.legacy_schedule="${old_sched:-0}"
+	uci -q set mwrt_led.main.legacy_starttime="${old_start:-0:0}"
+	uci -q set mwrt_led.main.legacy_endtime="${old_end:-0:0}"
+	new_start=$(normalize_time "$old_start") && uci -q set mwrt_led.main.starttime="$new_start"
+	new_end=$(normalize_time "$old_end") && uci -q set mwrt_led.main.endtime="$new_end"
+	if [ "$old_sched" = "1" ]; then
+		uci -q set mwrt_led.main.enabled=1
+		uci -q set mwrt_led.main.mode=schedule
+	fi
+	# Keep manual off independent from a saved schedule, as the APP expects.
+	[ "$old_dis" = "1" ] && uci -q set mwrt_led.main.manual=off
+	uci -q commit mwrt_led || exit 1
+
+	if [ "$old_source" = "ledctrl" ]; then
+		uci -q set ledctrl.ledctrl.disabled=0
+		uci -q set ledctrl.ledctrl.schedule=0
+		uci -q commit ledctrl || exit 1
+		# Its schedule is cached at startup. Reload only when old controls were on.
+		if [ "$old_dis" = "1" ] || [ "$old_sched" = "1" ]; then
+			if /etc/init.d/ledctrl running >/dev/null 2>&1; then
+				/etc/init.d/ledctrl restart >/dev/null 2>&1 || exit 1
+			fi
+		fi
+	fi
+	uci -q set mwrt_led.main.migrated=1
+	uci -q commit mwrt_led || exit 1
+fi
+
+# ---- cron tick ------------------------------------------------------------
+#
+# The minute tick is what opens and closes the window. The init script below
+# only reacts to config commits, so it cannot see the clock roll past 23:00.
+
+touch "$CRONTAB"
+if ! grep -qF 'mwrt-ledsched apply' "$CRONTAB" 2>/dev/null; then
+	echo "$TICK" >> "$CRONTAB"
+	/etc/init.d/cron enable >/dev/null 2>&1
+	/etc/init.d/cron restart >/dev/null 2>&1
+fi
+
+# ---- config-commit trigger ------------------------------------------------
+#
+# Registers the procd reload triggers (mwrt_led and system) so a change made
+# in the web UI or the APP takes effect at once instead of at the next tick,
+# and re-asserts the blackout after /etc/init.d/led has re-applied the stock
+# LED configuration.
+
+if [ -x /etc/init.d/mwrt-ledsched ]; then
+	/etc/init.d/mwrt-ledsched enable >/dev/null 2>&1
+	/etc/init.d/mwrt-ledsched start >/dev/null 2>&1
+fi
+
+# Drop the stale menu cache so the new page shows up without a reboot.
+rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null
+
+exit 0

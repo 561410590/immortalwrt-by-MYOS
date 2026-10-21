@@ -1,0 +1,15 @@
+<%+header%>
+<%+zmode-AK68/cellular-menu%>
+<div class="nb-cellular nb-tool" id="nb-at-terminal" data-token="<%=luci.dispatcher.context.authtoken%>" data-url="<%=luci.dispatcher.build_url('admin','modem-AK68','at_command')%>">
+ <header class="nb-cellular-heading"><div><div class="nb-eyebrow">NBCPE · 网络调试</div><h2>AT 命令终端</h2><p>查询模组状态或执行已确认的 AT 命令。</p></div><button class="nb-button" type="button" data-clear>清空输出</button></header>
+ <section class="nb-card"><div class="nb-actions nb-query-shortcuts"><button class="nb-button" data-command="ATI">模组信息</button><button class="nb-button" data-command="AT+CEREG?">注册状态</button><button class="nb-button" data-command="AT^NDISSTATQRY?">拨号状态</button><button class="nb-button" data-command="AT^MONSC">服务小区</button><button class="nb-button" data-command="AT^HFREQINFO?">载波信息</button></div><form data-command-form><label class="nb-input-label" for="nb-at-command">AT 命令</label><div class="nb-command-row"><input id="nb-at-command" class="nb-input" name="command" placeholder="例如 AT^MONSC" autocomplete="off" spellcheck="false" maxlength="512" required><button class="nb-button nb-primary" type="submit" data-send>发送命令</button></div></form><pre class="nb-console nb-at-output" data-output role="log" aria-live="polite">选择查询，或输入 AT 命令。</pre></section>
+</div>
+<script>
+(function(){
+ var root=document.getElementById('nb-at-terminal'),input=root.querySelector('[name=command]'),output=root.querySelector('[data-output]'),button=root.querySelector('[data-send]');
+ root.querySelectorAll('[data-command]').forEach(function(item){item.addEventListener('click',function(){input.value=item.dataset.command;input.focus();});});
+ root.querySelector('[data-clear]').addEventListener('click',function(){output.textContent='';});
+ root.querySelector('[data-command-form]').addEventListener('submit',function(event){event.preventDefault();var command=input.value.trim();if(!/^AT/i.test(command)||/[\r\n\x00]/.test(command))return;button.disabled=true;output.textContent+='\n> '+command+'\n';fetch(root.dataset.url,{method:'POST',body:new URLSearchParams({command:command,token:root.dataset.token}),headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(r){if(!r.ok)throw new Error();return r.json();}).then(function(data){output.textContent+=data.output||'未收到响应。';output.scrollTop=output.scrollHeight;}).catch(function(){output.textContent+='请求失败，请稍后重试。\n';}).finally(function(){button.disabled=false;});});
+})();
+</script>
+<%+footer%>

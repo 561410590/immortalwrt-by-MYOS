@@ -1,0 +1,13 @@
+{
+  "model": "C8-688",
+  "board": "HCMT7981-688-emmc",
+  "version": "3.1.35-202610122130",
+  "kernel": "6.6.110",
+  "reference_sha256": "4b8e62131bb5be2926273103e0d5dad030c8a72c7de847e3ce4407219a70b6a1",
+  "kernel_load_address": "0x48000000",
+  "kernel_partition": "kernel_2nd",
+  "root_partition": "rootfs_2nd",
+  "automatic_sim_switch": false,
+  "default_band_policy": "none",
+  "live_device_validation": "pending"
+}

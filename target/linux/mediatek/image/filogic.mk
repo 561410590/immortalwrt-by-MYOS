@@ -90,6 +90,86 @@ define Build/zyxel-nwa-fit-filogic
 	@mv $@.new $@
 endef
 
+define Build/nradio-fit-rootfs-metadata
+	PATH=$(LINUX_DIR)/scripts/dtc:$(PATH) \
+		sh $(TOPDIR)/scripts/nradio-fit-rootfs-metadata.sh \
+			$(IMAGE_KERNEL) $(IMAGE_ROOTFS) $(BOARD_NAME)
+endef
+
+define Build/c2000max-gpt
+	dd if=$(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/gpt.img >> $@
+endef
+
+define Build/append-c2000max-bl2
+	dd if=$(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/bl2.img >> $@
+endef
+
+define Build/append-c2000max-uboot-env
+	dd if=$(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/u-boot-env.img >> $@
+endef
+
+define Build/append-c2000max-factory
+	dd if=$(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/factory.img >> $@
+endef
+
+define Build/append-c2000max-fip
+	dd if=$(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/fip.img >> $@
+endef
+
+define Build/append-c2000max-kernel
+	tar -xOf $(BIN_DIR)/$(DEVICE_IMG_PREFIX)-squashfs-sysupgrade.bin --wildcards '*/kernel' >> $@
+endef
+
+define Build/append-c2000max-rootfs
+	tar -xOf $(BIN_DIR)/$(DEVICE_IMG_PREFIX)-squashfs-sysupgrade.bin --wildcards '*/root' >> $@
+endef
+
+define Build/c5800-688-factory-kernel
+	rm -f $@
+	cp $(TOPDIR)/target/linux/mediatek/image/nradio-c5800-688/kernel.itb $@
+endef
+
+define Build/c5800-688-rootfs-system
+	python3 $(TOPDIR)/target/linux/mediatek/image/assemble-c5800.py
+	rm -f $(IMAGE_ROOTFS)
+	cp $(KDIR)/root-c5800-myos.squashfs $(IMAGE_ROOTFS)
+endef
+
+define Build/c5800-688-sysupgrade-tar
+	rm -rf $@.sysupgrade
+	mkdir -p $@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))
+	echo "BOARD=$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))" > \
+		$@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))/CONTROL
+	dd if=$(IMAGE_ROOTFS) \
+		of=$@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))/root \
+		bs=1024 conv=sync
+	cp $(IMAGE_KERNEL) \
+		$@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))/kernel
+	chmod 755 $@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))
+	chmod 644 $@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))/CONTROL \
+		$@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))/kernel \
+		$@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))/root
+	(cd $@.sysupgrade; tar --sort=name --owner=0 --group=0 --numeric-owner \
+		--mtime=@1772464398 -cf sysupgrade.tar \
+		sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME)))
+	mkdir -p $@.sysupgrade/sysupgrade-HCMT7981-emmc
+	cp $@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))/CONTROL \
+		$@.sysupgrade/sysupgrade-HCMT7981-emmc/CONTROL
+	(cd $@.sysupgrade; tar --owner=0 --group=0 --numeric-owner \
+		--mtime=@1772464398 -rf sysupgrade.tar \
+		sysupgrade-HCMT7981-emmc/CONTROL)
+	cp $@.sysupgrade/sysupgrade.tar $@
+	rm -rf $@.sysupgrade
+endef
+
+define Build/c5800-688-append-metadata
+	printf '%s\n' \
+		'{ "metadata_version": "1.1", "compat_version": "1.0", "supported_devices":["nradio,c5800-688","HCMT7981-emmc"], "version": { "dist": "MYOS", "version": "3.1.35-202610121330", "revision": "r33578-c88458e977", "target": "mediatek/filogic", "board": "nradio_c5800-688" } }' \
+		> $@.metadata
+	fwtool -I $@.metadata $@
+	rm -f $@.metadata
+endef
+
 define Build/cetron-header
 	$(eval magic=$(word 1,$(1)))
 	$(eval model=$(word 2,$(1)))
@@ -2435,29 +2515,43 @@ define Device/nradio_c5800-688
   DEVICE_DTS := mt7981-nradio-c5800-688
   DEVICE_DTS_DIR := ../dts
   BOARD_NAME := nradio_c5800-688
+  SUPPORTED_DEVICES += HCMT7981-emmc
   DEVICE_PACKAGES := \
-	kmod-conninfra kmod-mediatek_hnat kmod-mt_wifi kmod-warp \
-	wifi-dats wifi-profile mtwifi-cfg luci-app-mtwifi-cfg \
-	mtk-smp \
-	luci-app-c5800-688-wtmodem \
-	adb usbutils usbids \
-	python3-light luci-theme-argon uhttpd uhttpd-mod-ubus \
-	f2fsck mkf2fs \
+	kmod-mediatek_hnat \
+	mtk-smp luci-app-c5800-688-wtmodem openvpn-openssl kmod-tun \
+	kmod-mt_wifi kmod-conninfra kmod-warp mtwifi-cfg luci-app-mtwifi-cfg \
+	kmod-wwan kmod-mhi-bus kmod-mhi-net kmod-mhi-pci-generic \
+	kmod-mhi-wwan-ctrl kmod-mhi-wwan-mbim \
+	kmod-usb-net-qmi-wwan kmod-usb-net-qmi-wwan-fibocom \
+	kmod-usb-net-qmi-wwan-quectel kmod-usb-net-huawei-cdc-ncm \
+	fibocom-dial quectel-CM-5G quectel-cm modemband sms-tool umbim \
+	adb f2fsck mkf2fs \
+	usbutils usbids uqmi \
+	python3-light luci-theme-c2000max-ui luci-theme-mwrt uhttpd uhttpd-mod-ubus \
 	kmod-usb3 kmod-usb-core kmod-usb-xhci-hcd kmod-usb-xhci-mtk \
 	kmod-usb-acm kmod-usb-ehci kmod-usb-ohci kmod-usb-uhci \
-	kmod-usb-storage kmod-usb-net kmod-usb-net-cdc-ether \
+	kmod-usb-storage \
+	kmod-usb-net kmod-usb-net-cdc-ether \
 	kmod-usb-net-cdc-mbim kmod-usb-net-cdc-ncm \
-	kmod-usb-net-huawei-cdc-ncm kmod-usb-net-qmi-wwan \
-	kmod-usb-net-qmi-wwan-fibocom kmod-usb-net-qmi-wwan-quectel \
 	kmod-usb-net-rndis kmod-usb-net-sierrawireless \
 	kmod-usb-serial kmod-usb-serial-option \
 	kmod-usb-serial-qualcomm kmod-usb-serial-wwan \
-	kmod-usb-wdm kmod-mhi-bus kmod-mhi-pci-generic \
-	kmod-mhi-net kmod-mhi-wwan-ctrl kmod-mhi-wwan-mbim
-  KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
+	kmod-usb-wdm \
+	luci-app-store \
+	docker dockerd docker-compose luci-app-dockerman luci-lib-docker \
+	coreutils-base64 coreutils-nohup coreutils-timeout lyaml \
+	libyaml libudns resolveip libev \
+	libsodium kmod-netlink-diag ip-full libuci-lua \
+	libbpf libelf iptables-mod-tproxy kmod-ipt-tproxy \
+	libpcap miniupnpd-nftables kmod-ipt-ipset ipset \
+	libipset tc-full kmod-netem conntrack \
+	conntrackd kmod-sched kmod-sched-core libnetfilter-cthelper \
+	libnetfilter-cttimeout libnetfilter-queue libltdl liblua5.3
+  KERNEL_LOADADDR := 0x48000000
+  KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb | pad-to 64k
   KERNEL_INITRAMFS := kernel-bin | lzma | \
 	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
-  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  IMAGE/sysupgrade.bin := c5800-688-rootfs-system | c5800-688-sysupgrade-tar | c5800-688-append-metadata
 endef
 TARGET_DEVICES += nradio_c5800-688
 
@@ -2467,14 +2561,17 @@ define Device/nradio_c8-688
   DEVICE_DTS := mt7981-nradio-c8-688
   DEVICE_DTS_DIR := ../dts
   BOARD_NAME := HCMT7981-688-emmc
+  SUPPORTED_DEVICES := HCMT7981-688-emmc
   DEVICE_PACKAGES := \
-	kmod-conninfra kmod-mediatek_hnat kmod-mt_wifi kmod-warp \
+	kmod-conninfra kmod-mediatek_hnat kmod-mt_wifi kmod-warp kmod-nft-fullcone \
 	wifi-dats wifi-profile mtwifi-cfg luci-app-mtwifi-cfg \
 	mtk-smp \
-	adb usbutils usbids \
+	luci-app-turboacc-mtk luci-i18n-turboacc-mtk-zh-cn mtkhqos_util \
+	adb usbutils usbids pciutils pciids usb-modeswitch \
+	uqmi umbim chat comgt comgt-directip comgt-ncm wwan \
 	python3-light luci-theme-argon uhttpd uhttpd-mod-ubus \
-	f2fsck mkf2fs \
-	kmod-usb3 kmod-usb-core kmod-usb-xhci-hcd kmod-usb-xhci-mtk \
+	f2fsck mkf2fs kmod-hwmon-core kmod-hwmon-pwmfan \
+	kmod-usb2 kmod-usb3 kmod-usb-core kmod-usb-xhci-hcd kmod-usb-xhci-mtk \
 	kmod-usb-acm kmod-usb-ehci kmod-usb-ohci kmod-usb-uhci \
 	kmod-usb-storage kmod-usb-net kmod-usb-net-cdc-ether \
 	kmod-usb-net-cdc-mbim kmod-usb-net-cdc-ncm \
@@ -2482,12 +2579,60 @@ define Device/nradio_c8-688
 	kmod-usb-net-qmi-wwan-fibocom kmod-usb-net-qmi-wwan-quectel \
 	kmod-usb-net-rndis kmod-usb-net-sierrawireless \
 	kmod-usb-serial kmod-usb-serial-option \
-	kmod-usb-serial-qualcomm kmod-usb-serial-wwan \
+	kmod-usb-serial-qualcomm kmod-usb-serial-sierrawireless kmod-usb-serial-wwan \
 	kmod-usb-wdm kmod-mhi-bus kmod-mhi-pci-generic \
 	kmod-mhi-net kmod-mhi-wwan-ctrl kmod-mhi-wwan-mbim
+  KERNEL_LOADADDR := 0x48000000
   KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
   KERNEL_INITRAMFS := kernel-bin | lzma | \
 	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
-  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  IMAGE/sysupgrade.bin := nradio-fit-rootfs-metadata | sysupgrade-tar | append-metadata
 endef
 TARGET_DEVICES += nradio_c8-688
+
+define Device/nradio_c2000-max
+  DEVICE_VENDOR := NRadio
+  DEVICE_MODEL := C2000-MAX
+  DEVICE_DTS := mt7987-nradio-wt9303-sd
+  DEVICE_DTS_DIR := ../dts
+  BOARD_NAME := HCMT7987-EMMC
+  SUPPORTED_DEVICES += nradio,c2000-max HCMT7987-EMMC
+  DEVICE_PACKAGES := \
+	kmod-mediatek_hnat \
+	kmod-mtk_wed kmod-mtk_pci kmod-warp \
+	kmod-mt_wifi_cmn kmod-mt_wifi7 kmod-mt_hwifi kmod-connac_if \
+	kmod-mt7993 kmod-mt7993_dbg \
+	wifi-dats wifi-scripts wifi-profile mtwifi-cfg luci-app-mtwifi-cfg \
+	python3-light uhttpd uhttpd-mod-ubus \
+	f2fsck mkf2fs e2fsprogs \
+	kmod-usb3 kmod-usb-core kmod-usb-xhci-hcd kmod-usb-xhci-mtk \
+	kmod-usb-acm kmod-usb-ehci kmod-usb-ohci kmod-usb-uhci \
+	kmod-usb-storage kmod-usb-net kmod-usb-net-cdc-ether \
+	kmod-usb-net-cdc-mbim kmod-usb-net-cdc-ncm \
+	kmod-usb-net-huawei-cdc-ncm kmod-usb-net-qmi-wwan \
+	kmod-usb-net-rndis kmod-usb-net-sierrawireless \
+	kmod-usb-serial kmod-usb-serial-option \
+	kmod-usb-serial-qualcomm kmod-usb-serial-wwan \
+	kmod-usb-wdm kmod-mhi-bus kmod-mhi-pci-generic \
+	kmod-mhi-net kmod-mhi-wwan-ctrl kmod-mhi-wwan-mbim \
+	kmod-pcie_mhi kmod-qmi_wwan_q kmod-qmi_wwan_f kmod-qmi_wwan_s \
+	quectel-CM-5G quectel-CM-5G-M qmodem
+  KERNEL_LOADADDR := 0x40080000
+  KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
+  KERNEL_INITRAMFS_SUFFIX := .itb
+  IMAGES := sysupgrade.bin
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  ARTIFACTS := sdcard.img
+  ARTIFACT/sdcard.img := c2000max-gpt | \
+	pad-to 512k | append-c2000max-bl2 | \
+	pad-to 4M | append-c2000max-uboot-env | \
+	pad-to 4608k | append-c2000max-factory | \
+	pad-to 8704k | append-c2000max-fip | \
+	pad-to 10752k | append-c2000max-kernel | check-size 43520k | \
+	pad-to 43520k | append-c2000max-rootfs | check-size 248320k
+endef
+TARGET_DEVICES += nradio_c2000-max
+
+include $(TOPDIR)/target/linux/mediatek/image/nbcpe.mk

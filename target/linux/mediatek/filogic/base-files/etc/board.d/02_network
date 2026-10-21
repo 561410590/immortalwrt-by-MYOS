@@ -7,13 +7,17 @@ mediatek_setup_interfaces()
 {
 	local board="$1"
 
-	case $board in
+        case $board in
+        HCMT7981-688-emmc)
+                ucidef_set_interfaces_lan_wan "port1 port2 port3" port5
+                ;;
+        HCMT7981-emmc-NB68)
+		ucidef_set_interfaces_lan_wan "port1 port2 port3" port5
+		;;
 	abt,asr3000|\
 	cmcc,rax3000m*|\
 	cmcc,rax3000me|\
 	cmcc,xr30*|\
-	nradio,c5800-688|\
-	nradio_c5800-688|\
 	hcmt7981-emmc|\
 	HCMT7981-emmc|\
 	h3c,magic-nx30-pro|\
@@ -26,8 +30,7 @@ mediatek_setup_interfaces()
 	routerich,ax3000-v1|\
 	umi,uax3000e|\
 	zbtlink,zbt-z8103ax)
-		ucidef_set_interface "lan" device "lan1 lan2 lan3" protocol static ipaddr "192.168.66.1" netmask "255.255.255.0"
-		ucidef_set_interface_wan eth1 dhcp
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" eth1
 		;;
 	acelink,ew-7886cax)
 		ucidef_set_interface_lan "eth0" "dhcp"
@@ -195,6 +198,27 @@ mediatek_setup_macs()
 	local b0dat="$(l1dat if2dat ra0)"
 	local b1dat="$(l1dat if2dat rax0)"
 	case $board in
+	HCMT7981-688-emmc)
+		lan_mac="$(/usr/libexec/myos-c8-identity mac)"
+		[ -n "$lan_mac" ] || return 0
+		wan_mac="$(macaddr_add "$lan_mac" 1)"
+		ucidef_set_interface_macaddr lan "$lan_mac"
+		ucidef_set_interface_macaddr wan "$wan_mac"
+		ucidef_set_label_macaddr "$lan_mac"
+		return 0
+		;;
+	HCMT7981-emmc-NB68)
+		. /lib/functions/nbcpe.sh
+		lan_mac="$(nbcpe_factory_mac)"
+		[ -n "$lan_mac" ] || return 0
+		wan_mac="$(macaddr_add "$lan_mac" 1)"
+		ucidef_set_interface_macaddr lan "$lan_mac"
+		ucidef_set_interface_macaddr wan "$wan_mac"
+		ucidef_set_label_macaddr "$lan_mac"
+		# The EEPROM runtime copy supplies the primary AP base MAC. The
+		# driver derives the second band's MAC, as on the original system.
+		return 0
+		;;
 	airpi,ap3000m)
 		lan_mac=$(macaddr_generate_from_mmc_cid mmcblk0)
 		wan_mac=$(macaddr_add "$lan_mac" 1)

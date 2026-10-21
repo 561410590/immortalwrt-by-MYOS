@@ -1,0 +1,14 @@
+#!/bin/sh
+local_enabled() {
+	[ "$(uci -q get myos_nros.main.local_enabled 2>/dev/null)" != "0" ]
+}
+
+case "${PATH_INFO:-}" in
+	/nradio/app|/nradio/app/*)
+		if local_enabled; then
+			exec /usr/bin/lua /usr/sbin/myos-nradio-app-fast
+		fi
+		printf 'Status: 404 Not Found\r\nContent-Type: application/json\r\n\r\n{"code":"1","result":"local app disabled"}'
+		;;
+	*) exec /www/cgi-bin/luci.ucode ;;
+esac

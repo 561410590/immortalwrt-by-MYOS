@@ -1,0 +1,314 @@
+<%+header%>
+<title>Mwrt界面颜色选择器</title>
+<style>
+    body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background: #bfcaff; 
+            color: #ccc; 
+            font-family: 'Arial', sans-serif;
+    }
+
+    h2, h4 {
+        text-align: center;
+        width: 100%;
+    }
+
+    h2 {
+        margin-bottom: 10px;
+        color: #ffffff; 
+        text-shadow: 1px 1px 2px rgba(0, 255, 0, 0.5); 
+        background: #222; 
+        padding: 10px;
+        border-radius: 10px;
+    }
+
+    h4 {
+        margin-bottom: 20px;
+        color: #000000; 
+    }
+
+    .button {
+        background: #282c34;
+        color: #ffffff;
+        padding: 10px 20px;
+        border: 2px solid #f541cb;
+        border-radius: 5px;
+        font-size: 1em;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        width: 150px;
+        margin: 10px;
+        box-shadow: 0 5px 15px rgba(255, 61, 197, 0.6); 
+    }
+    .button1 {
+        align-items: center;
+        background: #282c34;
+        color: #ffffff;
+        padding: 10px 20px;
+        border: 2px solid #ff7700;
+        border-radius: 5px;
+        font-size: 1em;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        width: 150px;
+        margin: 10px;
+        box-shadow: 0 5px 15px rgba(255, 208, 0, 0.6); 
+    }
+    .button2 {
+        align-items: center;
+        background: #282c34;
+        color: #ffffff;
+        padding: 10px 20px;
+        border: 2px solid #ff0000;
+        border-radius: 5px;
+        font-size: 1em;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        width: 150px;
+        margin: 10px;
+        box-shadow: 0 5px 15px rgba(255, 61, 61, 0.6); 
+    }
+
+    .button3 {
+        align-items: center;
+        background: #282c34;
+        color: #ffffff;
+        padding: 10px 20px;
+        border: 2px solid #3d54ff;
+        border-radius: 5px;
+        font-size: 1em;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        width: 150px;
+        margin: 10px;
+        box-shadow: 0 5px 15px rgba(8, 135, 255, 0.6); 
+    }
+
+    .button4 {
+        align-items: center;
+        background: #282c34;
+        color: #ffffff;
+        padding: 10px 20px;
+        border: 2px solid #929292;
+        border-radius: 5px;
+        font-size: 1em;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        width: 150px;
+        margin: 10px;
+        box-shadow: 0 5px 15px rgba(213, 213, 213, 0.6); 
+    }
+    .button:hover {
+        background: #f9a7ff; 
+        color: #000; 
+        box-shadow: 0 5px 15px rgba(255, 255, 255, 0.8); 
+    }
+    .button2:hover {
+        background: #ff0000; 
+        color: #000; 
+        box-shadow: 0 5px 15px rgba(255, 255, 255, 0.8); 
+    }
+    .button3:hover {
+        background: #0099ff; 
+        color: #000; 
+        box-shadow: 0 5px 15px rgba(255, 255, 255, 0.8); 
+    }
+    .button4:hover {
+        background: #ffffff; 
+        color: #000; 
+        box-shadow: 0 5px 15px rgba(255, 255, 255, 0.8); 
+    }
+    .button1:hover {
+        background: #ff9500; 
+        color: #000; 
+        box-shadow: 0 5px 15px rgba(255, 255, 255, 0.8); 
+    }
+
+    .button:active {
+        transform: translateY(10px);
+    }
+
+    .button1:active {
+        transform: translateY(10px);
+    }
+
+    .button2:active {
+        transform: translateY(10px);
+    }
+
+    .button3:active {
+        transform: translateY(10px);
+    }
+
+    .button4:active {
+        transform: translateY(10px);
+    }
+        
+    :root {
+        --gradient-speed: 40s;
+        --particle-speed: 3s; 
+    }
+
+    @keyframes gradientFlow {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+
+    body {
+        animation: gradientFlow var(--gradient-speed) ease infinite;
+        cursor: none;
+    }
+
+    .particle {
+        position: fixed;
+        pointer-events: none;
+        width: 15px;
+        height: 15px;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        animation: particle var(--particle-speed) linear infinite;
+        filter: blur(2px);
+        z-index: -1;
+    }
+
+    @keyframes particle {
+        0% { transform: scale(0); opacity: 1; }
+        100% { transform: scale(3); opacity: 0; }
+    }
+    .container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+</style>
+<body>
+<div class="container">
+    <h2>Mwrt界面颜色选择器</h2>
+    <h4>修改主题主要颜色的工具,修改后如果没有效果请清理浏览器缓存后生效。</h4>
+    <div>
+        <button class="button" onclick="mwrtpk0()">温馨粉</button>
+        <button class="button1" onclick="mwrtco1()">活力黄</button>
+        <button class="button2" onclick="mwrtco2()">躁动红</button>
+        <button class="button3" onclick="mwrtdf()">科技蓝(默认)</button>
+        <button class="button4" onclick="triggerColorPicker()">自定义</button>
+        <input type="color" id="colorPicker" style="visibility: hidden; position: absolute; width: 1px; height: 1px;" onchange="setColor(this.value)">
+        <button id="submitColor" style="display:none;width: 98%;align-items: center;flex-direction: column;" class="button" onclick="submitColor()">提交颜色</button>
+    </div>
+</div>
+</body>
+<script>
+        function mwrtco1() {
+            var s = 'mwrtco'; 
+            var v = '#ff9500'; 
+            XHR.get('<%=luci.dispatcher.build_url("admin", "modem", "mwrtco")%>', { set: s, p: v }, function(x, rv) {
+
+                location = location;
+            });
+            setTimeout(function() {
+                    window.location.reload(true);
+                    console.log("延时三秒后执行的动作");
+                }, 1000);
+        }
+
+        function mwrtco2() {
+            var s = 'mwrtco'; 
+            var v = '#ed5151'; 
+            XHR.get('<%=luci.dispatcher.build_url("admin", "modem", "mwrtco")%>', { set: s, p: v }, function(x, rv) {
+                location = location;
+            });
+            setTimeout(function() {
+                    window.location.reload(true);
+                    console.log("延时三秒后执行的动作");
+                }, 1000);
+
+        }
+
+        function mwrtpk0() {
+            var s = 'mwrtpk'; 
+            var v = '#ff9500'; 
+            XHR.get('<%=luci.dispatcher.build_url("admin", "modem", "mwrtpk")%>', { set: s, p: v }, function(x, rv) {
+                location = location;
+            });
+            setTimeout(function() {
+                    window.location.reload(true);
+                    console.log("延时三秒后执行的动作");
+                }, 1000);
+        }
+
+        function mwrtdf() {
+            var s = 'mwrtdf'; 
+            var v = '#ff9500'; 
+            XHR.get('<%=luci.dispatcher.build_url("admin", "modem", "mwrtdf")%>', { set: s, p: v }, function(x, rv) {
+                location = location;
+            });
+            setTimeout(function() {
+
+                    window.location.reload(true);
+                    console.log("延时三秒后执行的动作");
+                }, 1000);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const createParticle = (x, y) => {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = x + 'px';
+                particle.style.top = y + 'px';
+                particle.style.background = `hsl(${Math.random()*360}, 70%, 60%)`;
+                particle.style.animationDuration = `${2 + Math.random()*3}s`;
+                document.body.appendChild(particle);
+                setTimeout(() => particle.remove(), 3000);
+            }
+    
+            let mouseX = 0, mouseY = 0;
+            document.addEventListener('mousemove', (e) => {
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+                createParticle(e.clientX, e.clientY);
+
+            });
+    
+            let hue = 0;
+            setInterval(() => {
+                document.body.style.background = `
+                    linear-gradient(45deg,
+                    hsl(${hue}, 100%, 70%),
+                    hsl(${hue+60}, 100%, 70%),
+                    hsl(${hue+120}, 100%, 70%),
+                    hsl(${hue+180}, 100%, 70%),
+                    hsl(${hue+240}, 100%, 70%))`;
+                hue = (hue + 0.5) % 360;
+            }, 100);
+        });
+
+        function triggerColorPicker() {
+            document.getElementById('colorPicker').click();
+        }
+
+        function setColor(value) {
+            window.mwrtcoer = value; 
+            document.getElementById('submitColor').style.display = 'block'; 
+        }
+
+        function submitColor() {
+            alert("选择的颜色是: " + window.mwrtcoer); 
+            var s = 'mwrtco'; 
+            var v = window.mwrtcoer; 
+            XHR.get('<%=luci.dispatcher.build_url("admin", "modem", "mwrtco")%>', { set: s, p: v }, function(x, rv) {
+                   window.location.reload(true);
+            });
+            setTimeout(function() {
+                    window.location.reload(true);
+                    console.log("延时三秒后执行的动作");
+                }, 1000);
+            document.getElementById('submitColor').style.display = 'none'; 
+            document.getElementById('colorPicker').style.visibility = 'hidden'; 
+        }
+</script>
+<%+footer%>

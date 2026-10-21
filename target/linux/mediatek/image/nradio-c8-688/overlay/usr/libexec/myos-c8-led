@@ -1,0 +1,67 @@
+#!/usr/bin/lua
+local uci = require("luci.model.uci").cursor()
+local json = require("cjson.safe")
+
+local function read(path)
+    local file = io.open(path, "r")
+    if not file then return "" end
+    local data = file:read(65536) or ""
+    file:close()
+    return data
+end
+
+local function write(path, value)
+    local file = io.open(path, "w")
+    if not file then return end
+    file:write(tostring(value))
+    file:close()
+end
+
+local function minutes(value)
+    local h, m = tostring(value or ""):match("^(%d%d?):(%d%d?)$")
+    h, m = tonumber(h), tonumber(m)
+    if h and m and h < 24 and m < 60 then return h * 60 + m end
+end
+
+local function dark()
+    uci:unload("mwrt_led")
+    if uci:get("mwrt_led", "main", "manual") == "off" then return true end
+    if uci:get("mwrt_led", "main", "enabled") ~= "1" then return false end
+    local mode = uci:get("mwrt_led", "main", "mode")
+    if mode == "always_off" then return true end
+    if mode ~= "schedule" then return false end
+    local first = minutes(uci:get("mwrt_led", "main", "starttime"))
+    local last = minutes(uci:get("mwrt_led", "main", "endtime"))
+    if not first or not last or first == last then return false end
+    local now = os.date("*t")
+    now = now.hour * 60 + now.min
+    return first < last and now >= first and now < last or
+        first > last and (now >= first or now < last)
+end
+
+local function apply()
+    local state = json.decode(read("/tmp/myos-cellular.json")) or
+        json.decode(read("/tmp/myos-c8-modem.json")) or {}
+    local registration = state.registration or {}
+    local fresh = state.stale == false and os.time() - (tonumber(state.sampled_at) or 0) <= 90
+    local modem_valid = fresh and (registration.registered == true or state.registered == true)
+    local rat = registration.rat or state.rat or state.mode or ""
+    local is5g = rat == "5G" or tostring(rat):find("NR", 1, true) ~= nil
+    local is4g = rat == "4G" or rat == "LTE"
+    local radio_on = false
+    for _, interface in ipairs({ "ra0", "rax0" }) do
+        local flags = tonumber(read("/sys/class/net/" .. interface .. "/flags"))
+        if flags and flags % 2 == 1 then radio_on = true end
+    end
+    local values = { status = true, cmode5 = modem_valid and is5g,
+        cmode4 = modem_valid and is4g and not is5g, wifi = radio_on }
+    local off = dark()
+    for name, lit in pairs(values) do
+        local base = "/sys/class/leds/hc:blue:" .. name .. "/"
+        write(base .. "trigger", "none")
+        write(base .. "brightness", not off and lit and 1 or 0)
+    end
+end
+
+if arg[1] == "apply" then apply(); return end
+while true do apply(); os.execute("sleep 2"); end

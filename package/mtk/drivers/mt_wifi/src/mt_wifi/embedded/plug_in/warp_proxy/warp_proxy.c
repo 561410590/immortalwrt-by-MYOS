@@ -668,6 +668,11 @@ client_driver_probe(void *ad)
 		client_get_axi_slot_id(ad) : 0;
 	u8 wed_idx = client_get_wed_id(ad);
 
+	/* Firmware notifications outlive individual WLAN hook calls. Keep the
+	 * proxy loaded until SYS_DOWN unregisters the firmware callback. */
+	if (!try_module_get(THIS_MODULE))
+		return;
+
 	if (!client_whnat_en_get(ad)) {
 		proxy_print("%s(): chip not enable wifi hardware nat feature!\n", __func__);
 		goto err;
@@ -685,8 +690,13 @@ client_driver_probe(void *ad)
 		client_whnat_en_set(ad, false);
 		goto err;
 	}
-	register_fw_cmd_notifier(ad, &fw_cmd_ne);
+	if (register_fw_cmd_notifier(ad, &fw_cmd_ne) < 0) {
+		warp_client_remove(ad);
+		goto err;
+	}
+	return;
 err:
+	module_put(THIS_MODULE);
 	return;
 }
 
@@ -696,8 +706,10 @@ err:
 static void
 client_driver_remove(void *ad)
 {
-	unregister_fw_cmd_notifier(ad, &fw_cmd_ne);
+	if (unregister_fw_cmd_notifier(ad, &fw_cmd_ne) < 0)
+		return;
 	warp_client_remove(ad);
+	module_put(THIS_MODULE);
 }
 
 
@@ -853,4 +865,3 @@ module_exit(warp_proxy_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION(DRIVER_DESC);
-

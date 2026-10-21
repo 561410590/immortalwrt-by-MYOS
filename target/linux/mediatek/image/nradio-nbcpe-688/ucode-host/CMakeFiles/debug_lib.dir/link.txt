@@ -1,0 +1,1 @@
+/usr/bin/cc -fPIC -shared  -o debug.so CMakeFiles/debug_lib.dir/lib/debug.c.o  -Wl,-rpath,/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/staging_dir/host/lib: /vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/staging_dir/host/lib/libubox.so 

@@ -1,0 +1,54 @@
+#!/usr/bin/python3
+"""Remove orphan ODU data addresses after netifd has installed its lease."""
+import fcntl
+import ipaddress
+import json
+import subprocess
+
+
+def output(*args):
+    return subprocess.check_output(args, text=True, timeout=4).strip()
+
+
+def main():
+    if output("uci", "-q", "get", "network.globals.nbcpe") != "1":
+        return
+    if output("uci", "-q", "get", "network.cpe.mode") != "odu":
+        return
+    device = output("uci", "-q", "get", "network.cpe.device")
+    status = json.loads(output("ubus", "call", "network.interface.cpe_4", "status"))
+    if not status.get("up") or status.get("l3_device") != device:
+        return
+    leases = {str(ipaddress.IPv4Address(row["address"]))
+              for row in status.get("ipv4-address", [])}
+    if not leases:
+        return
+    links = json.loads(output("ip", "-j", "-4", "address", "show", "dev", device))
+    addresses = [row for link in links for row in link.get("addr_info", [])]
+    if not leases.issubset({row["local"] for row in addresses}):
+        return
+    # Linux otherwise removes same-subnet secondary leases with the old primary.
+    subprocess.run(["sysctl", "-q", "-w",
+                    f"net.ipv4.conf.{device}.promote_secondaries=1"],
+                   check=True, timeout=4)
+    for row in addresses:
+        # Sniffer management aliases have a distinct label and must survive.
+        if (row.get("scope") != "global" or row.get("label") != device
+                or row["local"] in leases or row["local"] == "192.168.8.254"):
+            continue
+        obsolete = str(ipaddress.IPv4Interface(
+            f'{row["local"]}/{row["prefixlen"]}'))
+        subprocess.run(["ip", "-4", "addr", "del", obsolete, "dev", device],
+                       check=True, timeout=4)
+        subprocess.run(["logger", "-t", "nbcpe-ipv4",
+                        f"Removed orphan ODU address {obsolete}; lease {','.join(sorted(leases))}"],
+                       check=False, timeout=4)
+
+
+if __name__ == "__main__":
+    try:
+        with open("/var/run/myos-nbcpe-ipv4-sync.lock", "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            main()
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+        pass

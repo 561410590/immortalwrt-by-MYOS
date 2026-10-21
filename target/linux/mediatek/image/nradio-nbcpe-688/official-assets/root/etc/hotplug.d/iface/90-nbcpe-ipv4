@@ -1,0 +1,4 @@
+#!/bin/sh
+case "$ACTION:$INTERFACE" in
+    ifup:cpe_4|ifupdate:cpe_4) /usr/libexec/myos-nbcpe-ipv4-sync ;;
+esac

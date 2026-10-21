@@ -1,0 +1,12 @@
+#!/bin/sh
+# Keep the stock forwarding worker, including its existing user-configured token.
+[ -s /usr/bin/smstrun-AK68.conf ] || exit 0
+lock=/tmp/smstrun-AK68.lock
+if [ -f "$lock" ]; then
+	read -r pid < "$lock"
+	case "$pid" in
+		''|*[!0-9]*) rm -f "$lock" ;;
+		*) kill -0 "$pid" 2>/dev/null && exit 0; rm -f "$lock" ;;
+	esac
+fi
+exec /usr/bin/python3 /usr/bin/smstrun-AK68.py

@@ -1,0 +1,9 @@
+#!/bin/sh
+myos_c8_first_boot() {
+    . /lib/functions/myos-c8-identity.sh
+    myos_c8_board || return 0
+    if [ ! -f /overlay/upper/etc/config/network ] && [ ! -f /overlay/etc/config/network ]; then
+        : > /tmp/myos-c8-new-network
+    fi
+}
+boot_hook_add preinit_main myos_c8_first_boot

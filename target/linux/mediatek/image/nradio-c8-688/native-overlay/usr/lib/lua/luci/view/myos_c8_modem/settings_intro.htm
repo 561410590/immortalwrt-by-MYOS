@@ -1,0 +1,5 @@
+<%+myos_c8_modem/menu%>
+<% local state = self.cache_state or "missing"
+local labels = { missing = "采集缓存尚未生成；物理卡槽未知", read_error = "采集缓存读取失败；物理卡槽未知",
+ invalid = "采集缓存解析失败；物理卡槽未知", stale = "采集数据过期；物理卡槽未知" } %>
+<% if labels[state] then %><div class="c8-cache-note" data-state="<%=state%>" role="status"><%=translate(labels[state])%></div><% end %>

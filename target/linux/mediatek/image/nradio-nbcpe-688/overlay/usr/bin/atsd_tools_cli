@@ -1,0 +1,3 @@
+#!/bin/sh
+# Keep legacy AK68 clients on the official daemon, with a complete-reply wait.
+exec /usr/sbin/atsd_cli -w 5000 "$@"

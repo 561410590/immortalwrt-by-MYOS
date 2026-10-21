@@ -1,0 +1,8 @@
+{
+  "admin/status/nbcpe_clients": {
+    "title": "终端设备",
+    "order": 20,
+    "action": { "type": "view", "path": "myos/nbcpe-clients" },
+    "depends": { "acl": ["luci-theme-c2000max-ui"] }
+  }
+}

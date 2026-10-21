@@ -20,7 +20,7 @@ drv_mtwifi_init_device_config() {
 }
 
 drv_mtwifi_init_iface_config() {
-	config_add_string 'ssid:string' macfilter bssid kicklow assocthres steeringthresold 
+	config_add_string 'ssid:string' macfilter bssid kicklow assocthres steeringthresold
 	config_add_boolean wmm hidden isolate ieee80211k ieee80211r
 	config_add_int wpa_group_rekey frag rts
 	config_add_array 'maclist:list(macaddr)' 'steeringbssid:list(macaddr)'
@@ -35,6 +35,7 @@ mtwifi_vif_ap_config() {
 	local name="$1"
 	local ifname=""
 	local disabled=""
+	local flags=""
 
 	json_select config
 	json_get_var disabled disabled
@@ -45,28 +46,21 @@ mtwifi_vif_ap_config() {
 	json_get_var ifname $MTWIFI_CFG_IFNAME_KEY
 
 	if [ -n "$ifname" ]; then
+		flags=$(cat "/sys/class/net/$ifname/flags" 2>/dev/null)
+		if [ -z "$flags" ] || [ "$((flags & 1))" -eq 0 ]; then
+			logger -t "netifd-mtwifi" "$ifname did not start"
+			MTWIFI_SETUP_FAILED=1
+			return 1
+		fi
 		logger -t "netifd-mtwifi" "add $ifname to vifidx $name"
 		wireless_add_vif "$name" "$ifname"
+	else
+		MTWIFI_SETUP_FAILED=1
 	fi
 }
 
 mtwifi_vif_sta_config() {
-	local name="$1"
-	local ifname=""
-	local disabled=""
-
-	json_select config
-	json_get_var disabled disabled
-	json_select ..
-
-	[ "$disabled" = "1" ] && return
-
-	json_get_var ifname $MTWIFI_CFG_IFNAME_KEY
-
-	if [ -n "$ifname" ]; then
-		logger -t "netifd-mtwifi" "add $ifname to vifidx $name"
-		wireless_add_vif "$name" "$ifname"
-	fi
+	mtwifi_vif_ap_config "$@"
 }
 
 mtwifi_vif_ap_set_data() {
@@ -95,6 +89,12 @@ drv_mtwifi_setup() {
 	ubus -t 120 wait_for network.interface.lan
 
 	local dev="$1"
+	local MTWIFI_SETUP_FAILED=0
+
+	if [ ! -d /sys/module/mt_wifi ]; then
+		wireless_setup_failed "MTWIFI_MODULE_MISSING"
+		return 1
+	fi
 
 	json_add_string device "$dev"
 
@@ -111,10 +111,20 @@ drv_mtwifi_setup() {
 	APCLI_IDX=0
 	for_each_interface sta mtwifi_vif_sta_set_data
 
-	json_dump | /sbin/mtwifi_cfg setup
+	if ! json_dump | /sbin/mtwifi_cfg setup; then
+		wireless_setup_failed "MTWIFI_SETUP_FAILED"
+		lock -u $LOCK_FILE
+		return 1
+	fi
 
 	for_each_interface ap mtwifi_vif_ap_config
 	for_each_interface sta mtwifi_vif_sta_config
+
+	if [ "$MTWIFI_SETUP_FAILED" -ne 0 ]; then
+		wireless_setup_failed "MTWIFI_INTERFACE_DOWN"
+		lock -u $LOCK_FILE
+		return 1
+	fi
 
 	wireless_set_up
 

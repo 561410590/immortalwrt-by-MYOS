@@ -226,7 +226,7 @@ function mtwifi_up(devname, cfg, restore_vifs, is_dbdc)
 
     mtwifi_cfg_foreach_vif(cfg, "ap", start_vif)
     mtwifi_cfg_foreach_vif(cfg, "sta", start_vif)
-    os.execute("startwapp.sh")
+    os.execute("command -v startwapp.sh >/dev/null 2>&1 && startwapp.sh")
 end
 
 function mtwifi_down(devname, cfg)
@@ -245,7 +245,7 @@ function mtwifi_down(devname, cfg)
             end
         end
     end
-    os.execute("startwapp.sh")
+    os.execute("command -v startwapp.sh >/dev/null 2>&1 && startwapp.sh")
     return reset_vifs
 end
 
@@ -448,7 +448,13 @@ function mtwifi_cfg_setup(argv)
 
     if cfg.config.channel == "auto" then
         dats.AutoChannelSelect = 3
-        dats.Channel = 0
+        if cfg.config.band == "2g" then
+            dats.Channel = 6
+        elseif cfg.config.band == "5g" then
+            dats.Channel = 60
+        else
+            dats.Channel = 0
+        end
     else
         dats.AutoChannelSelect = 0
         dats.Channel = cfg.config.channel

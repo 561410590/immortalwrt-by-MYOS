@@ -1,0 +1,31 @@
+#!/bin/sh
+# 50-map-at: 固定将 3466:3301 模组的 AT 端口映射到 /dev/ttyUSB1
+
+# 只处理 add 和 bind 事件
+[ "$ACTION" = "add" ] || [ "$ACTION" = "bind" ] || exit 0
+
+# 模块 VID:PID
+TARGET_VID="3466"
+TARGET_PID="3301"
+
+# PRODUCT 格式：vid/pid/version
+VID="${PRODUCT%%/*}"
+PID="${PRODUCT#*/}"; PID="${PID%%/*}"
+
+# 检查是否为目标设备
+if [ "$VID" = "$TARGET_VID" ] && [ "$PID" = "$TARGET_PID" ]; then
+    # 等待内核生成 /dev/ttyUSB 节点
+    sleep 1
+
+    for dev in /dev/ttyUSB*; do
+        if grep -q "${TARGET_VID}/${TARGET_PID}" /sys/class/tty/${dev##*/}/device/uevent 2>/dev/null; then
+            # 删除旧的 /dev/ttyUSB1（可能是硬件节点或旧链接）
+            [ -e /dev/ttyUSB1 ] && rm -f /dev/ttyUSB1
+            # 建立符号链接
+            ln -s "$dev" /dev/ttyUSB1
+            logger -t map-at "Mapped $dev to /dev/ttyUSB1"
+            exit 0
+        fi
+    done
+fi
+

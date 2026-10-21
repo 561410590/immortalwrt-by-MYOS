@@ -1,0 +1,43 @@
+<%+header%>
+<%+myos_c8_modem/menu%>
+<div class="c8-cellular" data-c8-cellular="status" data-status-url="<%=luci.dispatcher.build_url('admin','modem','status')%>">
+ <div class="c8-cellular-heading"><h2>蜂窝状态</h2><button type="button" class="c8-refresh" data-refresh title="刷新状态" aria-label="刷新状态">&#8635;</button></div>
+ <div class="c8-cache-note" data-cache-note role="status" aria-live="polite">正在获取状态</div>
+ <section class="c8-connection" aria-label="连接状态">
+  <div class="c8-operator"><strong data-field="operator">--</strong><span data-field="mode">--</span></div>
+  <div class="c8-checks">
+   <div data-check="registration"><span>网络注册</span><strong data-field="registration">未知</strong><small data-field="registration-detail">--</small></div>
+   <div data-check="dial"><span>数据会话</span><strong data-field="dial">未知</strong><small data-field="dial-detail">--</small></div>
+   <div data-check="address"><span>蜂窝地址</span><strong data-field="address">未知</strong><small data-field="address-detail">--</small></div>
+   <div data-check="route"><span>默认出口</span><strong data-field="route">未知</strong><small data-field="route-detail">--</small></div>
+  </div>
+ </section>
+ <div class="c8-columns">
+  <section class="c8-section"><h3>信号质量</h3><div class="c8-metrics">
+   <div><span>RSRP</span><strong><b data-field="rsrp">--</b><small>dBm</small></strong><meter data-meter="rsrp" min="-140" max="-70" value="-140" aria-label="RSRP"></meter></div>
+   <div><span>SINR</span><strong><b data-field="sinr">--</b><small>dB</small></strong><meter data-meter="sinr" min="-10" max="30" value="-10" aria-label="SINR"></meter></div>
+   <div><span>RSRQ</span><strong><b data-field="rsrq">--</b><small>dB</small></strong><meter data-meter="rsrq" min="-20" max="-3" value="-20" aria-label="RSRQ"></meter></div>
+  </div><dl class="c8-details"><div><dt>RSSI</dt><dd data-field="rssi">--</dd></div><div><dt>载波聚合</dt><dd data-field="carriers">未上报</dd></div></dl></section>
+  <section class="c8-section"><h3>模组与 SIM</h3><dl class="c8-details">
+   <div><dt>模组型号</dt><dd data-field="model">--</dd></div><div><dt>模组版本</dt><dd data-field="revision">--</dd></div>
+   <div><dt>模组温度</dt><dd data-field="temperature">--</dd></div><div><dt>物理卡槽</dt><dd data-field="sim">未知</dd></div>
+   <div><dt>SIM 状态</dt><dd data-field="sim-status">--</dd></div><div><dt>APN</dt><dd data-field="apn">--</dd></div>
+  </dl></section>
+  <section class="c8-section"><h3>当前服务小区</h3><dl class="c8-details">
+   <div><dt>频段</dt><dd data-field="band">--</dd></div><div><dt>MCC / MNC</dt><dd data-field="plmn">--</dd></div>
+   <div><dt>PCI</dt><dd data-field="pci">--</dd></div><div><dt>Cell ID</dt><dd data-field="cellid">--</dd></div>
+   <div><dt>TAC</dt><dd data-field="tac">--</dd></div><div><dt data-arfcn-label>ARFCN</dt><dd data-field="arfcn">--</dd></div>
+  </dl></section>
+  <section class="c8-section"><h3>蜂窝数据接口</h3><dl class="c8-details">
+   <div><dt>IP 透传状态</dt><dd data-field="ip-passthrough">状态未知</dd></div>
+   <div><dt>透传开关</dt><dd data-field="ip-passthrough-config">--</dd></div>
+   <div><dt>运营商 IPv4</dt><dd data-field="carrier-ipv4">--</dd></div>
+   <div><dt>IPv4 地址核验</dt><dd data-field="ip-passthrough-ipv4">等待核验</dd></div>
+   <div><dt>网络设备</dt><dd data-field="device">--</dd></div><div><dt>IPv4</dt><dd data-field="ipv4">--</dd></div>
+   <div><dt>IPv6</dt><dd data-field="ipv6">--</dd></div><div><dt>网关</dt><dd data-field="gateway">--</dd></div><div><dt>DNS</dt><dd data-field="dns">--</dd></div>
+  </dl></section>
+ </div>
+</div>
+<% local base = (resource or "/luci-static/resources"):gsub("/resources/?$", "") %>
+<script src="<%=base%>/myos/c8-cellular.js?v=202610161200"></script>
+<%+footer%>

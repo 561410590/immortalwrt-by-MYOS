@@ -1,0 +1,3 @@
+location = /cgi-bin/router3d-data {
+    rewrite ^ /cgi-bin/luci/admin/modeminfo/router3d last;
+}

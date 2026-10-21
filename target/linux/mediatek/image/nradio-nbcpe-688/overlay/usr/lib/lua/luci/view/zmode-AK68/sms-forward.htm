@@ -1,0 +1,24 @@
+<%+header%>
+<%+zmode-AK68/cellular-menu%>
+<div class="nb-cellular nb-tool" id="nb-sms-forward" data-token="<%=luci.dispatcher.context.authtoken%>">
+ <header class="nb-cellular-heading"><div><div class="nb-eyebrow">NBCPE · 消息服务</div><h2>短信转发</h2><p>将设备收到的短信转发到 PushPlus。</p></div><a class="nb-button" href="https://www.pushplus.plus/push1.html" target="_blank" rel="noopener noreferrer">获取 PushPlus Token ↗</a></header>
+ <div class="nb-state-note" role="status" data-status>正在获取转发状态…</div>
+ <div class="nb-grid">
+  <section class="nb-card"><div class="nb-card-heading"><h3>转发配置</h3></div><form data-token-form><label class="nb-input-label" for="nb-push-token">PushPlus Token</label><input id="nb-push-token" class="nb-input" name="ppsToken" type="password" autocomplete="off" placeholder="输入 Token" required><div class="nb-actions"><button class="nb-button nb-primary" type="submit">保存并开启转发</button><button class="nb-button" type="button" data-stop>关闭转发</button></div></form><form data-title-form><label class="nb-input-label" for="nb-push-title">消息标题</label><input id="nb-push-title" class="nb-input" name="smsTitle" placeholder="输入转发消息标题" required><button class="nb-button" type="submit">保存标题</button></form></section>
+  <section class="nb-card"><div class="nb-card-heading"><h3>转发记录</h3><button class="nb-button" type="button" data-history>刷新记录</button></div><pre class="nb-console" data-output>点击刷新记录查看本次启动后的转发记录。</pre><p class="nb-footnote">转发服务启动后，还需 Token 有效、设备联网和短信功能启用。</p></section>
+ </div>
+</div>
+<script>
+(function(){
+ var root=document.getElementById('nb-sms-forward'),status=root.querySelector('[data-status]'),output=root.querySelector('[data-output]');
+ var base='<%=luci.dispatcher.build_url("admin","modem-AK68","Smstrun")%>';
+ function post(action,values){values.token=root.dataset.token;return fetch(base+'/'+action,{method:'POST',body:new URLSearchParams(values),headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(r){if(!r.ok)throw new Error('请求失败');return r.json();}).catch(function(){status.textContent='操作失败，请稍后重试。';return null;});}
+ function update(){fetch(base+'/check_status',{cache:'no-store'}).then(function(r){return r.json();}).then(function(data){status.textContent=data.status==='running'?'转发服务运行中':'转发服务未运行';status.dataset.stale=String(data.status!=='running');root.querySelector('[name=smsTitle]').value=data.title||'';}).catch(function(){status.textContent='转发状态暂不可用。';});}
+ root.querySelector('[data-token-form]').addEventListener('submit',function(e){e.preventDefault();post('set_token',{ppsToken:root.querySelector('[name=ppsToken]').value.trim()}).then(function(data){if(data){root.querySelector('[name=ppsToken]').value='';output.textContent=data.output||'转发设置已提交。';update();}});});
+ root.querySelector('[data-title-form]').addEventListener('submit',function(e){e.preventDefault();post('set_title',{smsTitle:root.querySelector('[name=smsTitle]').value.trim()}).then(function(data){if(data)output.textContent=data.output||'标题已保存。';});});
+ root.querySelector('[data-stop]').addEventListener('click',function(){post('set_token',{ppsToken:''}).then(function(data){if(data){output.textContent='转发关闭请求已提交。';update();}});});
+ root.querySelector('[data-history]').addEventListener('click',function(){post('redhis',{}).then(function(data){if(data)output.textContent=data.output||'暂无转发记录。';});});
+ update();
+})();
+</script>
+<%+footer%>

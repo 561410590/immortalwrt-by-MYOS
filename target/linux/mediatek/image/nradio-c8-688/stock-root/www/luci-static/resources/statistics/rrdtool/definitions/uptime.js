@@ -1,0 +1,1 @@
+'use strict';'require baseclass';return baseclass.extend({title:_('Uptime'),rrdargs:function(graph,host,plugin,plugin_instance,dtype){return{title:"%H: Uptime",vlabel:"seconds",number_format:"%5.0lf%s",data:{types:["uptime"],options:{uptime:{title:"Uptime %di",noarea:true}}}};}});

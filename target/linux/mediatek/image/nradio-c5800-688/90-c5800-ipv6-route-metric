@@ -1,0 +1,59 @@
+#!/bin/sh
+
+case "$ACTION" in
+	ifup|ifupdate) ;;
+	ifdown)
+		case "$INTERFACE" in
+			cpe1|cpe1_6|nbdevice) ip -6 route del default dev port5 metric 10 2>/dev/null ;;
+			cpe|cpe_6) ip -6 route del default dev eth1 metric 20 2>/dev/null ;;
+		esac
+		exit 0
+		;;
+	*) exit 0 ;;
+esac
+
+case "$INTERFACE" in
+	cpe|cpe_6|cpe1|cpe1_6|nbdevice|"") ;;
+	*) exit 0 ;;
+esac
+
+ensure_port5_linklocal() {
+	[ -e /sys/class/net/port5/address ] || return 0
+	ip link set dev port5 up 2>/dev/null
+	ip -6 addr show dev port5 scope link 2>/dev/null | grep -q 'fe80::' && return 0
+	mac="$(cat /sys/class/net/port5/address 2>/dev/null)"
+	oldifs="$IFS"
+	IFS=:
+	set -- $mac
+	IFS="$oldifs"
+	[ $# -eq 6 ] || return 0
+	first=$(printf "%02x" $((0x$1 ^ 2)))
+	ip -6 addr add "fe80::${first}${2}:${3}ff:fe${4}:${5}${6}/64" dev port5 2>/dev/null
+}
+
+set_ipv6_default_metric() {
+	local dev="$1"
+	local metric="$2"
+	local dst from src via gw devkw route_dev rest
+	if [ "$(cat /sys/class/net/"$dev"/carrier 2>/dev/null)" != 1 ]; then
+		ip -6 route del default dev "$dev" metric "$metric" 2>/dev/null
+		return 0
+	fi
+
+	ip -6 route show 2>/dev/null | while read -r dst from src via gw devkw route_dev rest; do
+		[ "$dst" = "default" ] || continue
+		[ "$from" = "from" ] || continue
+		[ "$via" = "via" ] || continue
+		[ "$devkw" = "dev" ] || continue
+		[ "$route_dev" = "$dev" ] || continue
+
+		ip -6 route del default via "$gw" dev "$dev" metric 100 2>/dev/null
+		ip -6 route del default via "$gw" dev "$dev" metric 200 2>/dev/null
+		ip -6 route replace default via "$gw" dev "$dev" metric "$metric" 2>/dev/null ||
+			ip -6 route add default via "$gw" dev "$dev" metric "$metric" 2>/dev/null
+	done
+}
+
+ensure_port5_linklocal
+set_ipv6_default_metric port5 10
+set_ipv6_default_metric eth1 20

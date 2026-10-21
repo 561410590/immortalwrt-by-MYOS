@@ -1,0 +1,104 @@
+#!/bin/sh
+# One refresh owner for the stock AK68 cache used by both themes and the APP.
+INTERVAL=30
+CACHE_FILE=/tmp/cpe_cell-AK68.file
+TYPE_FILE=/tmp/modconf-AK68.conf
+LOCK_FILE=/tmp/myos-nbcpe-cache.lock
+ATTEMPT_FILE=/tmp/myos-nbcpe-cache.last
+collector_pid=
+
+monotonic_seconds() {
+	local uptime
+	read -r uptime _ < /proc/uptime
+	printf '%s\n' "${uptime%%.*}"
+}
+
+cache_is_fresh() {
+	local modified now rows first
+	[ -s "$CACHE_FILE" ] || return 1
+	rows="$(wc -l < "$CACHE_FILE" 2>/dev/null)"
+	read -r first < "$CACHE_FILE"
+	case "$rows" in ''|*[!0-9]*) return 1 ;; esac
+	[ "$rows" -ge 30 ] || [ "$first" = '未检测到信息' ] || return 1
+	modified="$(stat -c %Y "$CACHE_FILE" 2>/dev/null)"
+	now="$(date +%s)"
+	case "$modified:$now" in *[!0-9:]*|:*) return 1 ;; esac
+	[ "$now" -ge "$modified" ] && [ "$((now - modified))" -lt "$INTERVAL" ]
+}
+
+select_collector() {
+	local modem_type driver alias
+	modem_type="$(head -n 1 "$TYPE_FILE" 2>/dev/null)"
+	case "$modem_type" in
+		*MT5700*) collector=/usr/share/modem-AK68/zinfo5700-AK68.sh ;;
+		*RM520*) collector=/usr/share/modem-AK68/zinfo-AK68.sh ;;
+		*)
+			# The legacy LED probe can temporarily replace modconf with a ping
+			# failure. Keep polling the modem identified by official infocd;
+			# registration/dial success still comes only from fresh AT results.
+			[ "$(uci -q get network.cpe.mode)" = odu ] || return 1
+			driver=$(jsonfilter -i /tmp/infocd/cache/cpe_dev -e '@.parameter.driver' 2>/dev/null)
+			alias=$(jsonfilter -i /tmp/infocd/cache/cpe_dev -e '@.parameter.alias' 2>/dev/null)
+			[ "$driver:$alias" = 'odu:mt5700' ] || return 1
+			collector=/usr/share/modem-AK68/zinfo5700-AK68.sh
+			;;
+	esac
+	[ -x "$collector" ]
+}
+
+run_collector() {
+	# Each stock collector already takes its original flock before modem I/O.
+	"$collector" >/dev/null 2>&1 &
+	collector_pid=$!
+	wait "$collector_pid"
+	collector_pid=
+	/usr/libexec/myos-nbcpe-status refresh-radio >/dev/null 2>&1
+}
+
+refresh_cache() {
+	local now previous disabled
+	select_collector || return 0
+	disabled="$(uci -q get 'network.cpe.disabled' 2>/dev/null)"
+	[ "$disabled" = '1' ] && return 0
+	cache_is_fresh && return 0
+	now="$(monotonic_seconds)"
+	case "$now" in ''|*[!0-9]*) return 0 ;; esac
+	previous="$(cat "$ATTEMPT_FILE" 2>/dev/null)"
+	case "$previous" in
+		''|*[!0-9]*) ;;
+		*) [ "$now" -ge "$previous" ] &&
+		   [ "$((now - previous))" -lt "$INTERVAL" ] && return 0 ;;
+	esac
+	# Record attempts as well as successful writes so a busy collector cannot spin.
+	printf '%s\n' "$now" > "$ATTEMPT_FILE" || return 0
+	run_collector
+	return 0
+}
+
+stop_cache() {
+	if [ -n "$collector_pid" ]; then
+		kill "$collector_pid" 2>/dev/null || true
+		wait "$collector_pid" 2>/dev/null || true
+	fi
+	exit 0
+}
+
+acquire_singleton() {
+	exec 9>"$LOCK_FILE" || return 1
+	flock -n 9
+}
+
+main() {
+	case "${1:-run}" in run|once) ;; *) return 2 ;; esac
+	acquire_singleton || return 0
+	trap stop_cache INT TERM
+	while :; do
+		refresh_cache
+		/usr/libexec/myos-nbcpe-status dashboard >/dev/null 2>&1
+		[ "${1:-run}" = once ] && break
+		sleep 5 &
+		wait "$!"
+	done
+}
+
+main "$@"

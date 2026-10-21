@@ -1,0 +1,37 @@
+.c5800-cellular{--cell-card:#fff;--cell-soft:#f5f7fc;--cell-text:#18304d;--cell-muted:#64758c;--cell-line:#dfe7f2;--cell-accent:#3268ed;color:var(--cell-text);font-size:14px;line-height:1.6;max-width:1500px;margin:12px auto 26px}
+.c5800-cellular *{box-sizing:border-box}
+.c5800-cellular h2{font-size:27px;color:var(--cell-text);background:none;text-align:left;padding:0;margin:0 0 12px;border:0}
+.c5800-cellular h3,.c5800-cellular h4,.c5800-cellular legend{color:var(--cell-text);background:none;font-size:17px;margin:0 0 14px}
+.c5800-cellular .cbi-map-descr,.c5800-cellular .cellular-help,.c5800-cellular .cbi-value-description{color:var(--cell-muted);font-size:12px;line-height:1.65}
+.c5800-cellular .cellular-intro{margin-bottom:18px;font-size:13px}
+.c5800-cellular a{color:var(--cell-accent)}
+.c5800-cellular .cbi-section,.c5800-cellular .cellular-panel{background:var(--cell-card);border:1px solid var(--cell-line);border-radius:18px;padding:22px;margin:0 0 20px;min-width:0}
+.c5800-cellular .cbi-section-node{background:none;border:0;padding:0}
+.c5800-cellular .cbi-value{display:grid;grid-template-columns:180px minmax(0,1fr);gap:12px;padding:15px 0;border-bottom:1px solid var(--cell-line);margin:0;min-height:0}
+.c5800-cellular .cbi-value:last-child{border-bottom:0}
+.c5800-cellular .cbi-value-title{color:var(--cell-muted);font-size:14px;width:auto;float:none;padding-top:8px}
+.c5800-cellular .cbi-value-field{margin-left:0;font-size:14px;color:var(--cell-text);min-width:0}
+.c5800-cellular input[type=text],.c5800-cellular input[type=password],.c5800-cellular select{background:var(--cell-soft);color:var(--cell-text);border:1px solid var(--cell-line);border-radius:9px;min-height:40px;max-width:100%;padding:8px 12px;font-family:inherit;font-size:14px}
+.c5800-cellular input[type=text],.c5800-cellular input[type=password]{width:360px}
+.c5800-cellular textarea,.c5800-cellular pre{background:var(--cell-soft);color:var(--cell-text);border:1px solid var(--cell-line);border-radius:12px;padding:16px;width:100%;font-family:ui-monospace,Consolas,monospace;font-size:13px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto}
+.c5800-cellular textarea{resize:vertical;min-height:280px}
+.c5800-cellular .cbi-button,.c5800-cellular button,.c5800-cellular .button,.c5800-cellular .button-2,.c5800-cellular .large-button{font-family:inherit;font-size:13px;border:1px solid var(--cell-line);border-radius:9px;background:var(--cell-soft);color:var(--cell-accent);padding:9px 16px;min-height:38px;cursor:pointer;width:auto;margin:0;box-shadow:none}
+.c5800-cellular button:disabled{opacity:.5;cursor:default}
+.c5800-cellular .cellular-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:12px 0}
+.c5800-cellular .cellular-poe-state{font-weight:600;font-size:15px;margin:0 0 10px}
+.c5800-cellular .cellular-toolbar{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin:18px 0}
+.c5800-cellular .cellular-toolbar label{display:flex;flex-direction:column;gap:6px;color:var(--cell-muted)}
+.c5800-cellular .cellular-toolbar .cellular-command{flex:1;min-width:220px}
+.c5800-cellular .cellular-command input{width:100%}
+.c5800-cellular table{width:100%;border-collapse:collapse;font-size:13px;background:var(--cell-card)}
+.c5800-cellular th,.c5800-cellular td{padding:12px 14px;border:0;border-bottom:1px solid var(--cell-line);text-align:left;background:none;color:var(--cell-text);overflow-wrap:anywhere}
+.c5800-cellular th{background:var(--cell-soft);color:var(--cell-muted);font-weight:600}
+.c5800-cellular .cellular-table-scroll{overflow-x:auto}
+.c5800-cellular .input-field{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}
+.c5800-cellular .input-field input{flex:1;min-width:180px}
+.c5800-cellular .hidden{display:none}
+.c5800-cellular .terminal{white-space:pre-wrap;overflow-wrap:anywhere}
+.c5800-cellular .cellular-inline-status{font-size:12px;color:var(--cell-muted)}
+.c5800-cellular .cellular-close{float:right}
+html[data-darkmode=true] .c5800-cellular,html[data-theme=dark] .c5800-cellular{--cell-card:#151a27;--cell-soft:#1d2434;--cell-text:#e4ecfa;--cell-muted:#91a0ba;--cell-line:#2b3548;--cell-accent:#8ba9ff}
+@media(max-width:700px){.c5800-cellular .cbi-section,.c5800-cellular .cellular-panel{padding:16px;border-radius:14px}.c5800-cellular .cbi-value{grid-template-columns:1fr;gap:0}.c5800-cellular .cbi-value-title{float:none;width:auto;padding:0 0 7px;display:block}.c5800-cellular .cbi-value-field{margin-left:0}.c5800-cellular input[type=text],.c5800-cellular input[type=password]{width:100%}.c5800-cellular .cellular-toolbar{align-items:stretch;flex-direction:column}.c5800-cellular th,.c5800-cellular td{padding:10px 8px}.c5800-cellular h2{font-size:24px}}

@@ -1,0 +1,5 @@
+#!/bin/sh /etc/rc.common
+# Compatibility command only. The C8 image enables myos-c8-fan instead.
+start() { /etc/init.d/myos-c8-fan start; }
+stop() { /etc/init.d/myos-c8-fan stop; }
+restart() { /etc/init.d/myos-c8-fan restart; }

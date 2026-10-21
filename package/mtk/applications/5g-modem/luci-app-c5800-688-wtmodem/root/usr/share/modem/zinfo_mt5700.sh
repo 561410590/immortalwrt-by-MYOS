@@ -1,5 +1,75 @@
 #!/bin/sh 
 LOCKFILE="/tmp/zinfo57002.lock"
+CPE_IFACE="${1:-${CPE_IFACE:-cpe}}"
+cleanup() {
+    rm -rf "$LOCKFILE"
+}
+cpe1_role() {
+    proto=$(uci -q get network.cpe1.proto)
+    mode=$(uci -q get network.cpe1.mode)
+    status=$(ifstatus cpe1 2>/dev/null)
+
+    if echo "$status" | grep -q '"manufacturer": "tdtech_mt5700_odu"'; then
+        echo cellular
+        return
+    fi
+
+    if [ "$mode" = "odu" ]; then
+        echo cellular
+        return
+    fi
+
+    if [ "$proto" = "dhcp" ] || [ "$proto" = "static" ]; then
+        echo broadband
+        return
+    fi
+
+    echo unknown
+}
+
+write_cpe1_broadband_status() {
+    {
+        echo "cpe1 broadband mode"
+        echo "port5 broadband"
+        echo "cpe1"
+        echo "-"
+        echo "-"
+        date "+%Y-%m-%d %H:%M:%S"
+        echo "not cellular"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "broadband"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+        echo "-"
+    } > /tmp/cpe_cell.file
+}
+
+if [ "$CPE_IFACE" = "cpe1" ] && [ "$(cpe1_role)" = "broadband" ]; then
+    write_cpe1_broadband_status
+    exit 0
+fi
 {
     flock -n 200 || {
         exit 1
@@ -7,8 +77,15 @@ LOCKFILE="/tmp/zinfo57002.lock"
     trap cleanup INT TERM EXIT
     ATPORT=1
     Temperature(){
-        OX=$(sendat 1 'AT^CHIPTEMP?'| grep 'CHIPTEMP' | sed -n '1p' | cut -d, -f9 | sed '/^$/d')
-        CTEMP=$(($OX / 10))
+        OX=$(sendat 1 'AT^CHIPTEMP?'| grep '^\^CHIPTEMP:' | sed -n '1p' | cut -d, -f9 | tr -d ' \r' | sed '/^$/d')
+        case "$OX" in
+            ''|*[!0-9-]*)
+                CTEMP="-"
+                ;;
+            *)
+                CTEMP=$(($OX / 10))
+                ;;
+        esac
     }
     ISP_Read(){
             operatorCode=$(sendat 1 'AT^EONS=2' | awk -F ',' '{print $2}' | sed '/^$/d')
@@ -220,7 +297,8 @@ LOCKFILE="/tmp/zinfo57002.lock"
         Model=''
     }
 
-    sim_sel=$(cat /tmp/sim_sel)
+    sim_sel=$(cat /tmp/sim_sel 2>/dev/null)
+    [ -z "$sim_sel" ] && sim_sel=0
     SIMCard=""
     case $sim_sel in
         0)
@@ -287,9 +365,4 @@ LOCKFILE="/tmp/zinfo57002.lock"
     InitData
     Read_module_data_AT
     OutData
-    cleanup() {
-    rm -rf "$LOCKFILE"
-   }
 } 200>"$LOCKFILE"
-
-

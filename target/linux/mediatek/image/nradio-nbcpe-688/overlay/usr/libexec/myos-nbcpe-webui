@@ -1,0 +1,97 @@
+#!/usr/bin/python3
+"""Keep the stock MT5700 WebSocket protocol on the official AT daemon queue."""
+import asyncio
+import importlib.util
+import json
+import re
+from io import StringIO
+
+import websockets
+
+
+spec = importlib.util.spec_from_file_location('nbcpe_stock_webui', '/usr/bin/websocket_server-AK68.py')
+stock = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(stock)
+
+
+def filtered_response(command, response):
+    if command.startswith('AT+CMGL'):
+        return stock.handle_cmgl_response(response)
+    lines = [line.strip() for line in response.splitlines()
+             if line.strip() and line.strip() not in (command.strip(), 'OK')]
+    if command.startswith('AT+CMGR'):
+        result = []
+        index = 0
+        while index < len(lines):
+            if lines[index].startswith('+CMGR:') and index + 1 < len(lines):
+                try:
+                    sms = stock.SMSDeliver.decode(StringIO(lines[index + 1]))
+                    sender = sms['sender']['number'] if isinstance(sms['sender'], dict) else sms['sender']
+                    sender = sender if sender.startswith('+') else '+' + sender
+                    text = sms['user_data']['data'] if isinstance(sms['user_data'], dict) else sms['user_data']
+                    status = lines[index].split(',', 1)[0].replace('+CMGR:', '').strip(' "')
+                    result.append('+CMGR: "{}","{}","","{}"\n{}'.format(
+                        status, sender, sms['scts'].strftime('%y/%m/%d %H:%M:%S'), text))
+                except Exception:
+                    result.extend(lines[index:index + 2])
+                index += 2
+            else:
+                result.append(lines[index])
+                index += 1
+        return '\n'.join(result)
+    return '\n'.join(lines) or 'OK'
+
+
+async def execute(command):
+    process = await asyncio.create_subprocess_exec(
+        '/usr/sbin/atsd_cli', '-i', 'cpe', '-w', '5000', '-c', command.rstrip('\r\n'),
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.communicate()
+        raise RuntimeError('AT command timed out')
+    response = stdout.decode('utf-8', errors='replace')
+    error = stderr.decode('utf-8', errors='replace')
+    if process.returncode:
+        raise RuntimeError(error.strip() or response.strip() or 'AT command failed')
+    if not response.strip():
+        response = error
+    if not response.strip():
+        raise RuntimeError('AT daemon returned an empty response')
+    terminal = response.strip().splitlines()[-1].strip()
+    if re.fullmatch(r'ERROR|\+CME ERROR:.*|\+CMS ERROR:.*', terminal, re.IGNORECASE):
+        raise RuntimeError(terminal)
+    return filtered_response(command, response)
+
+
+async def handle_client(websocket, path=None):
+    try:
+        async for command in websocket:
+            if command == 'ping':
+                await websocket.send('pong')
+                continue
+            try:
+                if not isinstance(command, str) or not command.strip():
+                    raise RuntimeError('Empty AT command')
+                response = await execute(command)
+                result = {'success': True, 'data': response,
+                          'error': None, 'command': command.rstrip('\r\n')}
+            except Exception as error:
+                result = {'success': False, 'data': None, 'error': str(error),
+                          'command': command.rstrip('\r\n') if isinstance(command, str) else ''}
+            await websocket.send(json.dumps(result, ensure_ascii=False))
+    except websockets.exceptions.ConnectionClosed:
+        return
+
+
+async def main():
+    async with websockets.serve(handle_client, '0.0.0.0', 8766,
+                                ping_interval=20, ping_timeout=20,
+                                close_timeout=20):
+        await asyncio.Future()
+
+
+if __name__ == '__main__':
+    asyncio.run(main())

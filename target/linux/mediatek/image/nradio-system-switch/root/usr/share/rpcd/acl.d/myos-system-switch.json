@@ -1,0 +1,7 @@
+{
+  "luci-app-myos-system-switch": {
+    "description": "MYOS eMMC system switching",
+    "read": { "ubus": { "myos.system": ["status"] } },
+    "write": { "ubus": { "myos.system": ["official"] } }
+  }
+}

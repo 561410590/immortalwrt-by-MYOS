@@ -1,0 +1,124 @@
+#!/bin/sh
+
+model="$(cat /tmp/sysinfo/model 2>/dev/null)"
+board="$(cat /tmp/sysinfo/board_name 2>/dev/null)"
+
+case "$model $board" in
+	*NRadio-C5800-688*|*HC-WT9126*|*nradio_c5800-688*|*HCMT7981-emmc*|*HCMT7981-EMMC*) ;;
+	*) exit 0 ;;
+esac
+
+uci -q delete network.BLUE4
+uci -q set network.port5='device'
+uci -q set network.port5.name='port5'
+uci -q set network.port5.ipv6='1'
+
+idx=0
+while uci -q get "network.@device[$idx]" >/dev/null 2>&1; do
+	name="$(uci -q get "network.@device[$idx].name" 2>/dev/null)"
+if [ "$name" = "br-lan" ]; then
+		uci -q del_list "network.@device[$idx].ports=BLUE4"
+		uci -q del_list "network.@device[$idx].ports=port5"
+		uci -q add_list "network.@device[$idx].ports=lan1"
+		uci -q add_list "network.@device[$idx].ports=lan2"
+		uci -q add_list "network.@device[$idx].ports=lan3"
+	fi
+	idx=$((idx + 1))
+done
+
+uci -q set network.globals.nbcpe='1'
+uci -q set network.nrswitch='nrswitch'
+uci -q set network.nrswitch.nvlan='NLLLNWCE'
+uci -q set network.nrswitch.ovlan='NLLmNMCE'
+uci -q set network.nrswitch.disable_wan='1'
+uci -q set network.nrswitch.dsa='1'
+
+uci -q set network.cpe1='interface'
+uci -q set network.cpe1.proto='wwan'
+uci -q set network.cpe1.device='port5'
+uci -q set network.cpe1.ifname='port5'
+uci -q set network.cpe1.phyifname='port5'
+uci -q set network.cpe1.phycap='2500'
+uci -q set network.cpe1.odu_interface='nbdevice'
+uci -q set network.cpe1.mode='odu'
+uci -q set network.cpe1.forcephy='1'
+uci -q set network.cpe1.auto='1'
+uci -q set network.cpe1.defaultroute='1'
+uci -q set network.cpe1.metric='10'
+uci -q set network.cpe1.ipv6='1'
+uci -q set network.cpe1.kpcpe_id='864640060011226'
+uci -q set network.cpe1.ippass='1'
+uci -q set network.cpe1.nrrc='1'
+uci -q set network.cpe1.odu_model='MT5700M-CN'
+uci -q set network.cpe1.desc='TD Tech MT5700'
+uci -q set network.cpe1.blacklist_band='1'
+uci -q set network.cpe1.mobility='1'
+uci -q set network.cpe1.freq_multi='1'
+uci -q set network.cpe1.nrcap='1'
+uci -q set network.cpe1.earfcn5='1,1,2'
+uci -q set network.cpe1.earfcn4='1,1,2'
+uci -q set network.cpe1.sms='1'
+uci -q set network.cpe1.freq_val='nr-79:78:41:28:1:8:5:3,lte-1:3:5:8:34:38:39:40:41'
+uci -q set network.cpe1.auto_sniffer='192.168.8.1'
+
+uci -q set network.nbdevice='interface'
+uci -q set network.nbdevice.proto='none'
+uci -q set network.nbdevice.device='port5'
+uci -q set network.nbdevice.ifname='port5'
+uci -q set network.nbdevice.phyifname='port5'
+
+uci -q commit network
+
+uci -q set cpecfg.cpesim1='cpesim'
+uci -q set cpecfg.cpesim1.peak_hour='0'
+uci -q set cpecfg.cpesim1.ippass='1'
+uci -q set cpecfg.cpesim1.mode='auto'
+uci -q set cpecfg.cpe1sim1='cpesim'
+uci -q set cpecfg.cpe1sim1.peak_hour='0'
+uci -q set cpecfg.cpe1sim1.ippass='1'
+uci -q set cpecfg.cpe1sim1.mode='auto'
+uci -q commit cpecfg
+
+uci -q set kpcpe_864640060011226_network.cpe1='interface'
+uci -q set kpcpe_864640060011226_network.cpe1.blacklist_band='1'
+uci -q set kpcpe_864640060011226_network.cpe1.mobility='1'
+uci -q set kpcpe_864640060011226_network.cpe1.freq_multi='1'
+uci -q set kpcpe_864640060011226_network.cpe1.nrcap='1'
+uci -q set kpcpe_864640060011226_network.cpe1.earfcn5='1,1,2'
+uci -q set kpcpe_864640060011226_network.cpe1.earfcn4='1,1,2'
+uci -q set kpcpe_864640060011226_network.cpe1.sms='1'
+uci -q set kpcpe_864640060011226_network.cpe1.ippass='1'
+uci -q set kpcpe_864640060011226_network.cpe1.nrrc='1'
+uci -q set kpcpe_864640060011226_network.cpe1.freq_val='nr-79:78:41:28:1:8:5:3,lte-1:3:5:8:34:38:39:40:41'
+uci -q commit kpcpe_864640060011226_network
+
+wan_zone=
+idx=0
+while uci -q get "firewall.@zone[$idx]" >/dev/null 2>&1; do
+	name="$(uci -q get "firewall.@zone[$idx].name" 2>/dev/null)"
+	if [ "$name" = "wan" ]; then
+		wan_zone="firewall.@zone[$idx]"
+		break
+	fi
+	idx=$((idx + 1))
+done
+
+if [ -n "$wan_zone" ]; then
+	for net in wan wan6 BLUE4WAN BLUE4WANV6 cpe cpe_4 cpe_6 cpe1 cpe1_4 cpe1_6; do
+		uci -q del_list "$wan_zone.network=$net"
+	done
+	for net in cpe cpe_4 cpe_6 cpe1 cpe1_4 cpe1_6; do
+		uci -q add_list "$wan_zone.network=$net"
+	done
+	uci -q set firewall.@defaults[0].flow_offloading_hw='0'
+	uci -q commit firewall
+fi
+
+if ip link show BLUE4 >/dev/null 2>&1; then
+	ip link set BLUE4 nomaster 2>/dev/null
+	ip link set BLUE4 down 2>/dev/null
+	ip link set BLUE4 name port5 2>/dev/null
+	ip link set port5 up 2>/dev/null
+fi
+
+exit 0

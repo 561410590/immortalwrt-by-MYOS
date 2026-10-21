@@ -13,21 +13,25 @@ static inline int mtk_ioctl(const char *ifname, int cmd, struct iwreq *wrq)
 
 static const char *mtk_dev2phy(const char *devname)
 {
+	static char phyname[IFNAMSIZ];
 	const char *phy = NULL;
 	struct uci_section *s;
 
 	if (strstr(devname,"ra") || strstr(devname,"apcli"))
 		return devname;
 
+	phyname[0] = 0;
 	s = iwinfo_uci_get_radio(devname, "mtwifi");
 	if (!s)
 		goto out;
 	
 	phy = uci_lookup_option_string(uci_ctx, s, "phy");
+	if (phy && strlen(phy) < sizeof(phyname))
+		strcpy(phyname, phy);
 
 out:
 	iwinfo_uci_free();
-	return phy;
+	return phyname[0] ? phyname : NULL;
 }
 
 static int mtk_probe(const char *dev)
@@ -60,7 +64,7 @@ static void mtk_close(void)
 
 static int mtk_is_ifup(const char *ifname)
 {
-	struct ifreq ifr;
+	struct ifreq ifr = {};
 
 	strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
 
@@ -258,7 +262,42 @@ static int mtk_get_txpower(const char *dev, int *buf)
 
 static int mtk_get_signal(const char *dev, int *buf)
 {
-	return mtk_get_txpower(dev, buf);
+	struct iwreq wrq = {};
+	RT_802_11_MAC_TABLE *table;
+	const char *ifname = mtk_dev2phy(dev);
+	int total = 0, count = 0;
+	unsigned int i;
+
+	if (!ifname)
+		return -1;
+
+	table = calloc(1, sizeof(*table));
+	if (!table)
+		return -1;
+
+	wrq.u.data.pointer = (caddr_t)table;
+	wrq.u.data.length = sizeof(*table);
+	if (mtk_ioctl(ifname, RTPRIV_IOCTL_GET_MAC_TABLE_STRUCT, &wrq) < 0) {
+		free(table);
+		return -1;
+	}
+
+	/* AP signal is the mean RSSI of associated stations, never TX power.
+	 * With no measured station RSSI leave signal unavailable. */
+	for (i = 0; i < table->Num && i < MAX_NUMBER_OF_MAC; i++) {
+		int rssi = table->Entry[i].AvgRssi0;
+		if (rssi < 0 && rssi >= -127) {
+			total += rssi;
+			count++;
+		}
+	}
+
+	free(table);
+	if (!count)
+		return -1;
+
+	*buf = total / count;
+	return 0;
 }
 
 static int mtk_get_noise(const char *dev, int *buf)
@@ -268,7 +307,17 @@ static int mtk_get_noise(const char *dev, int *buf)
 
 static int mtk_get_quality(const char *dev, int *buf)
 {
-	*buf = 100;
+	int signal;
+
+	if (mtk_get_signal(dev, &signal))
+		return -1;
+
+	/* Match the iwinfo WEXT RSSI scale: -110 dBm to -40 dBm. */
+	if (signal < -110)
+		signal = -110;
+	else if (signal > -40)
+		signal = -40;
+	*buf = (signal + 110) * 100 / 70;
 	return 0;
 }
 
@@ -379,6 +428,7 @@ static int mtk_get_assoclist(const char *dev, char *buf, int *len)
 	int i;
 	const char *ifname;
 
+	*len = 0;
 	ifname = mtk_dev2phy(dev);
 	if (!ifname)
 		return -1;
@@ -395,12 +445,12 @@ static int mtk_get_assoclist(const char *dev, char *buf, int *len)
 		return -1;
 	}
 
-	*len = 0;
-
-	for (i = 0; i < table->Num; i++) {
+	for (i = 0; i < table->Num && i < MAX_NUMBER_OF_MAC &&
+	     (i + 1) * sizeof(struct iwinfo_assoclist_entry) <= IWINFO_BUFSIZE; i++) {
 		RT_802_11_MAC_ENTRY *pe = &(table->Entry[i]);
 		struct iwinfo_assoclist_entry *e = (struct iwinfo_assoclist_entry *)buf + i;
 
+		memset(e, 0, sizeof(*e));
 		memcpy(e->mac, pe->Addr, 6);
 		e->signal = pe->AvgRssi0;
 		e->signal_avg = pe->AvgRssi0;
@@ -462,7 +512,7 @@ static int mtk_get_scanlist(const char *dev, char *buf, int *len)
 
 	*len = 0;
 
-	if ((data = (char *)malloc(data_len)) == NULL)
+	if ((data = (char *)calloc(1, data_len + 1)) == NULL)
 		return -1;
 
 	sprintf(cmd, "iwpriv %s set SiteSurvey=", ifname);
@@ -472,7 +522,7 @@ static int mtk_get_scanlist(const char *dev, char *buf, int *len)
 
 	while (1) {
 		memset(data, 0, data_len);
-		if (mtk_get_scanlist_dump(ifname, index, data, sizeof(data))) {
+		if (mtk_get_scanlist_dump(ifname, index, data, data_len)) {
 			free(data);
 			return -1;
 		}
@@ -610,12 +660,13 @@ static inline int wext_freq2mhz(const struct iw_freq *in)
 
 static int mtk_get_freqlist(const char *dev, char *buf, int *len)
 {
-	struct iwreq wrq;
-	struct iw_range range;
-	struct iwinfo_freqlist_entry entry;
+	struct iwreq wrq = {};
+	struct iw_range range = {};
+	struct iwinfo_freqlist_entry entry = {};
 	const char* ifname;
 	int i, bl;
 
+	*len = 0;
 	ifname = mtk_dev2phy(dev);
 	if (!ifname)
 		return -1;
@@ -631,9 +682,11 @@ static int mtk_get_freqlist(const char *dev, char *buf, int *len)
 	{
 		bl = 0;
 
-		for (i = 0; i < range.num_frequency; i++)
+		for (i = 0; i < range.num_frequency && i < IW_MAX_FREQUENCIES &&
+		     bl + sizeof(entry) <= IWINFO_BUFSIZE; i++)
 		{
 			entry.mhz        = wext_freq2mhz(&range.freq[i]);
+			entry.band       = entry.mhz < 3000 ? IWINFO_BAND_24 : IWINFO_BAND_5;
 			entry.channel    = range.freq[i].i;
 			entry.restricted = 0;
 
@@ -698,21 +751,17 @@ static int mtk_get_hwmodelist(const char *dev, int *buf)
 
 	/* get hwmode base on uci band config */
 	s = iwinfo_uci_get_radio(dev, "mtwifi");
-	if (!s)
-		goto uciout;
-	
-	band = uci_lookup_option_string(uci_ctx, s, "band");
-
-uciout:
-	iwinfo_uci_free();
-
+	if (s)
+		band = uci_lookup_option_string(uci_ctx, s, "band");
 	if (band) {
 		if (!strcmp(band,"2g"))
 			*buf = (IWINFO_80211_N | IWINFO_80211_AX);
 		else if (!strcmp(band,"5g"))
 			*buf = (IWINFO_80211_AC | IWINFO_80211_AX);
-		return 0;
 	}
+	iwinfo_uci_free();
+	if (*buf)
+		return 0;
 
 	/* get hwmode base on iwrange */
 	ifname = mtk_dev2phy(dev);
@@ -721,15 +770,16 @@ uciout:
 
 	if (!mtk_get_freqlist(ifname, chans, &len))
 	{
-		for (e = (struct iwinfo_freqlist_entry *)chans; e->channel; e++ )
+		for (e = (struct iwinfo_freqlist_entry *)chans;
+		     (char *)(e + 1) <= chans + len; e++)
 		{
 			if (e->channel <= 14 ) //2.4Ghz
 			{
-				*buf = (IWINFO_80211_N | IWINFO_80211_AX);
+				*buf |= (IWINFO_80211_N | IWINFO_80211_AX);
 			}
 			else //5Ghz
 			{
-				*buf = (IWINFO_80211_AC | IWINFO_80211_AX);
+				*buf |= (IWINFO_80211_AC | IWINFO_80211_AX);
 			}
 		}
 
@@ -752,22 +802,18 @@ static int mtk_get_htmodelist(const char *dev, int *buf)
 
 	/* get htmode base on uci band config */
 	s = iwinfo_uci_get_radio(dev, "mtwifi");
-	if (!s)
-		goto uciout;
-	
-	band = uci_lookup_option_string(uci_ctx, s, "band");
-
-uciout:
-	iwinfo_uci_free();
-
+	if (s)
+		band = uci_lookup_option_string(uci_ctx, s, "band");
 	if (band) {
 		if (!strcmp(band,"2g"))
 			*buf = (IWINFO_HTMODE_HT20 | IWINFO_HTMODE_HT40 | IWINFO_HTMODE_HE20 | IWINFO_HTMODE_HE40);
 		else if (!strcmp(band,"5g"))
 			*buf = (IWINFO_HTMODE_VHT20 | IWINFO_HTMODE_VHT40 | IWINFO_HTMODE_VHT80 | IWINFO_HTMODE_VHT160
 			| IWINFO_HTMODE_HE20 | IWINFO_HTMODE_HE40 | IWINFO_HTMODE_HE80 | IWINFO_HTMODE_HE160);
-		return 0;
 	}
+	iwinfo_uci_free();
+	if (*buf)
+		return 0;
 
 	/* get htmode base on iwrange */
 	ifname = mtk_dev2phy(dev);
@@ -776,15 +822,16 @@ uciout:
 
 	if (!mtk_get_freqlist(ifname, chans, &len))
 	{
-		for (e = (struct iwinfo_freqlist_entry *)chans; e->channel; e++ )
+		for (e = (struct iwinfo_freqlist_entry *)chans;
+		     (char *)(e + 1) <= chans + len; e++)
 		{
 			if (e->channel <= 14 ) //2.4Ghz
 			{
-				*buf = (IWINFO_HTMODE_HT20 | IWINFO_HTMODE_HT40 | IWINFO_HTMODE_HE20 | IWINFO_HTMODE_HE40);
+				*buf |= (IWINFO_HTMODE_HT20 | IWINFO_HTMODE_HT40 | IWINFO_HTMODE_HE20 | IWINFO_HTMODE_HE40);
 			}
 			else //5Ghz
 			{
-				*buf = (IWINFO_HTMODE_VHT20 | IWINFO_HTMODE_VHT40 | IWINFO_HTMODE_VHT80 | IWINFO_HTMODE_VHT160
+				*buf |= (IWINFO_HTMODE_VHT20 | IWINFO_HTMODE_VHT40 | IWINFO_HTMODE_VHT80 | IWINFO_HTMODE_VHT160
 				| IWINFO_HTMODE_HE20 | IWINFO_HTMODE_HE40 | IWINFO_HTMODE_HE80 | IWINFO_HTMODE_HE160);
 			}
 		}
@@ -798,9 +845,11 @@ uciout:
 static int mtk_get_htmode(const char *dev, int *buf)
 {
 	const char *ifname;
-	struct iwreq wrq;
+	struct iwreq wrq = {};
 	unsigned char bw = 0;
 	unsigned long wmode = 0;
+
+	*buf = 0;
 
 	ifname = mtk_dev2phy(dev);
 	if (!ifname)
@@ -828,6 +877,7 @@ static int mtk_get_htmode(const char *dev, int *buf)
 					case BW_80: *buf = IWINFO_HTMODE_HE80; break;
 					case BW_8080: *buf = IWINFO_HTMODE_HE80_80; break;
 					case BW_160: *buf = IWINFO_HTMODE_HE160; break;
+					default: return -1;
 				}
 			} else if (WMODE_CAP_AC(wmode)) {
 				switch (bw) {
@@ -836,11 +886,13 @@ static int mtk_get_htmode(const char *dev, int *buf)
 					case BW_80: *buf = IWINFO_HTMODE_VHT80; break;
 					case BW_8080: *buf = IWINFO_HTMODE_VHT80_80; break;
 					case BW_160: *buf = IWINFO_HTMODE_VHT160; break;
+					default: return -1;
 				}
 			} else if (WMODE_CAP_N(wmode)) {
 				switch (bw) {
 					case BW_20: *buf = IWINFO_HTMODE_HT20; break;
 					case BW_40: *buf = IWINFO_HTMODE_HT40; break;
+					default: return -1;
 				}
 			} else {
 				*buf = IWINFO_HTMODE_NOHT;

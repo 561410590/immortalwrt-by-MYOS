@@ -1,0 +1,29 @@
+#!/usr/bin/lua
+local identity = require("myos_c8_identity")
+local command = arg[1]
+local value = ""
+if command == "calibrate" then
+    local path = tostring(arg[2] or "")
+    if not path:match("^/tmp/myos%-c8%-eeprom%.[A-Za-z0-9]+$") then os.exit(2) end
+    local file = io.open(path, "r+b")
+    if not file then os.exit(1) end
+    local record = identity.hardware()
+    local mac = identity.normalize_mac(record.fac_mac)
+    if mac == "" then mac = identity.normalize_mac(record.mac) end
+    local patched = identity.patch_eeprom(file:read("*a"), mac)
+    if not patched then file:close(); os.exit(1) end
+    file:seek("set", 0)
+    local ok = file:write(patched)
+    file:close()
+    os.exit(ok and 0 or 1)
+end
+if command == "mac" then value = identity.mac()
+elseif command == "factory-mac" then
+    local record = identity.hardware()
+    value = identity.normalize_mac(record.fac_mac)
+    if value == "" then value = identity.normalize_mac(record.mac) end
+elseif command == "id" then value = identity.device_id()
+elseif command == "code" then value = identity.device_code()
+elseif command == "get" then value = identity.get(arg[2])
+else os.exit(2) end
+if value ~= "" then io.write(value, "\n") else os.exit(1) end

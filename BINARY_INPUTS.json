@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "tree": "immortalwrt-mt798x-6.6",
+  "models": [
+    "c8-688",
+    "c5800-688",
+    "nbcpe-688"
+  ],
+  "notes": "External binary inputs are not claimed as source. No private identity or signing key is supplied.",
+  "inputs": [
+    {
+      "path": "target/linux/mediatek/image/nradio-c8-688/reference.bin",
+      "bytes": 90942309,
+      "sha256": "4b8e62131bb5be2926273103e0d5dad030c8a72c7de847e3ce4407219a70b6a1",
+      "models": [
+        "c8-688"
+      ],
+      "purpose": "C8 firmware reference checked by assemble-c8.py"
+    },
+    {
+      "path": "target/linux/mediatek/image/nradio-c8-688/reference-tar/sysupgrade-HCMT7981-688-emmc/root",
+      "bytes": 86386688,
+      "sha256": "a93b324a1eb19b79382a874a1339f9daf12e8d6eb945a83549399c0c31d82ea6",
+      "models": [
+        "c8-688"
+      ],
+      "purpose": "Root filesystem extracted from the C8 reference"
+    },
+    {
+      "path": "target/linux/mediatek/image/nradio-c5800-688/root.squashfs",
+      "bytes": 130654819,
+      "sha256": "e657fee41adec55d94aceb5a3ed85a84775a197930ebab76ba314169ea7d75ee",
+      "models": [
+        "c5800-688"
+      ],
+      "purpose": "C5800 base root filesystem"
+    },
+    {
+      "path": "target/linux/mediatek/image/nradio-nbcpe-688/root.squashfs",
+      "bytes": 190368768,
+      "sha256": "f4b02b94a88dbf2c62c3bf30e5f1851e92771cd794e7a93fd9f197ad16587815",
+      "models": [
+        "nbcpe-688"
+      ],
+      "purpose": "NBCPE base root filesystem"
+    },
+    {
+      "bytes": 1574,
+      "sha256": "54d122faa978f404c0a03be21dcdbe38bce81431cb01112f0d99d466d704cacb",
+      "purpose": "Factory encrypted credential input for the APP protocol; supply separately",
+      "path": "target/linux/mediatek/image/nradio-c5800-688/myos-remote-files/usr/share/myos-nros/id_rsa.db",
+      "models": [
+        "c8-688",
+        "c5800-688",
+        "nbcpe-688"
+      ]
+    },
+    {
+      "path": "../factory-openwrt/c2000max-analysis/C2000-788-WT9303_2.1.11.0h-rootfs",
+      "kind": "directory",
+      "purpose": "Original runtime libraries and board resources used by the APP integration",
+      "models": [
+        "c5800-688"
+      ]
+    }
+  ]
+}

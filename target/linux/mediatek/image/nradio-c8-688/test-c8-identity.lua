@@ -1,0 +1,38 @@
+local identity = dofile(arg[1] .. "/usr/lib/lua/myos_c8_identity.lua")
+local function blob(version, text, prefix)
+    local offset = version == 1 and 384 or 15
+    local header = "BDI" .. string.char(version, 1) .. (prefix or "")
+    header = header .. string.rep("\0", offset - #header)
+    local result = header .. text .. "\0"
+    return result .. string.rep("\255", 65536 - #result)
+end
+local good = "fac_mac=02:11:22:33:44:55\ndevice_code=unit-test\n"
+for _, version in ipairs({ 1, 2 }) do
+    local record = assert(identity.decode_bdinfo(blob(version, good)))
+    assert(record.fac_mac == "02:11:22:33:44:55")
+    assert(record.device_code == "unit-test")
+end
+assert(identity.decode_bdinfo(blob(2, good):sub(1, 65535)) == nil)
+assert(identity.decode_bdinfo(blob(2, "fac_mac=02:11:22:33:44:55\nfac_mac=04:22:33:44:55:66\n")) == nil)
+assert(identity.decode_bdinfo(blob(2, "not-an-entry\n")) == nil)
+local header_only = blob(1, "oem_vendor=nradio\n", "fac_mac=02:11:22:33:44:55")
+assert(identity.decode_bdinfo(header_only).fac_mac == nil)
+assert(identity.normalize_mac("021122334455-MYOS") == "02:11:22:33:44:55")
+assert(identity.normalize_mac("01:11:22:33:44:55") == "")
+assert(identity.normalize_mac("00:66:88:00:00:00") == "")
+assert(identity.normalize_mac("00:00:00:00:00:00") == "")
+assert(identity.normalize_mac("FF:FF:FF:FF:FF:FF") == "")
+assert(identity.is_c8_record({ board = "WT9104", oem_pname = "C8-688", oem_vendor = "nradio" }))
+assert(not identity.is_c8_record({ board = "WT9104", oem_pname = "NBCPE-688", oem_vendor = "nradio" }))
+assert(not identity.is_c8_record({ board = "WT9104", oem_pname = "C8-688" }))
+assert(not identity.is_c8_record({ oem_pname = "C8-688", oem_vendor = "nradio" }))
+local calibration = string.char(0x81, 0x79, 0, 0) .. string.rep("\255", 4092)
+local patched = assert(identity.patch_eeprom(calibration, "02:11:22:33:44:55"))
+assert(#patched == 4096)
+assert(patched:sub(5, 10) == string.char(2, 0x11, 0x22, 0x33, 0x44, 0x55))
+assert(patched:sub(1, 4) == calibration:sub(1, 4))
+assert(patched:sub(11) == calibration:sub(11))
+assert(identity.patch_eeprom(calibration:sub(2), "02:11:22:33:44:55") == nil)
+assert(identity.patch_eeprom(string.rep("\0", 4096), "02:11:22:33:44:55") == nil)
+assert(identity.patch_eeprom(calibration, "01:11:22:33:44:55") == nil)
+print("C8 identity parser: all tests passed")

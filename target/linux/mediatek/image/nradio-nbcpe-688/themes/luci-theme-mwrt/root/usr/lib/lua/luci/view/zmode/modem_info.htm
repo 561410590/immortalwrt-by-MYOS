@@ -1,0 +1,1574 @@
+<%
+-- 屏幕控制整块依赖 luci-app-display(它提供 admin/display/* 和 admin/system/display)。
+-- 没装就说明这机型没有那块 NV3007 屏,卡片里的按钮全是死链,整块不输出。
+local screen_ok = false
+do
+	local f = io.open("/usr/lib/lua/luci/controller/display.lua", "r")
+	if f then
+		f:close()
+		screen_ok = true
+	end
+end
+
+-- 机型判定(服务端算,避免首屏先闪错图再被 JS 换掉):
+-- 先按机型串识别 E87N —— 它 DTS model="EdgePi E87N" / board_name="edgepi,e87n",
+-- 且是 4 核,若不先拦下会被下面"≥4核=Ultra"误判成 Ultra 图。E87N 用独立整机图。
+-- 其余(C2000 MAX/Ultra 共用同一份 DTS,board_name 均 NRadio-C2000MAX-Ultra 无法区分)
+-- 再用物理核心数区分:MAX=双核(mt7987B),Ultra=四核(mt7987A)。与 CGI router3d-data 一致。
+local function _rd(p)
+	local f = io.open(p, "r"); if not f then return "" end
+	local s = f:read("*a") or ""; f:close(); return s
+end
+local _board = _rd("/tmp/sysinfo/board_name"):gsub("%s+$", "")
+local _nbcpe = _board == "HCMT7981-emmc-NB68" or _board == "nradio_wt9111_No2-manper_NB68"
+local _idstr = (_rd("/tmp/sysinfo/model") .. " " .. _board):lower()
+local dev_model, dev_img
+if _nbcpe then
+	dev_model = "NBCPE-688"
+	dev_img = "/luci-static/router3d/nbcpe-688-front.png"
+elseif _idstr:find("c5800", 1, true) or _idstr:find("hcmt7981", 1, true) then
+	dev_model = "C5800-688"
+	dev_img = "/luci-static/router3d/c5800-688.png"
+elseif _idstr:find("h5000m", 1, true) then
+	dev_model = "H5000M"
+	dev_img = "/luci-static/router3d/h5000m.png"
+elseif _idstr:find("e87n", 1, true) or _idstr:find("edgepi", 1, true) then
+	dev_model = "E87N"
+	dev_img = "/luci-static/router3d/e87n.png"
+else
+	dev_model = "MAX"
+	local ncpu = 0
+	local cf = io.open("/proc/cpuinfo", "r")
+	if cf then
+		for line in cf:lines() do
+			if line:match("^processor") then ncpu = ncpu + 1 end
+		end
+		cf:close()
+	end
+	if ncpu >= 4 then dev_model = "Ultra" end
+	dev_img = "/luci-static/router3d/" .. (dev_model == "Ultra" and "ultra.png" or "max.png")
+end
+-- 用户自定义整机图:按机型分别存 custom_<机型>.png,存在则优先用它(机型对应,互不影响)。
+local function _exists(p) local f = io.open(p, "r"); if f then f:close(); return true end return false end
+local dev_custom = ""
+if _exists("/www/luci-static/router3d/custom_" .. dev_model .. ".png") then
+	dev_custom = "/luci-static/router3d/custom_" .. dev_model .. ".png"
+	dev_img = dev_custom
+end
+-- 整机显示名(按机型给正确品牌):C2000 系列=NRadio,E87N=EdgePi,H5000M=Hiveton。
+-- 服务端注入,首屏占位就是对的,不会先闪 "NRadio C2000" 再被 JS 改。
+local _dev_names = {
+	["NBCPE-688"] = "NBCPE-688",
+	["C5800-688"] = "NRadio C5800-688",
+	Ultra  = "NRadio C2000 Ultra",
+	MAX    = "NRadio C2000 MAX",
+	E87N   = "EdgePi E87N",
+	H5000M = "Hiveton H5000M",
+}
+local dev_name = _dev_names[dev_model] or dev_model
+%>
+<%+header%>
+<link rel="stylesheet" href="/fontawesome/all.min.css">
+<style>
+/* 移动端底部:深色底改由 html/body 承担(而非 .P 的 min-height:100vh)。
+   原先 .P 强制 100vh,叠加主题顶部导航栏后总高超出视口,滚到底会多出一段空隙;
+   去掉 100vh、把 html/body 刷深色,既不露白也不再有导航栏与内容间的空隙。 */
+html,body{background:#0b0d14 !important}
+/* Override Argon theme containers */
+#maincontent{background:transparent !important;padding-top:0 !important;margin-top:0 !important}
+#maincontent>.container{background:transparent !important;padding:0 !important;margin:0 !important}
+.main-right{background:transparent !important}
+.main-right>.container{background:transparent !important;padding-top:0 !important}
+.cbi-map{border:none !important;box-shadow:none !important;background:transparent !important;margin:0 !important;padding:0 !important}
+/* 抹平主题给内容套的那圈圆角边框卡片(.cbi-section / .cbi-section-node),
+   否则移动端框底与导航栏之间会留出一段(容器 flex-grow 撑高的)空隙看着像缝。 */
+#maincontent .cbi-section,#maincontent .cbi-section-node,#maincontent [data-tab-title]{border:none !important;border-radius:0 !important;box-shadow:none !important;background:transparent !important;margin:0 !important;padding:0 !important}
+/* 容器别再靠 flex-grow 撑高留白,底部外边距也去掉,让深色内容一直贴到底 */
+.main-right>#maincontent>.container{flex-grow:0 !important;margin-bottom:0 !important}
+.container>.main>.main-right>.container{padding-top:0 !important}
+.main-right .container h2,.main-right .container h3{display:none !important}
+
+*{margin:0;padding:0;box-sizing:border-box}
+.P{--bg:#0b0d14;--c1:rgba(18,21,32,0.94);--c2:rgba(26,30,44,0.9);--bd:rgba(255,255,255,0.04);--t1:#eef0f6;--t2:#8891a5;--t3:#3d4455;--ac:#7c5cfc;--gn:#34d399;--og:#fbbf24;--rd:#f87171;--bl:#60a5fa;--cy:#22d3ee;--pk:#f472b6;--r:14px;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:var(--t1);padding:14px 20px 40px;max-width:1200px;margin:0 auto;position:relative;z-index:1;background:var(--bg) !important}
+.P::before{content:'';position:fixed;inset:0;z-index:-1;background:var(--bg);background-image:radial-gradient(ellipse at 10% 40%,rgba(124,92,252,0.07),transparent 55%),radial-gradient(ellipse at 90% 20%,rgba(34,211,238,0.05),transparent 45%),radial-gradient(ellipse at 50% 95%,rgba(244,114,182,0.04),transparent 40%)}
+/* Light mode */
+.P.L{--bg:#f4f5fa;--c1:rgba(255,255,255,0.96);--c2:rgba(246,247,252,0.95);--bd:rgba(0,0,0,0.05);--t1:#1a1d2e;--t2:#6b7185;--t3:#d4d7e0}
+.P.L::before{background:var(--bg);background-image:radial-gradient(ellipse at 10% 40%,rgba(124,92,252,0.03),transparent 55%),radial-gradient(ellipse at 90% 20%,rgba(34,211,238,0.02),transparent 45%)}
+.P #modem_selector_select{display:none}
+.P .H{display:none !important}
+
+/* === HEADER - full width with background === */
+.P .hdr{background:var(--c1);border:1px solid var(--bd);border-radius:var(--r);padding:18px 24px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;position:relative}
+.P .hdr-left{display:flex;align-items:center;gap:12px}
+.P .hdr-logo{width:36px;height:36px;background:linear-gradient(135deg,#7c5cfc,#22d3ee);border-radius:9px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:800}
+.P .hdr-text .hdr-main{font-size:17px;font-weight:800;background:linear-gradient(135deg,#a78bfa,#22d3ee,#f472b6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-0.3px}
+.P .hdr-text .hdr-sub{font-size:10px;color:var(--t2);margin-top:1px;letter-spacing:1px}
+.P .hdr-actions{display:flex;gap:8px}
+.P .tbtn{width:30px;height:30px;border-radius:50%;border:1px solid var(--bd);background:var(--c2);color:var(--t2);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:12px;transition:all 0.3s}
+.P .tbtn:hover{color:var(--ac);border-color:var(--ac)}
+
+/* Traffic chart */
+.P .chart-card{background:var(--c1);border:1px solid var(--bd);border-radius:var(--r);padding:18px 20px;margin-bottom:14px;transition:border-color 0.3s}
+.P .chart-card:hover{border-color:rgba(124,92,252,0.12)}
+.P .chart-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.P .chart-hd .cd-t{margin-bottom:0}
+.P .chart-legend{display:flex;gap:14px}
+.P .chart-legend span{font-size:10px;color:var(--t2);display:flex;align-items:center;gap:4px}
+.P .chart-legend span::before{content:'';width:8px;height:3px;border-radius:2px}
+.P .chart-legend .lg-rx::before{background:var(--gn)}
+.P .chart-legend .lg-tx::before{background:var(--og)}
+.P .chart-vals{display:flex;gap:20px;margin-bottom:10px}
+.P .chart-vals .cv{display:flex;align-items:baseline;gap:4px}
+.P .chart-vals .cv-n{font-size:20px;font-weight:800;color:var(--t1)}
+.P .chart-vals .cv-u{font-size:10px;color:var(--t2)}
+.P .chart-vals .cv-l{font-size:9px;color:var(--t2);margin-right:4px}
+.P .chart-wrap{width:100%;height:100px;position:relative;overflow:hidden;border-radius:8px;background:var(--c2)}
+.P .chart-wrap canvas{width:100%;height:100%;display:block}
+
+/* Gauges */
+.P .gauges{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}
+.P .ga{background:var(--c1);border:1px solid var(--bd);border-radius:var(--r);padding:20px 12px;display:flex;flex-direction:column;align-items:center;transition:border-color 0.3s}
+.P .ga:hover{border-color:rgba(124,92,252,0.12)}
+.P .ga-w{position:relative;width:92px;height:92px}
+.P .ga-w svg{width:92px;height:92px;transform:rotate(-90deg);display:block}
+.P .ga-bg{fill:none;stroke:var(--t3);stroke-width:5;opacity:0.25}
+.P .ga-fg{fill:none;stroke-width:5;stroke-linecap:round;transition:stroke-dashoffset 1.2s cubic-bezier(0.4,0,0.2,1)}
+.P .ga-c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.P .ga-v{font-size:20px;font-weight:800;color:var(--t1)}
+.P .ga-s{font-size:9px;color:var(--t2);margin-top:1px}
+.P .ga-n{font-size:11px;color:var(--t2);margin-top:8px}
+
+/* Firmware banner - full width */
+.P .fw-banner{background:linear-gradient(135deg,rgba(124,92,252,0.1),rgba(34,211,238,0.06));border:1px solid rgba(124,92,252,0.12);border-radius:var(--r);padding:14px 20px;margin-bottom:14px;display:flex;align-items:center;gap:12px}
+.P .fw-banner i{font-size:16px;color:var(--ac)}
+.P .fw-banner .fw-lbl{font-size:11px;color:var(--t2)}
+.P .fw-banner .fw-val{font-size:13px;font-weight:700;color:var(--t1);margin-top:1px}
+
+/* Feature cards */
+.P .feat{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
+.P .fc{border-radius:12px;padding:15px;position:relative;overflow:hidden;transition:transform 0.2s}
+.P .fc:hover{transform:translateY(-2px)}
+.P .fc .fc-i{font-size:18px;margin-bottom:7px}
+.P .fc .fc-v{font-size:13px;font-weight:700;color:var(--t1);line-height:1.3;word-break:break-all}
+.P .fc .fc-l{font-size:10px;color:var(--t2);margin-top:3px}
+.P .fc.fp{background:linear-gradient(135deg,rgba(124,92,252,0.1),rgba(167,139,250,0.04));border:1px solid rgba(124,92,252,0.12)}.P .fc.fp .fc-i{color:#a78bfa}
+.P .fc.fb{background:linear-gradient(135deg,rgba(96,165,250,0.1),rgba(59,130,246,0.04));border:1px solid rgba(96,165,250,0.12)}.P .fc.fb .fc-i{color:#60a5fa}
+.P .fc.fcy{background:linear-gradient(135deg,rgba(34,211,238,0.1),rgba(6,182,212,0.04));border:1px solid rgba(34,211,238,0.12)}.P .fc.fcy .fc-i{color:#22d3ee}
+.P .fc.fg{background:linear-gradient(135deg,rgba(52,211,153,0.1),rgba(16,185,129,0.04));border:1px solid rgba(52,211,153,0.12)}.P .fc.fg .fc-i{color:#34d399}
+.P .fc.fo{background:linear-gradient(135deg,rgba(251,191,36,0.1),rgba(245,158,11,0.04));border:1px solid rgba(251,191,36,0.12)}.P .fc.fo .fc-i{color:#fbbf24}
+.P .fc.fpk{background:linear-gradient(135deg,rgba(244,114,182,0.1),rgba(236,72,153,0.04));border:1px solid rgba(244,114,182,0.12)}.P .fc.fpk .fc-i{color:#f472b6}
+.P .fc.full{grid-column:1/-1}
+
+/* Hero signal */
+.P .hero{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+.P .hero-sig{background:linear-gradient(135deg,var(--c1) 0%,var(--c1) 60%,rgba(124,92,252,0.04) 100%);border:1px solid var(--bd);border-radius:var(--r);padding:18px 20px;display:grid;grid-template-columns:1fr auto;gap:14px;align-items:stretch;position:relative;overflow:hidden}
+.P .hero-sig::before{content:'';position:absolute;top:-40%;right:-15%;width:280px;height:280px;background:radial-gradient(circle,rgba(124,92,252,0.10),transparent 65%);pointer-events:none;border-radius:50%}
+.P .hero-sig::after{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,#7c5cfc,#22d3ee);border-radius:0 4px 4px 0;opacity:0.7}
+.P .h-side{display:flex;flex-direction:column;justify-content:space-between;min-width:0;position:relative;z-index:2}
+.P .h-op-row{display:none}
+.P .h-op-name{display:none}
+.P .h-op-sub{display:none}
+.P .h-logo-area{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:0 6px;position:relative;z-index:2;min-width:120px}
+.P .h-logo-area img{width:96px;height:72px;object-fit:contain;filter:drop-shadow(0 4px 14px rgba(124,92,252,0.35));background:transparent;border:none;padding:0;transition:transform 0.4s}
+.P .h-logo-area:hover img{transform:scale(1.05)}
+.P .h-logo-meta{display:flex;flex-direction:column;align-items:center;gap:3px}
+.P .h-logo-mode{font-size:10px;color:var(--t2);font-weight:600;letter-spacing:0.6px;text-transform:uppercase}
+.P .h-logo-tac{font-size:10px;color:var(--t1);font-weight:700;font-family:'SF Mono','JetBrains Mono','Consolas',monospace;background:var(--c2);padding:2px 8px;border-radius:8px;border:1px solid var(--bd)}
+.P .h-bdg{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.P .bdg{padding:3px 9px;border-radius:12px;font-size:10px;font-weight:700;color:#fff;display:inline-flex;align-items:center;gap:3px}
+.P .bdg-5g{background:linear-gradient(135deg,#6366f1,#3b82f6)}.P .bdg-4g{background:linear-gradient(135deg,#0891b2,#06b6d4)}.P .bdg-on{background:linear-gradient(135deg,#059669,#10b981)}.P .bdg-off{background:linear-gradient(135deg,#dc2626,#ef4444)}.P .bdg-x{background:var(--t3)}
+.P .sig-r{display:flex;align-items:center;gap:12px}
+.P .sig-rg{position:relative;width:64px;height:64px}
+.P .sig-rg svg{width:64px;height:64px;transform:rotate(-90deg);display:block}
+.P .sr-bg{fill:none;stroke:var(--t3);stroke-width:5;opacity:0.25}
+.P .sr-fg{fill:none;stroke-width:5;stroke-linecap:round;transition:stroke-dashoffset 1s ease}
+.P .sig-rg .ct{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.P .sig-rg .ct .v{font-size:11px;font-weight:700;color:var(--t1)}
+.P .sig-rg .ct .l{font-size:8px;color:var(--t2)}
+.P .sig-nfo .dbm{font-size:20px;font-weight:800;color:var(--t1)}
+.P .sig-nfo .sl{font-size:9px;color:var(--t2);margin-top:1px}
+.P .sig-bars{display:flex;align-items:flex-end;gap:2px;margin-top:5px}
+.P .sig-bars span{width:4px;border-radius:2px;background:var(--t3);opacity:0.3}
+.P .sig-bars span.g{background:var(--gn);opacity:1}.P .sig-bars span.o{background:var(--og);opacity:1}.P .sig-bars span.r{background:var(--rd);opacity:1}
+
+/* Quick stats */
+.P .hero-qs{background:var(--c1);border:1px solid var(--bd);border-radius:var(--r);padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.P .qs{background:var(--c2);border-radius:10px;padding:11px;text-align:center}
+.P .qs-i{font-size:14px;margin-bottom:3px}
+.P .qs-v{font-size:12px;font-weight:700;color:var(--t1)}
+.P .qs-l{font-size:9px;color:var(--t2);margin-top:2px}
+
+/* Card, channels, rows, collapse */
+.P .cd{background:var(--c1);border:1px solid var(--bd);border-radius:var(--r);padding:16px 18px;margin-bottom:12px;transition:border-color 0.3s}
+.P .cd:hover{border-color:rgba(124,92,252,0.1)}
+.P .cd-t{font-size:11px;font-weight:600;color:var(--t2);margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.P .cd-t i{color:var(--ac);font-size:10px}
+.P .chs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.P .ch{display:flex;align-items:center;gap:9px;padding:11px;background:var(--c2);border-radius:10px;border:1px solid var(--bd)}
+.P .ch-ic{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff}
+.P .ch-ic.w{background:linear-gradient(135deg,#3b82f6,#6366f1)}.P .ch-ic.c{background:linear-gradient(135deg,#10b981,#059669)}
+.P .ch-n{font-size:9px;color:var(--t2)}.P .ch-s{font-size:11px;font-weight:600;margin-top:1px}.P .ch-s.on{color:var(--gn)}.P .ch-s.off{color:var(--rd)}
+.P .ch-d{width:6px;height:6px;border-radius:50%;margin-left:auto}.P .ch-d.on{background:var(--gn);animation:pls 2s infinite}.P .ch-d.off{background:var(--rd)}
+@keyframes pls{0%,100%{opacity:1}50%{opacity:0.3}}
+
+/* === Device Overview panel (设备总览 + 图片 + 指示灯 + 网口) === */
+.P .dv-card{position:relative;overflow:hidden}
+.P .dv-card::after{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,#7c5cfc,#22d3ee);opacity:0.7}
+.P .dv-body{display:grid;grid-template-columns:minmax(170px,230px) 1fr;gap:18px;align-items:stretch}
+.P .dv-body.dv-body-e87n{grid-template-columns:minmax(300px,380px) 1fr;gap:14px}
+.P .dv-stage{position:relative;border-radius:12px;background:radial-gradient(ellipse at 50% 38%,rgba(124,92,252,0.12),transparent 62%),var(--c2);border:1px solid var(--bd);padding:16px 16px 14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:200px}
+.P .dv-stage::before{content:'';position:absolute;bottom:26px;left:50%;transform:translateX(-50%);width:62%;height:16px;border-radius:50%;background:rgba(0,0,0,0.35);filter:blur(9px)}
+.P .dv-stage img{position:relative;width:100%;max-width:200px;object-fit:contain;filter:drop-shadow(0 12px 22px rgba(0,0,0,0.4));transition:transform 0.5s ease}
+.P .dv-stage:hover img{transform:translateY(-5px) scale(1.02)}
+.P .dv-name{position:relative;font-size:14px;font-weight:800;color:var(--t1);letter-spacing:0.2px;text-align:center}
+.P .dv-board{position:relative;font-size:10px;color:var(--t2);font-family:'SF Mono','JetBrains Mono','Consolas',monospace;margin-top:-4px}
+.P .dv-badge{margin-left:auto;font-size:10px;font-weight:700;padding:3px 10px;border-radius:12px;display:inline-flex;align-items:center;gap:5px;letter-spacing:0.3px}
+.P .dv-badge.on{background:rgba(52,211,153,0.12);color:#34d399}
+.P .dv-badge.off{background:rgba(248,113,113,0.12);color:#f87171}
+.P .dv-badge .d{width:6px;height:6px;border-radius:50%;background:currentColor}
+.P .dv-badge.on .d{animation:pls 2s infinite}
+.P .dv-side{display:flex;flex-direction:column;gap:7px;min-width:0}
+.P .dv-sub{font-size:9px;text-transform:uppercase;letter-spacing:0.9px;color:var(--t2);font-weight:700;margin-top:5px}
+.P .dv-sub:first-child{margin-top:0}
+.P .dv-leds{display:flex;flex-wrap:wrap;gap:7px}
+.P .dv-led{display:flex;align-items:center;gap:8px;padding:8px 11px;border-radius:10px;background:var(--c2);border:1px solid var(--bd);flex:1 1 118px;min-width:0}
+.P .dv-led .lamp{width:11px;height:11px;border-radius:50%;background:var(--t3);flex-shrink:0;transition:background 0.4s,box-shadow 0.4s}
+.P .dv-led.on .lamp{animation:pls 1.8s infinite}
+.P .dv-led .lt{min-width:0}
+.P .dv-led .lb{display:block;font-size:11px;color:var(--t1);font-weight:600;line-height:1.2}
+.P .dv-led .st{display:block;font-size:9px;color:var(--t2);margin-top:1px;line-height:1.1}
+.P .dv-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.P .dv-stat{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:10px;background:var(--c2);border:1px solid var(--bd);min-width:0}
+.P .dv-stat .si{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff;flex-shrink:0}
+.P .dv-stat .sc{min-width:0;flex:1}
+.P .dv-stat .sl{display:block;font-size:9px;color:var(--t2);text-transform:uppercase;letter-spacing:0.5px;line-height:1.1}
+.P .dv-stat .sv{display:block;font-size:15px;font-weight:800;color:var(--t1);line-height:1.25;margin-top:1px}
+.P .dv-stat .sv small{font-size:10px;font-weight:600;color:var(--t2);letter-spacing:0}
+.P .dv-bar{display:block;height:5px;border-radius:3px;background:rgba(127,127,140,0.20);margin-top:6px;overflow:hidden;width:100%}
+.P .dv-bar>i{display:block;height:100%;border-radius:3px;transition:width 0.6s ease}
+.P .dv-ports{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.P .dv-ports.single{grid-template-columns:1fr}
+.P .dv-port{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:var(--c2);border:1px solid var(--bd);position:relative;overflow:hidden;transition:border-color 0.3s}
+.P .dv-port.link{border-color:rgba(52,211,153,0.30)}
+.P .dv-port.down{background:rgba(127,127,140,0.05);border-style:dashed}
+.P .dv-port .pic{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;background:linear-gradient(135deg,#3b82f6,#6366f1);flex-shrink:0;transition:background 0.3s,opacity 0.3s}
+.P .dv-port.lan .pic{background:linear-gradient(135deg,#10b981,#059669)}
+.P .dv-port.down .pic{background:linear-gradient(135deg,#4b5563,#374151)!important;opacity:0.6}
+.P .dv-port.down .prole,.P .dv-port.down .pname{color:var(--t3)}
+.P .dv-port .pm{min-width:0;flex:1}
+.P .dv-port .prole{display:block;font-size:11px;font-weight:700;color:var(--t1);line-height:1.2}
+.P .dv-port .pname{display:block;font-size:9px;color:var(--t2);font-family:'SF Mono','JetBrains Mono','Consolas',monospace;line-height:1.1;margin-top:1px}
+.P .dv-port .ps{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0}
+.P .dv-port .pspeed{font-size:12px;font-weight:800;line-height:1;padding:4px 9px;border-radius:7px;letter-spacing:0.2px;background:rgba(52,211,153,0.14);color:var(--gn)}
+.P .dv-port.down .pspeed{background:rgba(127,127,140,0.12);color:var(--t3)}
+.P .dv-port .pstat{display:inline-flex;align-items:center;gap:5px;font-size:9px;font-weight:600;color:var(--t2);line-height:1}
+.P .dv-port .pdot{width:7px;height:7px;border-radius:50%;background:var(--t3);flex-shrink:0}
+.P .dv-port.link .pstat{color:var(--gn)}
+.P .dv-port.link .pdot{position:relative;background:var(--gn)}
+.P .dv-port.link .pdot::after{content:'';position:absolute;left:50%;top:50%;width:7px;height:7px;margin:-3.5px 0 0 -3.5px;border-radius:50%;background:var(--gn);animation:ripple 1.8s ease-out infinite}
+@keyframes ripple{0%{transform:scale(1);opacity:0.7}100%{transform:scale(3);opacity:0}}
+.P .dv-meta{display:flex;flex-wrap:wrap;gap:7px;margin-top:3px}
+.P .dv-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border-radius:10px;background:var(--c2);border:1px solid var(--bd);font-size:10px;color:var(--t1);font-weight:600}
+.P .dv-chip i{font-size:10px;color:var(--ac)}
+.P .dv-chip .k{color:var(--t2);font-weight:500;margin-right:1px}
+@media(max-width:820px){.P .dv-body,.P .dv-body.dv-body-e87n{grid-template-columns:1fr}.P .dv-ports{grid-template-columns:1fr 1fr}}
+@media(max-width:480px){.P .dv-ports{grid-template-columns:1fr}}
+/* --- E87N: 整机图下方屏幕实时预览(按真实 428:142 比例,贴近图片框边缘留小缝) --- */
+.P .mp-mini{position:relative;margin:8px -8px 0;width:calc(100% + 16px)}
+/* 封顶宽度取 PC 模式下的实际渲染宽(左栏 380px 轨道 - 舞台内边距 + mp-mini 微溢 ≈ 364px):
+   以 PC 正常观感为最大值,页面放大或移动端换行到整行时也不超过它;窗口变窄可等比缩小。
+   用 aspect-ratio(相对元素自身已封顶的宽度算高)而非 padding-top(相对父宽,封顶后会算高过大变形)。 */
+.P .mp-preview{position:relative;background:#080a0e;border-radius:8px;overflow:hidden;width:100%;max-width:364px;aspect-ratio:428/142;margin:0 auto;border:1px solid #262a36;box-shadow:0 3px 14px rgba(0,0,0,0.5)}
+/* 用 ID 选择器压过 .P .dv-stage img{max-width:200px}(同特指度,靠 ID 决胜),
+   否则整机图的限宽会漏到这张预览图,被钉死 200px 居中留黑边、且不随容器缩放 */
+.P #mp-screen-img{position:absolute;top:0;left:0;width:100%;height:100%;max-width:none;display:block;object-fit:fill;image-rendering:pixelated}
+.P .mp-ph{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#5a6d8a}
+.P .mp-ph i{font-size:20px;opacity:0.4}
+.P .mp-refresh-btn{position:absolute;top:4px;right:4px;width:22px;height:22px;padding:0;border-radius:6px;border:1px solid rgba(255,255,255,0.14);background:rgba(8,10,14,0.62);color:#cbd5e1;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px);transition:background 0.2s}
+.P .mp-refresh-btn:hover{background:rgba(31,111,235,0.55);color:#fff}
+.P .mp-refresh-btn:active{transform:scale(0.9)}
+/* 自定义整机图工具:图片框右上角(相机=上传替换 / 撤销=恢复默认) */
+.P .dv-imgtools{position:absolute;top:10px;right:10px;display:flex;gap:6px;z-index:3}
+.P .dv-imgtools button{width:26px;height:26px;padding:0;border-radius:7px;border:1px solid rgba(255,255,255,0.16);background:rgba(8,10,14,0.6);color:#cbd5e1;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px);transition:background 0.2s,color 0.2s,transform 0.15s;opacity:0.55}
+.P .dv-stage:hover .dv-imgtools button{opacity:1}
+.P .dv-imgtools button:hover{background:rgba(31,111,235,0.6);color:#fff}
+.P .dv-imgtools button:active{transform:scale(0.9)}
+.P .dv-edit.busy{opacity:0.7;pointer-events:none}
+.P .dv-edit.busy i{animation:mp-blink 0.9s infinite}
+.P .mp-cap{font-size:10px;color:var(--t2);display:flex;align-items:center;justify-content:center;gap:5px;letter-spacing:0.5px;margin-top:6px}
+.P .mp-dot{width:7px;height:7px;border-radius:50%;background:#34d399;box-shadow:0 0 6px #34d399;animation:mp-blink 2s infinite;flex-shrink:0}
+@keyframes mp-blink{0%,100%{opacity:1}50%{opacity:0.35}}
+/* === Cellular Dashboard Styles === */
+.P .sig-panel{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.P .sig-gauge{background:var(--c2);border:1px solid var(--bd);border-radius:12px;padding:14px 8px;text-align:center;position:relative;overflow:hidden;transition:all 0.3s}
+.P .sig-gauge:hover{border-color:rgba(124,92,252,0.3);transform:translateY(-1px)}
+.P .sig-gauge::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 50% 0,rgba(124,92,252,0.06),transparent 70%);opacity:0;transition:opacity 0.3s;pointer-events:none}
+.P .sig-gauge:hover::before{opacity:1}
+.P .sg-w{position:relative;width:60px;height:60px;margin:0 auto 6px}
+.P .sg-w svg{width:60px;height:60px;transform:rotate(-90deg);display:block}
+.P .sg-w svg circle{fill:none}
+.P .sg-w .sg-bg{stroke:var(--c1);stroke-width:6}
+.P .sg-w .sg-fg{stroke-width:6;stroke-linecap:round;transition:stroke-dashoffset 0.8s ease,stroke 0.3s}
+.P .sg-c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.P .sg-c .sv{font-size:13px;font-weight:800;color:var(--t1);line-height:1}
+.P .sg-c .su{font-size:8px;color:var(--t2);margin-top:2px}
+.P .sg-name{font-size:10px;color:var(--t1);font-weight:600;margin-top:3px}
+.P .sg-sub{font-size:8px;color:var(--t2);margin-top:1px}
+.P .sg-desc{font-size:9px;font-weight:700;margin-top:4px;padding:1px 6px;border-radius:6px;display:inline-block}
+.P .sg-desc.good{background:rgba(52,211,153,0.12);color:#34d399}
+.P .sg-desc.fair{background:rgba(251,191,36,0.12);color:#fbbf24}
+.P .sg-desc.poor{background:rgba(248,113,113,0.12);color:#f87171}
+.P .net-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;padding:0 2px}
+.P .net-tag{padding:5px 11px;border-radius:14px;font-size:10px;font-weight:600;border:1px solid;display:inline-flex;align-items:center;gap:4px;letter-spacing:0.3px}
+.P .net-tag.t-5g{background:rgba(124,92,252,0.1);color:#a78bfa;border-color:rgba(124,92,252,0.25)}
+.P .net-tag.t-4g{background:rgba(34,211,238,0.1);color:#22d3ee;border-color:rgba(34,211,238,0.25)}
+.P .net-tag.t-mode{background:rgba(99,102,241,0.1);color:#818cf8;border-color:rgba(99,102,241,0.25)}
+.P .net-tag.t-band{background:rgba(168,85,247,0.1);color:#c084fc;border-color:rgba(168,85,247,0.25)}
+.P .net-tag.t-on{background:rgba(52,211,153,0.1);color:#34d399;border-color:rgba(52,211,153,0.25)}
+.P .net-tag.t-off{background:rgba(248,113,113,0.1);color:#f87171;border-color:rgba(248,113,113,0.25)}
+.P .net-tag.t-on .pulse{width:6px;height:6px;border-radius:50%;background:#34d399;animation:tagPulse 2s infinite}
+@keyframes tagPulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(52,211,153,0.6)}50%{opacity:0.8;box-shadow:0 0 0 4px rgba(52,211,153,0)}}
+.P .cell-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px}
+.P .cell-item{padding:11px 12px;background:var(--c2);border-radius:10px;border:1px solid var(--bd);transition:all 0.2s;position:relative}
+.P .cell-item:hover{border-color:rgba(124,92,252,0.25);background:rgba(124,92,252,0.04)}
+.P .ci-label{font-size:9px;color:var(--t2);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.6px;font-weight:600;display:flex;align-items:center;gap:4px}
+.P .ci-label i{font-size:8px;opacity:0.6}
+.P .ci-value{font-size:14px;font-weight:700;color:var(--t1);font-family:'SF Mono','JetBrains Mono','Consolas',monospace;word-break:break-all}
+.P .ci-note{font-size:9px;color:var(--t3);margin-top:2px;font-weight:500}
+.P .sim-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.P .sim-grid .ir{margin-bottom:0}
+.P .conn-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:14px;font-size:10px;font-weight:700;letter-spacing:0.3px;border:1px solid}
+.P .conn-pill .dot{width:7px;height:7px;border-radius:50%;animation:pls 2s infinite}
+.P .conn-pill.on{background:rgba(52,211,153,0.10);color:#34d399;border-color:rgba(52,211,153,0.28)}
+.P .conn-pill.on .dot{background:#34d399;box-shadow:0 0 8px rgba(52,211,153,0.6)}
+.P .conn-pill.off{background:rgba(248,113,113,0.10);color:#f87171;border-color:rgba(248,113,113,0.25)}
+.P .conn-pill.off .dot{background:#f87171}
+.P .mod-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.P .mod-cell{padding:11px 13px;background:var(--c2);border-radius:10px;border:1px solid var(--bd);transition:all 0.2s;position:relative;overflow:hidden}
+.P .mod-cell:hover{border-color:rgba(124,92,252,0.25);background:rgba(124,92,252,0.04)}
+.P .mod-cell-l{font-size:9px;color:var(--t2);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;display:flex;align-items:center;gap:5px;margin-bottom:5px}
+.P .mod-cell-l i{font-size:9px;opacity:0.7;color:var(--ac)}
+.P .mod-cell-v{font-size:13px;font-weight:700;color:var(--t1);font-family:'SF Mono','JetBrains Mono','Consolas',monospace;word-break:break-all;line-height:1.2}
+.P .mod-cell-v.lg{font-size:15px}
+.P .mod-cell-sub{font-size:10px;color:var(--t2);font-weight:600}
+.P .temp-bar{margin-top:7px}
+.P .temp-bar-track{height:6px;border-radius:3px;background:linear-gradient(90deg,#34d399 0%,#34d399 35%,#fbbf24 55%,#fb923c 75%,#f87171 95%);position:relative;overflow:visible}
+.P .temp-bar-mark{position:absolute;top:-3px;width:3px;height:12px;background:var(--t1);border-radius:2px;transition:left 0.6s ease;box-shadow:0 0 0 2px var(--c2),0 0 8px rgba(0,0,0,0.4)}
+.P .temp-bar-scale{display:flex;justify-content:space-between;font-size:8px;color:var(--t3);margin-top:4px;font-family:'SF Mono','JetBrains Mono','Consolas',monospace;font-weight:600}
+.P .mod-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--bd)}
+.P .at-port-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:8px;font-size:10px;font-weight:600;background:var(--c2);color:var(--t2);border:1px solid var(--bd);font-family:'SF Mono','JetBrains Mono','Consolas',monospace}
+.P .at-port-chip i{font-size:8px;color:var(--ac)}
+@media(max-width:768px){.P .mod-grid{grid-template-columns:1fr 1fr}}
+
+@media(max-width:768px){.P .sig-panel{grid-template-columns:repeat(2,1fr)}.P .cell-grid{grid-template-columns:1fr 1fr}.P .sim-grid{grid-template-columns:1fr}}
+@media(max-width:480px){.P .sig-panel{grid-template-columns:1fr 1fr}.P .cell-grid{grid-template-columns:1fr}}
+.P .ir{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;margin-bottom:3px;border-radius:8px;background:var(--c2);border-bottom:none;transition:background 0.2s}.P .ir:last-child{margin-bottom:0}
+.P .ir:hover{background:rgba(124,92,252,0.05)}
+.P .ik{font-size:11px;color:var(--t2);font-weight:500}.P .iv{font-size:12px;font-weight:600;color:var(--t1);max-width:58%;text-align:right;word-break:break-all}
+.P .empty-hint{display:flex;align-items:center;gap:10px;padding:14px 16px;border-radius:10px;background:var(--c2);border:1px dashed var(--t3);color:var(--t2);font-size:12px}.P .empty-hint i{font-size:16px;opacity:0.5}
+
+/* Fan card - premium */
+.P .fan-card{background:var(--c1);border:1px solid var(--bd);border-radius:var(--r);padding:22px;margin-bottom:14px;transition:border-color 0.5s,box-shadow 0.5s;overflow:hidden;position:relative}
+.P .fan-card::before{content:'';position:absolute;inset:0;opacity:0;transition:opacity 0.8s;pointer-events:none}
+.P .fan-card.fan-cool{border-color:rgba(34,211,238,0.12)}.P .fan-card.fan-cool::before{opacity:1;background:radial-gradient(circle at 50px 50px,rgba(34,211,238,0.04),transparent 50%)}
+.P .fan-card.fan-warm{border-color:rgba(251,191,36,0.12)}.P .fan-card.fan-warm::before{opacity:1;background:radial-gradient(circle at 50px 50px,rgba(251,191,36,0.04),transparent 50%)}
+.P .fan-card.fan-hot{border-color:rgba(248,113,113,0.12)}.P .fan-card.fan-hot::before{opacity:1;background:radial-gradient(circle at 50px 50px,rgba(248,113,113,0.05),transparent 50%)}
+/* Wind particles */
+.P .fan-wind{position:absolute;inset:0;overflow:hidden;pointer-events:none;opacity:0;transition:opacity 0.6s}
+.P .fan-card.blowing .fan-wind{opacity:1}
+.P .fan-wind i{position:absolute;font-style:normal;font-size:10px;color:rgba(34,211,238,0.6);opacity:0;animation:windMove var(--wd,4s) linear infinite;animation-delay:var(--dd,0s);text-shadow:0 0 3px currentColor}
+.P.L .fan-wind i{color:rgba(8,145,178,0.5);text-shadow:0 0 2px currentColor}
+.P .fan-card.fan-warm .fan-wind i{color:rgba(251,191,36,0.6)}
+.P.L .fan-card.fan-warm .fan-wind i{color:rgba(217,119,6,0.5)}
+.P .fan-card.fan-hot .fan-wind i{color:rgba(248,113,113,0.6)}
+.P.L .fan-card.fan-hot .fan-wind i{color:rgba(220,38,38,0.5)}
+@keyframes windMove{0%{transform:translateX(-10px) translateY(0);opacity:0}10%{opacity:0.5}80%{opacity:0.3}100%{transform:translateX(calc(100vw)) translateY(-8px);opacity:0}}
+/* Wave bar at bottom */
+.P .fan-wave{position:absolute;bottom:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,rgba(34,211,238,0.6),transparent);opacity:0;animation:waveSlide 3s linear infinite;transition:opacity 0.5s}
+.P .fan-card.blowing .fan-wave{opacity:0.5}
+.P.L .fan-wave{background:linear-gradient(90deg,transparent,rgba(8,145,178,0.5),transparent)}
+.P .fan-card.fan-warm .fan-wave{background:linear-gradient(90deg,transparent,rgba(251,191,36,0.6),transparent)}
+.P .fan-card.fan-hot .fan-wave{background:linear-gradient(90deg,transparent,rgba(248,113,113,0.6),transparent)}
+@keyframes waveSlide{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+/* Speed streaks - moving background lines */
+.P .fan-streaks{position:absolute;inset:0;overflow:hidden;pointer-events:none;opacity:0;transition:opacity 0.6s}
+.P .fan-card.blowing .fan-streaks{opacity:1}
+.P .fan-streak{position:absolute;height:1px;border-radius:1px;background:linear-gradient(90deg,transparent,var(--cy),transparent);animation:streakMove var(--sd,3s) linear infinite;opacity:0.4}
+.P .fan-card.fan-warm .fan-streak{background:linear-gradient(90deg,transparent,var(--og),transparent)}
+.P .fan-card.fan-hot .fan-streak{background:linear-gradient(90deg,transparent,var(--rd),transparent)}
+.P.L .fan-streak{background:linear-gradient(90deg,transparent,rgba(8,145,178,0.6),transparent)}
+.P.L .fan-card.fan-warm .fan-streak{background:linear-gradient(90deg,transparent,rgba(217,119,6,0.5),transparent)}
+.P.L .fan-card.fan-hot .fan-streak{background:linear-gradient(90deg,transparent,rgba(220,38,38,0.5),transparent)}
+@keyframes streakMove{0%{transform:translateX(100%)}100%{transform:translateX(-200%)}}
+
+.P .fan-top{display:flex;align-items:center;gap:20px;margin-bottom:16px;position:relative;z-index:1}
+.P .fan-visual{position:relative;width:88px;height:88px;flex-shrink:0}
+.P .fan-svg{width:88px;height:88px;animation:fspin 2s linear infinite;transition:filter 0.5s}
+.P .fan-svg.off{animation-play-state:paused;filter:grayscale(0.6) opacity(0.4)}
+.P .fan-svg.fast{filter:drop-shadow(0 0 8px rgba(34,211,238,0.5))}
+.P .fan-svg.hot{filter:drop-shadow(0 0 8px rgba(248,113,113,0.5))}
+@keyframes fspin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.P .fan-ring-wrap{position:absolute;inset:-4px}
+.P .fan-ring-wrap svg{width:96px;height:96px;transform:rotate(-90deg)}
+.P .fsr-bg{fill:none;stroke:var(--t3);stroke-width:2.5;opacity:0.2}
+.P .fsr-fg{fill:none;stroke-width:2.5;stroke-linecap:round;transition:stroke-dashoffset 1s ease,stroke 0.5s}
+.P .fan-meta{flex:1;position:relative;z-index:1}
+.P .fan-meta .fm-title{font-size:14px;font-weight:700;color:var(--t1);display:flex;align-items:center;gap:6px}
+.P .fan-meta .fm-title i{color:var(--cy)}
+.P .fan-meta .fm-sub{font-size:10px;color:var(--t2);margin-top:2px}
+.P .fan-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px;position:relative;z-index:1}
+.P .fan-stat{background:var(--c2);border-radius:8px;padding:10px 8px;text-align:center}
+.P .fan-stat .fs-v{font-size:14px;font-weight:700;color:var(--t1)}
+.P .fan-stat .fs-l{font-size:9px;color:var(--t2);margin-top:2px}
+.P .fan-ctrl{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px;position:relative;z-index:1}
+.P .fan-ctrl .fc-btn{padding:7px 12px;border-radius:8px;border:1px solid var(--bd);background:var(--c2);color:var(--t2);font-size:10px;font-weight:600;cursor:pointer;transition:all 0.2s;display:inline-flex;align-items:center;gap:4px}
+.P .fan-ctrl .fc-btn:hover{border-color:var(--cy);color:var(--cy);background:rgba(34,211,238,0.06)}
+.P .fan-ctrl .fc-btn.active{border-color:var(--cy);color:#fff;background:linear-gradient(135deg,#0891b2,#06b6d4)}
+.P .fan-ctrl .fc-btn.fc-link{border-color:rgba(124,92,252,0.2);color:var(--ac);margin-left:auto}
+.P .fan-ctrl .fc-btn.fc-link:hover{background:rgba(124,92,252,0.08)}
+/* Slider - premium */
+.P .fan-slider{display:flex;align-items:center;gap:12px;margin-top:12px;padding:12px 16px;background:linear-gradient(135deg,var(--c2),rgba(34,211,238,0.03));border:1px solid rgba(34,211,238,0.08);border-radius:12px;position:relative;z-index:1}
+.P .fan-slider label{font-size:10px;color:var(--cy);font-weight:600;white-space:nowrap}
+.P .fan-slider .slider-track{flex:1;position:relative;height:20px;display:flex;align-items:center}
+.P .fan-slider input[type=range]{width:100%;height:6px;-webkit-appearance:none;appearance:none;background:linear-gradient(90deg,rgba(34,211,238,0.15),rgba(34,211,238,0.3));border-radius:3px;outline:none;cursor:pointer}
+.P .fan-slider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,#22d3ee,#0891b2);cursor:pointer;box-shadow:0 0 8px rgba(34,211,238,0.4);border:2px solid rgba(255,255,255,0.2);transition:box-shadow 0.2s}
+.P .fan-slider input[type=range]::-webkit-slider-thumb:hover{box-shadow:0 0 14px rgba(34,211,238,0.6)}
+.P .fan-slider .fs-val{font-size:14px;font-weight:800;color:var(--cy);min-width:32px;text-align:center}
+.P .clh{display:flex;justify-content:space-between;align-items:center;cursor:pointer}.P .clh .cd-t{margin-bottom:0}
+.P .cla{font-size:9px;color:var(--t3);transition:transform 0.3s}.P .cla.shut{transform:rotate(-90deg)}
+.P .clb{max-height:600px;overflow:hidden;transition:max-height 0.3s,opacity 0.2s;opacity:1;margin-top:12px}.P .clb.shut{max-height:0;opacity:0;margin-top:0}
+.P .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%) translateY(60px);background:var(--c1);border:1px solid var(--bd);color:var(--t1);padding:10px 18px;border-radius:8px;font-size:12px;z-index:10000;opacity:0;transition:all 0.3s}.P .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+.P .hid{display:none!important}
+
+/* ============================ 5700 专属板块 ============================
+   载波聚合 / 附近小区 / 签约速率+QCI。数据来自 admin/modeminfo/cellx
+   (读 /tmp/mwrt_cellinfo.json 缓存,不碰 AT 口)。
+   这些板块只在 MT5700 上出现 —— 其他模组没有 ^HFREQINFO / ^MONNC。
+
+   视觉:卡片分层。外层 .cd 是容器,里面每个实体(成分载波、邻区)自己是一张
+   有底色、有阴影、有强调色的卡,层级靠阴影和亮度差拉开而不是靠边框。
+   字号阶梯固定为 9/10/11/13/15/26 六档,等宽字体只用在真正的机读数值上
+   (频点、PCI、速率),标签一律用系统字 —— 之前整卡都上等宽就是"字看着怪"
+   的来源。 */
+
+/* .clb 原本 max-height:600px,载波聚合 + 邻区都可能超,单独放宽。 */
+.P .clb-tall{max-height:1600px}
+.P .clb-tall.shut{max-height:0}
+
+/* 板块标题右侧的数据时效提示 */
+.P .cx-age{font-size:9px;font-weight:600;color:var(--og);background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.2);padding:3px 8px;border-radius:6px;margin-left:auto;letter-spacing:0.2px}
+
+/* ---------------------------- 载波聚合 ---------------------------- */
+/* 顶部汇总:左边一个大号 CC 计数,右边聚合带宽。用渐变+内发光做"主平面"。 */
+.P .ca-hd{display:flex;align-items:center;gap:18px;padding:18px 20px;border-radius:16px;
+ background:linear-gradient(135deg,rgba(124,92,252,0.16) 0%,rgba(124,92,252,0.05) 45%,rgba(34,211,238,0.07) 100%);
+ border:1px solid rgba(124,92,252,0.2);box-shadow:inset 0 1px 0 rgba(255,255,255,0.05),0 4px 20px rgba(0,0,0,0.18);
+ margin-bottom:12px;flex-wrap:wrap}
+.P.L .ca-hd{box-shadow:inset 0 1px 0 rgba(255,255,255,0.7),0 4px 16px rgba(80,60,180,0.07)}
+.P .ca-big{display:flex;align-items:baseline;gap:5px;line-height:0.9}
+.P .ca-big .n{font-size:38px;font-weight:800;letter-spacing:-2px;
+ background:linear-gradient(135deg,#a78bfa,#7c5cfc 60%,#22d3ee);-webkit-background-clip:text;background-clip:text;
+ -webkit-text-fill-color:transparent;font-variant-numeric:tabular-nums}
+.P .ca-big .u{font-size:12px;font-weight:700;color:var(--ac);opacity:0.75;letter-spacing:0.5px}
+.P .ca-hd-meta{display:flex;flex-direction:column;gap:4px;min-width:0}
+.P .ca-hd-t{font-size:14px;font-weight:700;color:var(--t1);letter-spacing:-0.1px}
+.P .ca-hd-s{font-size:11px;color:var(--t2);font-weight:500;letter-spacing:0.3px}
+.P .ca-sum{margin-left:auto;display:flex;gap:10px;flex-wrap:wrap}
+.P .ca-sum-i{padding:9px 15px;border-radius:11px;background:rgba(255,255,255,0.045);
+ border:1px solid rgba(255,255,255,0.06);text-align:left;min-width:90px;backdrop-filter:blur(6px)}
+.P.L .ca-sum-i{background:rgba(255,255,255,0.75);border-color:rgba(0,0,0,0.05)}
+.P .ca-sum-i .l{font-size:9px;color:var(--t2);font-weight:600;letter-spacing:0.4px;display:block;margin-bottom:3px}
+.P .ca-sum-i .v{font-size:17px;font-weight:700;color:var(--t1);font-variant-numeric:tabular-nums;letter-spacing:-0.3px}
+.P .ca-sum-i .v small{font-size:10px;font-weight:600;color:var(--t2);margin-left:2px;letter-spacing:0}
+
+/* 成分载波:每个一张浮起的卡。主载波比辅载波亮一档,层级一眼可辨。 */
+.P .ca-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.P .ca-c{padding:0;border-radius:14px;background:var(--c2);border:1px solid var(--bd);
+ box-shadow:0 2px 10px rgba(0,0,0,0.14);overflow:hidden;transition:transform 0.2s,box-shadow 0.2s}
+.P.L .ca-c{box-shadow:0 2px 10px rgba(0,0,0,0.05)}
+.P .ca-c:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.2)}
+.P.L .ca-c:hover{box-shadow:0 8px 22px rgba(0,0,0,0.08)}
+/* 卡头带色:主载波紫,辅载波青 */
+.P .ca-c-hd{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px;
+ background:linear-gradient(135deg,rgba(34,211,238,0.1),transparent 70%);border-bottom:1px solid var(--bd)}
+.P .ca-c.pcc .ca-c-hd{background:linear-gradient(135deg,rgba(124,92,252,0.13),transparent 70%)}
+.P .ca-band{font-size:22px;font-weight:800;color:var(--t1);letter-spacing:-0.8px;line-height:1;
+ font-variant-numeric:tabular-nums;display:flex;flex-direction:column;gap:3px}
+.P .ca-band .fr{font-size:10px;font-weight:600;color:var(--t2);letter-spacing:0.3px}
+.P .ca-role{font-size:9px;font-weight:700;padding:5px 10px;border-radius:7px;letter-spacing:0.4px;
+ background:rgba(34,211,238,0.12);color:var(--cy);border:1px solid rgba(34,211,238,0.24);white-space:nowrap}
+.P .ca-c.pcc .ca-role{background:rgba(124,92,252,0.14);color:#a78bfa;border-color:rgba(124,92,252,0.28)}
+.P.L .ca-c.pcc .ca-role{color:var(--ac)}
+/* 带宽:两个并排的度量块,下行绿上行蓝,配一条占比细条 */
+.P .ca-bw{display:flex;gap:1px;background:var(--bd)}
+.P .ca-bw-i{flex:1;padding:12px 16px;background:var(--c1);min-width:0}
+.P .ca-bw-i .l{font-size:9px;color:var(--t2);font-weight:600;letter-spacing:0.4px;display:flex;align-items:center;gap:5px;margin-bottom:5px}
+.P .ca-bw-i .v{font-size:19px;font-weight:700;color:var(--t1);font-variant-numeric:tabular-nums;letter-spacing:-0.5px;line-height:1}
+.P .ca-bw-i .v small{font-size:10px;color:var(--t2);font-weight:600;margin-left:3px;letter-spacing:0}
+.P .ca-bw-i.dl .l i{color:var(--gn)}
+.P .ca-bw-i.ul .l i{color:var(--bl)}
+.P .ca-bw-t{display:block;height:3px;border-radius:2px;background:rgba(255,255,255,0.06);margin-top:7px;overflow:hidden;font-size:0;line-height:0}
+.P.L .ca-bw-t{background:rgba(0,0,0,0.06)}
+.P .ca-bw-t i{display:block;height:3px;border-radius:2px;font-size:0;line-height:0}
+.P .ca-bw-i.dl .ca-bw-t i{background:linear-gradient(90deg,#34d399,#6ee7b7)}
+.P .ca-bw-i.ul .ca-bw-t i{background:linear-gradient(90deg,#60a5fa,#93c5fd)}
+/* 纯下行载波:上行块整体压暗,并把数值换成"未使用" */
+.P .ca-bw-i.void{opacity:0.4}
+.P .ca-bw-i.void .v{font-size:13px;font-weight:600;color:var(--t2);letter-spacing:0}
+.P .ca-bw-i.void .ca-bw-t{display:none}
+/* 频点等机读值:两列键值,等宽只用在值上 */
+.P .ca-kv{padding:12px 16px 14px;display:grid;grid-template-columns:1fr 1fr;gap:9px 16px}
+.P .ca-kv div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.P .ca-kv .k{font-size:9px;color:var(--t2);font-weight:600;letter-spacing:0.4px}
+.P .ca-kv .v{font-size:13px;color:var(--t1);font-weight:700;font-variant-numeric:tabular-nums;
+ letter-spacing:-0.2px;word-break:break-all}
+
+/* ---------------------------- 附近小区 ---------------------------- */
+/* 前三强用卡片,其余落进紧凑表格 —— 十来个邻区全做成卡会把页面撑得很散。 */
+.P .nb-top{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
+.P .nb-c{padding:0;border-radius:14px;background:var(--c2);border:1px solid var(--bd);
+ box-shadow:0 2px 10px rgba(0,0,0,0.14);overflow:hidden;transition:transform 0.2s,box-shadow 0.2s}
+.P.L .nb-c{box-shadow:0 2px 10px rgba(0,0,0,0.05)}
+.P .nb-c:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.2)}
+.P.L .nb-c:hover{box-shadow:0 8px 22px rgba(0,0,0,0.08)}
+.P .nb-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 15px;
+ border-bottom:1px solid var(--bd);background:linear-gradient(135deg,rgba(124,92,252,0.07),transparent 70%)}
+.P .nb-pci{display:flex;flex-direction:column;gap:2px;min-width:0}
+.P .nb-pci .lb{font-size:9px;font-weight:600;color:var(--t2);letter-spacing:0.5px}
+.P .nb-pci .nv{font-size:20px;font-weight:800;color:var(--t1);letter-spacing:-0.7px;line-height:1;font-variant-numeric:tabular-nums}
+.P .nb-tags{display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+.P .nb-rat{font-size:9px;font-weight:700;padding:3px 8px;border-radius:6px;letter-spacing:0.4px;
+ background:rgba(96,165,250,0.12);color:var(--bl);border:1px solid rgba(96,165,250,0.24)}
+.P .nb-rat.nr{background:rgba(124,92,252,0.13);color:#a78bfa;border-color:rgba(124,92,252,0.26)}
+.P.L .nb-rat.nr{color:var(--ac)}
+.P .nb-same{font-size:8px;font-weight:700;color:var(--gn);background:rgba(52,211,153,0.11);
+ border:1px solid rgba(52,211,153,0.24);padding:3px 7px;border-radius:5px;letter-spacing:0.4px;white-space:nowrap}
+.P .nb-c.same{border-color:rgba(52,211,153,0.26)}
+/* 主指标 RSRP 放大,RSRQ/SINR 做次级 */
+.P .nb-main{padding:13px 15px 11px}
+.P .nb-main .l{font-size:9px;color:var(--t2);font-weight:600;letter-spacing:0.4px;margin-bottom:4px;display:block}
+.P .nb-main .row{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.P .nb-main .nv{font-size:24px;font-weight:800;letter-spacing:-1px;line-height:1;font-variant-numeric:tabular-nums}
+.P .nb-main .u{font-size:10px;color:var(--t2);font-weight:600;margin-left:2px}
+.P .nb-lvl{font-size:9px;font-weight:700;padding:3px 8px;border-radius:5px;letter-spacing:0.3px;white-space:nowrap}
+.P .nb-lvl.good{background:rgba(52,211,153,0.12);color:var(--gn);border:1px solid rgba(52,211,153,0.24)}
+.P .nb-lvl.fair{background:rgba(251,191,36,0.12);color:var(--og);border:1px solid rgba(251,191,36,0.24)}
+.P .nb-lvl.poor{background:rgba(248,113,113,0.12);color:var(--rd);border:1px solid rgba(248,113,113,0.24)}
+.P .nb-bar{display:block;height:4px;border-radius:2px;background:rgba(255,255,255,0.06);margin-top:9px;overflow:hidden;font-size:0;line-height:0}
+.P.L .nb-bar{background:rgba(0,0,0,0.06)}
+.P .nb-bar i{display:block;height:4px;border-radius:2px;font-size:0;line-height:0;transition:width 0.6s}
+.P .nb-sub{display:flex;gap:1px;background:var(--bd);border-top:1px solid var(--bd)}
+.P .nb-sub div{flex:1;padding:9px 12px;background:var(--c1);min-width:0}
+.P .nb-sub .k{font-size:9px;color:var(--t2);font-weight:600;letter-spacing:0.4px;display:block;margin-bottom:2px}
+.P .nb-sub .v{font-size:14px;font-weight:700;color:var(--t1);font-variant-numeric:tabular-nums;letter-spacing:-0.3px}
+.P .nb-fcn{padding:9px 15px;border-top:1px solid var(--bd);display:flex;justify-content:space-between;
+ align-items:center;gap:8px;background:rgba(255,255,255,0.015)}
+.P.L .nb-fcn{background:rgba(0,0,0,0.012)}
+.P .nb-fcn .k{font-size:9px;color:var(--t2);font-weight:600;letter-spacing:0.4px}
+.P .nb-fcn .v{font-size:12px;color:var(--t1);font-weight:700;font-variant-numeric:tabular-nums}
+
+/* 其余邻区:长尾用紧凑行而不是卡片(十几条卡片会把页面撑散),但也不能退成一张
+   裸表格 —— 每行给一条 RSRP 占比条,强弱在纵向上直接成梯度;序号接着上面三张
+   卡往下数,读者知道自己看的是第几强。列宽写在 th 上配合 table-layout:fixed,
+   这样窄屏隐藏某列时它的宽度不会被留成空档。 */
+.P .nb-rest{border-radius:12px;overflow:hidden;border:1px solid var(--bd);background:var(--c2)}
+.P .nb-rest-h{padding:10px 15px;background:rgba(255,255,255,0.025);border-bottom:1px solid var(--bd);
+ display:flex;align-items:center;justify-content:space-between;gap:10px}
+.P.L .nb-rest-h{background:rgba(0,0,0,0.018)}
+.P .nb-rest-t{font-size:10px;font-weight:600;color:var(--t2);letter-spacing:0.4px;
+ display:flex;align-items:center;gap:7px;white-space:nowrap}
+.P .nb-rest-n{font-size:9px;font-weight:500;color:var(--t2);opacity:0.55;letter-spacing:0.3px;white-space:nowrap}
+.P .nb-tb{width:100%;border-collapse:collapse;table-layout:fixed}
+.P .nb-tb th{font-size:9px;font-weight:600;color:var(--t2);text-align:right;padding:9px 10px;
+ letter-spacing:0.4px;border-bottom:1px solid var(--bd);white-space:nowrap}
+.P .nb-tb th:nth-child(-n+3),.P .nb-tb td:nth-child(-n+3){text-align:left}
+.P .nb-tb th:first-child,.P .nb-tb td:first-child{padding-left:15px}
+.P .nb-tb th:last-child,.P .nb-tb td:last-child{padding-right:15px}
+.P .nb-tb td{font-size:11px;font-weight:600;color:var(--t2);text-align:right;padding:7px 10px;
+ border-bottom:1px solid var(--bd);font-variant-numeric:tabular-nums;letter-spacing:-0.2px;
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.P .nb-tb tr:last-child td{border-bottom:none}
+.P .nb-tb tbody tr:hover td{background:rgba(255,255,255,0.03)}
+.P.L .nb-tb tbody tr:hover td{background:rgba(0,0,0,0.02)}
+.P .nb-tb .rk{font-size:10px;font-weight:600;color:var(--t2);opacity:0.5}
+.P .nb-tb .pci{font-size:12px;font-weight:700;color:var(--t1);letter-spacing:-0.2px}
+.P .nb-tb .fcn{font-weight:600;color:var(--t2)}
+.P .nb-tb .sm{font-size:10px;color:var(--t2);font-weight:600}
+.P .nb-rat2{font-size:9px;font-weight:700;padding:2px 7px;border-radius:5px;letter-spacing:0.4px;
+ background:rgba(96,165,250,0.1);color:var(--bl);border:1px solid rgba(96,165,250,0.2)}
+.P .nb-rat2.nr{background:rgba(124,92,252,0.11);color:#a78bfa;border-color:rgba(124,92,252,0.22)}
+.P.L .nb-rat2.nr{color:var(--ac)}
+.P .nb-same2{font-size:8px;font-weight:700;color:var(--gn);background:rgba(52,211,153,0.11);
+ border:1px solid rgba(52,211,153,0.22);padding:2px 5px;border-radius:4px;margin-left:6px;letter-spacing:0.3px}
+/* RSRP 单元格:占比条撑满剩余宽度,数值宽度固定所以各行数字竖着对齐。 */
+.P .nb-sig{display:flex;align-items:center;gap:10px;justify-content:flex-end}
+.P .nb-sb{flex:1;min-width:36px;max-width:220px;display:block;height:3px;border-radius:2px;
+ background:rgba(255,255,255,0.06);overflow:hidden;font-size:0;line-height:0}
+.P.L .nb-sb{background:rgba(0,0,0,0.06)}
+.P .nb-sb i{display:block;height:3px;border-radius:2px;font-size:0;line-height:0;opacity:0.8}
+.P .nb-sv{font-size:11px;font-weight:700;color:var(--t1);min-width:30px;text-align:right;
+ letter-spacing:-0.2px;flex:none;opacity:0.85}
+
+/* ---------------------- 签约速率 + QCI (在 SIM卡信息 里) ---------------------- */
+.P .sub-rate{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.P .sr-i{padding:15px 17px;border-radius:14px;background:var(--c2);border:1px solid var(--bd);
+ box-shadow:0 2px 10px rgba(0,0,0,0.12);position:relative;overflow:hidden}
+.P.L .sr-i{box-shadow:0 2px 10px rgba(0,0,0,0.04)}
+/* 角上一团柔光,给卡一点纵深而不抢数值 */
+.P .sr-i::after{content:'';position:absolute;right:-30px;top:-30px;width:96px;height:96px;border-radius:50%;
+ opacity:0.1;filter:blur(6px)}
+.P .sr-i.dl::after{background:var(--gn)}
+.P .sr-i.ul::after{background:var(--bl)}
+.P .sr-l{font-size:10px;font-weight:600;color:var(--t2);letter-spacing:0.4px;display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.P .sr-i.dl .sr-l i{color:var(--gn)}
+.P .sr-i.ul .sr-l i{color:var(--bl)}
+.P .sr-v{display:flex;align-items:baseline;gap:5px}
+.P .sr-v .n{font-size:30px;font-weight:800;color:var(--t1);letter-spacing:-1.4px;line-height:0.95;font-variant-numeric:tabular-nums}
+.P .sr-v .u{font-size:12px;font-weight:700;color:var(--t2);letter-spacing:0.2px}
+.P .sr-s{font-size:10px;color:var(--t2);margin-top:6px;font-weight:500;opacity:0.8}
+/* QCI:徽标 + 含义 + 三个属性 chip */
+.P .qci-row{display:flex;align-items:center;gap:14px;padding:14px 17px;border-radius:14px;
+ background:var(--c2);border:1px solid var(--bd);box-shadow:0 2px 10px rgba(0,0,0,0.12);margin-bottom:10px;flex-wrap:wrap}
+.P.L .qci-row{box-shadow:0 2px 10px rgba(0,0,0,0.04)}
+.P .qci-b{display:flex;flex-direction:column;align-items:center;gap:1px;padding:8px 14px;border-radius:11px;
+ background:linear-gradient(135deg,rgba(124,92,252,0.16),rgba(124,92,252,0.06));
+ border:1px solid rgba(124,92,252,0.24);line-height:1}
+.P .qci-b .lb{font-size:9px;font-weight:600;color:var(--t2);letter-spacing:0.6px}
+.P .qci-b .nv{font-size:22px;font-weight:800;color:#a78bfa;letter-spacing:-0.8px;font-variant-numeric:tabular-nums}
+.P.L .qci-b .nv{color:var(--ac)}
+.P .qci-m{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.P .qci-t{font-size:13px;font-weight:700;color:var(--t1);letter-spacing:-0.1px}
+.P .qci-d{font-size:10px;color:var(--t2);font-weight:500}
+.P .qci-x{display:flex;gap:6px;flex-wrap:wrap}
+.P .qci-x span{font-size:9px;font-weight:600;color:var(--t2);background:rgba(255,255,255,0.04);
+ border:1px solid var(--bd);padding:5px 9px;border-radius:7px;letter-spacing:0.3px}
+.P.L .qci-x span{background:rgba(0,0,0,0.025)}
+
+@media(max-width:768px){
+.P .ca-grid{grid-template-columns:1fr}
+.P .nb-top{grid-template-columns:1fr}
+.P .sub-rate{grid-template-columns:1fr}
+.P .ca-sum{margin-left:0;width:100%}
+.P .ca-sum-i{flex:1}
+.P .ca-big .n{font-size:32px}
+.P .nb-tb th:nth-child(1),.P .nb-tb td:nth-child(1){display:none}
+.P .nb-tb th:nth-child(3),.P .nb-tb td:nth-child(3){display:none}
+.P .nb-tb th:nth-child(2),.P .nb-tb td:nth-child(2){padding-left:15px}
+}
+@media(max-width:480px){
+.P .ca-kv{grid-template-columns:1fr 1fr}
+.P .sr-v .n{font-size:26px}
+.P .nb-tb th:nth-child(4),.P .nb-tb td:nth-child(4){display:none}
+.P .nb-tb th:nth-child(7),.P .nb-tb td:nth-child(7){display:none}
+}
+
+
+.P .mod-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:14px 0 12px}
+.P .mod-cell{background:linear-gradient(135deg,rgba(124,92,252,0.05),rgba(255,255,255,0.02));border:1px solid var(--bd);border-radius:10px;padding:11px 12px;display:flex;flex-direction:column;gap:4px;position:relative;overflow:hidden;transition:all .25s}
+.P .mod-cell:hover{border-color:rgba(124,92,252,0.35);transform:translateY(-1px)}
+.P .mod-cell::before{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:linear-gradient(180deg,#7c5cfc,transparent)}
+.P .mod-cell-l{font-size:9.5px;color:var(--t3);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;display:flex;align-items:center;gap:5px}
+.P .mod-cell-l i{font-size:9px;opacity:0.7}
+.P .mod-cell-v{font-size:13px;color:var(--t1);font-weight:700;font-family:'SF Mono',Consolas,monospace;line-height:1.3;word-break:break-all}
+.P .mod-cell-v.lg{font-size:15px}
+.P .mod-cell-sub{font-size:10px;color:var(--t2);font-weight:500}
+.P .conn-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:99px;font-size:11px;font-weight:700;letter-spacing:0.3px}
+.P .conn-pill.on{background:rgba(52,211,153,0.13);color:#34d399;border:1px solid rgba(52,211,153,0.3)}
+.P .conn-pill.off{background:rgba(248,113,113,0.13);color:#f87171;border:1px solid rgba(248,113,113,0.3)}
+.P .conn-pill .dot{width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor;animation:pls 1.8s infinite}
+.P .temp-bar{margin-top:6px}
+.P .temp-bar-track{position:relative;height:8px;border-radius:4px;background:linear-gradient(90deg,#22d3ee 0%,#34d399 30%,#fbbf24 60%,#f87171 90%);overflow:hidden;border:1px solid rgba(255,255,255,0.05)}
+.P .temp-bar-mark{position:absolute;top:-4px;width:3px;height:16px;background:#fff;border-radius:2px;box-shadow:0 0 6px rgba(0,0,0,0.6),0 0 0 1px rgba(0,0,0,0.4);transition:left .6s ease}
+.P .temp-bar-scale{display:flex;justify-content:space-between;font-size:9px;color:var(--t3);margin-top:4px;font-family:'SF Mono',Consolas,monospace}
+.P .at-port-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;background:rgba(124,92,252,0.08);border:1px solid rgba(124,92,252,0.2);font-family:'SF Mono',Consolas,monospace;font-size:11px;color:#a78bfa;font-weight:600}
+.P .at-port-chip i{font-size:9px;color:#7c5cfc}
+.P .mod-meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px}
+@media(max-width:768px){html,body{overflow-x:hidden;max-width:100vw}.P{padding:0 8px 30px;max-width:100%;overflow-x:hidden;box-sizing:border-box}.P *{box-sizing:border-box}.P .hero{grid-template-columns:1fr}.P .hero-sig{padding:14px;min-width:0}.P .h-side{min-width:0}.P .h-logo-area{min-width:0}.P .h-logo-area img{max-width:80px;height:auto}.P .h-logo-meta{font-size:11px}.P .h-logo-mode{font-size:12px}.P .h-logo-tac{font-size:10px}.P .sig-rg{width:60px;height:60px;flex-shrink:0}.P .sig-rg svg{width:60px;height:60px}.P .sig-nfo{min-width:0;flex:1}.P .sig-nfo .dbm{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.P .h-bdg{flex-wrap:wrap}.P .h-bdg .bdg{font-size:11px;padding:3px 8px}.P .sig-r{gap:10px}.P .gauges{gap:8px}.P .ga{padding:14px 6px}.P .ga-w{width:70px;height:70px}.P .ga-w svg{width:70px;height:70px}.P .ga-v{font-size:16px}.P .feat{grid-template-columns:1fr 1fr}.P .fc.full{grid-column:1/-1}.P .chs{grid-template-columns:1fr}.P .net-tags{flex-wrap:wrap}.P .mod-grid{grid-template-columns:1fr}.P .mod-cell[style*="span 2"]{grid-column:1!important}.P .cell-grid{grid-template-columns:repeat(2,1fr)}.P .sim-grid{grid-template-columns:1fr}}
+@media(max-width:480px){.P .hero-sig{padding:12px 10px;gap:10px}.P .h-logo-area img{max-width:64px}.P .h-logo-mode{font-size:11px}.P .h-logo-tac{font-size:9px}.P .sig-rg{width:48px;height:48px}.P .sig-rg svg{width:48px;height:48px}.P .sig-nfo .dbm{font-size:13px}.P .sig-nfo .sl{font-size:10px}.P .sig-bars span{width:3px}.P .h-bdg .bdg{font-size:10px;padding:2px 6px}.P .ga-w{width:60px;height:60px}.P .ga-w svg{width:60px;height:60px}.P .ga-v{font-size:14px}.P .hdr-main{font-size:18px}}
+/* Screen control card */
+.P .scr-card{background:var(--c1);border:1px solid var(--bd);border-radius:var(--r);padding:22px;margin-bottom:14px;position:relative;overflow:hidden;transition:border-color 0.5s,box-shadow 0.5s}
+.P .scr-card::before{content:'';position:absolute;inset:0;opacity:1;pointer-events:none;background:radial-gradient(ellipse at 30% 50%,rgba(124,92,252,0.03),transparent 60%)}
+.P .scr-top{display:flex;align-items:center;gap:16px;margin-bottom:16px}
+.P .scr-icon{width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,rgba(124,92,252,0.12),rgba(34,211,238,0.08));display:flex;align-items:center;justify-content:center;position:relative;flex-shrink:0}
+.P .scr-icon i{font-size:20px;color:#7c5cfc}
+.P .scr-icon::after{content:'';position:absolute;inset:0;border-radius:12px;border:1px solid rgba(124,92,252,0.15)}
+.P .scr-pulse{position:absolute;top:4px;right:4px;width:8px;height:8px;border-radius:50%;background:#34d399;box-shadow:0 0 6px rgba(52,211,153,0.6);animation:scr-blink 2s ease-in-out infinite}
+@keyframes scr-blink{0%,100%{opacity:1}50%{opacity:0.3}}
+.P .scr-meta .sm-title{font-size:15px;font-weight:700;color:var(--t1);display:flex;align-items:center;gap:6px}
+.P .scr-meta .sm-sub{font-size:11px;color:var(--t2);margin-top:2px}
+.P .scr-stats{display:flex;justify-content:space-around;padding:12px 0;border-top:1px solid var(--bd);border-bottom:1px solid var(--bd);margin-bottom:14px}
+.P .scr-stat{text-align:center}
+.P .scr-stat .ss-v{font-size:14px;font-weight:700;color:var(--t1)}
+.P .scr-stat .ss-l{font-size:10px;color:var(--t2);margin-top:2px}
+.P .scr-ctrl{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.P .sc-btn{padding:7px 12px;border-radius:8px;border:1px solid var(--bd);background:var(--c2);color:var(--t2);font-size:11px;font-weight:500;cursor:pointer;transition:all 0.2s;display:inline-flex;align-items:center;gap:4px;text-decoration:none}
+.P .sc-btn:hover{border-color:rgba(124,92,252,0.3);color:#7c5cfc}
+.P .sc-btn.active{border-color:rgba(124,92,252,0.4);background:rgba(124,92,252,0.08);color:#7c5cfc;box-shadow:0 0 8px rgba(124,92,252,0.12)}
+.P .scr-slider{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--c2);border:1px solid rgba(124,92,252,0.06);border-radius:10px}
+.P .scr-slider label{font-size:10px;color:#7c5cfc;font-weight:600;white-space:nowrap;display:flex;align-items:center;gap:4px}
+.P .scr-slider .slider-track{flex:1}
+.P .scr-slider input[type=range]{width:100%;height:5px;-webkit-appearance:none;appearance:none;background:linear-gradient(90deg,rgba(124,92,252,0.12),rgba(124,92,252,0.25));border-radius:3px;outline:none;cursor:pointer}
+.P .scr-slider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:linear-gradient(135deg,#7c5cfc,#6d28d9);cursor:pointer;box-shadow:0 0 6px rgba(124,92,252,0.35);border:2px solid rgba(255,255,255,0.15)}
+.P .scr-slider .fs-val{font-size:13px;font-weight:700;color:#7c5cfc;min-width:32px;text-align:center}
+</style>
+<script>
+(function(){
+const C=2*Math.PI*38;
+function rng(el,p,c){if(!el)return;const f=el.querySelector('.ga-fg')||el.querySelector('.sr-fg');if(!f)return;f.style.strokeDasharray=C;f.style.strokeDashoffset=C-(p/100)*C;if(c)f.style.stroke=c;}
+function av(el,t,s){if(!el)return;let c=parseInt(el.textContent)||0;const d=(t-c)/15;let i=0;const x=setInterval(()=>{c+=d;i++;el.textContent=Math.round(c)+s;if(i>=15){el.textContent=t+s;clearInterval(x);}},30);}
+function toast(m){const t=document.getElementById('mrt-toast');if(!t)return;t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),4000);}
+function rp(v){v=parseFloat(v);if(isNaN(v))return 0;if(v>=-80)return 100;if(v>=-90)return 90;if(v>=-105)return 70;if(v>=-120)return 45;return 15;}
+function rc(p){return p>=70?'#34d399':p>=40?'#fbbf24':'#f87171';}
+function tc(h){h.querySelector('.cla').classList.toggle('shut');h.nextElementSibling.classList.toggle('shut');}
+
+// Fan control - instant UI response
+function fanSet(action,label){
+// Instant UI update
+updateFanBtns(label);
+document.getElementById('fan-mode').textContent=label;
+document.getElementById('fan-slider-wrap').style.display='none';
+toast('风扇: '+label);
+// Send to server (fire and forget)
+XHR.get('<%=luci.dispatcher.build_url("admin","fancontrol")%>/'+action,{set:action,p:'1'},function(){});
+}
+function fanFree(){
+// Get current PWM and switch to 无极 immediately
+const curPwm=document.getElementById('fan-range').value||'128';
+updateFanBtns('无极');
+document.getElementById('fan-mode').textContent='无极';
+document.getElementById('fan-slider-wrap').style.display='flex';
+toast('无极调速: PWM '+curPwm);
+XHR.get('<%=luci.dispatcher.build_url("admin","fancontrol","fanswj")%>',{set:'fanswj',p:curPwm},function(){});
+}
+function fanSlider(val){
+document.getElementById('fan-pwm').textContent=val+'/255';
+document.getElementById('fan-pct').textContent=Math.round(val/255*100)+'%';
+XHR.get('<%=luci.dispatcher.build_url("admin","fancontrol","fanswj")%>',{set:'fanswj',p:String(val)},function(){});
+}
+function updateFanBtns(mode){
+const map={'智能':'fc-smart','低速':'fc-low','中速':'fc-mid','高速':'fc-high','全速':'fc-max','无极':'fc-free'};
+document.querySelectorAll('.fan-ctrl .fc-btn:not(.fc-link)').forEach(b=>b.classList.remove('active'));
+const id=map[mode];if(id){const el=document.getElementById(id);if(el)el.classList.add('active');}
+const sw=document.getElementById('fan-slider-wrap');if(sw&&mode!=='无极'){sw.style.display='none';}
+}
+// Wind particles
+function initWind(){
+const w=document.getElementById('fan-wind');if(w){
+const syms=['~','~','~','-','-','·','·','›','›','»'];
+let html='';for(let i=0;i<24;i++){const top=5+Math.random()*80;const delay=Math.random()*6;const dur=1.5+Math.random()*3;const sym=syms[i%syms.length];const size=8+Math.random()*6;html+=`<i style="top:${top}%;left:-12px;--wd:${dur}s;--dd:${delay}s;font-size:${size}px">${sym}</i>`;}
+w.innerHTML=html;}
+const sk=document.getElementById('fan-streaks');if(sk){
+let h='';for(let i=0;i<10;i++){const top=8+Math.random()*80;const sw=30+Math.random()*60;const delay=Math.random()*4;const dur=1.5+Math.random()*2;h+=`<div class="fan-streak" style="top:${top}%;width:${sw}px;--sd:${dur}s;animation-delay:${delay}s"></div>`;}
+sk.innerHTML=h;}
+}
+function updateWindSpeed(pct){
+const w=document.getElementById('fan-wind');if(w){w.querySelectorAll('i').forEach(el=>{const base=0.6+((100-pct)/100)*3;el.style.setProperty('--wd',base+'s');});}
+const sk=document.getElementById('fan-streaks');if(sk){const spd=0.4+((100-pct)/100)*2.5;sk.querySelectorAll('.fan-streak').forEach(s=>{s.style.setProperty('--sd',spd+'s');});}
+}
+window.tc=tc;window.fanSet=fanSet;window.fanFree=fanFree;window.fanSlider=fanSlider;window.scrSet=scrSet;window.scrBright=scrBright;window.loadScrStatus=loadScrStatus;
+// Screen control
+function scrSet(screen,label){document.getElementById('scr-mode').textContent=label;updateScrBtns(label);toast('屏幕: '+label);XHR.get('<%=luci.dispatcher.build_url("admin","display","set_screen")%>',{screen:String(screen)},function(){});}
+function scrBright(val){document.getElementById('scr-bright').textContent=val+'%';document.getElementById('scr-range-val').textContent=val+'%';updateScrRing(val);toast('亮度: '+val+'%');XHR.get('<%=luci.dispatcher.build_url("admin","display","set_brightness")%>',{percent:String(val)},function(){});}
+function updateScrBtns(label){var btns=document.querySelectorAll('.sc-btn');for(var i=0;i<btns.length;i++){btns[i].classList.remove('active');}if(label==='Mwrt面板')document.getElementById('sc-mwrt').classList.add('active');else if(label==='文本显示')document.getElementById('sc-text').classList.add('active');else if(label==='API模式')document.getElementById('sc-api').classList.add('active');else if(label==='图片视频')document.getElementById('sc-media').classList.add('active');else if(label==='蜂窝信息')document.getElementById('sc-cell').classList.add('active');}
+function updateScrRing(pct){var Cr=2*Math.PI*46;var fg=document.getElementById('scr-ring-fg');if(fg){fg.style.strokeDasharray=Cr;fg.style.strokeDashoffset=Cr-(pct/100)*Cr;}}
+function loadScrStatus(){if(!document.getElementById('scr-card'))return;XHR.get('<%=luci.dispatcher.build_url("admin","display","status")%>',{},function(x,d){if(!d)return;var screen=parseInt(d.screen)||5;var pct=parseInt(d.percent)||72;var modes={5:'Mwrt面板',6:'文本显示',7:'API模式',8:'图片视频',9:'蜂窝信息'};var label=modes[screen]||'Mwrt面板';document.getElementById('scr-mode').textContent=label;document.getElementById('scr-bright').textContent=pct+'%';document.getElementById('scr-range').value=pct;document.getElementById('scr-range-val').textContent=pct+'%';document.getElementById('scr-status').textContent=d.enabled==='0'?'已关闭':'运行中';updateScrBtns(label);updateScrRing(pct);});}
+
+// Realtime traffic chart
+class TrafficChart{
+constructor(canvasId){this.canvas=document.getElementById(canvasId);this.ctx=this.canvas.getContext('2d');this.rxData=[];this.txData=[];this.maxPoints=60;this.lastRx=0;this.lastTx=0;this.first=true;for(let i=0;i<this.maxPoints;i++){this.rxData.push(0);this.txData.push(0);}this.resize();window.addEventListener('resize',()=>this.resize());}
+resize(){const r=window.devicePixelRatio||1;const rect=this.canvas.parentElement.getBoundingClientRect();this.canvas.width=rect.width*r;this.canvas.height=rect.height*r;this.ctx.scale(r,r);this.w=rect.width;this.h=rect.height;this.draw();}
+push(rx,tx){if(this.first){this.lastRx=rx;this.lastTx=tx;this.first=false;return;}
+let drx=(rx-this.lastRx)/2;let dtx=(tx-this.lastTx)/2;if(drx<0)drx=0;if(dtx<0)dtx=0;this.lastRx=rx;this.lastTx=tx;this.rxData.push(drx);this.txData.push(dtx);if(this.rxData.length>this.maxPoints)this.rxData.shift();if(this.txData.length>this.maxPoints)this.txData.shift();
+// Update speed display
+const fmt=(b)=>{if(b>1048576)return[(b/1048576).toFixed(1),'MB/s'];if(b>1024)return[(b/1024).toFixed(0),'KB/s'];return[b.toFixed(0),'B/s'];};
+const[rv,ru]=fmt(drx);const[tv,tu]=fmt(dtx);
+const re=document.getElementById('cv-rx'),rue=document.getElementById('cv-rxu');if(re)re.textContent=rv;if(rue)rue.textContent=ru;
+const te=document.getElementById('cv-tx'),tue=document.getElementById('cv-txu');if(te)te.textContent=tv;if(tue)tue.textContent=tu;
+this.draw();}
+draw(){const ctx=this.ctx,w=this.w,h=this.h;ctx.clearRect(0,0,w,h);
+const max=Math.max(1024,...this.rxData,...this.txData)*1.2;
+// Grid lines
+ctx.strokeStyle=getComputedStyle(document.getElementById('P')).getPropertyValue('--bd');ctx.lineWidth=0.5;
+for(let i=1;i<4;i++){const y=h*i/4;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+// Draw area + line
+const drawLine=(data,color,alpha)=>{const step=w/(this.maxPoints-1);ctx.beginPath();ctx.moveTo(0,h);
+for(let i=0;i<data.length;i++){const x=i*step;const y=h-(data[i]/max)*h*0.9;if(i===0)ctx.lineTo(x,y);else{const px=(i-1)*step;const py=h-(data[i-1]/max)*h*0.9;const cx=(px+x)/2;ctx.bezierCurveTo(cx,py,cx,y,x,y);}}
+ctx.lineTo(w,h);ctx.closePath();const grad=ctx.createLinearGradient(0,0,0,h);grad.addColorStop(0,color.replace('1)',alpha+')'));grad.addColorStop(1,color.replace('1)','0)'));ctx.fillStyle=grad;ctx.fill();
+// Line on top
+ctx.beginPath();for(let i=0;i<data.length;i++){const x=i*step;const y=h-(data[i]/max)*h*0.9;if(i===0)ctx.moveTo(x,y);else{const px=(i-1)*step;const py=h-(data[i-1]/max)*h*0.9;const cx=(px+x)/2;ctx.bezierCurveTo(cx,py,cx,y,x,y);}}
+ctx.strokeStyle=color.replace('1)','0.9)');ctx.lineWidth=1.5;ctx.stroke();};
+drawLine(this.rxData,'rgba(52,211,153,1)',0.15);drawLine(this.txData,'rgba(251,191,36,1)',0.1);}
+}
+
+
+function sigLvl(type,val){const v=parseFloat(val);if(isNaN(v))return{pct:0,cls:'poor',desc:'--'};if(/rsrp/i.test(type)){if(v>=-80)return{pct:90,cls:'good',desc:'优秀'};if(v>=-90)return{pct:70,cls:'good',desc:'良好'};if(v>=-100)return{pct:50,cls:'fair',desc:'一般'};return{pct:25,cls:'poor',desc:'较差'};}
+if(/rsrq/i.test(type)){if(v>=-10)return{pct:85,cls:'good',desc:'优秀'};if(v>=-15)return{pct:55,cls:'fair',desc:'一般'};return{pct:25,cls:'poor',desc:'较差'};}
+if(/sinr/i.test(type)){if(v>=20)return{pct:95,cls:'good',desc:'优秀'};if(v>=13)return{pct:75,cls:'good',desc:'良好'};if(v>=5)return{pct:45,cls:'fair',desc:'一般'};return{pct:20,cls:'poor',desc:'较差'};}
+if(/rssi/i.test(type)){if(v>=-65)return{pct:85,cls:'good',desc:'优秀'};if(v>=-75)return{pct:65,cls:'good',desc:'良好'};if(v>=-85)return{pct:40,cls:'fair',desc:'一般'};return{pct:20,cls:'poor',desc:'较差'};}
+return{pct:50,cls:'fair',desc:'--'};}
+const BAND_FREQ={'1':'2100MHz','2':'1900MHz','3':'1800MHz','4':'AWS','5':'850MHz','7':'2600MHz','8':'900MHz','12':'700MHz','13':'700MHz','17':'700MHz','20':'800MHz','25':'1900MHz','26':'850MHz','28':'700MHz','34':'2100MHz TDD','38':'2600MHz TDD','39':'1900MHz TDD','40':'2300MHz TDD','41':'2500MHz TDD','42':'3500MHz TDD','46':'5GHz TDD','48':'CBRS','66':'AWS-3','71':'600MHz','n1':'2100MHz','n2':'1900MHz','n3':'1800MHz','n5':'850MHz','n7':'2600MHz','n8':'900MHz','n20':'800MHz','n28':'700MHz','n38':'2600MHz','n40':'2300MHz','n41':'2500MHz','n66':'AWS-3','n71':'600MHz','n77':'3.3-4.2GHz','n78':'3.5GHz','n79':'4.4-5.0GHz'};
+function bandFreq(b){if(!b)return'';const m=String(b).match(/n?\d+/i);if(!m)return'';const k=m[0].toLowerCase();return BAND_FREQ[k]||BAND_FREQ[k.replace('n','')]||'';}
+
+/* 蜂窝数据抖动兜底(2026-09-20):AT 口被占用时后端会整段丢掉"基站信息",
+   直接渲染就会反复跳 "等待小区注册/未连接/无信号"。STICKY_MS 内沿用上一次
+   拿全的数据,只补缺失项,不覆盖新值;超过这个窗口才认账显示真实状态。 */
+/* ==================== 5700 结构化小区信息 (载波聚合 / 附近小区 / 签约速率) ====================
+   数据来自 admin/modeminfo/cellx,它只读 /usr/bin/mwrt-cellinfo 写的
+   /tmp/mwrt_cellinfo.json 缓存。采集器由 cron 每分钟跑一次并独立持串口锁 ——
+   页面这条路完全不碰 ttyUSB1,所以可以和上面 4 秒一轮的 modem_ctrl 并存。
+
+   cellx 在非 5700 模组上返回 {"supported":false},下面所有板块整段不渲染。 */
+var cellx = null;      /* 最近一次拿到的快照,给 SIM 卡片和两张新卡共用 */
+
+/* QCI 的含义。QCI 是 3GPP 标准化的承载质量等级,不是厂商自定义值,所以这张表
+   可以写死。resource: GBR 有保障速率(语音/实时),Non-GBR 尽力而为(上网)。 */
+var QCI_TAB = {
+  1:{t:'会话语音',    r:'GBR',    p:2, d:'100ms',  x:'VoLTE 语音承载'},
+  2:{t:'会话视频',    r:'GBR',    p:4, d:'150ms',  x:'实时视频通话'},
+  3:{t:'实时游戏',    r:'GBR',    p:3, d:'50ms',   x:'低延迟交互'},
+  4:{t:'非会话视频',  r:'GBR',    p:5, d:'300ms',  x:'流媒体缓冲播放'},
+  5:{t:'IMS 信令',    r:'Non-GBR',p:1, d:'100ms',  x:'VoLTE 信令通道'},
+  6:{t:'视频/TCP',    r:'Non-GBR',p:6, d:'300ms',  x:'优先级高的上网业务'},
+  7:{t:'语音/视频流', r:'Non-GBR',p:7, d:'100ms',  x:'交互式业务'},
+  8:{t:'TCP 业务',    r:'Non-GBR',p:8, d:'300ms',  x:'一般上网业务'},
+  9:{t:'默认承载',    r:'Non-GBR',p:9, d:'300ms',  x:'普通上网数据(最常见)'}
+};
+
+/* kbps -> 人类可读。运营商签约速率动辄 300000 kbps,写成 300 Mbps 才有意义。 */
+function rateFmt(kbps){
+  var v = parseFloat(kbps);
+  if (isNaN(v) || v <= 0) return null;
+  if (v >= 1000000) return {n:(v/1000000).toFixed(v%1000000?1:0), u:'Gbps'};
+  if (v >= 1000)    return {n:String(Math.round(v/1000)),           u:'Mbps'};
+  return {n:String(Math.round(v)), u:'kbps'};
+}
+
+/* 邻区 RSRP 的条长。sigLvl() 是给主界面那几个信号表盘用的四档判据,-100 dBm
+   以下一律 25% —— 邻区几乎全在这条线以下(本站 -101 到 -157),用它画出来十几
+   条一样长的条,等于没画。这里改成 -140~-70 dBm 的连续映射,弱强差异才看得见;
+   下限留 3% 是为了让 -157 这种极弱邻区仍有一小截可见,不至于看着像缺数据。
+   颜色/文字描述仍然沿用 sigLvl(),两边判档一致。 */
+function nbPct(rsrp){
+  var v = parseFloat(rsrp);
+  if (isNaN(v)) return 0;
+  var p = (v + 140) / 70 * 100;
+  return Math.max(3, Math.min(100, Math.round(p)));
+}
+
+/* kHz -> MHz,给载波中心频点用。773000 kHz 显示成 773 MHz。 */
+function freqMhz(khz){
+  var v = parseFloat(khz);
+  if (isNaN(v) || v <= 0) return '';
+  var m = v / 1000;
+  return (m >= 1000 ? (m/1000).toFixed(2) + ' GHz' : Math.round(m) + ' MHz');
+}
+
+/* 签约速率 + QCI。用户要求把这两项归入"SIM卡信息",所以返回的是 HTML 片段,
+   由 render() 拼到那张卡的最前面,而不是单独开卡。 */
+function cxSubHtml(){
+  if (!cellx || !cellx.supported) return '';
+  var h = '';
+  var dl = rateFmt(cellx.ambr_dl), ul = rateFmt(cellx.ambr_ul);
+  if (dl || ul) {
+    h += '<div class="sub-rate">';
+    h += '<div class="sr-i dl"><div class="sr-l"><i class="fas fa-download"></i> 签约下行速率</div>'
+       + '<div class="sr-v"><span class="n">' + (dl ? dl.n : '--') + '</span>'
+       + '<span class="u">' + (dl ? dl.u : '') + '</span></div>'
+       + '<div class="sr-s">网络侧 AMBR 上限' + (cellx.apn ? ' · APN ' + cellx.apn : '') + '</div></div>';
+    h += '<div class="sr-i ul"><div class="sr-l"><i class="fas fa-upload"></i> 签约上行速率</div>'
+       + '<div class="sr-v"><span class="n">' + (ul ? ul.n : '--') + '</span>'
+       + '<span class="u">' + (ul ? ul.u : '') + '</span></div>'
+       + '<div class="sr-s">网络侧 AMBR 上限</div></div>';
+    h += '</div>';
+  }
+  var q = cellx.qci;
+  if (q !== null && q !== undefined && q !== '') {
+    var info = QCI_TAB[q];
+    h += '<div class="qci-row"><span class="qci-b"><span class="lb">QCI</span><span class="nv">' + q + '</span></span>'
+       + '<div class="qci-m"><span class="qci-t">' + (info ? info.t : '等级 ' + q) + '</span>'
+       + '<span class="qci-d">' + (info ? info.x : '未收录的承载等级') + '</span></div>';
+    if (info) {
+      h += '<div class="qci-x"><span>' + info.r + '</span><span>优先级 ' + info.p + '</span>'
+         + '<span>时延预算 ' + info.d + '</span></div>';
+    }
+    /* 有多条承载时把其余的也列出来:cid 1 是用户数据,cid 5 通常是 IMS 信令。 */
+    if (cellx.bearers && cellx.bearers.length > 1) {
+      var extra = cellx.bearers.filter(function(b){ return String(b.qci) !== String(q); })
+        .map(function(b){ return 'CID ' + b.cid + ' → QCI ' + b.qci; });
+      if (extra.length) h += '<div class="qci-x"><span>' + extra.join('</span><span>') + '</span></div>';
+    }
+    h += '</div>';
+  }
+  return h;
+}
+
+/* 载波聚合卡。ca_count 是真实成分载波数(已剔除 HFREQINFO 尾部的全零填充组)。 */
+function cxCaHtml(){
+  if (!cellx || !cellx.supported) return '';
+  var ca = cellx.ca || [];
+  if (!ca.length) return '';
+
+  var dlSum = 0, ulSum = 0, dlMax = 0;
+  ca.forEach(function(c){
+    dlSum += (+c.dl_bw || 0); ulSum += (+c.ul_bw || 0);
+    if ((+c.dl_bw || 0) > dlMax) dlMax = (+c.dl_bw || 0);
+  });
+  var n = cellx.ca_count || ca.length;
+  /* 只有一个载波时说"未聚合"而不是"1 载波聚合" —— 后者读起来是自相矛盾的。 */
+  var title = n > 1 ? (n + ' 载波聚合') : '单载波 · 未聚合';
+  var sub = ca.map(function(c){
+    return (/NR/i.test(c.rat) ? 'n' : 'B') + c.band;
+  }).join('  +  ');
+
+  var h = '<div class="ca-hd"><div class="ca-big"><span class="n">' + n + '</span><span class="u">CC</span></div>'
+        + '<div class="ca-hd-meta"><span class="ca-hd-t">' + title + '</span>'
+        + '<span class="ca-hd-s">' + sub + '</span></div>'
+        + '<div class="ca-sum">'
+        + '<div class="ca-sum-i"><span class="l">聚合下行带宽</span><span class="v">' + dlSum + '<small>MHz</small></span></div>'
+        + '<div class="ca-sum-i"><span class="l">聚合上行带宽</span><span class="v">' + ulSum + '<small>MHz</small></span></div>'
+        + '</div></div>';
+
+  h += '<div class="ca-grid">' + ca.map(function(c){
+    var pfx = /NR/i.test(c.rat) ? 'n' : 'B';
+    var fr = bandFreq(pfx + c.band);
+    var isP = (c.role === 'PCC');
+    /* 上行 EARFCN 与频点同时为 0 = 该载波只做下行,采集器已把 ul_bw 归零。
+       这里显式写"未使用",比显示 0 MHz 更准确。 */
+    var ulVoid = (!(+c.ul_earfcn) && !(+c.ul_freq));
+    var dlPct = dlMax ? Math.round((+c.dl_bw || 0) / dlMax * 100) : 0;
+    var ulPct = dlMax ? Math.round((+c.ul_bw || 0) / dlMax * 100) : 0;
+    var s = '<div class="ca-c' + (isP ? ' pcc' : '') + '">'
+      + '<div class="ca-c-hd"><span class="ca-band">' + pfx + c.band
+      + (fr ? '<span class="fr">' + fr + '</span>' : '') + '</span>'
+      + '<span class="ca-role">' + (isP ? '主载波 PCC' : '辅载波 SCC') + '</span></div>'
+      + '<div class="ca-bw">'
+      + '<div class="ca-bw-i dl"><span class="l"><i class="fas fa-download"></i> 下行带宽</span>'
+      + '<span class="v">' + (+c.dl_bw || 0) + '<small>MHz</small></span>'
+      + '<span class="ca-bw-t"><i style="width:' + dlPct + '%"></i></span></div>'
+      + '<div class="ca-bw-i ul' + (ulVoid ? ' void' : '') + '"><span class="l"><i class="fas fa-upload"></i> 上行带宽</span>'
+      + '<span class="v">' + (ulVoid ? '未使用' : ((+c.ul_bw || 0) + '<small>MHz</small>')) + '</span>'
+      + (ulVoid ? '' : '<span class="ca-bw-t"><i style="width:' + ulPct + '%"></i></span>') + '</div>'
+      + '</div><div class="ca-kv">';
+    s += '<div><span class="k">下行频点</span><span class="v">' + (c.dl_earfcn != null ? c.dl_earfcn : '--') + '</span></div>';
+    s += '<div><span class="k">下行中心频率</span><span class="v">' + (freqMhz(c.dl_freq) || '--') + '</span></div>';
+    if (!ulVoid) {
+      s += '<div><span class="k">上行频点</span><span class="v">' + (c.ul_earfcn != null ? c.ul_earfcn : '--') + '</span></div>';
+      s += '<div><span class="k">上行中心频率</span><span class="v">' + (freqMhz(c.ul_freq) || '--') + '</span></div>';
+    } else {
+      s += '<div><span class="k">链路方向</span><span class="v">仅下行</span></div>';
+    }
+    s += '</div></div>';
+    return s;
+  }).join('') + '</div>';
+
+  var age = (cellx.age != null && cellx.age > 90)
+    ? '<span class="cx-age">' + cellx.age + 's 前</span>' : '';
+  return '<div class="cd"><div class="clh" onclick="tc(this)">'
+    + '<div class="cd-t"><i class="fas fa-layer-group"></i> 载波聚合 · CA</div>' + age
+    + '<i class="fas fa-chevron-down cla"></i></div>'
+    + '<div class="clb clb-tall">' + h + '</div></div>';
+}
+
+/* 附近小区。信号最强的三个做成卡片,其余落进紧凑表格 —— 这个站点能看到十个
+   邻区,全做成卡片会把页面撑散,而尾部那些 -157 dBm 的弱邻区也不值一张卡。 */
+function cxNbHtml(){
+  if (!cellx || !cellx.supported) return '';
+  var nb = cellx.neighbours || [];
+  if (!nb.length) return '';
+  var servFcn = cellx.serving ? String(cellx.serving.arfcn) : '';
+
+  /* 按 RSRP 从强到弱排。缺 RSRP 的排到末尾。 */
+  var list = nb.slice().sort(function(a, b){
+    var x = (a.rsrp == null ? -999 : a.rsrp), y = (b.rsrp == null ? -999 : b.rsrp);
+    return y - x;
+  });
+  var top = list.slice(0, 3), rest = list.slice(3);
+
+  var cards = top.map(function(c){
+    var isNR = /NR/i.test(c.rat || '');
+    var same = servFcn && String(c.earfcn) === servFcn;
+    var lv = sigLvl('rsrp', c.rsrp);
+    var col = lv.cls === 'good' ? '#34d399' : lv.cls === 'fair' ? '#fbbf24' : '#f87171';
+    var sub = '';
+    if (c.rsrq != null) sub += '<div><span class="k">RSRQ</span><span class="v">' + c.rsrq + '</span></div>';
+    if (c.sinr != null) sub += '<div><span class="k">SINR</span><span class="v">' + c.sinr + '</span></div>';
+    return '<div class="nb-c' + (same ? ' same' : '') + '">'
+      + '<div class="nb-hd"><span class="nb-pci"><span class="lb">物理小区 PCI</span>'
+      + '<span class="nv">' + (c.pci != null ? c.pci : '--') + '</span></span>'
+      + '<span class="nb-tags"><span class="nb-rat' + (isNR ? ' nr' : '') + '">' + (c.rat || '--') + '</span>'
+      + (same ? '<span class="nb-same">同频邻区</span>' : '') + '</span></div>'
+      + '<div class="nb-main"><span class="l">参考信号接收功率 RSRP</span>'
+      + '<div class="row"><span><span class="nv" style="color:' + col + '">'
+      + (c.rsrp != null ? c.rsrp : '--') + '</span><span class="u">dBm</span></span>'
+      + '<span class="nb-lvl ' + lv.cls + '">' + lv.desc + '</span></div>'
+      + '<span class="nb-bar"><i style="width:' + nbPct(c.rsrp) + '%;background:' + col + '"></i></span></div>'
+      + (sub ? '<div class="nb-sub">' + sub + '</div>' : '')
+      + '<div class="nb-fcn"><span class="k">下行频点 ARFCN</span><span class="v">'
+      + (c.earfcn != null ? c.earfcn : '--') + '</span></div>'
+      + '</div>';
+  }).join('');
+
+  var h = '<div class="nb-top">' + cards + '</div>';
+
+  if (rest.length) {
+    /* 序号接着前三张卡继续数(第 4 名起),这样"卡片 + 表格"读起来是一份连续的
+       强弱排行,而不是两组互不相干的数据。 */
+    var rows = rest.map(function(c, i){
+      var lv = sigLvl('rsrp', c.rsrp);
+      var col = lv.cls === 'good' ? '#34d399' : lv.cls === 'fair' ? '#fbbf24' : '#f87171';
+      var isNR = /NR/i.test(c.rat || '');
+      var same = servFcn && String(c.earfcn) === servFcn;
+      return '<tr><td class="rk">' + (i + 4) + '</td>'
+        + '<td><span class="pci">' + (c.pci != null ? c.pci : '--') + '</span>'
+        + (same ? '<span class="nb-same2">同频</span>' : '') + '</td>'
+        + '<td><span class="nb-rat2' + (isNR ? ' nr' : '') + '">' + (c.rat || '--') + '</span></td>'
+        + '<td class="fcn">' + (c.earfcn != null ? c.earfcn : '--') + '</td>'
+        + '<td><span class="nb-sig"><span class="nb-sb">'
+        + '<i style="width:' + nbPct(c.rsrp) + '%;background:' + col + '"></i></span>'
+        + '<span class="nb-sv">'
+        + (c.rsrp != null ? c.rsrp : '--') + '</span></span></td>'
+        + '<td>' + (c.rsrq != null ? c.rsrq : '--') + '</td>'
+        + '<td>' + (c.sinr != null ? c.sinr : '--') + '</td></tr>';
+    }).join('');
+    /* 列宽固定:序号/PCI/制式/频点窄,RSRP 吃掉剩下的宽度用来画条。 */
+    h += '<div class="nb-rest"><div class="nb-rest-h">'
+      + '<span class="nb-rest-t"><i class="fas fa-list-ul"></i> 其余 ' + rest.length + ' 个邻区</span>'
+      + '<span class="nb-rest-n">按参考信号接收功率排序</span></div>'
+      + '<table class="nb-tb"><colgroup><col style="width:44px"><col style="width:96px">'
+      + '<col style="width:78px"><col style="width:96px"><col><col style="width:78px">'
+      + '<col style="width:78px"></colgroup>'
+      + '<thead><tr><th>#</th><th>PCI</th><th>制式</th><th>ARFCN</th>'
+      + '<th>RSRP<span class="sm"> dBm</span></th><th>RSRQ<span class="sm"> dB</span></th>'
+      + '<th>SINR<span class="sm"> dB</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  var age = (cellx.age != null && cellx.age > 90)
+    ? '<span class="cx-age">' + cellx.age + 's 前</span>' : '';
+  return '<div class="cd"><div class="clh" onclick="tc(this)">'
+    + '<div class="cd-t"><i class="fas fa-broadcast-tower"></i> 附近小区 · ' + list.length + ' 个邻区</div>' + age
+    + '<i class="fas fa-chevron-down cla"></i></div>'
+    + '<div class="clb clb-tall">' + h + '</div></div>';
+}
+
+/* 真实卡槽。qmodem 报的 "SIM Slot" 是模组自报的逻辑槽位,在这块板子上
+   并不等于机身实际在用哪个卡槽 —— 卡槽是 GPIO(cpe-sel0)切的,权威源是
+   /tmp/sim_sel,由 simstat.sh 报出来。这里拿它盖掉模组那个值。 */
+var simSlot = null;
+function slotLoad(cb){
+  XHR.get('<%=luci.dispatcher.build_url("admin","modem","simstat")%>', {}, function(x, d){
+    if (d && typeof d === 'object' && d.slot) simSlot = d;
+    if (cb) cb();
+  });
+}
+
+function cxLoad(cb){
+  XHR.get('<%=luci.dispatcher.build_url("admin","modeminfo","cellx")%>', {}, function(x, d){
+    if (d && typeof d === 'object') cellx = d;
+    if (cb) cb();
+  });
+}
+
+const STICKY_MS=120000,WARM_MS=15000;
+class UI{
+constructor(){this.sel=document.getElementById('modem_selector_select');this.sec=document.getElementById('mrt-sec');this.cfg=null;this.good=null;this.goodT=0;this.t0=Date.now();this.lastBdg='';this.lastSt='';this.sel.addEventListener('change',e=>{this.cfg=e.target.value;this.modem();});this.poll();}
+poll(){XHR.poll(5,'<%=luci.dispatcher.build_url("admin","modem","qmodem","get_modem_cfg")%>',{},(x,d)=>{if(d&&d.cfgs&&Array.isArray(d.cfgs)){this.sel.innerHTML='';d.cfgs.forEach(c=>{const o=document.createElement('option');o.value=c.cfg;o.textContent=c.name;this.sel.appendChild(o);});if(!this.cfg&&d.cfgs.length){this.cfg=d.cfgs[0].cfg;this.modem();}}});}
+/* 走本包的 modem_ctrl(不是 qmodem 那个):服务端在这里做了粘滞缓存 + 2 秒合流,
+   页面/屏保/手机端不会各自去抢 ttyUSB1。 */
+modem(){XHR.get('<%=luci.dispatcher.build_url("admin","fancontrol","modem_ctrl")%>',{cfg:this.cfg||'',action:'info',translate:'1'},(x,d)=>this.render(d));}
+isCell(e){return /基站信息|Cell Information/i.test((e.class||'')+(e.class_origin||''));}
+/* key 和 full_name 都要试: full_name 是翻译过的,中文语言包没装时它还是英文
+   ("Reference Signal Received Power"),只按 full_name 找会整片读不到,看起来跟没信号一样 */
+mt(e,re){return re.test(e.key||'')||re.test(e.full_name||'');}
+okVal(v){return v!==null&&v!==undefined&&String(v).trim()!==''&&String(v).trim()!=='--'&&!/CME ERROR|CMS ERROR/i.test(String(v));}
+hasCell(d){return d.some(e=>this.isCell(e)&&this.okVal(e.value));}
+/* 只把这次缺的 key 从上一次好数据里补回来,已经拿到的一律以新值为准 */
+mergeGood(d){const seen={};d.forEach(e=>{if(e&&e.key)seen[e.key]=1;});return d.concat(this.good.filter(e=>e&&e.key&&!seen[e.key]));}
+gw(){XHR.get('<%=luci.dispatcher.build_url("admin","network","mwrt_assurance_status")%>',{},(x,d)=>{if(!d)return;const u=(id,v)=>{const e=document.getElementById(id);if(!e)return;const on=/在线|Online/i.test(v);e.textContent=v||'--';e.className='ch-s '+(on?'on':'off');const dot=document.getElementById(id+'-d');if(dot)dot.className='ch-d '+(on?'on':'off');};u('ch-w',d["宽带接口状态 / Primary Status"]);u('ch-c',d["蜂窝接口状态 / Secondary Status"]);const g=document.getElementById('gw-v');if(g)g.textContent=d["当前网关 / Gateway"]||'--';const f=document.getElementById('if-v');if(f)f.textContent=d["当前物理接口 / Current Interface"]||'--';});}
+dev(){XHR.get('<%=luci.dispatcher.build_url("admin","fancontrol","devinfo")%>',{},(x,d)=>{if(!d)return;const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v||'--';};
+// Header title
+const model=d["设备型号"]?.name||d["设备型号"]||'';if(model){const ht=document.getElementById('hdr-title');if(ht)ht.textContent='Mwrt-'+model;}
+s('f-model',model);s('f-host',d["主机名"]);s('f-fw',d["固件版本"]);s('f-kernel',d["内核版本"]);s('f-cpu',d["CPU型号"]);s('f-cores',d["CPU核心数"]?d["CPU核心数"]+' 核':'--');s('f-mem',d["内存总量"]);s('f-stor',d["存储已用"]&&d["存储总量"]?d["存储已用"]+' / '+d["存储总量"]:'--');
+// WiFi - show hint if unknown
+const w24=d["2.4G无线信号名称"],w5=d["5G无线信号名称"];
+const wifi24El=document.getElementById('f-wifi24'),wifi5El=document.getElementById('f-wifi5');
+const wifiWrap=document.getElementById('wifi-wrap');
+if((!w24||w24==='未知')&&(!w5||w5==='未知')){if(wifiWrap)wifiWrap.innerHTML='<div class="empty-hint"><i class="fas fa-info-circle"></i> 当前设备未检测到无线网卡硬件</div>';}
+else{if(wifiWrap)wifiWrap.innerHTML='<div class="fc fb"><div class="fc-i"><i class="fas fa-wifi"></i></div><div class="fc-v" id="f-wifi24">--</div><div class="fc-l">2.4G 无线网络</div></div><div class="fc fp"><div class="fc-i"><i class="fas fa-wifi"></i></div><div class="fc-v" id="f-wifi5">--</div><div class="fc-l">5G 无线网络</div></div>';s('f-wifi24',w24);s('f-wifi5',w5);}
+// WAN
+s('f-wan',d["WAN状态"]);s('f-proto',d["WAN协议"]);s('f-wanip',d["WAN_IP"]);s('f-wtime',d["WAN在线时长"]);s('f-gw',d["默认网关"]);s('f-lan',d["LAN_IP"]);s('f-dns',d["DNS服务器"]);s('f-wdev',d["WAN接口"]);
+// WAN status dot
+const wanEl=document.getElementById('f-wan');const wanDot=document.getElementById('f-wan-d');if(wanEl&&wanDot){const on=/已连接/i.test(d["WAN状态"]);wanEl.className='ch-s '+(on?'on':'off');wanDot.className='ch-d '+(on?'on':'off');}
+// Traffic
+s('f-rx',d["WAN下行流量"]);s('f-tx',d["WAN上行流量"]);
+// Chart - use raw bytes if available
+if(window._chart&&d["WAN下行字节"]&&d["WAN上行字节"]){window._chart.push(parseInt(d["WAN下行字节"])||0,parseInt(d["WAN上行字节"])||0);}
+// Stats
+s('qs-up',d["运行时间"]);s('qs-dev',d["在线设备数"]);s('qs-stor',d["存储使用率"]?d["存储使用率"]+'%':'--');s('qs-load',(d["系统负载"]||'').split(' /')[0]||'--');
+let cpu=parseInt(d["CPU占用"])||0;av(document.getElementById('gv-cpu'),cpu,'%');rng(document.getElementById('g-cpu'),cpu,'#7c5cfc');
+let mem=parseInt(d["剩余内存百分比"])||0;av(document.getElementById('gv-mem'),mem,'%');rng(document.getElementById('g-mem'),mem,'#34d399');
+let tmp=parseInt(d["设备温度"])||0;av(document.getElementById('gv-tmp'),tmp,'℃');rng(document.getElementById('g-tmp'),Math.min(tmp,100),tmp>70?'#f87171':tmp>50?'#fbbf24':'#22d3ee');
+// Fan
+const fanPct=parseInt(d["风扇转速百分比"])||0;const fanPwm=d["风扇PWM"]||'0';const fanTemp=parseInt(d["设备温度"])||0;
+s('fan-pct',fanPct+'%');s('fan-temp',fanTemp?fanTemp+'℃':'--');s('fan-mode',d["风扇模式"]);s('fan-pwm',fanPwm+'/255');
+updateFanBtns(d["风扇模式"]||'');
+// Sync slider value
+const rng2=document.getElementById('fan-range'),rv2=document.getElementById('fan-range-val');
+if(rng2&&!rng2.matches(':active')){rng2.value=fanPwm;if(rv2)rv2.textContent=fanPwm;}
+// Ring color based on temp
+const fanRing=document.getElementById('fan-ring-fg');
+const ringClr=fanTemp>70?'#f87171':fanTemp>50?'#fbbf24':'#22d3ee';
+if(fanRing){const c=2*Math.PI*46;fanRing.style.strokeDasharray=c;fanRing.style.strokeDashoffset=c-(fanPct/100)*c;fanRing.style.stroke=ringClr;}
+// Fan SVG animation + glow
+const fanSvg=document.getElementById('fan-svg');const fanCard=document.getElementById('fan-card');
+if(fanSvg){
+if(fanPct>0){fanSvg.classList.remove('off');fanSvg.style.animationDuration=Math.max(0.2,2.5-fanPct/45)+'s';fanSvg.classList.toggle('fast',fanPct>=70);fanSvg.classList.toggle('hot',fanTemp>65);}
+else{fanSvg.classList.add('off');fanSvg.classList.remove('fast','hot');}
+}
+// Card background glow based on temp
+if(fanCard){fanCard.classList.remove('fan-hot','fan-warm','fan-cool');if(fanTemp>65)fanCard.classList.add('fan-hot');else if(fanTemp>45)fanCard.classList.add('fan-warm');else fanCard.classList.add('fan-cool');
+// Blowing state + wind speed
+if(fanPct>0){fanCard.classList.add('blowing');updateWindSpeed(fanPct);}else{fanCard.classList.remove('blowing');}
+// Fan blade color
+const blades=fanSvg?fanSvg.querySelectorAll('path'):[];const bladeClr=fanTemp>65?'#f87171':fanTemp>50?'#fbbf24':'#22d3ee';blades.forEach(p=>p.setAttribute('fill',bladeClr));
+}
+});}
+render(data){
+const now=Date.now(),fresh=Array.isArray(data)&&data.length>0;
+/* 后端补上的条目自带 stale(秒)。带 stale 的不能算"新拿到的",否则前端会拿它
+   再起一个 120 秒窗口,两层叠起来最长能糊 4 分钟的旧数据。 */
+const srvStale=fresh?data.reduce((m,e)=>Math.max(m,(e&&parseInt(e.stale))||0),0):0;
+if(fresh&&!srvStale&&this.hasCell(data)){this.good=data.filter(e=>e&&this.okVal(e.value));this.goodT=now;}
+else if(this.good&&now-this.goodT<STICKY_MS){data=fresh?this.mergeGood(data.filter(e=>e&&this.okVal(e.value))):this.good;}
+/* 数据落后了多少秒(-1=本次会话还没拿到过),给 heroUp 决定要不要提示 */
+this.stale=srvStale||(this.goodT?Math.round((now-this.goodT)/1000):-1);
+if(!data||!Array.isArray(data)||!data.length){document.getElementById('hero-w').classList.add('hid');this.sec.innerHTML='<div class="cd"><div class="empty-hint"><i class="fas fa-sim-card"></i> 此设备未安装蜂窝模组，或模组未被识别</div></div>';return;}
+this.sec.innerHTML='';const base=[],sim=[],cell=[],w=[];
+const st=this.sel.options[this.sel.selectedIndex]?.text||'';if(st)base.push({full_name:'模组型号',value:st});
+const op=data.find(e=>/互联网服务提供商|operator|isp/i.test(e.full_name||e.key));let opV=op?(op.value||'').trim():'';
+data.forEach(e=>{if(e.type==='warning_message'){w.push(e);return;}const c=(e.class||'')+(e.class_origin||'');if(/SIM卡信息|SIM Information/i.test(c)){sim.push(e);return;}if(/基站信息|Cell Information/i.test(c)){cell.push(e);return;}if(/基本信息|Base Information/i.test(c)){base.push(e);return;}});
+document.getElementById('hero-w').classList.remove('hid');this.heroUp(data,opV);
+const sigKeys=[{re:/^RSRP$|参考信号接收功率/i,name:'RSRP',sub:'参考信号接收功率',unit:'dBm',type:'rsrp'},{re:/^RSRQ$|参考信号接收质量/i,name:'RSRQ',sub:'参考信号接收质量',unit:'dB',type:'rsrq'},{re:/^SINR$|信噪比/i,name:'SINR',sub:'信号噪声比',unit:'dB',type:'sinr'},{re:/^RSSI$|接收信号强度/i,name:'RSSI',sub:'接收信号强度',unit:'dBm',type:'rssi'}];
+const sigItems=sigKeys.map(sk=>{const e=[...cell,...base].find(x=>sk.re.test(x.key||'')||sk.re.test(x.full_name||''));return{...sk,value:e?e.value:null};});
+if(sigItems.some(s=>s.value!==null&&s.value!==undefined&&s.value!=='--')){const html=sigItems.filter(s=>s.value!==null&&s.value!==undefined&&String(s.value).trim()!==''&&s.value!=='--').map(s=>{const lvl=sigLvl(s.type,s.value);const r=24,c=2*Math.PI*r,off=c-(lvl.pct/100)*c;const stk=lvl.cls==='good'?'#34d399':lvl.cls==='fair'?'#fbbf24':'#f87171';const dispVal=(s.value!==null&&s.value!==undefined&&s.value!=='--')?String(s.value).replace(/[^0-9.\-]/g,'')||'--':'--';return`<div class="sig-gauge"><div class="sg-w"><svg viewBox="0 0 60 60"><circle class="sg-bg" cx="30" cy="30" r="${r}"/><circle class="sg-fg" cx="30" cy="30" r="${r}" stroke="${stk}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/></svg><div class="sg-c"><span class="sv">${dispVal}</span><span class="su">${s.unit}</span></div></div><div class="sg-name">${s.name}</div><div class="sg-sub">${s.sub}</div><span class="sg-desc ${lvl.cls}">${lvl.desc}</span></div>`;}).join('');this.sec.innerHTML+=`<div class="cd"><div class="cd-t"><i class="fas fa-signal"></i> 信号质量监测</div><div class="sig-panel">${html}</div></div>`;}
+if(base.length){const netE=data.find(e=>this.mt(e,/^mode$|^network_?mode$|网络模式|network mode|network type/i));const connE=data.find(e=>this.mt(e,/connect|connection|连接状态/i));const bandE=[...cell,...base].find(e=>this.mt(e,/^band$|频段/i));const findF=(rx)=>base.find(e=>rx.test(e.key||'')||rx.test(e.full_name||''));const nameE=findF(/^name$|名称/i);const mfgE=findF(/^manufacturer$|制造商|厂商/i);const revE=findF(/^revision$|^firmware|固件版本/i);const atE=findF(/at_port|AT端口/i);const tempE=findF(/^temperature$|温度/i);let tags='';const nv=netE?netE.value:'';if(nv){const is5g=/5g|NR/i.test(nv);const is4g=/4g|LTE/i.test(nv);tags+=`<span class="net-tag ${is5g?'t-5g':is4g?'t-4g':'t-mode'}"><i class="fas fa-broadcast-tower"></i> ${nv}</span>`;}if(bandE&&bandE.value)tags+=`<span class="net-tag t-band"><i class="fas fa-wave-square"></i> ${bandE.value}${bandFreq(bandE.value)?' · '+bandFreq(bandE.value):''}</span>`;let connHtml='';if(connE){const co=/yes|up|connected|在线/i.test(connE.value);connHtml=`<span class="conn-pill ${co?'on':'off'}"><span class="dot"></span>${co?'链路已连接':'链路断开'}</span>`;}let modCells='';if(nameE)modCells+=`<div class="mod-cell"><div class="mod-cell-l"><i class="fas fa-microchip"></i> 模组型号</div><div class="mod-cell-v lg">${nameE.value||'--'}</div></div>`;if(mfgE)modCells+=`<div class="mod-cell"><div class="mod-cell-l"><i class="fas fa-industry"></i> 制造商</div><div class="mod-cell-v">${mfgE.value||'--'}</div></div>`;if(revE)modCells+=`<div class="mod-cell"><div class="mod-cell-l"><i class="fas fa-code-branch"></i> 固件版本</div><div class="mod-cell-v">${revE.value||'--'}</div></div>`;let metaParts=[];if(atE)metaParts.push(`<span class="at-port-chip"><i class="fas fa-plug"></i> ${atE.value||'--'}</span>`);let tempHtml='';if(tempE){const tNum=parseFloat((tempE.value||'').replace(/[^\d.\-]/g,''));if(!isNaN(tNum)){const tMin=20,tMax=85,tPct=Math.max(0,Math.min(100,(tNum-tMin)/(tMax-tMin)*100));const tColor=tNum<50?'#34d399':tNum<65?'#fbbf24':tNum<75?'#fb923c':'#f87171';tempHtml=`<div class="mod-cell" style="grid-column:span 2"><div class="mod-cell-l"><i class="fas fa-thermometer-half"></i> 模组温度</div><div style="display:flex;align-items:baseline;gap:6px"><span class="mod-cell-v lg" style="color:${tColor}">${tNum}</span><span class="mod-cell-sub">°C</span></div><div class="temp-bar"><div class="temp-bar-track"><div class="temp-bar-mark" style="left:${tPct}%"></div></div><div class="temp-bar-scale"><span>20°</span><span>50°</span><span>85°</span></div></div></div>`;}else{tempHtml=`<div class="mod-cell"><div class="mod-cell-l"><i class="fas fa-thermometer-half"></i> 模组温度</div><div class="mod-cell-v">${tempE.value||'--'}</div></div>`;}}const skipKeys=/^name$|名称|^manufacturer$|制造商|厂商|^revision$|^firmware|固件版本|at_port|AT端口|^temperature$|温度|^mode$|网络模式|network type|connect|connection|连接状态|operator|运营商|isp|^band$|频段/i;const rows=base.filter(e=>!skipKeys.test(e.key||e.full_name||'')&&e.type!=='progress_bar'&&!/RSRP|RSRQ|SINR|RSSI|参考信号/i.test(e.full_name||e.key||'')).map(e=>`<div class="ir"><span class="ik">${e.full_name||e.key}</span><span class="iv">${e.value||'--'}</span></div>`).join('');this.sec.innerHTML+=`<div class="cd"><div class="cd-t"><i class="fas fa-microchip"></i> 蜂窝模组</div>${tags||connHtml?`<div class="net-tags">${tags}${connHtml}</div>`:''}${modCells||tempHtml?`<div class="mod-grid">${modCells}${tempHtml}</div>`:''}${metaParts.length?`<div class="mod-meta">${metaParts.join('')}</div>`:''}${rows}</div>`;}
+if(sim.length){const r=sim.map(e=>{let v=e.value||'--';const kn=(e.full_name||e.key||'');
+/* 卡槽以设备侧为准:模组只知道自己被接到了哪路,不知道机身把 GPIO 拨到了哪个槽。 */
+if(/SIM.?Slot|插槽|卡槽/i.test(kn)&&simSlot&&simSlot.slot)v=simSlot.slot;if(/status|状态/i.test(e.full_name||e.key))v=/ready/i.test(v)?'<span style="color:var(--gn);font-weight:700">●&nbsp;'+v+'</span>':'<span style="color:var(--rd);font-weight:700">●&nbsp;'+v+'</span>';if(/ICCID|IMSI|IMEI|号码/i.test(e.full_name||e.key))v=`<span style="font-family:'SF Mono','JetBrains Mono',monospace;font-size:11px">${v}</span>`;return`<div class="ir"><span class="ik">${e.full_name||e.key}</span><span class="iv">${v}</span></div>`;}).join('');this.sec.innerHTML+=`<div class="cd"><div class="clh" onclick="tc(this)"><div class="cd-t"><i class="fas fa-id-card"></i> SIM卡信息</div><i class="fas fa-chevron-down cla"></i></div><div class="clb">${cxSubHtml()}<div class="sim-grid">${r}</div></div></div>`;}
+if(cell.length){const keyMap=[{re:/^Band$|频段/i,label:'频段',icon:'fa-wave-square'},{re:/^EARFCN$|^NR.?ARFCN$|频点/i,label:'频点',icon:'fa-broadcast-tower'},{re:/^PCI$|物理小区/i,label:'物理小区',icon:'fa-cube'},{re:/Cell.?ID|小区ID|^CID$/i,label:'小区ID',icon:'fa-broadcast-tower'},{re:/Bandwidth|带宽/i,label:'带宽',icon:'fa-arrows-alt-h'},{re:/^TAC$|^LAC$/i,label:'区位码',icon:'fa-map-marker-alt'}];const gridItems=keyMap.map(km=>{const e=cell.find(x=>this.mt(x,km.re));if(!e)return'';let note='';if(/Band|频段/i.test(km.label)){const f=bandFreq(e.value);if(f)note=f;}return`<div class="cell-item"><div class="ci-label"><i class="fas ${km.icon}"></i> ${km.label}</div><div class="ci-value">${e.value||'--'}</div>${note?`<div class="ci-note">${note}</div>`:''}</div>`;}).filter(Boolean).join('');const sigBars=cell.filter(e=>/RSRP|RSRQ|SINR|RSSI/i.test((e.key||'')+' '+(e.full_name||''))).map(e=>{const nm=((e.key||'')+' '+(e.full_name||'')).match(/RSRP|RSRQ|SINR|RSSI/i)?.[0]||(e.full_name||e.key);const tp=nm.toLowerCase();const lvl=sigLvl(tp,e.value);const cls=lvl.cls;return`<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;margin-bottom:4px;border-radius:8px;background:var(--c2)"><span style="font-size:10px;font-weight:700;color:var(--t1);min-width:42px">${nm}</span><div style="flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,0.06);overflow:hidden"><div style="height:100%;border-radius:3px;width:${lvl.pct}%;background:${cls==='good'?'#34d399':cls==='fair'?'#fbbf24':'#f87171'};transition:width 0.6s"></div></div><span style="font-size:11px;font-weight:700;color:var(--t1);min-width:74px;text-align:right;font-family:monospace">${e.value||'--'}</span><span class="sg-desc ${cls}" style="margin-top:0;min-width:34px;text-align:center">${lvl.desc}</span></div>`;}).join('');const otherRows=cell.filter(e=>!keyMap.some(km=>this.mt(e,km.re))&&!/RSRP|RSRQ|SINR|RSSI/i.test((e.key||'')+' '+(e.full_name||''))).map(e=>`<div class="ir"><span class="ik">${e.full_name||e.key}</span><span class="iv">${e.value||'--'}</span></div>`).join('');this.sec.innerHTML+=`<div class="cd"><div class="clh" onclick="tc(this)"><div class="cd-t"><i class="fas fa-broadcast-tower"></i> 基站信息 · 主服务小区</div><i class="fas fa-chevron-down cla"></i></div><div class="clb">${gridItems?`<div class="cell-grid">${gridItems}</div>`:''}${sigBars?`<div style="margin-top:8px">${sigBars}</div>`:''}${otherRows}</div></div>`;}
+/* 5700 专属:载波聚合 + 附近小区。cellx 未就绪或非 5700 时两者都返回空串。 */
+this.sec.innerHTML+=cxCaHtml()+cxNbHtml();
+if(w.length)toast(w.map(x=>(x.full_name||x.key)+': '+x.value).join(' | '));}
+heroUp(data,opV){const logo=document.getElementById('h-logo'),opN=document.getElementById('h-op');
+/* 刚进页面、服务端缓存也是冷的那几秒:说"读取中"而不是甩一个"等待…"给用户 */
+const warming=(this.stale<0)&&(Date.now()-this.t0<WARM_MS);
+// 没拨号就谈不上运营商: 后端 connect_status 严格是 Yes/No,没走到 network_info 时这一项干脆不存在,两种都按未拨号处理。
+const csE=data.find(e=>/^connect_status$/i.test(e.key||'')||/connect status|连接状态/i.test(e.full_name||''));
+const dialed=/^yes$/i.test(((csE&&csE.value)||'').toString().trim());
+const mR=/^MCC$|^MMC$|Mobile Country Code|移动国家/i,nR=/^MNC$|Mobile Network Code|移动网络/i,iR=/^IMSI$|International Mobile Subscriber|国际移动用户/i;
+const mccE=data.find(e=>mR.test(e.key||'')||mR.test(e.full_name||''));
+const mncE=data.find(e=>nR.test(e.key||'')||nR.test(e.full_name||''));
+const imsiE=data.find(e=>iR.test(e.key||'')||iR.test(e.full_name||''));
+const mcc=mccE?(mccE.value||'').toString().trim():'';
+const mnc=mncE?(mncE.value||'').toString().trim().padStart(2,'0'):'';
+const imsi=imsiE?(imsiE.value||'').toString().replace(/\s/g,''):'';
+const imsiPlmn=imsi.length>=5?imsi.substring(0,5):'';
+let src='',nm='';
+const detect=(s)=>{if(/移动|CM|Mobile|46000|46002|46004|46007|46008/i.test(s))return['/logo/chinamobile.png','中国移动'];if(/联通|CU|United|46001|46006|46009/i.test(s))return['/logo/chinaunicom.png','中国联通'];if(/电信|CHN-CT|Telecom|CT|46003|46005|46011/i.test(s))return['/logo/ctc.png','中国电信'];if(/广电|CBN|46015/i.test(s))return['/logo/cbn.png','中国广电'];return['',''];};
+if(imsiPlmn){const r0=detect(imsiPlmn);if(r0[0]){src=r0[0];nm=r0[1];}}
+if(!nm){const r1=detect(opV);if(r1[0]){src=r1[0];nm=r1[1];}}
+if(!nm&&mcc&&mnc){const r2=detect(mcc+mnc);if(r2[0]){src=r2[0];nm=r2[1];}}
+// 必须显式清掉: 读不到 IMSI 时返回的 "+CME ERROR: 10" 会被压成 "+CMEE",
+// 而 detect() 的 /CM/i 正好命中它 —— 这就是没插卡也显示中国移动的原因。
+if(!dialed){src='';nm='';}
+if(logo){if(src){logo.dataset.op=src;logo.src=src;logo.style.display='';}else if(dialed&&logo.dataset.op){logo.src=logo.dataset.op;logo.style.display='';}else{delete logo.dataset.op;logo.removeAttribute('src');logo.style.display='none';}}if(opN){if(!dialed){opN.textContent=(warming&&!csE)?'读取中…':'等待网络注册';}else if(nm){opN.textContent=nm;}else if(opV&&opV.length>0&&opV!=='--'){opN.textContent=opV;}else if(imsiPlmn){opN.textContent='PLMN '+imsiPlmn;}else if(mcc&&mnc){opN.textContent='PLMN '+mcc+'-'+mnc;}else{opN.textContent='等待网络注册';}}
+const modeE=data.find(e=>this.mt(e,/^mode$|^network_?mode$|网络模式|network mode|network type/i));const cellE=data.find(e=>this.mt(e,/^cell.?id$|小区ID|^CID$/i));
+const pciE=data.find(e=>this.mt(e,/Physical Cell|^PCI$|物理小区/i));
+const tacE=data.find(e=>this.mt(e,/^TAC$|^LAC$|tracking area/i));
+const arfcnE=data.find(e=>this.mt(e,/ARFCN|EARFCN|频点/i));
+const mEl=document.getElementById('h-mode');if(mEl)mEl.textContent=modeE&&modeE.value?modeE.value:(warming?'读取中…':'--');
+const cEl=document.getElementById('h-cellid');if(cEl){
+let parts=[];
+if(cellE&&cellE.value)parts.push('CID '+cellE.value);
+if(pciE&&pciE.value)parts.push('PCI '+pciE.value);
+if(tacE&&tacE.value)parts.push('TAC '+tacE.value);
+if(parts.length===0&&arfcnE&&arfcnE.value)parts.push('ARFCN '+arfcnE.value);
+cEl.textContent=parts.length?parts.slice(0,2).join(' · '):(warming?'正在读取小区信息…':'等待小区注册');
+}
+/* 信号刷新落后了就轻提示一句,别让用户以为数字是死的 */
+const slEl=document.getElementById('h-sl');if(slEl)slEl.textContent=(this.stale>30&&this.stale<=STICKY_MS/1000)?('信号强度 · '+this.stale+'s 前'):'信号强度';
+const opS=document.getElementById('h-op-status');if(opS){const cn=data.find(e=>/connect|connection/i.test(e.key));if(cn&&this.okVal(cn.value)){const co=/yes|up|connected|在线/i.test(cn.value);this.lastSt=co?'在线运行':'链路断开';opS.textContent=this.lastSt;}else if(this.lastSt){opS.textContent=this.lastSt;}else if(warming){opS.textContent='读取中';}}
+const net=data.find(e=>/mode|network/i.test(e.key)),conn=data.find(e=>/connect|connection/i.test(e.key));const bw=document.getElementById('h-bdg');if(bw){
+// 制式/连接任一项这次没读到,就保留上一次的徽标,别闪一下"-- / 未连接"
+if((!net||!this.okVal(net.value))&&(!conn||!this.okVal(conn.value))&&this.lastBdg){bw.innerHTML=this.lastBdg;}
+else{let nv=net?net.value:'',cv=conn?conn.value:'';let nc=/5g|NR/i.test(nv)?'bdg-5g':/4g|lte/i.test(nv)?'bdg-4g':'bdg-x';let nl=/5g|NR/i.test(nv)?'5G NR':/4g|lte/i.test(nv)?'4G LTE':(nv||(warming?'读取中…':'--'));let co=/yes|up|connected|在线/i.test(cv);bw.innerHTML=`<span class="bdg ${nc}"><i class="fas fa-signal"></i> ${nl}</span><span class="bdg ${co?'bdg-on':'bdg-off'}"><i class="fas ${co?'fa-link':'fa-unlink'}"></i> ${co?'已连接':'未连接'}</span>`;this.lastBdg=bw.innerHTML;}}
+const rsrp=data.find(e=>this.mt(e,/RSRP|参考信号接收功率/i));if(rsrp&&this.okVal(rsrp.value)){const p=rp(rsrp.value),cl=rc(p);rng(document.getElementById('h-ring'),p,cl);var hrv=document.querySelector('#h-ring .v');if(hrv)hrv.textContent=String(rsrp.value).replace(/[^0-9.\-]/g,'')||'--';const db=document.getElementById('h-dbm');if(db)db.textContent=rsrp.value+' dBm';const bars=document.getElementById('h-bars');if(bars){let n=Math.round(p/20),cs=p>=70?'g':p>=40?'o':'r';bars.innerHTML=[1,2,3,4,5].map(i=>`<span style="height:${i*4+5}px" class="${i<=n?cs:''}"></span>`).join('');}}
+// 粘滞窗口都过完还是读不到: 别再端着一个冻住的 dBm 配"等待小区注册",一起归零
+else if(!warming&&this.stale>STICKY_MS/1000){const db=document.getElementById('h-dbm');if(db)db.textContent='-- dBm';const hv=document.querySelector('#h-ring .v');if(hv)hv.textContent='--';rng(document.getElementById('h-ring'),0,'#f87171');const bars=document.getElementById('h-bars');if(bars)bars.innerHTML=[1,2,3,4,5].map(i=>`<span style="height:${i*4+5}px"></span>`).join('');}}
+}
+window.onload=()=>{
+const pg=document.getElementById('P');
+if(localStorage.getItem('mrt-t')==='light')pg.classList.add('L');
+document.getElementById('t-btn').addEventListener('click',()=>{
+pg.classList.toggle('L');
+localStorage.setItem('mrt-t',pg.classList.contains('L')?'light':'dark');
+document.getElementById('t-ico').className=pg.classList.contains('L')?'fas fa-moon':'fas fa-sun';
+});
+const ui=new UI();
+function refreshStock(){
+ if(document.hidden)return;
+ XHR.get('<%=luci.dispatcher.build_url("admin","modem-AK68","get_csq")%>',{},()=>ui.modem());
+}
+refreshStock();setInterval(refreshStock,30000);
+/* 先把 cellx 快照拿到手再渲染一次,否则首屏那一轮 render 里
+   cxCaHtml()/cxNbHtml() 都是空的,两张卡要等 4 秒后的下一轮才出现。 */
+slotLoad();cxLoad(()=>ui.modem());
+ui.modem();ui.gw();ui.dev();
+window._chart=new TrafficChart('traffic-canvas');
+initWind();
+loadScrStatus();
+setInterval(()=>{ui.gw();ui.dev();},2000);
+/* 蜂窝信息单独放慢到 4 秒,且页面切走时不轮询:每次 info 都要抢 ttyUSB1,
+   打太勤反而读不到东西(就是"有信号却显示未连接"的来源),回到页面立刻补一次 */
+setInterval(()=>{if(!document.hidden)ui.modem();},4000);
+/* 载波聚合/邻区 30 秒一刷就够:采集器本身是 cron 一分钟一拍,刷得再勤也拿不到
+   更新的数,而且这些量(频段、聚合结构、邻区列表)本来就变得慢。
+   这个请求只读 /tmp 的 JSON,不占串口,所以不用跟着 4 秒那轮走。 */
+setInterval(()=>{if(!document.hidden){cxLoad();slotLoad();}},30000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)ui.modem();});
+};
+})();
+</script>
+<script>
+/* Device Overview panel — polls免鉴权 /cgi-bin/router3d-data (只读 /sys,无 AT) */
+(function(){
+var IMG={'NBCPE-688':'/luci-static/router3d/nbcpe-688-front.png','C5800-688':'/luci-static/router3d/c5800-688.png',Ultra:'/luci-static/router3d/ultra.png',MAX:'/luci-static/router3d/max.png',E87N:'/luci-static/router3d/e87n.png',H5000M:'/luci-static/router3d/h5000m.png'};
+var NAMES={'NBCPE-688':'NBCPE-688',Ultra:'NRadio C2000 Ultra',MAX:'NRadio C2000 MAX',E87N:'EdgePi E87N',H5000M:'Hiveton H5000M'};
+var IS_E87N=<%= dev_model == "E87N" and "true" or "false" %>;
+// 本机机型(服务端判定,固定不变)+ 该机型的自定义整机图(存在才非空)。
+// 自定义图按机型隔离(custom_<机型>.png),换机型互不影响。
+var DEV_MODEL='<%=dev_model%>';
+var DEV_NAME=<%= luci.util.serialize_json(dev_name) %>;
+var CUSTOM_IMG='<%=dev_custom%>';
+var UP_URL='<%=luci.dispatcher.build_url("admin","fancontrol","devimg_upload", dev_model)%>';
+var RST_URL='<%=luci.dispatcher.build_url("admin","fancontrol","devimg_reset", dev_model)%>';
+var SHOT_URL='<%=luci.dispatcher.build_url("admin","display","screenshot")%>';
+var overrideSrc=CUSTOM_IMG;  // 当前生效的自定义图 URL(空=用默认图);上传/恢复时更新
+var $=function(id){return document.getElementById(id);};
+var esc=function(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
+function speedTxt(p){if(p>=1000)return (p/1000)+'G';if(p>0)return p+'M';return '—';}
+function fmtKB(kb){kb=+kb||0;if(kb>=1048576)return (kb/1048576).toFixed(1)+'G';if(kb>=1024)return Math.round(kb/1024)+'M';return kb+'K';}
+function pct(u,t){return t>0?Math.round(u*100/t):0;}
+function barColor(p){return p>=85?'#f87171':(p>=65?'#f59e0b':'#34d399');}
+function tempInfo(c){if(c>=80)return{g:'linear-gradient(135deg,#f87171,#ef4444)',b:'#f87171'};if(c>=60)return{g:'linear-gradient(135deg,#f59e0b,#f97316)',b:'#f59e0b'};return{g:'linear-gradient(135deg,#34d399,#10b981)',b:'#34d399'};}
+function tile(bg,icon,label,value){return '<div class="dv-stat"><span class="si" style="background:'+bg+'"><i class="fas '+icon+'"></i></span><span class="sc"><span class="sl">'+label+'</span><span class="sv">'+value+'</span></span></div>';}
+function tileBar(bg,icon,label,value,pv,bc){return '<div class="dv-stat"><span class="si" style="background:'+bg+'"><i class="fas '+icon+'"></i></span><span class="sc"><span class="sl">'+label+'</span><span class="sv">'+value+'</span><span class="dv-bar"><i style="width:'+pv+'%;background:'+bc+'"></i></span></span></div>';}
+function chip(icon,k,v){return '<span class="dv-chip"><i class="fas '+icon+'"></i><span class="k">'+k+'</span>'+v+'</span>';}
+function render(d){
+ // model + image:优先信 CGI 的 d.model,认不出则回落服务端判定的 DEV_MODEL。
+ // 自定义图(overrideSrc)优先于内置默认图;每次轮询都据此复位,防止被默认图冲掉。
+ var model=d.model;
+ if(!IMG[model])model=DEV_MODEL;
+ var base=IMG[model]||IMG[DEV_MODEL];
+ var src=overrideSrc||base;
+ var img=$('dv-img');if(img&&src){if(img.getAttribute('data-src')!==src){img.src=src;img.setAttribute('data-src',src);img.style.display='';}}
+ $('dv-name').textContent=NAMES[model]||DEV_NAME||model;
+ // System stats: CPU / 内存 / 温度 / 存储
+ var sw=$('dv-stats');var st=[];
+ var cpu=d.cpu||{};
+ st.push(tile('linear-gradient(135deg,#7c5cfc,#6366f1)','fa-microchip','CPU 负载',(cpu.load1!=null?(+cpu.load1).toFixed(2):'—')+' <small>· '+(cpu.ncpu||1)+' 核</small>'));
+ var mem=d.mem||{};
+ if(mem.total>0){var mu=mem.total-(mem.avail||0),mp=pct(mu,mem.total);
+  st.push(tileBar('linear-gradient(135deg,#06b6d4,#0ea5e9)','fa-memory','内存占用',mp+'<small>% · '+fmtKB(mu)+'/'+fmtKB(mem.total)+'</small>',mp,barColor(mp)));}
+ if(d.temp!=null){var ti=tempInfo(+d.temp),tp=Math.max(0,Math.min(100,Math.round(d.temp)));
+  st.push(tileBar(ti.g,'fa-thermometer-half','SoC 温度',esc(d.temp)+'<small> °C</small>',tp,ti.b));}
+ var sto=d.storage||{};
+ if(sto.total>0){var sp=pct(sto.used,sto.total);
+  st.push(tileBar('linear-gradient(135deg,#10b981,#059669)','fa-hdd','存储占用',sp+'<small>% · '+fmtKB(sto.used)+'/'+fmtKB(sto.total)+'</small>',sp,barColor(sp)));}
+ sw.innerHTML=st.join('')||'<div class="empty-hint"><i class="fas fa-info-circle"></i> 无系统数据</div>';
+ // Ports
+ var pw=$('dv-ports');var ports=d.ports||[];
+ pw.className='dv-ports'+(ports.length<=1?' single':'');
+ pw.innerHTML=ports.map(function(p){
+  var link=!!p.carrier;var lan=(p.role==='LAN');
+  return '<div class="dv-port'+(link?' link':' down')+(lan?' lan':'')+'">'+
+   '<span class="pic"><i class="fas fa-ethernet"></i></span>'+
+   '<span class="pm"><span class="prole">'+esc(p.role||'')+'</span><span class="pname">'+esc(p.id)+'</span></span>'+
+   '<span class="ps"><span class="pspeed">'+(link?speedTxt(p.speed):'—')+'</span>'+
+   '<span class="pstat"><span class="pdot"></span>'+(link?'已接入':'未接入')+'</span></span></div>';
+ }).join('')||'<div class="empty-hint"><i class="fas fa-info-circle"></i> 无网口数据</div>';
+ // Connectivity chips: 只放下方蜂窝区块没有的独有信息(不重复模组/SIM)
+ var chips=[];
+ if(d.wan_ip)chips.push(chip('fa-globe','WAN IP',esc(d.wan_ip)));
+ if(d.lan_ip)chips.push(chip('fa-home','内网网关',esc(d.lan_ip)));
+ chips.push(chip('fa-network-wired','在线设备',(d.clients!=null?d.clients:0)+' 台'));
+ if(d.conns!=null)chips.push(chip('fa-project-diagram','活动连接',esc(d.conns)));
+ if(d.wan_rx!=null&&d.wan_tx!=null)chips.push(chip('fa-arrows-alt-v','WAN 流量','↓'+fmtKB(Math.round(d.wan_rx/1024))+' ↑'+fmtKB(Math.round(d.wan_tx/1024))));
+ if(d.kernel)chips.push(chip('fa-microchip','内核',esc(d.kernel)));
+ var up=parseInt(d.uptime)||0;if(up>0){var dd=Math.floor(up/86400),hh=Math.floor(up%86400/3600),mi=Math.floor(up%3600/60);chips.push(chip('fa-clock','运行',(dd?dd+'天 ':'')+hh+'时 '+mi+'分'));}
+ $('dv-meta').innerHTML=chips.join('');
+}
+function offline(){}
+function poll(){
+ var xhr=new XMLHttpRequest();
+ xhr.open('GET','/cgi-bin/router3d-data?_='+Date.now(),true);xhr.timeout=8000;
+ xhr.onreadystatechange=function(){if(xhr.readyState!==4)return;
+  if(xhr.status===200){try{render(JSON.parse(xhr.responseText));}catch(e){offline();}}else{offline();}};
+ xhr.ontimeout=xhr.onerror=offline;
+ xhr.send();
+}
+// E87N 屏幕实时预览:轮询 display 的 /screenshot(读 framebuffer 出 BMP,不发 AT)。
+// framebuffer 未就绪(驱动未加载/无 fb0)时端点返回空,probe onerror 保留占位。
+function startPreview(){
+ if(!IS_E87N)return;
+ var img=$('mp-screen-img'),ph=$('mp-screen-ph');
+ if(!img||!ph)return;
+ function shot(){var p=new Image();p.onload=function(){img.src=p.src;img.style.display='block';ph.style.display='none';};p.onerror=function(){};p.src=SHOT_URL+'?_='+Date.now();}
+ var rb=$('mp-refresh');if(rb)rb.onclick=shot;
+ shot();setInterval(shot,3000);
+}
+// 自定义整机图:右上角小图标 → 选图上传替换(仅当前机型),或恢复默认。
+// 上传走 LuCI 鉴权 action(devimg_upload/<机型>),写 custom_<机型>.png。
+function applyImg(src){
+ overrideSrc=src||'';
+ var img=$('dv-img');if(!img)return;
+ var url=(src||(IMG[DEV_MODEL]||''));
+ if(src)url+=(src.indexOf('?')<0?('?t='+Date.now()):'');
+ img.src=url;img.setAttribute('data-src',url);img.style.display='';
+}
+function toggleResetBtn(){var rb=$('dv-reset');if(rb)rb.style.display=overrideSrc?'flex':'none';}
+function initDevImg(){
+ var fi=$('dv-file'),eb=$('dv-edit'),rb=$('dv-reset');
+ if(!fi||!eb)return;
+ if(DEV_MODEL==='NBCPE-688'){
+  var second=false;
+  eb.title='切换产品视图';eb.setAttribute('aria-label','切换 NBCPE-688 产品视图');
+  eb.onclick=function(){second=!second;applyImg(second?'/luci-static/router3d/nbcpe-688-back.png':'/luci-static/router3d/nbcpe-688-front.png');};
+  if(rb)rb.style.display='none';
+  return;
+ }
+ toggleResetBtn();
+ eb.onclick=function(){fi.value='';fi.click();};
+ fi.onchange=function(){
+  var f=fi.files&&fi.files[0];if(!f)return;
+  var isPng=(f.type==='image/png')||/\.png$/i.test(f.name||'');
+  if(!isPng){alert('只支持 PNG 格式的图片，请重新上传。');fi.value='';return;}
+  if(f.size>1024*1024){alert('图片过大（限 1MB 以内），请压缩后重新上传。');fi.value='';return;}
+  eb.disabled=true;eb.classList.add('busy');
+  var fd=new FormData();fd.append('image',f,f.name||'device.png');
+  var xhr=new XMLHttpRequest();xhr.open('POST',UP_URL,true);
+  xhr.onreadystatechange=function(){if(xhr.readyState!==4)return;
+   eb.disabled=false;eb.classList.remove('busy');
+   var ok=false,r=null;try{r=JSON.parse(xhr.responseText);ok=r&&r.ok;}catch(e){}
+   if(xhr.status===200&&ok){applyImg(r.url);toggleResetBtn();}
+   else{alert('上传失败'+(r&&r.err?('：'+r.err):'')+'，请重试。');}
+  };
+  xhr.onerror=function(){eb.disabled=false;eb.classList.remove('busy');alert('上传失败，请重试。');};
+  xhr.send(fd);
+ };
+ if(rb)rb.onclick=function(){
+  if(!overrideSrc)return;
+  if(!confirm('恢复该机型的默认整机图？'))return;
+  rb.disabled=true;
+  var xhr=new XMLHttpRequest();xhr.open('POST',RST_URL,true);
+  xhr.onreadystatechange=function(){if(xhr.readyState!==4)return;rb.disabled=false;
+   applyImg('');toggleResetBtn();};
+  xhr.onerror=function(){rb.disabled=false;applyImg('');toggleResetBtn();};
+  xhr.send();
+ };
+}
+function start(){poll();setInterval(poll,1800);startPreview();initDevImg();}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
+})();
+</script>
+<div class="P" id="P">
+<select id="modem_selector_select"></select>
+
+<!-- Header -->
+<div class="hdr">
+<div class="hdr-left"><div class="hdr-logo">M</div><div class="hdr-text"><div class="hdr-main" id="hdr-title">MWRT · NBCPE-688</div><div class="hdr-sub">Mwrt-info Device Data Overview</div></div></div>
+<div class="hdr-actions"><a class="tbtn" href="<%=luci.dispatcher.build_url('admin','system','myos_theme')%>" title="切换 MYOS / MWRT 主题" aria-label="切换 MYOS / MWRT 主题"><i class="fas fa-exchange-alt"></i></a><a class="tbtn" href="<%=luci.dispatcher.build_url('admin','modem-AK68','webui')%>" title="巴龙管理" aria-label="巴龙管理"><i class="fas fa-satellite-dish"></i></a><button class="tbtn" id="t-btn"><i class="fas fa-sun" id="t-ico"></i></button></div>
+</div>
+
+<!-- Device Overview: 产品图 + 指示灯 + 网口 实时状态 -->
+<div class="cd dv-card">
+<div class="cd-t"><i class="fas fa-server"></i> 设备总览 · Device Overview</div>
+<div class="dv-body<% if dev_model == "E87N" then %> dv-body-e87n<% end %>">
+<div class="dv-stage">
+<% if dev_img ~= "" then %><img id="dv-img" src="<%=dev_img%>" alt="<%=luci.util.pcdata(dev_name)%>" onerror="this.style.display='none'"><% end %>
+<div class="dv-name" id="dv-name"><%=luci.util.pcdata(dev_name)%></div>
+<!-- 自定义整机图:右上角小图标,点击上传替换(仅当前机型) -->
+<div class="dv-imgtools">
+<button type="button" class="dv-reset" id="dv-reset" title="恢复默认图片" style="display:none"><i class="fas fa-undo"></i></button>
+<button type="button" class="dv-edit" id="dv-edit" title="上传自定义图片替换"><i class="fas fa-camera"></i></button>
+</div>
+<input type="file" id="dv-file" accept="image/png,.png" style="display:none">
+<% if dev_model == "E87N" then %>
+<!-- E87N:整机图下方嵌入迷你屏幕实时预览(读 framebuffer 出 BMP,不发 AT) -->
+<div class="mp-mini">
+<div class="mp-preview">
+<img id="mp-screen-img" alt="" style="display:none">
+<div id="mp-screen-ph" class="mp-ph"><i class="fas fa-desktop"></i></div>
+<button class="mp-refresh-btn" id="mp-refresh" title="手动刷新"><i class="fas fa-sync-alt"></i></button>
+</div>
+<div class="mp-cap"><span class="mp-dot"></span>屏幕预览</div>
+</div>
+<% end %>
+</div>
+<div class="dv-side">
+<div class="dv-sub">系统状态 · System</div>
+<div class="dv-stats" id="dv-stats"><div class="empty-hint"><i class="fas fa-circle-notch fa-spin"></i> 读取中…</div></div>
+<div class="dv-sub">网口 · Ethernet</div>
+<div class="dv-ports" id="dv-ports"></div>
+<div class="dv-sub">连接信息 · Connectivity</div>
+<div class="dv-meta" id="dv-meta"></div>
+</div>
+</div>
+</div>
+
+<!-- Hero: cellular (hidden if no modem data) -->
+<div id="hero-w" class="hid"><div class="hero">
+<div class="hero-sig"><div class="h-side"><div class="h-op-row"><div class="h-op-name" id="h-op">--</div><div class="h-op-sub"><i class="fas fa-circle"></i><span id="h-op-status">在线</span></div></div><div class="h-bdg" id="h-bdg"><span class="bdg bdg-x"><i class="fas fa-signal"></i> --</span></div><div class="sig-r"><div class="sig-rg" id="h-ring"><svg viewBox="0 0 100 100"><circle class="sr-bg" cx="50" cy="50" r="38"/><circle class="sr-fg" cx="50" cy="50" r="38" stroke-dasharray="238.8" stroke-dashoffset="238.8" stroke="#34d399"/></svg><div class="ct"><span class="v">--</span><span class="l">RSRP</span></div></div><div class="sig-nfo"><div class="dbm" id="h-dbm">-- dBm</div><div class="sig-bars" id="h-bars"><span style="height:9px"></span><span style="height:13px"></span><span style="height:17px"></span><span style="height:21px"></span><span style="height:25px"></span></div><div class="sl" id="h-sl">信号强度</div></div></div></div><div class="h-logo-area"><img id="h-logo" src="" alt="" style="display:none"><div class="h-logo-meta"><div class="h-logo-mode" id="h-mode">--</div><div class="h-logo-tac" id="h-cellid">CID --</div></div></div></div>
+<div class="hero-qs"><div class="qs"><div class="qs-i" style="color:#60a5fa"><i class="fas fa-clock"></i></div><div class="qs-v" id="qs-up">--</div><div class="qs-l">运行时间</div></div><div class="qs"><div class="qs-i" style="color:#34d399"><i class="fas fa-wifi"></i></div><div class="qs-v" id="qs-dev">--</div><div class="qs-l">在线设备</div></div><div class="qs"><div class="qs-i" style="color:#fbbf24"><i class="fas fa-database"></i></div><div class="qs-v" id="qs-stor">--</div><div class="qs-l">存储占用</div></div><div class="qs"><div class="qs-i" style="color:#f472b6"><i class="fas fa-tachometer-alt"></i></div><div class="qs-v" id="qs-load">--</div><div class="qs-l">系统负载</div></div></div>
+</div></div>
+
+<!-- Gauges -->
+<div class="gauges">
+<div class="ga"><div class="ga-w" id="g-cpu"><svg viewBox="0 0 100 100"><circle class="ga-bg" cx="50" cy="50" r="38"/><circle class="ga-fg" cx="50" cy="50" r="38" stroke-dasharray="238.8" stroke-dashoffset="238.8" stroke="#7c5cfc"/></svg><div class="ga-c"><span class="ga-v" id="gv-cpu">0%</span><span class="ga-s">占用</span></div></div><span class="ga-n">处理器</span></div>
+<div class="ga"><div class="ga-w" id="g-mem"><svg viewBox="0 0 100 100"><circle class="ga-bg" cx="50" cy="50" r="38"/><circle class="ga-fg" cx="50" cy="50" r="38" stroke-dasharray="238.8" stroke-dashoffset="238.8" stroke="#34d399"/></svg><div class="ga-c"><span class="ga-v" id="gv-mem">0%</span><span class="ga-s">剩余</span></div></div><span class="ga-n">内存</span></div>
+<div class="ga"><div class="ga-w" id="g-tmp"><svg viewBox="0 0 100 100"><circle class="ga-bg" cx="50" cy="50" r="38"/><circle class="ga-fg" cx="50" cy="50" r="38" stroke-dasharray="238.8" stroke-dashoffset="238.8" stroke="#22d3ee"/></svg><div class="ga-c"><span class="ga-v" id="gv-tmp">0℃</span><span class="ga-s">温度</span></div></div><span class="ga-n">设备温度</span></div>
+</div>
+
+<!-- Realtime traffic chart -->
+<div class="chart-card">
+<div class="chart-hd"><div class="cd-t" style="margin-bottom:0"><i class="fas fa-chart-area"></i> 实时流量</div><div class="chart-legend"><span class="lg-rx">下行</span><span class="lg-tx">上行</span></div></div>
+<div class="chart-vals"><div class="cv"><span class="cv-l">↓</span><span class="cv-n" id="cv-rx">0</span><span class="cv-u" id="cv-rxu">KB/s</span></div><div class="cv"><span class="cv-l">↑</span><span class="cv-n" id="cv-tx">0</span><span class="cv-u" id="cv-txu">KB/s</span></div></div>
+<div class="chart-wrap"><canvas id="traffic-canvas"></canvas></div>
+</div>
+
+<!-- Firmware banner -->
+<div class="fw-banner"><i class="fas fa-shield-alt"></i><div><div class="fw-lbl">当前固件版本</div><div class="fw-val" id="f-fw">--</div></div></div>
+
+<!-- Feature cards -->
+<div class="feat">
+<div class="fc full fp"><div class="fc-i"><i class="fas fa-server"></i></div><div class="fc-v" id="f-model">--</div><div class="fc-l">设备型号</div></div>
+<div class="fc full fpk"><div class="fc-i"><i class="fas fa-bolt"></i></div><div class="fc-v" id="f-cpu">--</div><div class="fc-l">处理器</div></div>
+<div class="fc fo"><div class="fc-i"><i class="fas fa-cube"></i></div><div class="fc-v" id="f-cores">--</div><div class="fc-l">核心数</div></div>
+<div class="fc fg"><div class="fc-i"><i class="fas fa-memory"></i></div><div class="fc-v" id="f-mem">--</div><div class="fc-l">内存容量</div></div>
+<div class="fc fo"><div class="fc-i"><i class="fas fa-hdd"></i></div><div class="fc-v" id="f-stor">--</div><div class="fc-l">存储空间</div></div>
+<div class="fc fcy"><div class="fc-i"><i class="fas fa-terminal"></i></div><div class="fc-v" id="f-kernel">--</div><div class="fc-l">内核版本</div></div>
+<div class="fc fcy"><div class="fc-i"><i class="fas fa-tag"></i></div><div class="fc-v" id="f-host">--</div><div class="fc-l">主机名</div></div>
+</div>
+<div class="feat" id="wifi-wrap">
+<div class="fc fb"><div class="fc-i"><i class="fas fa-wifi"></i></div><div class="fc-v" id="f-wifi24">--</div><div class="fc-l">2.4G 无线网络</div></div>
+<div class="fc fp"><div class="fc-i"><i class="fas fa-wifi"></i></div><div class="fc-v" id="f-wifi5">--</div><div class="fc-l">5G 无线网络</div></div>
+</div>
+
+<!-- Network -->
+<div class="cd">
+<div class="cd-t"><i class="fas fa-network-wired"></i> 网络通道</div>
+<div class="chs">
+<div class="ch"><div class="ch-ic w"><i class="fas fa-ethernet"></i></div><div><div class="ch-n">有线联网</div><div class="ch-s off" id="ch-w">--</div></div><div class="ch-d off" id="ch-w-d"></div></div>
+<div class="ch"><div class="ch-ic c"><i class="fas fa-satellite-dish"></i></div><div><div class="ch-n">蜂窝联网</div><div class="ch-s off" id="ch-c">--</div></div><div class="ch-d off" id="ch-c-d"></div></div>
+</div>
+<div class="ir"><span class="ik">当前网关</span><span class="iv" id="gw-v">--</span></div>
+<div class="ir"><span class="ik">物理接口</span><span class="iv" id="if-v">--</span></div>
+</div>
+
+<!-- Fan -->
+<% if dev_model ~= "C5800-688" and dev_model ~= "NBCPE-688" then %>
+<div class="fan-card" id="fan-card">
+<div class="fan-wind" id="fan-wind"></div>
+<div class="fan-wave"></div>
+<div class="fan-streaks" id="fan-streaks"></div>
+<div class="fan-top">
+<div class="fan-visual">
+<svg class="fan-svg" id="fan-svg" viewBox="0 0 100 100">
+<circle cx="50" cy="50" r="6" fill="var(--t2)"/>
+<path d="M50 44 C50 32,60 22,68 28 C76 34,68 44,56 46 Z" fill="#22d3ee" opacity="0.8"/>
+<path d="M56 50 C68 50,78 60,72 68 C66 76,56 68,54 56 Z" fill="#22d3ee" opacity="0.8"/>
+<path d="M50 56 C50 68,40 78,32 72 C24 66,32 56,44 54 Z" fill="#22d3ee" opacity="0.8"/>
+<path d="M44 50 C32 50,22 40,28 32 C34 24,44 32,46 44 Z" fill="#22d3ee" opacity="0.8"/>
+</svg>
+<div class="fan-ring-wrap"><svg viewBox="0 0 100 100"><circle class="fsr-bg" cx="50" cy="50" r="46"/><circle class="fsr-fg" id="fan-ring-fg" cx="50" cy="50" r="46" stroke-dasharray="289" stroke-dashoffset="289" stroke="#22d3ee"/></svg></div>
+</div>
+<div class="fan-meta">
+<div class="fm-title"><i class="fas fa-fan"></i> PWM 散热风扇</div>
+<div class="fm-sub">实时转速监控与智能温控</div>
+</div>
+</div>
+<div class="fan-stats">
+<div class="fan-stat"><div class="fs-v" id="fan-pct">0%</div><div class="fs-l">转速</div></div>
+<div class="fan-stat"><div class="fs-v" id="fan-temp">--</div><div class="fs-l">温度</div></div>
+<div class="fan-stat"><div class="fs-v" id="fan-mode">--</div><div class="fs-l">模式</div></div>
+<div class="fan-stat"><div class="fs-v" id="fan-pwm">--</div><div class="fs-l">PWM</div></div>
+</div>
+<div class="fan-ctrl">
+<button class="fc-btn" id="fc-smart" onclick="fanSet('fanst4','智能')"><i class="fas fa-brain"></i> 智能</button>
+<button class="fc-btn" id="fc-low" onclick="fanSet('fanstop','低速')"><i class="fas fa-wind"></i> 低速</button>
+<button class="fc-btn" id="fc-mid" onclick="fanSet('fanst1','中速')"><i class="fas fa-wind"></i> 中速</button>
+<button class="fc-btn" id="fc-high" onclick="fanSet('fanst2','高速')"><i class="fas fa-wind"></i> 高速</button>
+<button class="fc-btn" id="fc-max" onclick="fanSet('fanst3','全速')"><i class="fas fa-bolt"></i> 全速</button>
+<button class="fc-btn" id="fc-free" onclick="fanFree()"><i class="fas fa-sliders-h"></i> 无极</button>
+<a class="fc-btn fc-link" href="/cgi-bin/luci/admin/status/fancontrol"><i class="fas fa-cog"></i> 高级</a>
+</div>
+<div class="fan-slider" id="fan-slider-wrap" style="display:none">
+<label><i class="fas fa-wind"></i> 无极调速</label>
+<div class="slider-track"><input type="range" min="0" max="255" value="128" id="fan-range" oninput="document.getElementById('fan-range-val').textContent=this.value" onchange="fanSlider(this.value)"></div>
+<span class="fs-val" id="fan-range-val">128</span>
+</div>
+</div>
+
+<% end %>
+<% if screen_ok then %>
+<!-- Screen Control -->
+<div class="scr-card" id="scr-card">
+<div class="scr-top">
+<div class="scr-icon"><i class="fas fa-tv"></i><span class="scr-pulse"></span></div>
+<div class="scr-meta">
+<div class="sm-title">屏幕控制</div>
+<div class="sm-sub">NV3007 · 428×142 · RGB565</div>
+</div>
+</div>
+<div class="scr-stats">
+<div class="scr-stat"><div class="ss-v" id="scr-mode">Mwrt面板</div><div class="ss-l">当前模式</div></div>
+<div class="scr-stat"><div class="ss-v" id="scr-bright">72%</div><div class="ss-l">亮度</div></div>
+<div class="scr-stat"><div class="ss-v" id="scr-status">运行中</div><div class="ss-l">状态</div></div>
+</div>
+<div class="scr-ctrl">
+<button class="sc-btn" id="sc-mwrt" onclick="scrSet(5,'Mwrt面板')"><i class="fas fa-tachometer-alt"></i> 面板</button>
+<button class="sc-btn" id="sc-text" onclick="scrSet(6,'文本显示')"><i class="fas fa-font"></i> 文本</button>
+<button class="sc-btn" id="sc-api" onclick="scrSet(7,'API模式')"><i class="fas fa-code"></i> API</button>
+<button class="sc-btn" id="sc-media" onclick="scrSet(8,'图片视频')"><i class="fas fa-image"></i> 媒体</button>
+<button class="sc-btn" id="sc-cell" onclick="scrSet(9,'蜂窝信息')"><i class="fas fa-signal"></i> 蜂窝</button>
+<a class="sc-btn" href="/cgi-bin/luci/admin/system/display"><i class="fas fa-sliders-h"></i> 高级</a>
+</div>
+<div class="scr-slider" id="scr-slider-wrap">
+<label><i class="fas fa-sun"></i> 亮度</label>
+<div class="slider-track"><input type="range" min="0" max="100" value="72" id="scr-range" oninput="document.getElementById('scr-bright').textContent=this.value+'%'" onchange="scrBright(this.value)"></div>
+<span class="fs-val" id="scr-range-val">72%</span>
+</div>
+</div>
+
+<% end %>
+
+<!-- WAN - mixed card + row style -->
+<div class="cd">
+<div class="cd-t"><i class="fas fa-globe"></i> 广域网</div>
+<div class="chs">
+<div class="ch"><div class="ch-ic" style="background:linear-gradient(135deg,#6366f1,#7c5cfc)"><i class="fas fa-plug"></i></div><div><div class="ch-n">连接状态</div><div class="ch-s on" id="f-wan">--</div></div><div class="ch-d off" id="f-wan-d"></div></div>
+<div class="ch"><div class="ch-ic" style="background:linear-gradient(135deg,#ec4899,#be185d)"><i class="fas fa-map-marker-alt"></i></div><div><div class="ch-n">公网地址</div><div class="ch-s" id="f-wanip" style="color:var(--t1)">--</div></div></div>
+</div>
+<div class="ir"><span class="ik">接入协议</span><span class="iv" id="f-proto">--</span></div>
+<div class="ir"><span class="ik">在线时长</span><span class="iv" id="f-wtime">--</span></div>
+<div class="ir"><span class="ik">默认网关</span><span class="iv" id="f-gw">--</span></div>
+<div class="ir"><span class="ik">局域网地址</span><span class="iv" id="f-lan">--</span></div>
+<div class="ir"><span class="ik">DNS 服务器</span><span class="iv" id="f-dns" style="font-size:10px">--</span></div>
+<div class="ir"><span class="ik">WAN 接口</span><span class="iv" id="f-wdev">--</span></div>
+</div>
+
+<!-- Traffic stats removed, now in chart card -->
+
+<div id="mrt-sec"></div>
+<div class="toast" id="mrt-toast"></div>
+</div>
+<%+footer%>

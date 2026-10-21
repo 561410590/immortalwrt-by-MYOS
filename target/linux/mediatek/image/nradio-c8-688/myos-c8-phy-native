@@ -1,0 +1,894 @@
+#!/usr/bin/python3
+"""MYOS adapter for the C8 official AT owner and passive infocd cache."""
+
+import argparse
+import csv
+import fcntl
+import json
+import math
+import os
+import re
+import signal
+import subprocess
+import time
+from pathlib import Path
+
+
+ROOT = Path("/")
+CACHE = Path("/tmp/myos-cellular.json")
+DATA_DEVICE = "eth1"
+DATA_CID = 8
+SIM_MAP = {1: {"sel0": 0, "sel1": 1, "usim": 1},
+           2: {"sel0": 1, "sel1": 1, "usim": 1},
+           3: {"sel0": 1, "sel1": 1, "usim": 2}}
+SIM_LABELS = {1: "SIM 1", 2: "SIM 2", 3: "内置卡"}
+GPIO_OFFSETS = {"sel0": 29, "sel1": 30}
+POLICIES = {"0": "locked", "1": "smart", "2": "none"}
+BANDS = {"nr": {1, 3, 5, 8, 28, 41, 78, 79},
+         "lte": {1, 3, 5, 8, 34, 38, 39, 40, 41}}
+
+
+def read(relative, maximum=262144):
+    try:
+        return (ROOT / relative.lstrip("/")).read_text(encoding="utf-8")[:maximum]
+    except (OSError, UnicodeError):
+        return ""
+
+
+def read_json(relative):
+    try:
+        value = json.loads(read(relative))
+        return value if isinstance(value, dict) else {}
+    except ValueError:
+        return {}
+
+
+def run(*args, timeout=10):
+    result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8",
+                            errors="replace", timeout=timeout, check=False)
+    if result.returncode:
+        raise RuntimeError("Command failed: " + args[0])
+    return result.stdout.strip()
+
+
+def uci(key, default=""):
+    try:
+        return run("uci", "-q", "get", key, timeout=2) or default
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        return default
+
+
+def set_uci(key, value):
+    run("uci", "-q", "set", key + "=" + str(value), timeout=2)
+
+
+def ubus(obj, method, data=None):
+    try:
+        value = json.loads(run("ubus", "call", obj, method, json.dumps(data or {}), timeout=3))
+        return value if isinstance(value, dict) else {}
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
+        return {}
+
+
+def number(value):
+    try:
+        value = float(value)
+        return value if math.isfinite(value) and value not in (-999, 255, -32768) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def identified(parameter):
+    model = str(parameter.get("manuproduct", "")).upper()
+    return (parameter.get("hwid") == "3466:3301" and parameter.get("alias") == "mt5700"
+            and parameter.get("vendor") == "tdtech" and "MT5700M-CN" in model)
+
+
+def network_snapshot(network):
+    candidates = [i for i in network.get("interface", []) if i.get("interface") in ("cpe", "cpe_4", "cpe_6")
+                  and (i.get("l3_device") or i.get("device") or "").split(".", 1)[0] == DATA_DEVICE]
+    ipv4, ipv6, dns = [], [], []
+    routed = False
+    for item in candidates:
+        if item.get("up") is not True:
+            continue
+        ipv4.extend(a.get("address", "") for a in item.get("ipv4-address", []) if a.get("address"))
+        ipv6.extend(a.get("address", "") for a in item.get("ipv6-address", []) if a.get("address"))
+        dns.extend(item.get("dns-server", []))
+        routed = routed or any(r.get("target") in ("0.0.0.0", "::") and str(r.get("mask")) == "0"
+                               for r in item.get("route", []))
+    return {"device": DATA_DEVICE, "ipv4": ipv4, "ipv6": ipv6, "dns": list(dict.fromkeys(dns)),
+            "default_route": routed, "online": bool((ipv4 or ipv6) and routed), "interfaces": candidates}
+
+
+def build_status(raw, device, reg, network, age, settings=None):
+    entry = next((i for i in raw.get("result", []) if isinstance(i, dict)
+                  and isinstance(i.get("status"), dict) and i["status"].get("name") == "cpe"), {})
+    status = entry.get("status", {})
+    parameter = device.get("parameter", {})
+    supported = identified(parameter)
+    fresh = age is not None and 0 <= age <= 90 and bool(status)
+    registered = (reg.get("STAT") == "register") if fresh and reg.get("STAT") else None
+    link = network_snapshot(network)
+    connected = registered is True and link["online"] if fresh else None
+    signal = {key: number(status.get(key)) for key in ("rsrp", "rsrq", "sinr", "rssi")}
+    rsrp = signal["rsrp"]
+    level = 0 if rsrp is None else 4 if rsrp >= -85 else 3 if rsrp >= -95 else 2 if rsrp >= -105 else 1
+    signal["percent"] = None if rsrp is None else min(100, max(0, round((rsrp + 120) * 100 / 60)))
+    simno = str(physical_slot() or "")
+    sim_ready = reg.get("SIM") == "ready" if fresh and reg.get("SIM") else None
+    mode = str(status.get("mode") or reg.get("MODE") or "")
+    isp = str(status.get("isp") or "")
+    return {"schema": 1, "sampled_at": int(time.time()), "cache_age": age, "stale": not fresh,
+            "source": "official infocd cache and netifd", "registered": registered,
+            "data_connected": connected, "signal_level": level if fresh else 0, "rat": mode,
+            "modem": {"supported": supported, "model": status.get("model") or parameter.get("manuproduct", ""),
+                      "manufacturer": parameter.get("manufacturer", ""), "revision": status.get("revision", ""),
+                      "imei": status.get("imei", ""), "imsi": status.get("imsi", ""),
+                      "iccid": status.get("iccid", ""), "temperature": number(status.get("model_temp")),
+                      "endpoint": parameter.get("control", ""), "hwid": parameter.get("hwid", "")},
+            "sim": {"slot": simno, "label": SIM_LABELS.get(int(simno), "") if simno else "", "ready": sim_ready,
+                    "slot_source": "selector GPIO and modem USIM readback" if simno else "unknown; selectors or USIM unreadable",
+                    "configured_slot": str((settings or {}).get("slot", "")),
+                    "status": "READY" if sim_ready else str(status.get("CPIN", "")), "count": len(SIM_MAP)},
+            "registration": {"registered": registered, "rat": mode, "status": reg.get("STAT", "")},
+            "signal": signal, "network": link, "operator": status.get("isp_company", ""),
+            "session": {"connected": connected, "apn": status.get("apn", ""), "cid": DATA_CID},
+            "cell": {"mode": mode, "mcc": isp[:3], "mnc": isp[3:], "band": status.get("band", ""),
+                     "cell": status.get("cell", ""), "pci": status.get("pci", ""),
+                     "tac": status.get("tac", ""), "arfcn": status.get("earfcn", ""), "carriers": []},
+            "native_status": status, "settings": settings or {},
+            "error": "" if supported else "Unsupported or unidentified modem; controls disabled"}
+
+
+def settings():
+    physical = physical_slot()
+    slot = str(physical or uci("cpesel.sim.cur", "1"))
+    slot = slot if slot in ("1", "2", "3") else "1"
+    section = "cpecfg.cpesim" + slot
+    policy = uci(section + ".mobility", "2")
+    freq = uci(section + ".freq") if uci(section + ".custom_freq") == "1" else ""
+    groups = dict(item.split("-", 1) for item in freq.split(",") if "-" in item)
+    return {"slot": slot, "policy": policy if policy in POLICIES else "2",
+            "configuration_only": True, "application_state": "unknown_physical_slot" if physical is None else "not_sampled",
+            "mode": uci(section + ".mode", "auto"),
+            "ip_passthrough": uci("network.cpe.ippass", "1") == "1" and uci(section + ".ippass", "1") == "1",
+            "nr_bands": groups.get("nr", groups.get("sa", "")), "lte_bands": groups.get("lte", "")}
+
+
+def sample():
+    path = ROOT / "tmp/infocd/cache/cpestatus"
+    try:
+        before = path.stat()
+        raw = read_json("/tmp/infocd/cache/cpestatus")
+        after = path.stat()
+        age = max(0, int(time.time() - after.st_mtime)) if (before.st_size, before.st_mtime_ns) == (after.st_size, after.st_mtime_ns) else None
+    except OSError:
+        raw, age = {}, None
+    result = build_status(raw, read_json("/tmp/infocd/cache/cpe_dev"), ubus("infocd", "cpeinfo", {"name": "cpe"}),
+                        ubus("network.interface", "dump"), age, settings())
+    if result["modem"]["supported"]:
+        metadata = modem_metadata(result["modem"]["endpoint"])
+        for key in ("model", "manufacturer", "revision", "imei"):
+            if not result["modem"].get(key) and metadata.get(key):
+                result["modem"][key] = metadata[key]
+        telemetry = modem_telemetry(result["modem"]["endpoint"], result["sim"]["slot"])
+        result["passthrough"] = passthrough_status(telemetry, result["network"], result["settings"])
+        result["signal"].update(telemetry.get("signal", {}))
+        result["cell"].update(telemetry.get("cell", {}))
+        for key in ("iccid", "imsi", "temperature"):
+            if key in telemetry:
+                result["modem"][key] = telemetry[key]
+        if telemetry.get("operator"):
+            result["operator"] = telemetry["operator"]
+        if telemetry.get("cell", {}).get("mode"):
+            result["rat"] = telemetry["cell"]["mode"]
+        rsrp = result["signal"]["rsrp"]
+        result["signal_level"] = 0 if rsrp is None else 4 if rsrp >= -85 else 3 if rsrp >= -95 else 2 if rsrp >= -105 else 1
+        result["signal"]["percent"] = None if rsrp is None else min(100, max(0, round((rsrp + 120) * 100 / 60)))
+        result["source"] = "MT5700 queries through official atsd owner and netifd"
+        sim = sim_status()
+        if sim:
+            result["sim"].update(sim)
+            result["native_status"]["CPIN"] = sim["status"]
+            if sim["status"] == "NOT_INSERTED":
+                result["registered"] = result["data_connected"] = False
+                result["registration"].update(registered=False, status="未检测到 SIM")
+                result["session"]["connected"] = False
+                result["error"] = "模组未检测到 SIM；请在模组设置中明确选择已插卡的卡槽"
+        ready = Path("/var/run/cellular_init/cpe")
+        ready.mkdir(parents=True, exist_ok=True)
+        (ready / "ready").touch()
+    return result
+
+
+def modem_metadata(endpoint):
+    path = Path("/tmp/myos-c8-device.json")
+    cached = read_json(str(path))
+    if cached.get("endpoint") == endpoint and cached.get("complete"):
+        return cached
+    if cached.get("endpoint") == endpoint and time.time() - cached.get("sampled_at", 0) < 60:
+        return cached
+    metadata = {"endpoint": endpoint, "sampled_at": int(time.time()), "complete": False}
+    try:
+        identity = at("ATI")
+        for key, label in (("model", "Model"), ("manufacturer", "Manufacturer"), ("revision", "Revision")):
+            match = re.search(r"(?im)^\s*" + label + r":\s*([^\r\n]+)", identity)
+            if match:
+                metadata[key] = match.group(1).strip()
+        if not metadata.get("revision"):
+            revision = at("AT+CGMR").replace("\r", "").splitlines()
+            metadata["revision"] = next((s.strip() for s in revision if s.strip() and s.strip() not in ("AT+CGMR", "OK")), "")
+        imei = re.search(r"(?m)^\s*(\d{15})\s*$", at("AT+CGSN").replace("\r", ""))
+        if imei:
+            metadata["imei"] = imei.group(1)
+        metadata["complete"] = bool(metadata.get("revision") and metadata.get("imei"))
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        pass
+    pending = path.with_suffix(".new")
+    pending.write_text(json.dumps(metadata), encoding="utf-8")
+    pending.replace(path)
+    return metadata
+
+
+def parse_telemetry(responses):
+    result = {"signal": {}, "cell": {}}
+    rows = at_rows(responses.get("AT^MONSC", ""), "^MONSC")
+    # MONSC reports physical values; HCSQ reports encoded bins, including 256
+    # for SINR on this firmware. Never treat those bins as dB readings.
+    row = next((r for r in rows if r and r[0] == "NR"), rows[0] if rows else [])
+    if row and row[0] in ("NR", "LTE") and len(row) >= (11 if row[0] == "NR" else 10):
+        nr = row[0] == "NR"
+        offset = 1 if nr else 0
+        cell = result["cell"]
+        cell.update(mode=row[0], mcc=row[1], mnc=row[2].zfill(2), arfcn=row[3],
+                    cell=row[4 + offset], tac=row[6 + offset])
+        if re.fullmatch(r"[0-9A-Fa-f]+", row[5 + offset]):
+            pci = int(row[5 + offset], 16)
+            if 0 <= pci <= (1007 if nr else 503):
+                cell["pci"] = str(pci)
+        for key, index, low, high in (("rsrp", 7 + offset, -156 if nr else -140, -31 if nr else -44),
+                                       ("rsrq", 8 + offset, -43 if nr else -19.5, 20 if nr else -3),
+                                       ("sinr" if nr else "rssi", 9 + offset, -23 if nr else -90, 40 if nr else -25)):
+            value = number(row[index])
+            if value is not None and low <= value <= high:
+                result["signal"][key] = value
+    carriers = []
+    for row in at_rows(responses.get("AT^HFREQINFO?", ""), "^HFREQINFO"):
+        if len(row) < 9 or row[1] not in ("6", "7"):
+            continue
+        prefix = "n" if row[1] == "7" else "B"
+        for i in range(2, len(row) - 6, 7):
+            if not row[i].isdigit() or not row[i + 1].isdigit():
+                continue
+            bandwidth = number(row[i + 3])
+            if bandwidth is None or bandwidth <= 0:
+                continue
+            carriers.append({"band": prefix + row[i], "arfcn": row[i + 1], "bandwidth_mhz": bandwidth / 1000})
+    if carriers:
+        nr_carriers = [c for c in carriers if c["band"].startswith("n")]
+        primary = (nr_carriers or carriers)[0]
+        result["cell"].update(band=primary["band"],
+            carriers=[c["band"] + " (" + format(c["bandwidth_mhz"], "g") + " MHz)" for c in carriers],
+            carrier_details=carriers)
+    for row in at_rows(responses.get("AT+COPS?", ""), "+COPS"):
+        if len(row) >= 3 and row[1] in ("0", "1") and row[2]:
+            result["operator"] = {"CHN-UNICOM": "中国联通"}.get(row[2], row[2])
+            break
+    for command, key, pattern in (("AT+CIMI", "imsi", r"(?m)^\s*(\d{14,16})\s*$"),
+                                   ("AT^ICCID?", "iccid", r"\^ICCID:\s*(\d{19,20})")):
+        match = re.search(pattern, responses.get(command, "").replace("\r", ""))
+        if match:
+            result[key] = match.group(1)
+    rows = at_rows(responses.get("AT^CHIPTEMP?", ""), "^CHIPTEMP")
+    if rows and len(rows[0]) >= 8:
+        value = number(rows[0][7])
+        if value is not None and -400 <= value <= 1500:
+            result["temperature"] = value / 10  # MT5700 sensor, official helper field 8.
+    return result
+
+
+def modem_telemetry(endpoint, slot):
+    path = Path("/tmp/myos-c8-radio.json")
+    cached = read_json(str(path))
+    if cached.get("endpoint") == endpoint and cached.get("slot") == slot and 0 <= time.time() - cached.get("sampled_at", 0) < 15:
+        return cached
+    responses = {}
+    for command in ("AT^MONSC", "AT^HFREQINFO?", "AT+COPS?", "AT+CIMI", "AT^ICCID?", "AT^CHIPTEMP?",
+                    "AT^TDCFG?", "AT+CGPADDR=8"):
+        try:
+            responses[command] = at(command, timeout=3)
+        except (OSError, RuntimeError, subprocess.TimeoutExpired):
+            continue
+    result = parse_telemetry(responses)
+    result["passthrough"] = parse_ethernet_state(responses)
+    result.update(endpoint=endpoint, slot=slot, sampled_at=int(time.time()))
+    pending = path.with_suffix(".new")
+    pending.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+    pending.replace(path)
+    return result
+
+
+def publish(data):
+    encoded = json.dumps(data, ensure_ascii=False, allow_nan=False)
+    for target in (CACHE, Path("/tmp/myos-c8-modem.json")):
+        pending = target.with_suffix(".new")
+        pending.write_text(encoded, encoding="utf-8")
+        pending.replace(target)
+
+
+def require_modem():
+    if not identified(read_json("/tmp/infocd/cache/cpe_dev").get("parameter", {})):
+        raise RuntimeError("Unsupported or unidentified modem")
+    device = ROOT / "sys/class/net" / DATA_DEVICE
+    if (device / "device/driver").resolve().name != "mtk_soc_eth":
+        raise RuntimeError("MT5700 Ethernet data interface is not ready")
+    phy = device / "phydev"
+    if not phy.exists() or phy.resolve().name != "mdio-bus:15":
+        raise RuntimeError("C8 eth1 is missing its GPY211B PHY binding")
+    if int((phy / "phy_id").read_text().strip(), 16) != 0x67C9DE0A:
+        raise RuntimeError("Unexpected C8 Ethernet PHY")
+
+
+def at_response(command, timeout=12):
+    return run("/usr/sbin/atsd_cli", "-i", "cpe", "-c", command, "-w", str(timeout * 1000), timeout=timeout + 3)
+
+
+def sim_status():
+    try:
+        response = at_response("AT+CPIN?", timeout=3).replace("\r", "")
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        return {}
+    pin = re.search(r"(?m)^\s*\+CPIN:\s*([^\n]+)", response)
+    if pin and re.search(r"(?m)^\s*OK\s*$", response):
+        status = pin.group(1).strip()
+        return {"ready": status == "READY", "status": status}
+    if re.search(r"(?mi)^\s*\+CME ERROR:\s*(?:10|SIM not inserted)\s*$", response):
+        return {"ready": False, "status": "NOT_INSERTED"}
+    return {}
+
+
+def at(command, timeout=12):
+    response = at_response(command, timeout)
+    normalized = response.replace("\r", "")
+    if not re.search(r"(?m)^\s*OK\s*$", normalized) or re.search(r"(?m)^\s*(?:ERROR|\+CME ERROR|\+CMS ERROR)", normalized):
+        raise RuntimeError("Official AT owner rejected command")
+    return response
+
+
+def at_rows(text, prefix):
+    return [next(csv.reader([line.split(":", 1)[1].strip()], skipinitialspace=True))
+            for line in text.replace("\r", "").splitlines() if line.strip().startswith(prefix + ":")]
+
+
+def session_state(text):
+    rows = at_rows(text, "^NDISSTATQRY")
+    for row in rows:
+        # A CID-scoped response may omit the CID and start with the state flag.
+        if len(row) > 4 and row[4].upper() in ("IPV4", "IPV6"):
+            if row[0] != str(DATA_CID):
+                continue
+            offset = 1
+        elif len(row) > 3 and row[3].upper() in ("IPV4", "IPV6"):
+            offset = 0
+        else:
+            continue
+        if len(row) <= offset or row[offset] not in ("0", "1"):
+            continue
+        flags = [row[n] for n in (offset, offset + 4)
+                 if len(row) > n + 3 and row[n] in ("0", "1") and row[n + 3].upper() in ("IPV4", "IPV6")]
+        return any(v == "1" for v in flags) if flags else None
+    return None
+
+
+def reconnect():
+    require_modem()
+    at(f"AT^NDISDUP={DATA_CID},0")
+    time.sleep(1)
+    at(f"AT^NDISDUP={DATA_CID},1")
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if session_state(at(f"AT^NDISSTATQRY={DATA_CID}")) is True:
+            return {"ok": True, "cid": DATA_CID}
+        time.sleep(2)
+    raise RuntimeError("Data session did not reconnect; SIM and RF state were not changed")
+
+
+def wait_session(connected, timeout=30):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if session_state(at(f"AT^NDISSTATQRY={DATA_CID}")) is connected:
+            return
+        time.sleep(2)
+    raise RuntimeError("CID8 Ethernet data session did not reach the requested state")
+
+
+def profile_row(response, prefix):
+    return next((row for row in at_rows(response, prefix) if row and row[0] == str(DATA_CID)), None)
+
+
+def ethernet_mode_value(response):
+    match = re.search(r"(?mi)^\s*Mode\s*:\s*(\d+)\s*$", response.replace("\r", ""))
+    return int(match.group(1)) if match else None
+
+
+def parse_ethernet_state(responses):
+    carrier = ""
+    row = profile_row(responses.get("AT+CGPADDR=8", ""), "+CGPADDR")
+    for value in row[1:] if row else []:
+        if re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", value) and value != "0.0.0.0" and all(int(n) <= 255 for n in value.split(".")):
+            carrier = value
+            break
+    return {"mode": ethernet_mode_value(responses.get("AT^TDCFG?", "")), "carrier_ipv4": carrier}
+
+
+def passthrough_status(telemetry, network, configuration):
+    fresh = 0 <= time.time() - telemetry.get("sampled_at", 0) <= 30
+    observed = telemetry.get("passthrough", {}) if fresh else {}
+    mode = observed.get("mode")
+    requested = configuration.get("ip_passthrough", True)
+    carrier = observed.get("carrier_ipv4", "")
+    host = network.get("ipv4", [])
+    enabled = mode == 3 if mode in (1, 3) else None
+    verified = carrier in host if enabled is True and carrier and host else False if enabled is False else None
+    return {"requested": requested, "enabled": enabled, "mode": mode, "carrier_ipv4": carrier,
+            "host_ipv4": host, "ipv4_verified": verified, "pending": enabled is not None and enabled != requested,
+            "sampled_at": telemetry.get("sampled_at"), "stale": not fresh or enabled is None}
+
+
+def save_ip_passthrough(request):
+    enabled = request.get("enabled")
+    if type(enabled) is not bool:
+        raise ValueError("Invalid IP passthrough setting")
+    require_modem()
+    slot = physical_slot()
+    if slot not in SIM_MAP:
+        raise RuntimeError("Physical SIM slot is unknown; IP passthrough was not changed")
+    observed = ethernet_mode_value(at("AT^TDCFG?"))
+    if observed not in (1, 3):
+        raise RuntimeError("Cannot read the MT5700 Ethernet mode")
+    section = "cpecfg.cpesim" + str(slot)
+    set_uci(section, "cpesim")
+    set_uci(section + ".ippass", "1" if enabled else "0")
+    set_uci("network.cpe.ippass", "1")
+    run("uci", "commit", "cpecfg")
+    run("uci", "commit", "network")
+    return {"ok": True, "slot": slot, "enabled": enabled, "mode": observed,
+            "restart_required": observed != (3 if enabled else 1), "changed": False}
+
+
+def prepare_ethernet_mode():
+    slot = physical_slot()
+    if slot not in SIM_MAP:
+        raise RuntimeError("Cannot apply Ethernet mode without a verified physical SIM slot")
+    enabled = (uci("network.cpe.ippass", "1") == "1" and uci("network.cpe.forcephy", "1") == "1"
+               and uci("cpecfg.cpesim" + str(slot) + ".ippass", "1") == "1")
+    target = "3" if enabled else "1"
+
+    def current_mode():
+        mode = ethernet_mode_value(at("AT^TDCFG?"))
+        if mode is None:
+            raise RuntimeError("Cannot read MT5700 Ethernet mode")
+        return str(mode)
+
+    observed = current_mode()
+    if observed == target:
+        return {"mode": int(target), "passthrough": enabled, "changed": False}
+    # The official MT5700 preinit maps ippass=1 to Mode 3 and power-cycles
+    # the module after changing it. Never perform that transition on a
+    # configured cellular path: wired management must be established first.
+    if run("ip", "-o", "address", "show", "dev", DATA_DEVICE, "scope", "global"):
+        return {"mode": int(observed), "target_mode": int(target), "passthrough": observed == "3",
+                "changed": False, "deferred": True,
+                "reason": "Modem restart deferred while the cellular interface has a global address"}
+    if not Path("/sys/class/gpio/cpe-pwr/value").is_file():
+        raise RuntimeError("C8 factory modem power control is unavailable")
+    at('AT^TDCFG="infcfg","mode",' + target)
+    if current_mode() != target:
+        raise RuntimeError("MT5700 Ethernet mode readback failed")
+    run("/bin/sh", "/opt/myos-c8-official/share/cpetools.sh", "-i", "cpe", "-r", timeout=35)
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        try:
+            if current_mode() == target and sim_status().get("ready") is True:
+                return {"mode": int(target), "passthrough": enabled, "changed": True}
+        except (OSError, RuntimeError, subprocess.TimeoutExpired):
+            pass
+        time.sleep(2)
+    raise RuntimeError("MT5700 did not become ready after applying Ethernet mode")
+
+
+def netifd_connect(interface, apn="", auth="", username="", password="", pdptype="ipv4v6"):
+    if interface != "cpe":
+        raise ValueError("Only the C8 cpe interface is supported")
+    require_modem()
+    values = (apn, auth, username, password, pdptype)
+    if any(not isinstance(value, str) or len(value) > 128 or re.search(r'[\x00-\x1f\x7f"\\]', value) for value in values):
+        raise ValueError("Invalid CID8 data-profile parameter")
+    if apn and not re.fullmatch(r"[A-Za-z0-9.-]{1,100}", apn):
+        raise ValueError("Invalid APN")
+    types = {"ip": "IP", "ipv6": "IPV6", "ipv4v6": "IPV4V6"}
+    modes = {"": "0", "none": "0", "pap": "1", "chap": "2", "0": "0", "1": "1", "2": "2"}
+    if pdptype not in types or auth not in modes:
+        raise ValueError("Invalid CID8 PDP type or authentication mode")
+    # E5 uses the module's Ethernet autodial profile. Keep its existing APN
+    # when the host has no explicit override; never rewrite USB CID1.
+    def autodial():
+        response = at("AT^SETAUTODIAL?")
+        rows = at_rows(response, "^SETAUTODIAL") or at_rows(response, "^SETAUTODAIL")
+        if not rows or len(rows[-1]) < 2:
+            raise RuntimeError("Malformed Ethernet autodial profile")
+        return rows[-1]
+
+    current = autodial()
+    target = ["1", "2", types[pdptype], apn, username, password, modes[auth]] if apn else None
+    profile_changed = current[:2] != ["1", "2"] or (target is not None and current[:7] != target)
+    if profile_changed:
+        command = "AT^SETAUTODIAL=1,2"
+        if target is not None:
+            command += ',' + ','.join('"' + value + '"' for value in target[2:6]) + ',' + target[6]
+        at(command)
+        confirmed = autodial()
+        if confirmed[:2] != ["1", "2"] or (target is not None and confirmed[:7] != target):
+            raise RuntimeError("Ethernet autodial profile readback failed")
+    if session_state(at(f"AT^NDISSTATQRY={DATA_CID}")) is not True:
+        at(f"AT^NDISDUP={DATA_CID},1")
+        wait_session(True)
+    return {"ok": True, "cid": DATA_CID, "profile_changed": profile_changed, "automatic": True}
+
+
+def netifd_disconnect(interface):
+    if interface != "cpe":
+        raise ValueError("Only the C8 cpe interface is supported")
+    require_modem()
+    # Factory Ethernet autodial owns CID8 independently of host DHCP clients.
+    return {"ok": True, "cid": DATA_CID, "automatic": True}
+
+
+def gpiochip_base():
+    candidates = []
+    for chip in Path("/sys/class/gpio").glob("gpiochip*"):
+        parent = str(chip.resolve())
+        label = (chip / "label").read_text().strip()
+        if "11d00000.pinctrl" in parent and label in ("pinctrl_moore", "mt7981-pinctrl"):
+            candidates.append(int((chip / "base").read_text()))
+    if len(candidates) != 1:
+        raise RuntimeError("Cannot identify the C8 GPIO controller")
+    return candidates[0]
+
+
+def physical_slot():
+    try:
+        base = gpiochip_base()
+        values = {}
+        for name, offset in GPIO_OFFSETS.items():
+            path = Path("/sys/class/gpio/cpe-" + name)
+            if not path.exists():
+                path = Path("/sys/class/gpio/gpio" + str(base + offset))
+            if "11d00000.pinctrl" not in str(path.resolve()):
+                return None
+            if (path / "direction").read_text().strip() != "out":
+                return None
+            values[name] = int((path / "value").read_text().strip())
+        candidates = [slot for slot, mapping in SIM_MAP.items()
+                      if all(mapping[name] == value for name, value in values.items())]
+        if not candidates:
+            return None
+        response = at_response("AT^SCICHG?", timeout=3)
+        rows = at_rows(response, "^SCICHG")
+        if not rows or not re.search(r"(?m)^\s*OK\s*$", response):
+            return None
+        usim = int(rows[-1][0]) + 1
+        return next((slot for slot in candidates if SIM_MAP[slot]["usim"] == usim), None)
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def prepare_factory_gpio():
+    base = gpiochip_base()
+    bridge = Path("/var/run/myos-c8-sim-gpio")
+    bridge.mkdir(parents=True, exist_ok=True)
+    for name, offset in GPIO_OFFSETS.items():
+        named = Path("/sys/class/gpio/cpe-" + name)
+        if named.exists() and "11d00000.pinctrl" in str(named.resolve()):
+            path = named
+        else:
+            path = Path("/sys/class/gpio/gpio" + str(base + offset))
+        if not path.exists():
+            Path("/sys/class/gpio/export").write_text(str(base + offset))
+            deadline = time.monotonic() + 2
+            while not path.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+        if not path.exists():
+            raise RuntimeError("Cannot acquire C8 SIM selector GPIO")
+        if "11d00000.pinctrl" not in str(path.resolve()):
+            raise RuntimeError("C8 SIM selector belongs to another controller")
+        if (path / "direction").read_text().strip() != "out":
+            level = (path / "value").read_text().strip()
+            (path / "direction").write_text("high" if level == "1" else "low")
+        alias = bridge / ("cpe-" + name)
+        if alias.exists() or alias.is_symlink():
+            if not alias.is_symlink() or alias.resolve() != path.resolve():
+                raise RuntimeError("Factory GPIO alias has an unexpected target")
+        else:
+            alias.symlink_to(path)
+    return {"ready": True, "directory": str(bridge)}
+
+
+def configure_slot(slot):
+    # cpetools -s owns GPIO selection, USIM routing and SIM reinitialization.
+    # Its CLI forks; wait for that operation, then verify actual readback.
+    environment = os.environ.copy()
+    environment["MYOS_C8_FACTORY_CHILD"] = "1"
+    process = subprocess.Popen(["/usr/bin/cpetools.sh", "-i", "cpe", "-s", str(slot)],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+                               start_new_session=True, env=environment)
+    try:
+        if process.wait(timeout=10) != 0:
+            raise RuntimeError("Factory cpetools -s failed")
+        pidfile = Path("/var/run/cpe_sim_sel.pid")
+        deadline = time.monotonic() + 90
+        while pidfile.exists():
+            try:
+                child = int(pidfile.read_text().strip())
+                if os.getpgid(child) != process.pid:
+                    raise RuntimeError("Another factory SIM operation is running")
+            except (FileNotFoundError, ProcessLookupError):
+                break
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Factory cpetools -s timed out")
+            time.sleep(0.5)
+        if physical_slot() != slot:
+            raise RuntimeError("Factory SIM selector readback failed")
+        if uci("cpesel.sim.cur") != str(slot):
+            raise RuntimeError("Factory SIM selection was not saved")
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        raise
+
+
+def restore_saved_slot():
+    saved = uci("cpesel.sim.cur", uci("cpesel.sim.default", "1"))
+    if saved not in ("1", "2", "3"):
+        raise RuntimeError("Invalid saved C8 SIM slot")
+    slot = int(saved)
+    current = physical_slot()
+    if current == slot:
+        return {"applied": False, "slot": current}
+    response = at_response("AT^SCICHG?", timeout=3)
+    if not at_rows(response, "^SCICHG") or not re.search(r"(?m)^\s*OK\s*$", response):
+        raise RuntimeError("Cannot read modem USIM route; saved SIM selection retained")
+    configure_slot(slot)
+    return {"applied": True, "slot": slot, "gpio_verified": True}
+
+
+def select_sim(request, action_lock=None):
+    if request.get("origin") != "module_settings":
+        raise RuntimeError("SIM changes require an explicit module-settings action")
+    slot = request.get("slot")
+    if type(slot) is not int or slot not in SIM_MAP:
+        raise ValueError("Invalid C8 SIM slot")
+    require_modem()
+    try:
+        configure_slot(slot)
+    except RuntimeError as error:
+        selected = physical_slot() == slot and uci("cpesel.sim.cur") == str(slot)
+        return {"ok": False, "slot": slot, "label": SIM_LABELS[slot], "gpio_verified": selected,
+                "selection_saved": selected, "sim_ready": sim_status().get("ready"),
+                "error": SIM_LABELS[slot] + ": " + str(error)}
+    if action_lock is not None:
+        # Factory ifup needs netifd-prepare to acquire this lock for addressing.
+        fcntl.flock(action_lock, fcntl.LOCK_UN)
+    deadline = time.monotonic() + 60
+    restored = False
+    ready = {}
+    while time.monotonic() < deadline:
+        ready = sim_status()
+        if ready.get("ready") is not True:
+            time.sleep(2)
+            continue
+        reg = ubus("infocd", "cpeinfo", {"name": "cpe"})
+        if reg.get("STAT") != "register":
+            time.sleep(2)
+            continue
+        if not restored:
+            try:
+                netifd_connect("cpe")
+            except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
+                return {"ok": False, "slot": slot, "label": SIM_LABELS[slot], "gpio_verified": True,
+                        "error": "SIM selector verified; data recovery failed: " + str(error)}
+            restored = True
+        connected = session_state(at(f"AT^NDISSTATQRY={DATA_CID}"))
+        if connected is True and network_snapshot(ubus("network.interface", "dump"))["online"]:
+            return {"ok": True, "slot": slot, "label": SIM_LABELS[slot], "gpio_verified": True,
+                    "selection_saved": True, "sim_ready": True, "registered": True, "data_connected": True}
+        time.sleep(2)
+    error = ("Card is not ready: " + ready.get("status", "no valid CPIN response")
+             if ready.get("ready") is not True else "Registration/data recovery timed out")
+    return {"ok": False, "slot": slot, "label": SIM_LABELS[slot], "gpio_verified": True,
+            "selection_saved": True, "sim_ready": ready.get("ready"),
+            "error": SIM_LABELS[slot] + " selected and saved; " + error}
+
+
+def band_list(value, radio):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9: ]*", value):
+        raise ValueError("Invalid band list")
+    bands = sorted({int(n) for n in re.split(r"[: ]+", value.strip()) if n})
+    if any(n not in BANDS[radio] for n in bands):
+        raise ValueError("Band is not supported by this C8 modem profile")
+    return bands
+
+
+def lock_value(text, radio):
+    prefix = "^" + radio.upper() + "FREQLOCK"
+    rows = at_rows(text, prefix)
+    if not rows:
+        raise RuntimeError("Cannot read frequency-lock state")
+    first = rows[-1]
+    if first == ["0"]:
+        return ["0"]
+    if len(first) > 1:
+        return first
+    tail = text.split(prefix + ":", 1)[1].replace("\r", "").splitlines()[1:]
+    tail = [line.strip() for line in tail if line.strip() and line.strip() != "OK"]
+    if len(tail) < 2:
+        raise RuntimeError("Incomplete frequency-lock state")
+    header = next(csv.reader([tail[0]], skipinitialspace=True))
+    bands = [next(csv.reader([line], skipinitialspace=True))[0] for line in tail[1:]]
+    return first + header + [",".join(bands)]
+
+
+def desired_lock(policy, bands):
+    if policy == "2":
+        return ["0"]
+    if not bands:
+        raise ValueError("Choose at least one band for smart or locked policy")
+    return ["3", "1" if policy == "1" else "0", str(len(bands)), ",".join(map(str, bands))]
+
+
+def apply_settings(request, save=True):
+    require_modem()
+    slot = physical_slot()
+    if slot not in SIM_MAP:
+        raise RuntimeError("Physical SIM slot is unknown; select a SIM explicitly before saving radio settings")
+    policy, mode = str(request.get("policy", "2")), request.get("mode", "auto")
+    if policy not in POLICIES or mode not in ("auto", "lte", "sa_only", "nsa"):
+        raise ValueError("Invalid radio policy or network mode")
+    bands = {radio: band_list(request.get(radio + "_bands", ""), radio) for radio in BANDS}
+    if policy != "2":
+        for radio in bands:
+            if not bands[radio]:
+                bands[radio] = sorted(BANDS[radio])
+    expected = {radio: desired_lock(policy, bands[radio]) for radio in BANDS}
+    observed = {radio: lock_value(at("AT^" + radio.upper() + "FREQLOCK?"), radio) for radio in BANDS}
+    changed = any(observed[radio] != expected[radio] for radio in BANDS)
+    current = at_rows(at("AT^SYSCFGEX?"), "^SYSCFGEX")
+    if not current or len(current[-1]) < 5:
+        raise RuntimeError("Cannot read modem network mode")
+    fields = current[-1]
+    option = at_rows(at("AT^C5GOPTION?"), "^C5GOPTION")
+    if not option or len(option[-1]) != 3:
+        raise RuntimeError("Cannot read modem SA/NSA capability policy")
+    desired_option = ["0", "1", "0"] if mode == "nsa" else ["1", "1", "1"]
+    rf = at_rows(at("AT+CFUN?"), "+CFUN")
+    if not rf or rf[-1][0] != "1":
+        raise RuntimeError("Modem RF is not ready for frequency-policy changes")
+    order = {"auto": "080302", "lte": "03", "sa_only": "08", "nsa": "080302"}[mode]
+    if fields[0] != order:
+        at('AT^SYSCFGEX="' + order + '",' + ",".join(fields[1:5]) + ",,")
+        changed = True
+    if mode != "lte" and option[-1] != desired_option:
+        at("AT^C5GOPTION=" + ",".join(desired_option))
+        changed = True
+    if changed:
+        for radio, target in expected.items():
+            if observed[radio] != target:
+                parameters = ",".join(target[:3]) + (',"' + target[3] + '"' if len(target) > 3 else "")
+                at("AT^" + radio.upper() + "FREQLOCK=" + parameters)
+                if lock_value(at("AT^" + radio.upper() + "FREQLOCK?"), radio) != target:
+                    raise RuntimeError("Frequency-lock write readback failed")
+        # MT5700 manual requires lock writes while RF is on, then one off/on cycle.
+        try:
+            at("AT+CFUN=0")
+        finally:
+            at("AT+CFUN=1")
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            rf = at_rows(at("AT+CFUN?"), "+CFUN")
+            if rf and rf[-1][0] == "1":
+                break
+            time.sleep(1)
+        else:
+            raise RuntimeError("Modem RF did not become ready after applying policy")
+    for radio, target in expected.items():
+        if lock_value(at("AT^" + radio.upper() + "FREQLOCK?"), radio) != target:
+            raise RuntimeError("Frequency-lock readback failed")
+    confirmed = at_rows(at("AT^SYSCFGEX?"), "^SYSCFGEX")
+    if not confirmed or confirmed[-1][0] != order:
+        raise RuntimeError("Network-mode readback failed")
+    if mode != "lte":
+        confirmed_option = at_rows(at("AT^C5GOPTION?"), "^C5GOPTION")
+        if not confirmed_option or confirmed_option[-1] != desired_option:
+            raise RuntimeError("SA/NSA capability-policy readback failed")
+    if save:
+        section = "cpecfg.cpesim" + str(slot)
+        set_uci(section, "cpesim")
+        for key, value in {"mobility": policy, "mode": mode, "custom_freq": "1",
+                           "freq": ",".join(r + "-" + ":".join(map(str, bands[r])) for r in BANDS)}.items():
+            set_uci(section + "." + key, value)
+        run("uci", "commit", "cpecfg")
+    return {"ok": True, "policy": policy, "changed": changed}
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("command", choices=("run", "once", "status", "request", "apply-saved", "prepare-sim-gpio",
+                                            "netifd-prepare", "netifd-connect", "netifd-disconnect"))
+    parser.add_argument("payload", nargs="?")
+    parser.add_argument("parameters", nargs="*")
+    args = parser.parse_args()
+    if args.command == "status":
+        print(json.dumps(read_json(str(CACHE)), ensure_ascii=False))
+        return
+    if args.command == "prepare-sim-gpio":
+        require_modem()
+        print(json.dumps(prepare_factory_gpio()))
+        return
+    lockpath = "/tmp/myos-c8-collector.lock" if args.command in ("run", "once") else "/tmp/myos-c8-action.lock"
+    with open(lockpath, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if args.command in ("run", "once"):
+            while True:
+                publish(sample())
+                if args.command == "once":
+                    return
+                time.sleep(5)
+        elif args.command == "netifd-prepare":
+            if args.payload != "cpe" or args.parameters:
+                raise ValueError("Only the C8 cpe interface is supported")
+            require_modem()
+            restored = restore_saved_slot()
+            sim = sim_status()
+            if sim.get("ready") is not True:
+                raise RuntimeError("SIM is not ready: " + sim.get("status", "no valid CPIN response"))
+            ethernet_mode = prepare_ethernet_mode()
+            print(json.dumps({"ok": True, "cid": DATA_CID, "sim_restore": restored,
+                              "ethernet_mode": ethernet_mode}))
+        elif args.command == "netifd-connect":
+            if len(args.parameters) != 5:
+                raise ValueError("Invalid netifd data-profile arguments")
+            print(json.dumps(netifd_connect(args.payload, *args.parameters)))
+        elif args.command == "netifd-disconnect":
+            if args.parameters:
+                raise ValueError("Invalid netifd disconnect arguments")
+            print(json.dumps(netifd_disconnect(args.payload)))
+        elif args.command == "apply-saved":
+            if physical_slot() is None:
+                print(json.dumps({"ok": True, "applied": False, "reason": "Physical SIM slot is unknown; saved policy retained"}))
+            else:
+                print(json.dumps(apply_settings(settings(), save=False)))
+        else:
+            request = json.loads(args.payload or "{}")
+            action = request.get("action")
+            if action == "select_sim":
+                result = select_sim(request, action_lock=lock)
+            elif action == "reconnect":
+                result = reconnect()
+            elif action == "settings":
+                result = apply_settings(request)
+            elif action == "ip_passthrough":
+                result = save_ip_passthrough(request)
+            else:
+                raise ValueError("Unknown action")
+            print(json.dumps(result))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
+        print(json.dumps({"ok": False, "error": str(error)}))
+        raise SystemExit(1)

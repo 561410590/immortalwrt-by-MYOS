@@ -23,7 +23,7 @@ index d504a5c..de45ec7 100644
 +	int active = 0;
 +	int i;
 +
-+	if (!mtk_is_netsys_v3_or_greater(eth) || idx > MTK_QDMA_NUM_QUEUES)
++	if (!mtk_is_netsys_v3_or_greater(eth) || idx >= MTK_QDMA_NUM_QUEUES)
 +		goto out;
 +
 +	for (i = 0; i < MTK_QDMA_NUM_QUEUES; i++) {
@@ -125,4 +125,3 @@ index 81979d2..b247e73 100644
  #endif /* MTK_ETH_H */
 -- 
 2.45.2
-

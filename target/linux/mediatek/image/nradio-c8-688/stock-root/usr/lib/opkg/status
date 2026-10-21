@@ -1,0 +1,4612 @@
+Package: luci-app-autotimeset
+Version: 2.1.0-r20240318
+Depends: libc, luci-lua-runtime
+Status: install ok installed
+Architecture: all
+Conffiles:
+ /etc/config/autotimeset 88f6c7ba26823810b214e2674860bb1719a6145a9a72b0b2a10db45142a21659
+Installed-Time: 1761183882
+
+Package: kmod-vxlan
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-iptunnel, kmod-udptunnel4, kmod-udptunnel6
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nft-tproxy
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nft-core, kmod-nf-tproxy, kmod-nf-conntrack
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-usb-storage
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-scsi-core, kmod-usb-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: terminfo
+Version: 6.4-r2
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libuci-lua
+Version: 2025.01.20~16ff0bad-r1
+Depends: libc, libuci20250120, liblua5.1.5
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-app-timewol
+Version: 20190309-r3
+Depends: libc, luci-lua-runtime
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: kmod-ipt-nfqueue
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core, kmod-nfnetlink-queue
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: iwinfo
+Version: 2024.10.20~b94f066e-r1
+Depends: libc, libiwinfo20230701
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libopenssl3
+ABIVersion: 3
+Version: 3.0.16-r1
+Depends: libc
+Provides: libopenssl
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-newgidmap
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-ip6tables-extra
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ip6tables
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-app-statistics
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-base, collectd, rrdtool1, collectd-mod-rrdtool, collectd-mod-iwinfo, collectd-mod-cpu, collectd-mod-memory, collectd-mod-interface, collectd-mod-load, collectd-mod-network
+Status: install ok installed
+Architecture: all
+Conffiles:
+ /etc/config/luci_statistics ad454e3b3c2c01bb29c17e275aa53e81f3f16d018a950930f138c10000d1eabf
+Installed-Time: 1761183882
+
+Package: liblucihttp0
+ABIVersion: 0
+Version: 2023.03.15~9b5b683f-r1
+Depends: libc
+Provides: liblucihttp
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-lib-textsearch
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: cgi-io
+Version: 2022.08.10~901b0f04-r21
+Depends: libc, libubox20240329, libubus20250102
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-lib-base
+Version: 25.294.31231~5a0e3fb
+Depends: libc, lua, luci-lib-nixio, luci-lib-ip, luci-lib-jsonc, liblucihttp-lua
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: python3-aiosignal
+Version: 1.3.1-r1
+Depends: libc, python3-light, python3-frozenlist
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libc
+Version: 1.2.5-r4
+Depends: libgcc1
+Status: install hold installed
+Essential: yes
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-macvlan
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-ebtables
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-l2tp
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-udptunnel4, kmod-udptunnel6
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: python3-charset-normalizer
+Version: 3.3.2-r1
+Depends: libc, python3-light, python3-codecs, python3-logging
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-i18n-quickstart-zh-cn
+Version: 25.085.08606~4fd4b7f
+Depends: libc, luci-app-quickstart
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: libbz2-1.0
+ABIVersion: -1.0
+Version: 1.0.8-r1
+Depends: libc
+Provides: libbz2
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: netdata
+Version: 1.38.1-r3
+Depends: libc, zlib, libuuid1, libuv1, libmnl0, libjson-c5, libopenssl3, libstdcpp6, libatomic1, protobuf, openssl-util, curl, bash
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/netdata/.install-type 54504822b33450493aafb3989efa580219f76de52ddf34a7adf1eeb86ea93dc9
+ /etc/netdata/.opt-out-from-anonymous-statistics e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+ /etc/netdata/edit-config 7236f78cf9cf900c1a5f2125d5c58a464c743ff776a6432f5084977a49427208
+ /etc/netdata/netdata.conf b2cef1091b576b94c25507b97ccd692a91b5664171498b28e43d0981ff6630b7
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-crypto-user
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-hash, kmod-crypto-manager, kmod-crypto-rng
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: avahi-dbus-daemon
+Version: 0.8-r9
+Depends: libc, libavahi-dbus-support, libexpat, librt, libdaemon
+Provides: avahi-daemon
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/avahi/avahi-daemon.conf 65650c663773acb2c2e25e5a4158a5970cc74def4ff7f26f927819e6ab66c33a
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-app-Airpifanctrleth
+Version: 1.3-r1
+Depends: libc, kmod-hwmon-pwmfan, luci-lua-runtime
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: mkf2fs
+Version: 1.16.0-r3
+Depends: libc, libf2fs6
+Conflicts: mkf2fs-selinux
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: quickstart
+Version: 0.11.3-r1
+Depends: libc, shadow-utils, shadow-useradd, mount-utils, block-mount, lsblk, e2fsprogs, parted, smartmontools, smartd, mdadm, ip-full, ubus, uci, bash
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/config/quickstart ef08226efab11cde7a77b7f54075001bb7487ce1516923d15698f5bf50f83d47
+Installed-Time: 1761183882
+
+Package: kmod-crypto-gf128
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-nft-compat
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nft-core, kmod-nf-ipt
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: opkg
+Version: 2024.10.16~38eccbb1-r1
+Depends: libc, uclient-fetch, libpthread, libubox20240329
+Status: install ok installed
+Essential: yes
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/opkg.conf f38c19f696ea87c0b30eb5bfeb8657237f4625e1a749c58b99f01595edfb6446
+ /etc/opkg/customfeeds.conf 61d1f3aa62fe977614ed0c2f0ad3b2ee2f7b451bfb34812071d86d31a4d43d4a
+Installed-Time: 1761183882
+
+Package: libevdev
+Version: 1.13.1-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libwebsockets-full
+Version: 4.3.3-r1
+Depends: libc, zlib, libcap, libubox20240329, libopenssl3, libuv1
+Provides: libwebsockets, libwebsockets-openssl
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: iptables-mod-extra
+Version: 1.8.10-r1
+Depends: libc, libxtables12, kmod-ipt-extra
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-usb-core
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nls-base
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ubus
+Version: 2025.05.16~88e63250-r1
+Depends: libc, libubus20250102, libblobmsg-json20240329, ubusd
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libpthread
+Version: 1.2.5-r4
+Depends: libgcc1
+Status: install hold installed
+Essential: yes
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: iw
+Version: 6.9-r1
+Depends: libc, libnl-tiny1
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-crypto-manager
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-aead, kmod-crypto-hash
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: ebtables-legacy
+Version: 2018.06.27~48cff25d-r2
+Depends: libc, kmod-ebtables
+Provides: ebtables
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+Alternatives: 200:/usr/sbin/ebtables:/usr/sbin/ebtables-legacy
+
+Package: rpcd
+Version: 2024.09.17~9f4b86e7-r1
+Depends: libc, libubus20250102, libubox20240329, libuci20250120, libblobmsg-json20240329, libjson-c5
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/config/rpcd 1a40da0ebe45b1afd131dfc4650592913e38445e7fe42f96d3b95ad5151ac0e6
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: busybox
+Version: 1.36.1-r2
+Depends: libc, jsonfilter
+Conflicts: busybox-selinux
+Status: install ok installed
+Essential: yes
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/syslog.conf e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: ddnsto
+Version: 3.0.4~aa64-r8
+Depends: libc
+Status: install ok installed
+Architecture: all
+Conffiles:
+ /etc/config/ddnsto 4915e4fbda2be00e4409726652cc4bfe0cd5dd1538d91e8b48ffc85f772360c3
+Installed-Time: 1761183882
+
+Package: python3-urllib
+Version: 3.11.13-r1
+Depends: libc, python3-light, python3-email
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-crypto-ctr
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-manager, kmod-crypto-seqiv
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: f2fs-tools
+Version: 1.16.0-r3
+Depends: libc, libf2fs6, mkf2fs, f2fsck
+Conflicts: f2fs-tools-selinux
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libiwinfo20230701
+ABIVersion: 20230701
+Version: 2024.10.20~b94f066e-r1
+Depends: libc, libnl-tiny1, libuci20250120, libubus20250102, libiwinfo-data
+Provides: libiwinfo
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libpci
+Version: 3.14.0-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-i18n-wrtbwmon-zh-cn
+Version: 25.170.79304~27c0f70
+Depends: libc, luci-app-wrtbwmon
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: shadow-grpunconv
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-lib-ip
+Version: 25.294.31231~5a0e3fb
+Depends: libc, liblua5.1.5, libnl-tiny1
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-hwmon-pwmfan
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-hwmon-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ip-full
+Version: 6.11.0-r1
+Depends: libc, libnl-tiny1, libbpf1
+Provides: ip
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Alternatives: 300:/sbin/ip:/usr/libexec/ip-full
+
+Package: python3-light
+Version: 3.11.13-r1
+Depends: libc, python3-base, libbz2-1.0, zlib
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: python3-websockets
+Version: 11.0.3-r1
+Depends: libc, python3
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-nft-fib
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nft-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nfnetlink
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: zram-swap
+Version: 32
+Depends: libc, kmod-zram
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: mtkhqos_util
+Version: 1-r33411-a4b7ac0443
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libubus-lua
+Version: 2025.05.16~88e63250-r1
+Depends: libc, libubus20250102, liblua5.1.5
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-newgrp
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-ipt-tproxy
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-tproxy, kmod-nf-conntrack, kmod-ipt-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-crypto-hash
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: python3-pyserial
+Version: 3.5-r2
+Depends: libc, python3-light, python3-logging, python3-urllib
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-nf-reject6
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: protobuf-lite
+Version: 3.17.3-r2
+Depends: libc, zlib, libpthread, libatomic1, libstdcpp6
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: mhz
+Version: 2023.06.17~11aac239-r2
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-tun
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-crypto-aead
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-null
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-usb-wdm
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-usb-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libpython3-3.11
+ABIVersion: -3.11
+Version: 3.11.13-r1
+Depends: libc, libpthread
+Provides: libpython3
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: bash
+Version: 5.2.37-r1
+Depends: libc, libncurses6, libreadline8
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/bash.bashrc 096d8e6a4da75033f12dc764cd45055e922cdba8292f3c22216f7d5c9ed6e454
+ /etc/profile.d/sys_bashrc.sh fc2d605e812275345dbc61b6c5ca7dabbe8f3fa8e21c0856675c8ecd8d28da0a
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libtasn1
+Version: 4.19.0-r2
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: datconf
+Version: 1
+Depends: libc, kvcedit
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-pydoc
+Version: 3.11.13-r1
+Depends: libc, python3-light
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libdbus
+Version: 1.14.10-r1
+Depends: libc, libpthread
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-br-netfilter
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-vrf
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libacl
+Version: 2.3.2-r2
+Depends: libc, libattr
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-i18n-autotimeset-zh-cn
+Version: 24.071.49077~01df799
+Depends: libc, luci-app-autotimeset
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: kmod-inet-diag
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-crypto-md4
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-hash
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: liblzma
+Version: 5.6.2-r2
+Depends: libc, libpthread
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-crypto-md5
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-hash
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-mod-system
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-base
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-oaf
+Version: 6.6.95.2025.04.17~f845584c-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-conntrack
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: openssl-util
+Version: 3.0.16-r1
+Depends: libc, libopenssl3, libopenssl-conf
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nf-flow
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-conntrack
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libnl-tiny1
+ABIVersion: 1
+Version: 2025.03.19~c0df580a-r1
+Depends: libc
+Provides: libnl-tiny
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-usb-xhci-mtk
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-usb-xhci-hcd, kmod-usb-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-lib-crc-ccitt
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-ipt-filter
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core, kmod-lib-textsearch, kmod-ipt-conntrack
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ucode-mod-uloop
+Version: 2025.05.11~d5b3a9dc-r1
+Depends: libc, ucode, libubox20240329
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: getrandom
+Version: 2024.04.26~85f10530-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libiptext0
+ABIVersion: 0
+Version: 1.8.10-r1
+Depends: libc, libxtables12
+Provides: libiptext
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-ipt-nat-extra
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core, kmod-ipt-nat
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ucode-mod-ubus
+Version: 2025.05.11~d5b3a9dc-r1
+Depends: libc, ucode, libubus20250102, libblobmsg-json20240329
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-app-Secondsystem
+Version: 1.0.0-r1
+Depends: libc, luci
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-phy-aquantia
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-libphy, kmod-hwmon-core, kmod-lib-crc-ccitt
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-asn1-decoder
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-lib-xterm
+Version: 4.18.0
+Depends: libc, luci-lua-runtime
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: shadow-pwconv
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libustream-openssl20201210
+ABIVersion: 20201210
+Version: 2024.07.28~99bd3d2b-r1
+Depends: libc, libubox20240329, libopenssl3
+Provides: libustream-openssl
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-md-mod
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-md-raid10
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-md-mod
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-theme-bootstrap
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-base
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libusb-1.0-0
+ABIVersion: -0
+Version: 1.0.27-r1
+Depends: libc, libpthread, librt, libatomic1
+Provides: libusb-1.0
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nf-nathelper
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-nat
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-pppoe
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ppp, kmod-pppox
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libuuid1
+ABIVersion: 1
+Version: 2.40.2-r1
+Depends: libc, librt
+Provides: libuuid
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-i18n-mtwifi-cfg-zh-cn
+Version: 25.170.79304~27c0f70
+Depends: libc, luci-app-mtwifi-cfg
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: adb
+Version: 5.0.2~6fe92d1a-r3
+Depends: libc, zlib, libopenssl3, libpthread
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-usb-net-huawei-cdc-ncm
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-usb-net, kmod-usb-net-cdc-ncm, kmod-usb-wdm
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libcap
+Version: 2.69-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libavahi-client
+Version: 0.8-r9
+Depends: libc, avahi-dbus-daemon
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-lua-runtime
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-base, lua, luci-lib-base, luci-lib-nixio, luci-lib-ip, luci-lib-jsonc, libubus-lua, liblucihttp-lua, ucode-mod-lua
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-pppox
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ppp
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-veth
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-ipt-conntrack
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core, kmod-nf-conntrack
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: shellsync
+Version: 0.2-r2
+Depends: libc, libpthread, kmod-macvlan
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: btop
+Version: 1.4.4-r1
+Depends: libc, libstdcpp6
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nf-reject
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: procd-ujail
+Version: 2024.12.22~42d39376-r1
+Depends: libc, libubox20240329, libubus20250102, libuci20250120, libblobmsg-json20240329
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: base-files
+Version: 1860~a4b7ac0443
+Depends: libc, netifd, jsonfilter, usign, openwrt-keyring, ubi-utils, fstools, fwtool, procd, procd-seccomp, busybox
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/ethers 56bda09b0aa3d1e88107bfa8a1c6e4449d5c1f47245dc1c4037ff9b5db163b7c
+ /etc/group 45e8cab268d4a2254d48ccb1f889630047e81758de54a614cad5449fdbebe19c
+ /etc/hosts c1a978d90673437b35fa9494e0a54294062c152bb653d490b718052ab88447fd
+ /etc/inittab 8b395f7d827753e1e92d4a1c369d9fe16caa23bf742b3f78e4599c4dd9b1b6e3
+ /etc/iproute2/rt_protos a0712b1771c8d5f3e0dcf9a6314880e71aa3498ea1ae873535bdfcf70d814061
+ /etc/iproute2/rt_tables f771e2b81741f70e3faf658dc504f0dc048672fc8caaadea15e46c35da3de8f8
+ /etc/passwd 6a451aa33393f47ade89b8bce4d9711818c2630394c3967265ffed276bb25a55
+ /etc/profile fe0a48863c90360cc6924d9b75e791a4b71e2193c74b990171b8313663d13876
+ /etc/protocols 7d551355d5540b07b9d86e623cbbc4abecbb94d2a662b3afcc917940eb0e3d52
+ /etc/rc.local 515018aa94eb4937dade12dc0d69890b352af35a5ab5fb8203f9ed10990ac06f
+ /etc/services 754ccc71ca347bc79ac4c45139d416b7cf1e65a919dad1db15613a216cd6b9cc
+ /etc/shadow 91a7e318064886ec911c080132f520cd8cb19a8f154d6423ede0466133f6578a
+ /etc/shells 8b35ce73c18161a7d7ed16fa244410993bd031515260e3e0c11749047df48d0a
+ /etc/shinit f633939cdda16a3116225a578f457295b2a0da824c47d5f0e90a58806c059321
+ /etc/sysctl.conf fa1403135ff66ed23c1c88163ba06d1d13d6ea9e73201728ae0180b3a6902eca
+ /etc/sysupgrade.conf 9e87b05fe2f12c84d1c465b396322748479f64bc40e5bab061887f0bd95020a6
+Installed-Time: 1761183882
+
+Package: kmod-lib-crc16
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-nf-nat
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-conntrack
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: pciids
+Version: 0.387-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-newuidmap
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ttyd
+Version: 1.7.3-r1
+Depends: libc, libcap, libopenssl3, libjson-c5, libuv1, zlib, libwebsockets-full
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/config/ttyd 1963ea01a8ce7c94fd6353855fb43cca94e9d9e7894531207cf123a6608fe832
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-crypto-crc32c
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-hash
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: python3-email
+Version: 3.11.13-r1
+Depends: libc, python3-light
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: ucode-mod-uci
+Version: 2025.05.11~d5b3a9dc-r1
+Depends: libc, ucode, libuci20250120
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: ucode-mod-lua
+Version: 1
+Depends: libc, libucode20230711, liblua5.1.5
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-app-ttyd
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-base, ttyd
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: netifd
+Version: 2024.12.17~ea01ed41-r1
+Depends: libc, libuci20250120, libnl-tiny1, libubus20250102, ubus, ubusd, jshn, libubox20240329, libudebug, ucode, ucode-mod-fs
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/udhcpc.user 4dabffbc2110a29e01babc63d9b8db94da49efd3ed784d35b49a559ac8ce7035
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: coreutils
+Version: 9.7-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: fitblk
+Version: 2
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libzstd
+Version: 1.5.7-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libf2fs6
+ABIVersion: 6
+Version: 1.16.0-r3
+Depends: libc, libuuid1
+Provides: libf2fs
+Conflicts: libf2fs-selinux
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-idna
+Version: 3.6-r2
+Depends: libc, python3-light, python3-codecs
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libnl-route200
+ABIVersion: 200
+Version: 3.10.0-r1
+Depends: libc, libnl-core200
+Provides: libnl-route
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libsmartcols1
+ABIVersion: 1
+Version: 2.40.2-r1
+Depends: libc, librt
+Provides: libsmartcols
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: bzip2
+Version: 1.0.8-r1
+Depends: libc, libbz2-1.0
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-ipt-nflog
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core, kmod-nfnetlink-log
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: firewall4
+Version: 2024.12.18~18fc0ead-r1
+Depends: ucode (>= 2022.03.22), libc, kmod-nft-core, kmod-nft-fib, kmod-nft-nat, nftables-json, ucode, ucode-mod-fs, ucode-mod-ubus, ucode-mod-uci
+Provides: uci-firewall
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/config/firewall 73ce6091fb776a99f47d3ee34ce2f06789f795699b0cd9c6edbfc16f0e934f47
+ /etc/nftables.d/10-custom-filter-chains.nft af5cbfeb3e3b61d32ce134ae33d15330ee27da838e6f4fb9c717f034923b8b16
+ /etc/nftables.d/README 0656d83221c1d000f6b9655757c412f328e332b5bdf25efbfa88611d8104490d
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: smartd
+Version: 7.4-r1
+Depends: libc, libstdcpp6
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/smartd.conf 4dd26b0f6384a8b2cd7a8a68f2c8cda28e1b8669024902febb3c7a096e5dd852
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: python3-cgitb
+Version: 3.11.13-r1
+Depends: libc, python3-light, python3-cgi, python3-pydoc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: pciutils
+Version: 3.14.0-r1
+Depends: libc, libkmod, libpci, pciids
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: uboot-envtools
+Version: 2024.07-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: protobuf
+Version: 3.17.3-r2
+Depends: libc, zlib, libpthread, libatomic1, libstdcpp6, protobuf-lite
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: python3-decimal
+Version: 3.11.13-r1
+Depends: libc, python3-light
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-usb-ohci
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-usb-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-lib-xor
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-usb-xhci-hcd
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-usb-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-mii
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: procd
+Version: 2024.12.22~42d39376-r1
+Depends: libc, ubusd, ubus, libjson-script20240329, ubox, libubox20240329, libudebug, libubus20250102, libblobmsg-json20240329, libjson-c5, jshn
+Conflicts: procd-selinux
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libudev-zero
+Version: 1.0.3-r1
+Depends: libc, libevdev
+Provides: libudev
+Conflicts: libudev, eudev, udev
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: resolveip
+Version: 2
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libmount1
+ABIVersion: 1
+Version: 2.40.2-r1
+Depends: libc, libblkid1
+Provides: libmount
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: attr
+Version: 2.5.2-r3
+Depends: libc, libattr
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: usbutils
+Version: 017-r1
+Depends: libc, libusb-1.0-0, libudev, librt, libpthread, usbids
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: liburing
+Version: 2.7-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-crypto-hmac
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-hash, kmod-crypto-manager
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-crypto-sha256
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-hash
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-nf-dup-inet
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-conntrack, kmod-nf-conntrack6
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ip6tables-nft
+Version: 1.8.10-r1
+Depends: libc, kmod-ip6tables, xtables-nft
+Provides: ip6tables
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Alternatives: 300:/usr/sbin/ip6tables:/usr/sbin/xtables-nft-multi, 300:/usr/sbin/ip6tables-restore:/usr/sbin/xtables-nft-multi, 300:/usr/sbin/ip6tables-save:/usr/sbin/xtables-nft-multi
+
+Package: libbpf1
+ABIVersion: 1
+Version: 1.5.0-r1
+Depends: libc, libelf1
+Provides: libbpf
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libkmod
+Version: 32-r1
+Depends: libc, zlib
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: iptables-mod-nat-extra
+Version: 1.8.10-r1
+Depends: libc, libxtables12, kmod-ipt-nat-extra
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ubusd
+Version: 2025.05.16~88e63250-r1
+Depends: libc, libubox20240329, libblobmsg-json20240329
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libnl200
+ABIVersion: 200
+Version: 3.10.0-r1
+Depends: libc, libnl-genl200, libnl-route200, libnl-nf200, libnl-cli200
+Provides: libnl
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libnetfilter-conntrack3
+ABIVersion: 3
+Version: 1.0.9-r2
+Depends: libc, libnfnetlink0, kmod-nf-conntrack-netlink, libmnl0
+Provides: libnetfilter-conntrack
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-dm
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-manager, kmod-dax
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nvme
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-hwmon-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-chpasswd
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nf-nat6
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-conntrack6, kmod-nf-nat
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-crypto-acompress
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: rpcd-mod-ucode
+Version: 2024.09.17~9f4b86e7-r1
+Depends: libc, libubus20250102, libubox20240329, rpcd, libucode20230711
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-app-turboacc-mtk
+Version: 25.180.07259~6eecc9c
+Depends: libc, kmod-tcp-bbr
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: ucode-mod-math
+Version: 2025.05.11~d5b3a9dc-r1
+Depends: libc, ucode
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libkvcutil
+Version: 1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-uuid
+Version: 3.11.13-r1
+Depends: libc, python3-light, libuuid1
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-nft-bridge
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nft-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-su
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-lib-crc32c
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-crc32c
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libelf1
+ABIVersion: 1
+Version: 0.192-r1
+Depends: libc, zlib
+Provides: libelf, libelf11
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libubus20250102
+ABIVersion: 20250102
+Version: 2025.05.16~88e63250-r1
+Depends: libc, libubox20240329
+Provides: libubus
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-app-ModemATSD
+Version: 3.3-r1
+Depends: libc, luci, python3, python3-aiohttp, python3-pyserial, python3-websockets, python3-requests, luci-lua-runtime
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: kmod-iptunnel
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: tar
+Version: 1.35-r1
+Depends: xz, libc, libacl, libattr, bzip2
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+Alternatives: 300:/bin/tar:/usr/libexec/tar-gnu
+
+Package: kmod-usb-ehci
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-usb-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nft-xfrm
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nft-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-i18n-vsftpd-zh-cn
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-app-vsftpd
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: luci-mod-status
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-base, libiwinfo20230701, rpcd-mod-iwinfo
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: lua-cjson
+Version: 2.1.0-r5
+Depends: libc, liblua5.1.5
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libxtables12
+ABIVersion: 12
+Version: 1.8.10-r1
+Depends: libc
+Provides: libxtables
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-ipt-raw6
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core, kmod-ip6tables
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-xml
+Version: 3.11.13-r1
+Depends: libc, python3-light, python3-urllib
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-app-mtwifi-cfg
+Version: 1-r1
+Depends: libc, mtwifi-cfg
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: lsblk
+Version: 2.40.2-r1
+Depends: libc, libblkid1, libmount1, libsmartcols1, libncurses6
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-crypto-sha512
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-hash
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-usb-net-rndis
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-usb-net, kmod-usb-net-cdc-ether
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: usbids
+Version: 0.387-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: block-mount
+Version: 2024.07.14~408c2cc4-r1
+Depends: libc, ubox, libubox20240329, libuci20250120, libblobmsg-json20240329, libjson-c5, fstools
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: iptables-mod-tee
+Version: 1.8.10-r1
+Depends: libc, libxtables12, kmod-ipt-tee
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-crypto-seqiv
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-aead, kmod-crypto-rng, kmod-crypto-geniv
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: autocore-arm
+Version: 60
+Depends: libc, mhz
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-fs-vfat
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nls-base, kmod-nls-cp437, kmod-nls-iso8859-1, kmod-nls-utf8
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nft-nat
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nft-core, kmod-nf-nat
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-crypto-lib-chacha20poly1305
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-lib-chacha20, kmod-crypto-lib-poly1305
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-chfn
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-pwunconv
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-usb2
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-usb-ehci, kmod-usb-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: iptables-mod-iprange
+Version: 1.8.10-r1
+Depends: libc, libxtables12, kmod-ipt-iprange
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: collectd-mod-interface
+Version: 5.12.0-r54
+Depends: libc, collectd
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-usb-serial-option
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-usb-serial, kmod-usb-serial-wwan
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-usb3
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-usb-xhci-hcd, kmod-usb-xhci-mtk, kmod-usb-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-crypto-lib-poly1305
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-hash
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: shadow-useradd
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libopenssl-legacy
+Version: 3.0.16-r1
+Depends: libc, libopenssl3, libopenssl-conf
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/ssl/modules.cnf.d/legacy.cnf 44772f93dd6faec414b8921b1da7ef5337086dc123a48d5bed6e2b9e4552ce6e
+Installed-Time: 1761183882
+
+Package: luci-app-firewall
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-base, uci-firewall
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-i18n-ddnsto-zh-cn
+Version: 25.085.08606~4fd4b7f
+Depends: libc, luci-app-ddnsto
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: kmod-nf-ipt
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-ipt-conntrack-extra
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-conncount, kmod-ipt-core, kmod-ipt-conntrack
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-lib-ipkg
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-base, luci-lua-runtime
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: shadow-groupadd
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: collectd-mod-network
+Version: 5.12.0-r54
+Depends: libc, collectd
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libmnl0
+ABIVersion: 0
+Version: 1.0.5-r1
+Depends: libc
+Provides: libmnl
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libblkid1
+ABIVersion: 1
+Version: 2.40.2-r1
+Depends: libc, libuuid1
+Provides: libblkid
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: jansson4
+ABIVersion: 4
+Version: 2.14-r3
+Depends: libc
+Provides: jansson
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libgnutls
+Version: 3.8.5-r1
+Depends: libc, libnettle8, libgmp10, libatomic1
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libsqlite3-0
+ABIVersion: -0
+Version: 3500400-r1
+Depends: libc, libpthread, zlib
+Provides: libsqlite3
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: wpad-openssl
+Version: 2024.09.15~5ace39b0-r2
+Depends: hostapd-common (= 2024.09.15~5ace39b0-r2), libc, libnl-tiny1, hostapd-common, ucode, libucode20230711, ucode-mod-fs, ucode-mod-nl80211, ucode-mod-rtnl, ucode-mod-ubus, ucode-mod-uloop, libubus20250102, libblobmsg-json20240329, libudebug, libopenssl3, libopenssl-legacy
+Provides: hostapd, wpa-supplicant
+Conflicts: hostapd, hostapd-basic, hostapd-basic-openssl, hostapd-basic-wolfssl, hostapd-basic-mbedtls, hostapd-mini, hostapd-openssl, hostapd-wolfssl, hostapd-mbedtls, wpad, wpad-mesh-openssl, wpad-mesh-wolfssl, wpad-mesh-mbedtls, wpad-basic, wpad-basic-openssl, wpad-basic-wolfssl, wpad-basic-mbedtls, wpad-mini, wpad, wpad-mesh-openssl, wpad-mesh-wolfssl, wpad-mesh-mbedtls, wpad-basic, wpad-basic-openssl, wpad-basic-wolfssl, wpad-basic-mbedtls, wpad-mini
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/config/radius bef62a785544c390592e7626153135a5b7af0ce863e63c57c098cef75991d201
+ /etc/radius/clients fbb33c7cae037be801aa89912ec835397c6f7f8c2ac1c6526857d17da865e2ab
+ /etc/radius/users 0a9b818ca14c9a87f23a1455530a6941eb63878724386d820b6ecacd0eeeb935
+Installed-Time: 1761183882
+
+Package: tcpdump
+Version: 4.99.5-r1
+Depends: libc, libpcap1
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ubi-utils
+Version: 2.2.1-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: xzdec
+Version: 5.6.2-r2
+Depends: libc, xz-utils, liblzma
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-ip6tables
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-reject6, kmod-nf-ipt6, kmod-ipt-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-nf-socket
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: odhcp6c
+Version: 2024.09.25~b6ae9ffa-r1
+Depends: libc, libubox20240329
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/odhcp6c.user 6d2b77cbb3ff311ea6e7237fe150bf272bf0b3a6c0b4e9e00c6423fd6b637557
+Installed-Time: 1761183882
+
+Package: iptables-nft
+Version: 1.8.10-r1
+Depends: libc, kmod-ipt-core, xtables-nft
+Provides: iptables
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Alternatives: 300:/usr/sbin/iptables:/usr/sbin/xtables-nft-multi, 300:/usr/sbin/iptables-restore:/usr/sbin/xtables-nft-multi, 300:/usr/sbin/iptables-save:/usr/sbin/xtables-nft-multi
+
+Package: fstools
+Version: 2024.07.14~408c2cc4-r1
+Depends: libc, ubox, ubi-utils
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-udptunnel4
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libdaemon
+Version: 0.14-r5
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: uclient-fetch
+Version: 2024.10.22~88ae8f20-r1
+Depends: libc, libuclient20201210
+Provides: wget
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Alternatives: 200:/usr/bin/wget:/bin/uclient-fetch
+
+Package: kmod-udptunnel6
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-crypto-ghash
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-gf128, kmod-crypto-hash
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: shadow-groupmems
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-ipt-extra
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nft-socket
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nft-core, kmod-nf-socket
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: docker
+Version: 27.3.1-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: iptables-mod-ipopt
+Version: 1.8.10-r1
+Depends: libc, libxtables12, kmod-ipt-ipopt
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ethtool
+Version: 6.11-r1
+Depends: libc
+Conflicts: ethtool-full
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: uci
+Version: 2025.01.20~16ff0bad-r1
+Depends: libc, libuci20250120
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: lua
+Version: 5.1.5-r11
+Depends: libc, liblua5.1.5
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ucode-mod-fs
+Version: 2025.05.11~d5b3a9dc-r1
+Depends: libc, ucode
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-fs-ext4
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-lib-crc16, kmod-crypto-hash, kmod-crypto-crc32c
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-passwd
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-mediatek_hnat
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-conntrack, wireless-tools
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-pwck
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: collectd
+Version: 5.12.0-r54
+Depends: libc, libpthread, zlib, libltdl7, jshn
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/config/collectd ee718b6be9e99873ec438bb673a4926c63756e3091c12da9f88e660cdc8bc138
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-ebtables-ipv4
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ebtables
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ppp-mod-pppol2tp
+Version: 2.5.1-r1
+Depends: libc, kmod-pppol2tp
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-ebtables-ipv6
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ebtables
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: dbus
+Version: 1.14.10-r1
+Depends: libc, libexpat, libdbus
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: dropbear
+Version: 2024.86-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/config/dropbear 63b8d3501f4b993f9f3fa486af8506a9fc227ad3dc7756b97cf98f01b7c4108f
+Installed-Time: 1761183882
+Alternatives: 100:/usr/bin/ssh-keygen:/usr/sbin/dropbear, 100:/usr/bin/scp:/usr/sbin/dropbear, 100:/usr/bin/ssh:/usr/sbin/dropbear
+
+Package: luci-theme-argon
+Version: 2.3.1-r20230420
+Depends: libc, wget, jsonfilter, luci-lua-runtime
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: libpcre2
+Version: 10.42-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-dax
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-md-raid456
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-md-mod, kmod-lib-raid6, kmod-lib-xor, kmod-lib-crc32c
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: curl
+Version: 8.12.1-r1
+Depends: libc, libcurl4
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-conninfra
+Version: 6.6.95.bbf588-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: rrdtool1
+Version: 1.0.50-r6
+Depends: libc, librrd1
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-hwmon-core
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-cryptodev
+Version: 6.6.95.1.13-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-authenc, kmod-crypto-hash
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nls-utf8
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nls-base
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-usb-serial-wwan
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-usb-serial
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libnftnl11
+ABIVersion: 11
+Version: 1.2.8-r1
+Depends: libc, libmnl0
+Provides: libnftnl
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libgmp10
+ABIVersion: 10
+Version: 6.3.0-r1
+Depends: libc
+Provides: libgmp
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-compat
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-lua-runtime, luci-lua-runtime
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: xl2tpd
+Version: 1.3.18-r1
+Depends: libc, ppp-mod-pppol2tp, resolveip
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/ppp/options.xl2tpd 1b71717c00057b9b60a22c509d5d2b2655ecf4c1e326e39af86def67ede909ca
+ /etc/xl2tpd/xl2tp-secrets a1cfae4314863abf017d942678504b0fbd34107f7de2fa4710dd5465ef159274
+ /etc/xl2tpd/xl2tpd.conf 9c0a4b092e54774ea6aeae990fe68c4fd2fe15efb72740908147a17125bf1a6e
+Installed-Time: 1761183882
+
+Package: luci-app-vsftpd
+Version: 25.294.31231~5a0e3fb
+Depends: libc, vsftpd, luci-lua-runtime
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: adguardhome
+Version: 0.107.57-r1
+Depends: libc, ca-bundle
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/config/adguardhome cdfb281c107445b66826afd9a55a490b4d82a86ced58b2950db92cb80123e6af
+Installed-Time: 1761183882
+
+Package: kmod-nls-cp437
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nls-base
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: rpcd-mod-file
+Version: 2024.09.17~9f4b86e7-r1
+Depends: libc, libubus20250102, libubox20240329, rpcd
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-nfnetlink-cthelper
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nfnetlink, kmod-nfnetlink-queue, kmod-nf-conntrack-netlink
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: mtd
+Version: 26
+Depends: libc, libubox20240329
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-ncurses
+Version: 3.11.13-r1
+Depends: libc, python3-light, libncursesw6
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: odhcpd-ipv6only
+Version: 2024.05.08~a2988231-r2
+Depends: libc, libubox20240329, libuci20250120, libubus20250102, libnl-tiny1
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-distutils
+Version: 3.11.13-r1
+Depends: libc, python3-light, python3-email
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: wifi-dats
+Version: 1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/wireless/l1profile.dat bf08fb87c96c527fdaa12b0587a2a67cd0a538e64ff6a438860fbd192f53a8bc
+ /etc/wireless/mediatek/mt7981-sku-bf.dat bc9067a59728b28bd55e0324516b5bc401afb648380147402553140600969b17
+ /etc/wireless/mediatek/mt7981-sku.dat c8b469706ba0c7c0a91bccf54d719274a186c23798daa9cf9365f44870659777
+ /etc/wireless/mediatek/mt7981.dbdc.b0.dat 995c08cdd51ee0b568d12566361db415dc809f0894a45b3697fc8f56545f9710
+ /etc/wireless/mediatek/mt7981.dbdc.b1.dat 6dc7a6d5eaec15132b4c2f79957581f98eff81ca413e0792e8580f14542caf7e
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: procd-seccomp
+Version: 2024.12.22~42d39376-r1
+Depends: libc, libubox20240329, libblobmsg-json20240329
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-ipt-tee
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-conntrack, kmod-nf-dup-inet, kmod-ipt-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nf-ipvs-ftp
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-ipvs, kmod-nf-nat, kmod-nf-nathelper
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-usermod
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-codecs
+Version: 3.11.13-r1
+Depends: libc, python3-light
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-ipt-hashlimit
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-i18n-netdata-zh-cn
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-app-netdata
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: samba4-server
+Version: 4.18.11-r1
+Depends: libc, samba4-libs
+Conflicts: samba36-server
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/config/samba4 874cfeaa5b2a5d739121fc630e5ae4fb5826a50e96fb17a542776ae72d80c486
+ /etc/samba/smb.conf.template ef9d3b7541d8f8acf3c3068a8cdb20bcc4d5cdaa14bb0dcb46188b7feca3e276
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-crypto-hw-safexcel
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), eip197-mini-firmware, kmod-crypto-authenc, kmod-crypto-des, kmod-crypto-md5, kmod-crypto-hmac, kmod-crypto-sha1, kmod-crypto-sha256, kmod-crypto-sha512
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-requests
+Version: 2.32.3-r2
+Depends: libc, python3-light, python3-chardet, python3-idna, python3-urllib3, python3-certifi
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-i18n-statistics-zh-cn
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-app-statistics
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: ucode-mod-nl80211
+Version: 2025.05.11~d5b3a9dc-r1
+Depends: libc, ucode, libnl-tiny1, libubox20240329
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: shadow-groupmod
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: lzmadec
+Version: 5.6.2-r2
+Depends: libc, xz-utils, liblzma
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libjson-script20240329
+ABIVersion: 20240329
+Version: 2024.12.19~3868f47c-r1
+Depends: libc, libubox20240329
+Provides: libjson-script
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libiwinfo-data
+Version: 2024.10.20~b94f066e-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: python3-multiprocessing
+Version: 3.11.13-r1
+Depends: libc, python3-light
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-crypto-authenc
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-manager, kmod-crypto-null
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: usb-modeswitch
+Version: 2022.02.24~3c8595a4-r1
+Depends: libc, libubox20240329, libblobmsg-json20240329, libusb-1.0-0
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ucode
+Version: 2025.05.11~d5b3a9dc-r1
+Depends: libc, libucode20230711
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: rpcd-mod-luci
+Version: 20240305-r1
+Depends: libc, rpcd, libubox20240329, libubus20250102, libnl-tiny1
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: regs
+Version: 1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-lib-raid6
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-lib-taskd
+Version: 1.0.23
+Depends: taskd (>= 1.0.3-1), libc, luci-lib-xterm, taskd, luci-lua-runtime
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-crypto-ccm
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-ctr, kmod-crypto-aead
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nf-log
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-app-package-manager
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-base
+Provides: luci-app-opkg
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: parted
+Version: 3.6-r1
+Depends: libc, libparted, libreadline8, libncurses6
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libuci20250120
+ABIVersion: 20250120
+Version: 2025.01.20~16ff0bad-r1
+Depends: libc, libubox20240329
+Provides: libuci
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: urandom-seed
+Version: 3
+Depends: libc, getrandom
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: wsdd2
+Version: 2023.12.21~b676d8ac-r2
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ipset
+Version: 7.21-r1
+Depends: libc, kmod-ipt-ipset, libmnl0, libipset13
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libopenssl-devcrypto
+Version: 3.0.16-r1
+Depends: libc, libopenssl3, libopenssl-conf, kmod-cryptodev
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/ssl/modules.cnf.d/devcrypto.cnf 2d49b54dc24cb8a0c2251889a047380d119ccc5cb2eced14d1bc072820a8810f
+Installed-Time: 1761183882
+
+Package: luci-i18n-package-manager-zh-cn
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-app-package-manager
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: luci-proto-ppp
+Version: 25.294.31231~5a0e3fb
+Depends: libc
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libffi
+Version: 3.4.7-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: blockd
+Version: 2024.07.14~408c2cc4-r1
+Depends: libc, block-mount, libubus20250102, kmod-fs-autofs4, libblobmsg-json20240329, libjson-c5
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libcomerr0
+ABIVersion: 0
+Version: 1.47.0-r2
+Depends: libc, libuuid1
+Provides: libcomerr
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ppp
+Version: 2.5.1-r1
+Depends: libc, kmod-ppp, libpthread, shellsync, kmod-mppe
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/ppp/chap-secrets 6981fa176a79f8c12be5826c421b16253a616747018ba7e76752a9d36d1d51d4
+ /etc/ppp/filter 579583b318e0cff706ffc134620b42d3fbce8fc31aeb0ad7eea1cc859868e902
+ /etc/ppp/options 01f7358a5528be037dde329a2ecfb7a63382aababf21d4f5bc085f5acef95133
+Installed-Time: 1761183882
+
+Package: luci-mod-admin-full
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-base, luci-mod-status, luci-mod-system, luci-mod-network
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: xz
+Version: 5.6.2-r2
+Depends: libc, xz-utils, liblzma
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+Alternatives: 300:/usr/bin/xz:/usr/libexec/xz-lzmautils, 300:/usr/bin/lzcat:/usr/libexec/xz-lzmautils, 300:/usr/bin/lzma:/usr/libexec/xz-lzmautils, 300:/usr/bin/unlzma:/usr/libexec/xz-lzmautils, 300:/usr/bin/unxz:/usr/libexec/xz-lzmautils, 300:/usr/bin/xzcat:/usr/libexec/xz-lzmautils
+
+Package: luci-app-quickstart
+Version: 0.8.16-1
+Depends: libc, quickstart, luci-app-store, luci-lua-runtime
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: kmod-nft-netdev
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nft-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-expiry
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-base
+Version: 25.294.31231~5a0e3fb
+Depends: libc, rpcd, rpcd-mod-file, rpcd-mod-luci, rpcd-mod-ucode, cgi-io, ucode, ucode-mod-fs, ucode-mod-uci, ucode-mod-ubus, ucode-mod-math, ucode-mod-html, liblucihttp-ucode
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/config/luci 60078f7c02ed91d23092c9b75cb9ea5c8ee39f7727def813c8201f8e48a296f4
+ /etc/luci-uploads/.placeholder e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: shadow-vipw
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libnettle8
+ABIVersion: 8
+Version: 3.9.1-r1
+Depends: libc, libgmp10
+Provides: libnettle
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-leds-gpio
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-base
+Version: 3.11.13-r1
+Depends: libc, libpython3-3.11
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-gpio-button-hotplug
+Version: 6.6.95-r5
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: xzmore
+Version: 5.6.2-r2
+Depends: libc, xz-utils, xz
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Alternatives: 300:/usr/bin/xzmore:/usr/libexec/xzmore-lzmautils, 300:/usr/bin/lzmore:/usr/libexec/xzmore-lzmautils
+
+Package: logd
+Version: 2024.04.26~85f10530-r1
+Depends: libc, libubox20240329, libubus20250102, libblobmsg-json20240329, libudebug
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Alternatives: 200:/sbin/logread:/usr/libexec/logread-ubox
+
+Package: kmod-mt_wifi
+Version: 6.6.95.7.6.6.1-mt7981-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), wifi-dats, kmod-conninfra, kmod-mediatek_hnat, kmod-warp
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: xtables-nft
+Version: 1.8.10-r1
+Depends: libc, libnftnl11, libiptext0, libiptext6-0, libiptext-nft0, kmod-nft-compat
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-nologin
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: samba4-libs
+Version: 4.18.11-r1
+Depends: libc, libtirpc, libreadline8, libpopt0, libcap, zlib, libgnutls, libtasn1, libuuid1, libopenssl3, libpthread, liburing, attr, libavahi-client
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-nf-log6
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-log
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libreadline8
+ABIVersion: 8
+Version: 8.2-r2
+Depends: libc, libncursesw6
+Provides: libreadline
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ip-bridge
+Version: 6.11.0-r1
+Depends: libc, libnl-tiny1
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-app-ddnsto
+Version: 3.0.4-r0
+Depends: libc, ddnsto, block-mount, luci-lua-runtime
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: python3
+Version: 3.11.13-r1
+Depends: libc, python3-light, python3-asyncio, python3-cgi, python3-cgitb, python3-codecs, python3-ctypes, python3-dbm, python3-decimal, python3-distutils, python3-email, python3-logging, python3-lzma, python3-multiprocessing, python3-ncurses, python3-openssl, python3-pydoc, python3-readline, python3-sqlite3, python3-unittest, python3-urllib, python3-uuid, python3-xml
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-app-store
+Version: 0.1.27-4
+Depends: luci-lib-taskd (>= 1.0.19), libc, curl, opkg, luci-lib-ipkg, tar, libuci-lua, mount-utils, luci-lib-taskd, luci-lua-runtime
+Status: install ok installed
+Architecture: all
+Conffiles:
+ /etc/config/istore 558a1ec271561beaac654ecb51b377f8c0e6181c3dd153ba13307f19ea4c2300
+Installed-Time: 1761183882
+
+Package: kmod-usb-net
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-mii, kmod-usb-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-dm-raid
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-dm, kmod-md-mod, kmod-md-raid0, kmod-md-raid1, kmod-md-raid10, kmod-md-raid456
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: librt
+Version: 1.2.5-r4
+Depends: libpthread
+Status: install hold installed
+Essential: yes
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: wrtbwmon
+Version: 1.2.1-r3
+Depends: libc, iptables
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-wireguard
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-lib-chacha20poly1305, kmod-crypto-lib-curve25519, kmod-udptunnel4, kmod-udptunnel6
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: iptables-mod-tproxy
+Version: 1.8.10-r1
+Depends: libc, libxtables12, kmod-ipt-tproxy
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: wifi-scripts
+Version: 1.0-r1
+Depends: libc, netifd, ucode, ucode-mod-nl80211, ucode-mod-rtnl, ucode-mod-ubus, ucode-mod-uci
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: shadow
+Version: 4.8.1-r3
+Depends: libc, shadow-chage, shadow-chfn, shadow-chgpasswd, shadow-chpasswd, shadow-chsh, shadow-expiry, shadow-faillog, shadow-gpasswd, shadow-groupadd, shadow-groupdel, shadow-groupmems, shadow-groupmod, shadow-groups, shadow-grpck, shadow-grpconv, shadow-grpunconv, shadow-lastlog, shadow-login, shadow-logoutd, shadow-newgidmap, shadow-newgrp, shadow-newuidmap, shadow-newusers, shadow-nologin, shadow-passwd, shadow-pwck, shadow-pwconv, shadow-pwunconv, shadow-su, shadow-useradd, shadow-userdel, shadow-usermod, shadow-vipw
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-userdel
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-app-wrtbwmon
+Version: 2.0.13-r1
+Depends: libc, wrtbwmon
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: wireguard-tools
+Version: 1.0.20210914-r4
+Depends: libc, kmod-wireguard
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-gpasswd
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nfnetlink-cttimeout
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nfnetlink, kmod-nf-conntrack
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: datconf-lua
+Version: 1
+Depends: libc, datconf, liblua5.1.5
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-usb-serial
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-usb-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: collectd-mod-iwinfo
+Version: 5.12.0-r54
+Depends: libc, collectd, libiwinfo20230701
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: iptables-mod-hashlimit
+Version: 1.8.10-r1
+Depends: libc, libxtables12, kmod-ipt-hashlimit
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-groupdel
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-usb-net-cdc-ncm
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-usb-net, kmod-usb-net-cdc-ether
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-i18n-openvpn-zh-cn
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-app-openvpn
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: luci-app-advancedsetting
+Version: 1.1-r1
+Depends: libc, luci-lua-runtime
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: libipset13
+ABIVersion: 13
+Version: 7.21-r1
+Depends: libc, kmod-ipt-ipset, libmnl0
+Provides: libipset
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-proto-ipv6
+Version: 25.294.31231~5a0e3fb
+Depends: libc
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: eip197-mini-firmware
+Version: 20241110-r2
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-i18n-eqos-mtk-zh-cn
+Version: 25.170.79304~27c0f70
+Depends: libc, luci-app-eqos-mtk
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: python3-sqlite3
+Version: 3.11.13-r1
+Depends: libc, python3-light, libsqlite3-0
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libnl-cli200
+ABIVersion: 200
+Version: 3.10.0-r1
+Depends: libc, libnl-genl200, libnl-nf200
+Provides: libnl-cli
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-i18n-advancedsetting-zh-cn
+Version: 0
+Depends: libc, luci-app-advancedsetting
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: shadow-chage
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nfnetlink-log
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nfnetlink
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-crypto-ecb
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-manager
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: iptables-mod-filter
+Version: 1.8.10-r1
+Depends: libc, libxtables12, kmod-ipt-filter
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: openwrt-keyring
+Version: 2024.11.01~c5d6bdf2-r1
+Depends: libc
+Provides: lede-keyring
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libparted
+Version: 3.6-r1
+Depends: libc, libblkid1, libuuid1
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libnl-core200
+ABIVersion: 200
+Version: 3.10.0-r1
+Depends: libc, libpthread
+Provides: libnl-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nf-conntrack-netlink
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nfnetlink, kmod-nf-conntrack
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-crypto-geniv
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-rng, kmod-crypto-aead
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: python3-urllib3
+Version: 2.5.0-r1
+Depends: libc, python3
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-libphy
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-crypto-des
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libext2fs2
+ABIVersion: 2
+Version: 1.47.0-r2
+Depends: libc, libuuid1, libblkid1, libss2, libcomerr0
+Provides: libext2fs
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-readline
+Version: 3.11.13-r1
+Depends: libc, python3-light, libreadline8
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libiptext6-0
+ABIVersion: -0
+Version: 1.8.10-r1
+Depends: libc, libxtables12
+Provides: libiptext6
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-fuse
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nf-nathelper-extra
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-nat, kmod-lib-textsearch, kmod-asn1-decoder
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: jshn
+Version: 2024.12.19~3868f47c-r1
+Depends: libc, libjson-c5, libubox20240329, libblobmsg-json20240329
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: nftables-json
+Version: 1.1.1-r1
+Depends: libc, kmod-nft-core, libnftnl11, jansson4
+Provides: nftables
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: taskd
+Version: 1.0.3-r2
+Depends: libc, procd, script-utils, coreutils, coreutils-stty
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-ipt-core
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-reject, kmod-nf-ipt, kmod-nf-log
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: e2fsprogs
+Version: 1.47.0-r2
+Depends: libc, libuuid1, libext2fs2, libe2p2
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/e2fsck.conf dece11e2b15f487d7d2bf9f96abe2eaaf9cd33f02d7b9725b9116023d7786cac
+Installed-Time: 1761183882
+
+Package: kmod-ata-core
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-scsi-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-ipt-ipsec
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ca-certificates
+Version: 20241223-r1
+Depends: libc
+Provides: ca-certs
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: kmod-ppp
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-lib-crc-ccitt, kmod-slhc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nft-offload
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-flow, kmod-nft-nat
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libopenssl-conf
+Version: 3.0.16-r1
+Depends: libc, libopenssl3
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/ssl/openssl.cnf 39543707097e57d618dd8ad2a99a3f382422b542fa060b071cb0bd0f655d8974
+Installed-Time: 1761183882
+
+Package: kmod-fs-f2fs
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-hash, kmod-crypto-crc32, kmod-nls-base
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libncurses6
+ABIVersion: 6
+Version: 6.4-r2
+Depends: libc, terminfo
+Provides: libncursesw, libncurses, libncursesw6
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-faillog
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-groups
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-async-timeout
+Version: 4.0.2-r1
+Depends: libc, python3-light, python3-asyncio
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: python3-dbm
+Version: 3.11.13-r1
+Depends: libc, python3-light, libgdbm
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-i18n-timewol-zh-cn
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-app-timewol
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: luci-i18n-ramfree-zh-cn
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-app-ramfree
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: kmod-ipt-ipset
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core, kmod-nfnetlink
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: routergo
+Version: 0.14.10
+Depends: libc, docker
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/config/routergo f2d4c5951e72dca1d612af1529f8e8d500228d11d2a72775bdb20a533274dea9
+Installed-Time: 1761183882
+
+Package: libiptext-nft0
+ABIVersion: 0
+Version: 1.8.10-r1
+Depends: libc, libxtables12
+Provides: libiptext-nft
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-yarl
+Version: 1.9.2-r1
+Depends: libc, python3-light, python3-multidict, python3-urllib, python3-idna
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: python3-chardet
+Version: 5.2.0-r2
+Depends: libc, python3-light, python3-logging
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-app-samba4
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-base, samba4-server
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: kmod-crypto-null
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-hash
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: smartmontools
+Version: 7.4-r1
+Depends: libc, libstdcpp6
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: mdadm
+Version: 4.3-r2
+Depends: libc, libpthread, kmod-md-mod, kmod-md-raid0, kmod-md-raid10, kmod-md-raid1
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/config/mdadm b1ff7f54de2e179fe6fa76116d6bc48be23ba6fe4e50ce26c35edb569413692c
+Installed-Time: 1761183882
+
+Package: collectd-mod-load
+Version: 5.12.0-r54
+Depends: libc, collectd
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: shadow-utils
+Version: 4.8.1-r3
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libpcap1
+ABIVersion: 1
+Version: 1.10.5-r2
+Depends: libc
+Provides: libpcap
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-newusers
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libss2
+ABIVersion: 2
+Version: 1.47.0-r2
+Depends: libc, libcomerr0
+Provides: libss
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-multidict
+Version: 6.0.4-r1
+Depends: libc, python3-light
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-loop
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libjson-c5
+ABIVersion: 5
+Version: 0.18-r1
+Depends: libc
+Provides: libjson-c
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: uhttpd
+Version: 2023.06.25~34a8a74d-r4
+Depends: libc, libubox20240329, libblobmsg-json20240329, libjson-script20240329, libjson-c5
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/config/uhttpd 4e5df10abae8fb8da99ef022914c09ea13d9bf77fa9ce774124c879bef31c513
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-nf-conntrack
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libcurl4
+ABIVersion: 4
+Version: 8.12.1-r1
+Depends: libc, libopenssl3, libpthread, libnghttp2-14, ca-bundle
+Provides: libcurl
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: iptables-mod-conntrack-extra
+Version: 1.8.10-r1
+Depends: libc, libxtables12, kmod-ipt-conntrack-extra
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: default-settings
+Version: 29
+Depends: libc, luci
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: usign
+Version: 2020.05.23~f1f65026-r1
+Depends: libc, libubox20240329
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: python3-openssl
+Version: 3.11.13-r1
+Depends: libc, python3-light, libopenssl3, ca-certs
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-md-raid0
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-md-mod
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-md-raid1
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-md-mod
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: iptables-mod-u32
+Version: 1.8.10-r1
+Depends: libc, libxtables12, kmod-ipt-u32
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: tc-tiny
+Version: 6.11.0-r1
+Depends: libc, kmod-sched-core
+Provides: tc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+Alternatives: 200:/sbin/tc:/usr/libexec/tc-tiny
+
+Package: default-settings-chn
+Version: 29
+Depends: libc, default-settings, luci-i18n-base-zh-cn
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: luci-i18n-samba4-zh-cn
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-app-samba4
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: liblua5.1.5
+ABIVersion: 5.1.5
+Version: 5.1.5-r11
+Depends: libc
+Provides: liblua
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: zlib
+Version: 1.3.1-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: shadow-grpconv
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-asyncio
+Version: 3.11.13-r1
+Depends: libc, python3-light
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: shadow-chsh
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-i18n-ttyd-zh-cn
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-app-ttyd
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: libblobmsg-json20240329
+ABIVersion: 20240329
+Version: 2024.12.19~3868f47c-r1
+Depends: libc, libjson-c5, libubox20240329
+Provides: libblobmsg-json
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-nf-ipt6
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-ipt, kmod-nf-log6
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-crypto-gcm
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-ctr, kmod-crypto-ghash, kmod-crypto-null
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: f2fsck
+Version: 1.16.0-r3
+Depends: libc, libf2fs6
+Conflicts: f2fsck-selinux
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: xzgrep
+Version: 5.6.2-r2
+Depends: libc, xz-utils, xz
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Alternatives: 300:/usr/bin/xzgrep:/usr/libexec/xzgrep-lzmautils, 300:/usr/bin/lzegrep:/usr/libexec/xzgrep-lzmautils, 300:/usr/bin/lzfgrep:/usr/libexec/xzgrep-lzmautils, 300:/usr/bin/lzgrep:/usr/libexec/xzgrep-lzmautils, 300:/usr/bin/xzegrep:/usr/libexec/xzgrep-lzmautils, 300:/usr/bin/xzfgrep:/usr/libexec/xzgrep-lzmautils
+
+Package: kmod-tcp-bbr
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-fs-autofs4
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-lib-nixio
+Version: 25.294.31231~5a0e3fb
+Depends: libc, liblua5.1.5
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-app-netdata
+Version: 25.294.31231~5a0e3fb
+Depends: libc, netdata
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: mtk-smp
+Version: 1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: collectd-mod-rrdtool
+Version: 5.12.0-r54
+Depends: libc, collectd, librrd1
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: ucode-mod-rtnl
+Version: 2025.05.11~d5b3a9dc-r1
+Depends: libc, ucode, libnl-tiny1, libubox20240329
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: ca-bundle
+Version: 20241223-r1
+Depends: libc
+Provides: ca-certs
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: luci-i18n-base-zh-cn
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-base
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: shadow-logoutd
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-zram
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: liblucihttp-lua
+Version: 2023.03.15~9b5b683f-r1
+Depends: libc, liblucihttp0, liblua5.1.5
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libuclient20201210
+ABIVersion: 20201210
+Version: 2024.10.22~88ae8f20-r1
+Depends: libc, libubox20240329
+Provides: libuclient
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-cgi
+Version: 3.11.13-r1
+Depends: libc, python3-light, python3-email
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: shadow-chgpasswd
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nls-iso8859-1
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nls-base
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-crypto-cmac
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-hash
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-lib-jsonc
+Version: 25.294.31231~5a0e3fb
+Depends: libc, liblua5.1.5, libjson-c5
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: python3-aiohttp
+Version: 3.9.3-r1
+Depends: libc, python3, python3-aiosignal, python3-async-timeout, python3-attrs, python3-charset-normalizer, python3-frozenlist, python3-multidict, python3-yarl
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: collectd-mod-memory
+Version: 5.12.0-r54
+Depends: libc, collectd
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-ipt-ipopt
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ucode-mod-html
+Version: 1
+Depends: libc, libucode20230711
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: ebtables-legacy-utils
+Version: 2018.06.27~48cff25d-r2
+Depends: libc, ebtables-legacy
+Provides: ebtables-utils
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+Alternatives: 200:/usr/sbin/ebtables-restore:/usr/sbin/ebtables-legacy-restore
+
+Package: luci-app-WTModemeth
+Version: 1.5-r1
+Depends: libc, kmod-usb-net, kmod-usb-core, kmod-usb-ohci, kmod-usb-serial, kmod-usb-serial-option, kmod-usb-uhci, kmod-usb2, usb-modeswitch, luci-lua-runtime
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: python3-logging
+Version: 3.11.13-r1
+Depends: libc, python3-light
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-app-ramfree
+Version: 25.294.31231~5a0e3fb
+Depends: libc
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: kmod-crypto-rng
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-hash, kmod-crypto-hmac, kmod-crypto-sha512, kmod-crypto-sha3
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-light, luci-app-package-manager
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: mtwifi-cfg
+Version: 1-r1
+Depends: libc, iwinfo, wifi-dats, lua-cjson, datconf-lua
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-nf-conntrack6
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-conntrack
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-light
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-proto-ipv6, luci-app-firewall, luci-mod-admin-full, luci-proto-ppp, luci-theme-bootstrap, rpcd-mod-rrdns, uhttpd, uhttpd-mod-ubus
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libgcc1
+ABIVersion: 1
+Version: 13.3.0-r4
+Provides: libgcc
+Status: install hold installed
+Essential: yes
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-usb-uhci
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-usb-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libstdcpp6
+ABIVersion: 6
+Version: 13.3.0-r4
+Provides: libstdcpp
+Status: install hold installed
+Essential: yes
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-lastlog
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-ipt-nat6
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core, kmod-nf-nat6, kmod-ipt-core, kmod-ipt-conntrack, kmod-ipt-core, kmod-ipt-nat, kmod-ipt-core, kmod-ip6tables
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: librrd1
+Version: 1.0.50-r6
+Depends: libc, zlib
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-lib-lzo
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-acompress
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-frozenlist
+Version: 1.4.0-r1
+Depends: libc, python3-light
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: switch
+Version: 1
+Depends: libc, libnl-tiny1
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: script-utils
+Version: 2.40.2-r1
+Depends: libc, librt
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-crypto-lib-curve25519
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libexpat
+Version: 2.7.1-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: python3-ctypes
+Version: 3.11.13-r1
+Depends: libc, python3-light, libffi
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: coreutils-stty
+Version: 9.7-r1
+Depends: libc, coreutils
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+Alternatives: 300:/bin/stty:/usr/libexec/stty-coreutils
+
+Package: ip6tables-extra
+Version: 1.8.10-r1
+Depends: libc, libxtables12, kmod-ip6tables-extra
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: ubox
+Version: 2024.04.26~85f10530-r1
+Depends: libc, libubox20240329, ubusd, ubus, libubus20250102, libuci20250120
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/modules.conf 83dab538976e37112de89ad9569f77410553bd0a8393d19ed656353218ccf6ae
+Installed-Time: 1761183882
+Auto-Installed: yes
+Alternatives: 100:/sbin/rmmod:/sbin/kmodloader, 100:/sbin/insmod:/sbin/kmodloader, 100:/sbin/lsmod:/sbin/kmodloader, 100:/sbin/modinfo:/sbin/kmodloader, 100:/sbin/modprobe:/sbin/kmodloader
+
+Package: kernel
+Version: 6.6.95~24735b86de9c4c688b461133cb528cd0-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-crypto-crc32
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-hash
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-crypto-lib-chacha20
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: xzless
+Version: 5.6.2-r2
+Depends: libc, xz-utils, xz
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Alternatives: 300:/usr/bin/xzless:/usr/libexec/xzless-lzmautils, 300:/usr/bin/lzless:/usr/libexec/xzless-lzmautils
+
+Package: shadow-login
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-ipt-u32
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: rpcd-mod-iwinfo
+Version: 2024.09.17~9f4b86e7-r1
+Depends: libiwinfo (>= 2023.01.21), libc, libubus20250102, libubox20240329, rpcd, libiwinfo20230701
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: python3-attrs
+Version: 23.1.0-r1
+Depends: libc, python3-light
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-mod-network
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-base, rpcd-mod-iwinfo
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-nfnetlink-queue
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nfnetlink
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-nft-core
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nfnetlink, kmod-nf-reject, kmod-nf-reject6, kmod-nf-conntrack6, kmod-nf-nat, kmod-nf-log, kmod-nf-log6, kmod-lib-crc32c
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-lzma
+Version: 3.11.13-r1
+Depends: libc, python3-light, liblzma
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libucode20230711
+ABIVersion: 20230711
+Version: 2025.05.11~d5b3a9dc-r1
+Depends: libc, libjson-c5
+Provides: libucode
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-nf-ipvs
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-lib-crc32c, kmod-ipt-conntrack, kmod-nf-conntrack, kmod-ipt-core, kmod-ipt-conntrack
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libltdl7
+ABIVersion: 7
+Version: 2.4.7-r1
+Depends: libc
+Provides: libltdl
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-i18n-turboacc-mtk-zh-cn
+Version: 25.170.79304~27c0f70
+Depends: libc, luci-app-turboacc-mtk
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: lzmainfo
+Version: 5.6.2-r2
+Depends: libc, xz-utils, liblzma
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libatomic1
+ABIVersion: 1
+Version: 13.3.0-r4
+Depends: libgcc1
+Provides: libatomic
+Status: install hold installed
+Essential: yes
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-certifi
+Version: 2025.8.3-r1
+Depends: libc, python3-light, python3-urllib
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-ifb
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-mppe
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ppp, kmod-crypto-arc4, kmod-crypto-sha1, kmod-crypto-ecb
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: shadow-grpck
+Version: 4.8.1-r3
+Depends: libc, shadow-common
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nls-base
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libnfnetlink0
+ABIVersion: 0
+Version: 1.0.2-r1
+Depends: libc
+Provides: libnfnetlink
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: xz-utils
+Version: 5.6.2-r2
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: mount-utils
+Version: 2.40.2-r1
+Depends: libc, librt, libmount1, libsmartcols1
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libgdbm
+Version: 1.23-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: uhttpd-mod-ubus
+Version: 2023.06.25~34a8a74d-r4
+Depends: libc, uhttpd, libubus20250102, libblobmsg-json20240329
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: wget-ssl
+Version: 1.24.5-r1
+Depends: libc, libpcre2, zlib, libopenssl3, librt
+Provides: gnu-wget, wget
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+Alternatives: 300:/usr/bin/wget:/usr/libexec/wget-ssl, 300:/usr/bin/wget-ssl:/usr/libexec/wget-ssl
+
+Package: libtirpc
+Version: 1.3.6-r1
+Depends: libc, libpthread
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: fwtool
+Version: 2019.11.12~8f7fe925-r1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: jsonfilter
+Version: 2025.04.18~8a86fb78-r1
+Depends: libc, libubox20240329, libjson-c5
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: liblucihttp-ucode
+Version: 2023.03.15~9b5b683f-r1
+Depends: libc, liblucihttp0, libucode20230711
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libnl-nf200
+ABIVersion: 200
+Version: 3.10.0-r1
+Depends: libc, libnl-route200
+Provides: libnl-nf
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: hostapd-common
+Version: 2024.09.15~5ace39b0-r2
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kvcedit
+Version: 1
+Depends: libc, libkvcutil
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libpopt0
+ABIVersion: 0
+Version: 1.19-r1
+Depends: libc
+Provides: libpopt
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libubox20240329
+ABIVersion: 20240329
+Version: 2024.12.19~3868f47c-r1
+Depends: libc
+Provides: libubox
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: xzdiff
+Version: 5.6.2-r2
+Depends: libc, xz-utils, xz
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Alternatives: 300:/usr/bin/xzdiff:/usr/libexec/xzdiff-lzmautils, 300:/usr/bin/lzcmp:/usr/libexec/xzdiff-lzmautils, 300:/usr/bin/lzdiff:/usr/libexec/xzdiff-lzmautils, 300:/usr/bin/xzcmp:/usr/libexec/xzdiff-lzmautils
+
+Package: collectd-mod-cpu
+Version: 5.12.0-r54
+Depends: libc, collectd
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: wireless-tools
+Version: 29-r6
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: xinetd
+Version: 2.3.15-r16
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/config/xinetd 63c00b6333d1b3164cb37ead5573599a2b75b4f9c58ff71d8c9bfb537475f2da
+Installed-Time: 1761183882
+
+Package: kmod-ipt-offload
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core, kmod-nf-flow
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nf-conncount
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-conntrack
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libe2p2
+ABIVersion: 2
+Version: 1.47.0-r2
+Depends: libc, libuuid1
+Provides: libe2p
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-crypto-arc4
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-user
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libattr
+Version: 2.5.2-r3
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-usb-net-cdc-ether
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-usb-net
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libuv1
+ABIVersion: 1
+Version: 1.48.0-r1
+Depends: libc, libpthread, librt
+Provides: libuv
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: libudebug
+Version: 2023.12.06~6d3f51f9
+Depends: libc, libubox20240329, libubus20250102
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-crypto-sha1
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-hash
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-nf-ipvs-sip
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-nf-ipvs, kmod-nf-nathelper-extra
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-crypto-sha3
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-crypto-hash
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-ipt-physdev
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core, kmod-br-netfilter
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: vsftpd
+Version: 3.0.5-r2
+Depends: libc, libuci20250120
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-pppol2tp
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ppp, kmod-pppox, kmod-l2tp
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: luci-app-eqos-mtk
+Version: 25.170.79304~27c0f70
+Depends: libc, wget-ssl, tc, kmod-sched-core, kmod-ifb, ebtables-legacy-utils, ebtables-legacy
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: shadow-common
+Version: 4.8.1-r3
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/login.defs 0f24021e2c162303099201915ac38278730c48bbe8848a87f083856fb27a2c3e
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: wireless-regdb
+Version: 2025.02.20-r1
+Depends: libc
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: kmod-scsi-core
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: urngd
+Version: 2023.11.01~44365eb1-r1
+Depends: libc, libubox20240329
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: python3-unittest
+Version: 3.11.13-r1
+Depends: libc, python3-light
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-slhc
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-lib-crc-ccitt
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: mii_mgr
+Version: 1
+Depends: libc
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libavahi-dbus-support
+Version: 0.8-r9
+Depends: libc, dbus
+Provides: libavahi
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-i18n-firewall-zh-cn
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-app-firewall
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: rpcd-mod-rrdns
+Version: 20170710
+Depends: libc, rpcd, libubox20240329, libubus20250102
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: luci-app-openvpn
+Version: 25.294.31231~5a0e3fb
+Depends: libc, luci-base, luci-compat, luci-lua-runtime
+Status: install ok installed
+Architecture: all
+Installed-Time: 1761183882
+
+Package: ppp-mod-pppoe
+Version: 2.5.1-r1
+Depends: libc, kmod-pppoe
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-nf-tproxy
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libnghttp2-14
+ABIVersion: -14
+Version: 1.63.0-r1
+Depends: libc
+Provides: libnghttp2
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-warp
+Version: 6.6.95.20221209-3e6ae1-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-mediatek_hnat
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+Auto-Installed: yes
+
+Package: kmod-ipt-nat
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core, kmod-nf-nat
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: kmod-sched-core
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1)
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: libnl-genl200
+ABIVersion: 200
+Version: 3.10.0-r1
+Depends: libc, libnl-core200
+Provides: libnl-genl
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+
+Package: dnsmasq-full
+Version: 2.90-r5
+Depends: libc, libubus20250102, libnettle8, libnetfilter-conntrack3, nftables-json
+Provides: dnsmasq
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Conffiles:
+ /etc/config/dhcp caa0edd58fd47496535e93c24684c46f45bfd3906e301ab6445c8e3cf2d063c9
+ /etc/dnsmasq.conf 1e6ab19c1ae5e70d609ac7b6246541d52042e4dee1892f825266507ef52d7dfd
+Installed-Time: 1761183882
+
+Package: kmod-ipt-iprange
+Version: 6.6.95-r1
+Depends: kernel (= 6.6.95~24735b86de9c4c688b461133cb528cd0-r1), kmod-ipt-core
+Status: install ok installed
+Architecture: aarch64_cortex-a53
+Installed-Time: 1761183882
+

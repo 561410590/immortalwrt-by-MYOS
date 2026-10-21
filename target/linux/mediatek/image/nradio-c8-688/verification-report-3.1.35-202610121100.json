@@ -1,0 +1,101 @@
+{
+  "file": "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/bin/targets/mediatek/filogic/MYOS-C8-688-3.1.35-202610121100-6.6.110-multi-theme-sysupgrade.bin",
+  "bytes": 46029077,
+  "sha256": "da378933093cb60319fa3a3f08fa7c7a72b8a65d674c9b5318d0ef5ca6705ae5",
+  "version": "3.1.35-202610121100",
+  "board": "HCMT7981-688-emmc",
+  "rootfs_bytes": 41465517,
+  "fit_hashes_valid": true,
+  "rootfs_hashes_valid": true,
+  "metadata_valid": true,
+  "console_device_inode_valid": true,
+  "extraction": {
+    "account": "non-root",
+    "excluded_device": "/dev/console",
+    "device_inode": {
+      "major": 5,
+      "minor": 1,
+      "mode": "0600",
+      "uid": 0,
+      "gid": 0
+    },
+    "reason": "Build account cannot mknod; packed inode validated before extraction"
+  },
+  "hardware": {
+    "model": "NRadio-C8-New688",
+    "compatible": [
+      "HCMT7981-688-emmc",
+      "mediatek,mt7981"
+    ],
+    "ports": [
+      "port1",
+      "port2",
+      "port3",
+      "port5",
+      "eth1"
+    ],
+    "gpio": {
+      "status": 10,
+      "cmode5": 11,
+      "cmode4": 12,
+      "wifi": 34,
+      "cpe-pwr": 31,
+      "fan-hw": 27,
+      "fan-fg": 28
+    },
+    "manual_sim_slots": 2,
+    "root_partition": "rootfs_2nd"
+  },
+  "modules": {
+    "kernel": "6.6.110",
+    "package_abi": "7b6e534b726d3806dc7bdd177cff3504",
+    "kernel_package_version": "6.6.110~7b6e534b726d3806dc7bdd177cff3504-r1",
+    "module_count": 279,
+    "kmod_package_count": 153,
+    "vermagic": "6.6.110 SMP mod_unload aarch64",
+    "module_package_count": 117,
+    "builtin_package_count": 36,
+    "symbol_versions_enabled": false,
+    "symbol_crcs_checked": 0
+  },
+  "packed": {
+    "packed_version": "3.1.35-202610121100",
+    "frequency_policy": "none",
+    "automatic_sim_switch": false,
+    "native_collector": true,
+    "manual_sim_slots": 2,
+    "data_only_reconnect": true,
+    "legacy_modem_startup_removed": true,
+    "remote_manual_mac_empty": true,
+    "wwan_auto_sim_removed": true,
+    "app_sim_gate": true,
+    "netifd_cid8_data_session": true,
+    "python_runtime": "light/base/3.11",
+    "unused_python_dependencies_removed": true,
+    "update_channel_configured": false
+  },
+  "official_runtime": {
+    "files": 19,
+    "architecture": "aarch64",
+    "private_loader": true,
+    "global_libraries_preserved": true,
+    "live_cellular_identity_excluded": true,
+    "script_provenance_verified": 19
+  },
+  "ui": {
+    "quickstart_removed": true,
+    "store": "iStore",
+    "network_menu_preserved": true,
+    "homepage_owner": "zz_mwrt_c8.lua",
+    "shared_home_route": "admin/status/nbcpe",
+    "user_product_photographs_verified": true,
+    "separate_cellular_views": true
+  },
+  "factory_wifi": {
+    "ssid": "@NRadio-<MAC-last4>-2.4G/5G",
+    "password": "uppercase-MAC-last8",
+    "hardware_mac": true,
+    "boot_order": 19
+  },
+  "live_device_validation": "pending"
+}

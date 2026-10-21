@@ -1,0 +1,243 @@
+#!/bin/sh
+
+model="$(cat /tmp/sysinfo/model 2>/dev/null)"
+board="$(cat /tmp/sysinfo/board_name 2>/dev/null)"
+
+case "$model $board" in
+	*NRadio-C5800-688*|*HC-WT9126*|*nradio_c5800-688*|*HCMT7981-emmc*|*HCMT7981-EMMC*) ;;
+	*) exit 0 ;;
+esac
+
+uci -q delete network.wan
+uci -q delete network.wan6
+uci -q delete network.BLUE4WAN
+uci -q delete network.BLUE4WANV6
+uci -q delete network.BLUE4
+
+touch /etc/config/oem
+touch /etc/config/mesh
+touch /etc/config/auto_adapt
+
+board_id="$(cat /sys/class/net/br-lan/address 2>/dev/null)"
+
+if uci -q get network.@device[0] >/dev/null 2>&1; then
+		uci -q set network.@device[0].type='bridge'
+	uci -q set network.@device[0].name='br-lan'
+	uci -q delete network.@device[0].ports
+	uci -q add_list network.@device[0].ports='lan1'
+	uci -q add_list network.@device[0].ports='lan2'
+	uci -q add_list network.@device[0].ports='lan3'
+else
+	uci -q set network.c5800_lan='device'
+	uci -q set network.c5800_lan.type='bridge'
+	uci -q set network.c5800_lan.name='br-lan'
+	uci -q delete network.c5800_lan.ports
+	uci -q add_list network.c5800_lan.ports='lan1'
+	uci -q add_list network.c5800_lan.ports='lan2'
+	uci -q add_list network.c5800_lan.ports='lan3'
+fi
+
+uci -q batch <<'EOF'
+set network.port5='device'
+set network.port5.name='port5'
+set network.port5.ipv6='1'
+
+set network.globals.default_cellular='cpe'
+set network.globals.nbcpe='1'
+set network.nrswitch='nrswitch'
+set network.nrswitch.nvlan='NLLLNWCE'
+set network.nrswitch.ovlan='NLLmNMCE'
+set network.nrswitch.disable_wan='1'
+set network.nrswitch.dsa='1'
+
+set oem.board='system'
+set oem.board.name='nradiowifi_router'
+set oem.board.ptype='rt'
+set oem.feature='system'
+set oem.feature.cpe='2'
+set oem.feature.cpeth='1'
+set oem.board.led_mode='multiple'
+
+set mesh.config='mesh'
+set mesh.config.enabled='0'
+set mesh.config.role='1'
+
+set auto_adapt.mode='mode'
+set auto_adapt.mode.en='0'
+
+set network.lan='interface'
+set network.lan.device='br-lan'
+set network.lan.proto='static'
+set network.lan.ipaddr='192.168.66.1'
+set network.lan.netmask='255.255.255.0'
+set network.lan.ip6assign='60'
+
+set network.cpe='interface'
+set network.cpe.proto='wwan'
+set network.cpe.device='eth1'
+set network.cpe.ifname='eth1'
+set network.cpe.phyifname='eth1'
+set network.cpe.phycap='2500'
+set network.cpe.forcephy='1'
+set network.cpe.auto='1'
+set network.cpe.defaultroute='1'
+set network.cpe.metric='20'
+
+set network.cpe1='interface'
+set network.cpe1.proto='wwan'
+set network.cpe1.device='port5'
+set network.cpe1.ifname='port5'
+set network.cpe1.phyifname='port5'
+set network.cpe1.phycap='2500'
+set network.cpe1.odu_interface='nbdevice'
+set network.cpe1.mode='odu'
+set network.cpe1.forcephy='1'
+set network.cpe1.auto='1'
+set network.cpe1.defaultroute='1'
+set network.cpe1.metric='10'
+set network.cpe1.ipv6='1'
+set network.cpe1.kpcpe_id='864640060011226'
+set network.cpe1.ippass='1'
+set network.cpe1.nrrc='1'
+set network.cpe1.odu_model='MT5700M-CN'
+set network.cpe1.desc='TD Tech MT5700'
+set network.cpe1.blacklist_band='1'
+set network.cpe1.mobility='1'
+set network.cpe1.freq_multi='1'
+set network.cpe1.nrcap='1'
+set network.cpe1.earfcn5='1,1,2'
+set network.cpe1.earfcn4='1,1,2'
+set network.cpe1.sms='1'
+set network.cpe1.freq_val='nr-79:78:41:28:1:8:5:3,lte-1:3:5:8:34:38:39:40:41'
+set network.cpe1.auto_sniffer='192.168.8.1'
+
+set network.nbdevice='interface'
+set network.nbdevice.proto='none'
+set network.nbdevice.device='port5'
+set network.nbdevice.ifname='port5'
+set network.nbdevice.phyifname='port5'
+commit network
+commit oem
+commit mesh
+commit auto_adapt
+EOF
+
+if ip link show BLUE4 >/dev/null 2>&1; then
+	ip link set BLUE4 nomaster 2>/dev/null
+	ip link set BLUE4 down 2>/dev/null
+	ip link set BLUE4 name port5 2>/dev/null
+	ip link set port5 up 2>/dev/null
+fi
+
+if [ -n "$board_id" ]; then
+	uci -q set oem.board.id="$board_id"
+	uci -q commit oem
+fi
+
+uci -q batch <<'EOF'
+set cellular_init.cpe='cellular'
+set cellular_init.cpe1='cellular'
+commit cellular_init
+EOF
+
+uci -q batch <<'EOF'
+set cpesel.sim='cpesel'
+set cpesel.sim.max='6'
+set cpesel.sim.gval='1010-1,1110-1,1111-1,1101-1,1111-2,0111-2'
+set cpesel.sim.stype='0,0,0,0,4,4'
+set cpesel.sim.mode='1'
+set cpesel.sim.cur='1'
+set cpesel.sim1='cpesel'
+set cpesel.sim1.max='2'
+set cpesel.sim1.gval='1-1,1-2'
+set cpesel.sim1.stype='0,4'
+set cpesel.sim1.mode='1'
+set cpesel.sim1.cur='1'
+set cpesel.sim1.default='2'
+commit cpesel
+EOF
+
+uci -q batch <<'EOF'
+set ledctrl.ledctrl='service'
+set ledctrl.ledctrl.disabled='0'
+commit ledctrl
+EOF
+
+uci -q batch <<'EOF'
+set kpcped.config='service'
+set kpcped.config.enabled='1'
+commit kpcped
+EOF
+
+wan_zone=
+idx=0
+while uci -q get "firewall.@zone[$idx]" >/dev/null 2>&1; do
+	name="$(uci -q get "firewall.@zone[$idx].name" 2>/dev/null)"
+	if [ "$name" = "wan" ]; then
+		wan_zone="firewall.@zone[$idx]"
+		break
+	fi
+	idx=$((idx + 1))
+done
+
+if [ -n "$wan_zone" ]; then
+	uci -q del_list "$wan_zone.network=wan"
+	uci -q del_list "$wan_zone.network=wan6"
+	uci -q del_list "$wan_zone.network=BLUE4WAN"
+	uci -q del_list "$wan_zone.network=BLUE4WANV6"
+	uci -q del_list "$wan_zone.network=cpe"
+	uci -q del_list "$wan_zone.network=cpe_4"
+	uci -q del_list "$wan_zone.network=cpe_6"
+	uci -q del_list "$wan_zone.network=cpe1"
+	uci -q del_list "$wan_zone.network=cpe1_4"
+	uci -q del_list "$wan_zone.network=cpe1_6"
+	uci -q add_list "$wan_zone.network=cpe"
+	uci -q add_list "$wan_zone.network=cpe_4"
+	uci -q add_list "$wan_zone.network=cpe_6"
+	uci -q add_list "$wan_zone.network=cpe1"
+	uci -q add_list "$wan_zone.network=cpe1_4"
+	uci -q add_list "$wan_zone.network=cpe1_6"
+	uci -q set firewall.@defaults[0].flow_offloading_hw='0'
+	uci -q commit firewall
+fi
+
+if [ -f /etc/config/mwan3 ]; then
+	uci -q set mwan3.wan.enabled='0'
+	uci -q set mwan3.wan6.enabled='0'
+	uci -q set mwan3.wanb.enabled='0'
+	uci -q set mwan3.wanb6.enabled='0'
+	uci -q delete mwan3.https
+	uci -q delete mwan3.default_rule_v4
+	uci -q delete mwan3.default_rule_v6
+	uci -q commit mwan3
+fi
+
+uci -q set wanchk.cpe='checker'
+uci -q set wanchk.cpe.network='cpe_4'
+uci -q set wanchk.cpe.enable='1'
+uci -q set wanchk.cpe.period='10'
+uci -q set wanchk.cpe1='checker'
+uci -q set wanchk.cpe1.network='cpe1_4'
+uci -q set wanchk.cpe1.enable='1'
+uci -q set wanchk.cpe1.period='10'
+uci -q commit wanchk
+
+uci -q batch <<'EOF'
+set cpecfg.cpesim1='cpesim'
+set cpecfg.cpesim1.peak_hour='0'
+set cpecfg.cpesim1.ippass='1'
+set cpecfg.cpesim1.mode='auto'
+set cpecfg.cpesim2='cpesim'
+set cpecfg.cpesim3='cpesim'
+set cpecfg.cpesim4='cpesim'
+set cpecfg.cpesim5='cpesim'
+set cpecfg.cpesim6='cpesim'
+set cpecfg.cpe1sim1='cpesim'
+set cpecfg.cpe1sim1.peak_hour='0'
+set cpecfg.cpe1sim1.ippass='1'
+set cpecfg.cpe1sim1.mode='auto'
+set cpecfg.cpe1sim2='cpesim'
+commit cpecfg
+EOF
+
+exit 0

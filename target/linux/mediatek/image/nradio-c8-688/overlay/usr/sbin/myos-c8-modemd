@@ -1,0 +1,1003 @@
+#!/usr/bin/python3
+"""C8 modem owner: all AT I/O, settings and SMS share one serialized channel."""
+import csv
+import fcntl
+import json
+import math
+import os
+from pathlib import Path
+import re
+import select
+import signal
+import socket
+import subprocess
+import termios
+import time
+
+
+CONFIG = "myos_c8_modem"
+STATUS = Path("/tmp/myos-c8-modem.json")
+SOCKET = "/var/run/myos-c8-modem.sock"
+DEFAULTS = {
+    "enabled": "1", "transport": "auto", "serial_port": "", "tcp_host": "",
+    "tcp_port": "20249", "netdev": "", "network_interface": "c8modem", "cid": "1",
+    "apn": "", "pdp_type": "IPV4V6", "network_mode": "auto", "frequency_policy": "2",
+    "lte_bands": "", "lte_arfcn": "", "lte_pci": "", "nr_bands": "", "nr_arfcn": "",
+    "nr_scs": "", "nr_pci": "",
+    "selected_sim": "",
+}
+SIM_MAP = {
+    "0": {"gpio29": 0, "gpio30": 1, "modem_slot": 0, "label": "External SIM 1"},
+    "6": {"gpio29": 1, "gpio30": 1, "modem_slot": 0, "label": "External SIM 2"},
+    "1": {"gpio29": 1, "gpio30": 1, "modem_slot": 1, "label": "Internal SIM 1"},
+    "2": {"gpio29": 1, "gpio30": 0, "modem_slot": 1, "label": "Internal SIM 2"},
+}
+QUERY_COMMANDS = {
+    "AT", "ATI", "AT+CGMM", "AT+CGMR", "AT+CGMI", "AT+CGSN", "AT+CPIN?",
+    "AT+CSQ", "AT+CEREG?", "AT+C5GREG?", "AT+CGREG?", "AT+COPS?",
+    "AT+CGDCONT?", "AT^HCSQ?", "AT^MONSC", "AT^HFREQINFO?", "AT^ICCID?",
+    "AT^NDISSTATQRY?", "AT^SYSCFGEX?", "AT^LTEFREQLOCK?", "AT^NRFREQLOCK?",
+    "AT^SCICHG?", "AT+CFUN?", "AT^CHIPTEMP?",
+}
+
+
+def run(*args, timeout=5):
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
+                                encoding="utf-8", errors="replace", check=False)
+        return result.returncode, result.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return 1, ""
+
+
+def config_read():
+    result = dict(DEFAULTS)
+    for key in result:
+        code, value = run("uci", "-q", "get", CONFIG + ".main." + key)
+        if code == 0:
+            result[key] = value
+    return result
+
+
+def config_save(values):
+    # All values have passed validation before reaching UCI's argv interface.
+    for key, value in values.items():
+        if key not in DEFAULTS:
+            raise ValueError("Unknown modem setting")
+        if run("uci", "set", CONFIG + ".main." + key + "=" + value)[0]:
+            raise RuntimeError("Cannot write modem configuration")
+    if run("uci", "commit", CONFIG)[0]:
+        raise RuntimeError("Cannot save modem configuration")
+
+
+def read(path):
+    try:
+        return Path(path).read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        return ""
+
+
+def rows(response, prefix):
+    result = []
+    for line in response.replace("\r", "").splitlines():
+        if line.strip().startswith(prefix + ":"):
+            try:
+                result.append(next(csv.reader([line.split(":", 1)[1].strip()],
+                                              skipinitialspace=True)))
+            except (csv.Error, StopIteration):
+                pass
+    return result
+
+
+def number(value):
+    try:
+        result = float(str(value))
+        return result if math.isfinite(result) else None
+    except (ValueError, TypeError):
+        return None
+
+
+def plain(response):
+    return " ".join(line.strip() for line in response.replace("\r", "").splitlines()
+                    if line.strip() and line.strip() not in ("OK", "ERROR")
+                    and not line.strip().startswith(("AT", "+CME ERROR", "+CMS ERROR")))[:256]
+
+
+def usb_metadata(path):
+    result = {}
+    try:
+        resolved = Path(path).resolve(strict=True)
+    except OSError:
+        return result
+    for parent in (resolved,) + tuple(resolved.parents):
+        for name in ("idVendor", "idProduct", "bInterfaceNumber", "bInterfaceProtocol"):
+            if name not in result and (parent / name).is_file():
+                result[name] = read(parent / name).lower()
+        if (parent / "idVendor").is_file():
+            result.setdefault("usb_device", str(parent))
+    return result
+
+
+def serial_candidates(config):
+    explicit = config.get("serial_port", "")
+    if explicit:
+        return [explicit]
+    found = []
+    for node in sorted(Path("/sys/class/tty").glob("ttyUSB*")):
+        data = usb_metadata(node / "device")
+        # USB guide pp.6,9: 3466:3301, PCUI interface 03 / protocol 12.
+        if (data.get("idVendor"), data.get("idProduct")) != ("3466", "3301"):
+            continue
+        if data.get("bInterfaceNumber") == "03" and data.get("bInterfaceProtocol") == "12":
+            found.append("/dev/" + node.name)
+    return found
+
+
+class ATChannel:
+    def __init__(self, kind, endpoint, port=0):
+        self.kind, self.endpoint = kind, endpoint
+        self.sock, self.fd = None, None
+        if kind == "tcp":
+            self.sock = socket.create_connection((endpoint, port), timeout=3)
+            self.sock.setblocking(False)
+            self.fd = self.sock.fileno()
+        else:
+            self.fd = os.open(endpoint, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+            try:
+                # Refuse a second serial opener after the owner acquires PCUI.
+                fcntl.ioctl(self.fd, termios.TIOCEXCL)
+                attributes = termios.tcgetattr(self.fd)
+                attributes[0] = attributes[1] = attributes[3] = 0
+                attributes[2] = termios.CS8 | termios.CLOCAL | termios.CREAD
+                attributes[4] = attributes[5] = termios.B115200
+                attributes[6][termios.VMIN] = attributes[6][termios.VTIME] = 0
+                termios.tcsetattr(self.fd, termios.TCSANOW, attributes)
+            except Exception:
+                self.close()
+                raise
+
+    def close(self):
+        if self.sock is not None:
+            self.sock.close()
+        elif self.fd is not None:
+            try:
+                fcntl.ioctl(self.fd, termios.TIOCNXCL)
+            except OSError:
+                pass
+            os.close(self.fd)
+        self.fd, self.sock = None, None
+
+    def send(self, data):
+        if self.sock:
+            self.sock.sendall(data)
+        else:
+            view = memoryview(data)
+            deadline = time.monotonic() + 3
+            while view:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("AT write timed out")
+                if select.select([], [self.fd], [], 0.2)[1]:
+                    view = view[os.write(self.fd, view):]
+
+    def receive(self, timeout, prompt=False):
+        buffer = bytearray()
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not select.select([self.fd], [], [], max(0, min(0.2, deadline - time.monotonic())))[0]:
+                continue
+            part = self.sock.recv(4096) if self.sock else os.read(self.fd, 4096)
+            if not part:
+                if self.sock:
+                    raise OSError("AT connection closed")
+                continue
+            buffer.extend(part)
+            if len(buffer) > 262144:
+                raise RuntimeError("AT response exceeds limit")
+            value = buffer.decode("utf-8", errors="replace").replace("\r", "")
+            if prompt and re.search(r"(?:^|\n)> ?$", value):
+                return value, True
+            if re.search(r"(?:^|\n)OK(?:\n|$)", value):
+                return value, not prompt
+            if re.search(r"(?:^|\n)(?:ERROR|\+CM[ES] ERROR:[^\n]*)(?:\n|$)", value):
+                return value, False
+        raise TimeoutError("AT response timed out")
+
+    def command(self, command, timeout=3, payload=None):
+        if not re.fullmatch(r"AT[^\r\n\x00\x1a]*", command) or len(command) > 4096:
+            raise ValueError("Invalid AT command")
+        # Discard only already queued URCs; a timed-out exchange closes the channel.
+        while select.select([self.fd], [], [], 0)[0]:
+            data = self.sock.recv(4096) if self.sock else os.read(self.fd, 4096)
+            if not data:
+                break
+        self.send(command.encode("ascii") + b"\r")
+        response, ok = self.receive(timeout, prompt=payload is not None)
+        if payload is not None and ok:
+            self.send(payload + b"\x1a")
+            response, ok = self.receive(45)
+        return response, ok
+
+
+def registration(response, prefix):
+    values = rows(response, prefix)
+    try:
+        status = int(values[-1][1])
+    except (ValueError, IndexError):
+        return {"registered": None, "status": None}
+    return {"registered": status in (1, 5), "status": status}
+
+
+def sessions(response, cid):
+    value = {"cid": cid, "ipv4_connected": None, "ipv6_connected": None}
+    for row in rows(response, "^NDISSTATQRY"):
+        if not row or row[0] != str(cid):
+            continue
+        for start in (1, 5):
+            if len(row) > start + 3 and row[start] in ("0", "1"):
+                family = row[start + 3].upper()
+                if family in ("IPV4", "IPV6"):
+                    value[family.lower() + "_connected"] = row[start] == "1"
+    return value
+
+
+def signal_values(response):
+    result = {"percent": None, "rssi": None, "rsrp": None, "rsrq": None, "sinr": None}
+    all_rows = rows(response, "^HCSQ")
+    row = next((v for v in all_rows if v[0] == "NR"), None) or (all_rows[-1] if all_rows else [])
+    if not row:
+        return result, ""
+    mode = row[0]
+    layout = {"NR": ("rsrp", "sinr", "rsrq"), "LTE": ("rssi", "rsrp", "sinr", "rsrq"),
+              "WCDMA": ("rssi", "rscp", "ecio")}.get(mode, ())
+    # MT5700 AT manual pp.288-290; endpoints are interval bounds, not exact RSSI.
+    ranges = {"rssi": (96, -121, 1), "rsrp": (97, -141, 1),
+              "sinr": (251, -20.2, 0.2), "rsrq": (34, -20, 0.5)}
+    for key, raw in zip(layout, row[1:]):
+        raw = number(raw)
+        if key in ranges and raw is not None and 0 < raw < ranges[key][0]:
+            _, base, step = ranges[key]
+            result[key] = round(base + raw * step, 1)
+    basis = result["rsrp"]
+    if basis is not None:
+        result["percent"] = round(max(0, min(100, (basis + 125) * 2)))
+    return result, mode
+
+
+def serving_cell(response, frequencies):
+    value = {}
+    records = rows(response, "^MONSC")
+    if records:
+        row = records[-1]
+        if row[0] in ("NR", "NR-5GC") and len(row) >= 11:
+            names = {"mcc": 1, "mnc": 2, "arfcn": 3, "cell": 5, "pci": 6, "tac": 7}
+        elif row[0] in ("LTE", "LTE-NR", "EMTC", "NB-IOT") and len(row) >= 9:
+            names = {"mcc": 1, "mnc": 2, "arfcn": 3, "cell": 4, "pci": 5, "tac": 6}
+        else:
+            names = {}
+        value.update({key: row[index] for key, index in names.items()})
+        value["mode"] = {"NR": "NR SA", "NR-5GC": "NR SA", "LTE-NR": "NR NSA"}.get(row[0], row[0])
+    carriers = []
+    for row in rows(frequencies, "^HFREQINFO"):
+        if len(row) < 9 or row[1] not in ("6", "7"):
+            continue
+        for start in range(2, len(row) - 6, 7):
+            carriers.append({"rat": "NR" if row[1] == "7" else "LTE", "band": row[start],
+                             "arfcn": row[start + 1], "dlbw": row[start + 3],
+                             "ul_arfcn": row[start + 4], "ulbw": row[start + 6]})
+    carriers.sort(key=lambda item: item["rat"] != "NR" if "NR" in value.get("mode", "")
+                  else item["rat"] != "LTE")
+    value["carriers"] = carriers
+    if carriers:
+        value["band"] = carriers[0]["band"]
+    return value
+
+
+def validate(config):
+    result = {key: str(config.get(key, default)) for key, default in DEFAULTS.items()}
+    if result["enabled"] not in ("0", "1") or result["frequency_policy"] not in ("0", "1", "2"):
+        raise ValueError("Invalid enabled flag or frequency policy")
+    if result["selected_sim"] and result["selected_sim"] not in SIM_MAP:
+        raise ValueError("Invalid saved SIM selection")
+    if result["transport"] not in ("auto", "serial", "tcp"):
+        raise ValueError("Invalid AT transport")
+    if result["serial_port"] and not re.fullmatch(r"/dev/(?:ttyUSB|ttyACM)[0-9]+", result["serial_port"]):
+        raise ValueError("Invalid serial port")
+    if result["transport"] == "tcp" and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.:-]{0,252}", result["tcp_host"]):
+        raise ValueError("A TCP modem host must be explicitly configured")
+    if not result["tcp_port"].isdigit() or not 1 <= int(result["tcp_port"]) <= 65535:
+        raise ValueError("Invalid AT TCP port")
+    if not result["cid"].isdigit() or not 1 <= int(result["cid"]) <= 11:
+        raise ValueError("PDP context must be 1-11")
+    for key in ("netdev", "network_interface"):
+        if (not result[key] and key == "network_interface") or (result[key] and not re.fullmatch(r"[A-Za-z0-9_.-]{1,32}", result[key])):
+            raise ValueError("Invalid network interface")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{0,99}", result["apn"]):
+        raise ValueError("Invalid APN")
+    if result["pdp_type"] not in ("IP", "IPV6", "IPV4V6"):
+        raise ValueError("Invalid PDP type")
+    if result["network_mode"] not in ("auto", "lte", "nr", "lte_nr"):
+        raise ValueError("Invalid network mode")
+    for radio in ("lte", "nr"):
+        groups = {}
+        for field, maximum in (("bands", 65535), ("arfcn", 4294967295),
+                               ("pci", 503 if radio == "lte" else 1007), ("scs", 4)):
+            key = radio + "_" + field
+            if key not in result:
+                continue
+            raw = result[key]
+            if raw and not re.fullmatch(r"[0-9]+(?:,[0-9]+){0,19}", raw):
+                raise ValueError("Invalid " + key)
+            values = raw.split(",") if raw else []
+            if any(int(item) > maximum or (field == "bands" and int(item) == 0) for item in values):
+                raise ValueError("Out-of-range " + key)
+            groups[field] = values
+        count = len(groups.get("bands", []))
+        if any(values and len(values) != count for values in groups.values()):
+            raise ValueError("Frequency-lock lists must have matching lengths")
+        if groups.get("pci") and not groups.get("arfcn"):
+            raise ValueError("Cell lock requires ARFCN")
+        if radio == "nr" and bool(groups.get("arfcn")) != bool(groups.get("scs")):
+            raise ValueError("NR frequency lock requires ARFCN and SCS")
+    if result["frequency_policy"] != "2" and not (result["lte_bands"] or result["nr_bands"]):
+        raise ValueError("Select LTE or NR bands for intelligent/locked policy")
+    return result
+
+
+def desired_lock(config, radio):
+    bands = config[radio + "_bands"]
+    if config["frequency_policy"] == "2" or not bands:
+        return ["0"]
+    kind = "2" if config[radio + "_pci"] else "1" if config[radio + "_arfcn"] else "3"
+    # AT manual pp.305,308: 1 allows reselection/handover; 0 forbids both.
+    fields = [kind, "1" if config["frequency_policy"] == "0" else "0", str(len(bands.split(","))), bands]
+    if kind in ("1", "2"):
+        fields.append(config[radio + "_arfcn"])
+        if radio == "nr":
+            fields.append(config[radio + "_scs"])
+    if kind == "2":
+        fields.append(config[radio + "_pci"])
+    return fields
+
+
+def current_lock(response, radio):
+    prefix = "^" + radio.upper() + "FREQLOCK"
+    value = rows(response, prefix)
+    if not value:
+        return None
+    first = value[-1]
+    if first[0] == "0":
+        return ["0"]
+    if len(first) > 1:
+        return first
+    tail = response.split(prefix + ":", 1)[1].replace("\r", "").splitlines()[1:]
+    records = []
+    for line in tail:
+        if not re.fullmatch(r"[0-9, \"']+", line.strip()):
+            continue
+        records.append(next(csv.reader([line.strip()], skipinitialspace=True)))
+    if len(records) < 2 or len(records[0]) != 2:
+        return None
+    result = first + records[0]
+    for column in zip(*records[1:]):
+        result.append(",".join(column))
+    return result
+
+
+def lock_command(radio, fields):
+    result = "AT^" + radio.upper() + "FREQLOCK=" + ",".join(fields[:3])
+    if len(fields) > 3:
+        result += "," + ",".join('"' + item + '"' for item in fields[3:])
+    return result
+
+
+def gpiochip_base():
+    candidates = []
+    for chip in Path("/sys/class/gpio").glob("gpiochip*"):
+        label = read(chip / "label").lower()
+        compatible = read(chip / "device/of_node/compatible").replace("\0", ",").lower()
+        if not ("mt7981" in label or "mediatek,mt7981-pinctrl" in compatible):
+            continue
+        base, size = read(chip / "base"), read(chip / "ngpio")
+        if base.isdigit() and size.isdigit() and int(size) > 30:
+            candidates.append(int(base))
+    if len(candidates) != 1:
+        raise RuntimeError("Cannot identify the MT7981 GPIO controller")
+    return candidates[0]
+
+
+def sim_gpio_values():
+    try:
+        base = gpiochip_base()
+    except RuntimeError:
+        return {}
+    result = {}
+    for pin in (29, 30):
+        value = read("/sys/class/gpio/gpio%d/value" % (base + pin))
+        if value in ("0", "1"):
+            result["gpio%d" % pin] = int(value)
+    return result
+
+
+def manual_sim_gpio(mapping):
+    base = gpiochip_base()
+    for pin in (29, 30):
+        target = Path("/sys/class/gpio/gpio%d" % (base + pin))
+        if not target.exists():
+            Path("/sys/class/gpio/export").write_text(str(base + pin), encoding="ascii")
+            deadline = time.monotonic() + 1
+            while not target.exists() and time.monotonic() < deadline:
+                time.sleep(0.025)
+        if not target.exists():
+            raise RuntimeError("Cannot request SIM selector GPIO")
+        if read(target / "active_low") != "0":
+            raise RuntimeError("SIM selector GPIO polarity does not match the C8 device tree")
+        # high/low changes direction and initial output atomically in gpiolib.
+        (target / "direction").write_text("high" if mapping["gpio%d" % pin] else "low", encoding="ascii")
+        if read(target / "value") != str(mapping["gpio%d" % pin]):
+            raise RuntimeError("SIM selector GPIO readback failed")
+
+
+class Owner:
+    def __init__(self):
+        self.config = config_read()
+        self.channel = None
+        self.running = True
+        self.last_identity = 0
+        self.last_dial = 0
+        self.last_network_up = 0
+        self.startup_policy_done = False
+        self.status = {"sampled_at": 0, "sampled_monotonic": 0, "last_success_at": 0,
+                       "stale": True, "modem": {}, "sim": {}, "registration": {},
+                       "session": {}, "network": {}, "signal": {}, "cell": {}, "error": ""}
+
+    def query(self, command, timeout=3, payload=None):
+        if self.channel is None:
+            raise RuntimeError("AT transport is unavailable")
+        try:
+            response, ok = self.channel.command(command, timeout, payload)
+            return response if ok else ""
+        except (OSError, TimeoutError):
+            self.channel.close()
+            self.channel = None
+            self.status["stale"] = True
+            raise
+
+    def require(self, command, timeout=5, payload=None):
+        response = self.query(command, timeout, payload)
+        if not response:
+            raise RuntimeError("Modem rejected " + command.split("=", 1)[0])
+        return response
+
+    def connect(self):
+        cfg = self.config
+        endpoints = [("serial", path, 0) for path in serial_candidates(cfg)]
+        if cfg["transport"] == "tcp":
+            endpoints = [("tcp", cfg["tcp_host"], int(cfg["tcp_port"]))]
+        if not endpoints:
+            raise RuntimeError("No PCUI AT port detected; configure the verified AT transport")
+        for kind, endpoint, port in endpoints:
+            channel = None
+            try:
+                channel = ATChannel(kind, endpoint, port)
+                response, ok = channel.command("AT+CGMM")
+                model = plain(response) if ok else ""
+                if not model:
+                    channel.close()
+                    continue
+                self.channel = channel
+                self.status["modem"] = {"model": model, "transport": kind, "endpoint": endpoint,
+                                        "supported": bool(re.search(r"\bMT5700(?:M)?(?:-CN)?\b", model, re.I))}
+                if not self.status["modem"]["supported"]:
+                    self.status["error"] = "Unsupported modem: " + model
+                return
+            except (OSError, TimeoutError, termios.error):
+                if channel:
+                    channel.close()
+        raise RuntimeError("AT port did not return a valid modem identity")
+
+    def modem_supported(self):
+        return self.status.get("modem", {}).get("supported") is True
+
+    def publish(self, error=""):
+        now = time.time()
+        self.status["stale"] = now - self.status.get("last_success_at", 0) > 90
+        self.status["error"] = error or self.status.get("error", "")
+        self.status["settings"] = {key: value for key, value in self.config.items()}
+        temporary = STATUS.with_suffix(".new")
+        temporary.write_text(json.dumps(self.status, ensure_ascii=False), encoding="utf-8")
+        temporary.chmod(0o600)
+        temporary.replace(STATUS)
+
+    def network_device(self):
+        if self.config["netdev"]:
+            return self.config["netdev"]
+        if self.channel and self.channel.kind == "serial":
+            serial = usb_metadata(Path("/sys/class/tty") / Path(self.channel.endpoint).name / "device")
+            for path in sorted(Path("/sys/class/net").glob("*")):
+                candidate = usb_metadata(path / "device")
+                if serial.get("usb_device") and serial.get("usb_device") == candidate.get("usb_device"):
+                    return path.name
+        return ""
+
+    def network_state(self):
+        name = self.config["network_interface"]
+        code, output = run("ubus", "call", "network.interface", "dump")
+        try:
+            records = json.loads(output).get("interface", []) if code == 0 else []
+        except ValueError:
+            records = []
+        selected = [item for item in records if item.get("interface") in (name, name + "_6")]
+        device = next((item.get("l3_device") or item.get("device") for item in selected
+                       if item.get("l3_device") or item.get("device")), self.network_device())
+        value = {"interface": name, "device": device, "up": any(item.get("up") for item in selected),
+                 "ipv4": [], "ipv6": [], "dns": [], "default_ipv4": False, "default_ipv6": False}
+        for item in selected:
+            for family in (4, 6):
+                value["ipv" + str(family)].extend(address["address"]
+                    for address in item.get("ipv%d-address" % family, []) if address.get("address")
+                    and not address["address"].lower().startswith("fe80:"))
+                routes = item.get("route", [])
+                has_route = any(route.get("target") == ("0.0.0.0" if family == 4 else "::")
+                                and str(route.get("mask")) == "0" for route in routes)
+                if has_route and device:
+                    code, route = run("ip", "-%d" % family, "route", "get",
+                                      "1.1.1.1" if family == 4 else "2606:4700:4700::1111")
+                    value["default_ipv%d" % family] = code == 0 and bool(re.search(
+                        r"\bdev\s+" + re.escape(device) + r"(?:\s|$)", route))
+            value["dns"].extend(item.get("dns-server", []))
+        session = self.status.get("session", {})
+        registered = self.status.get("registration", {}).get("registered") is True
+        value["online"] = not self.status.get("stale", True) and registered and any(
+            session.get("ipv%d_connected" % family) is True and value["ipv%d" % family]
+            and value["default_ipv%d" % family] for family in (4, 6))
+        return value
+
+    def network_action(self, up):
+        name = self.config["network_interface"]
+        if up:
+            device = self.network_device()
+            if not device:
+                return
+            _, configured = run("uci", "-q", "get", "network." + name + ".device")
+            if configured != device:
+                # Runtime detection is private to the C8 data interface.
+                run("uci", "set", "network." + name + ".device=" + device)
+                run("ubus", "call", "network", "reload")
+            self.last_network_up = time.monotonic()
+        run("ubus", "call", "network.interface." + name, "up" if up else "down")
+
+    def collect(self):
+        if self.channel is None:
+            self.connect()
+        if not self.modem_supported():
+            self.publish("Unsupported modem: " + self.status["modem"].get("model", ""))
+            return
+        fresh = {}
+        self.require("AT")
+        pin = rows(self.query("AT+CPIN?"), "+CPIN")
+        fresh["sim"] = {"status": pin[-1][0] if pin else "UNKNOWN", "slot": None,
+                        "modem_slot": None, "selected_slot": self.config["selected_sim"]}
+        slot = rows(self.query("AT^SCICHG?"), "^SCICHG")
+        if slot and slot[-1][0] in ("0", "1"):
+            fresh["sim"]["modem_slot"] = int(slot[-1][0])
+            gpio = sim_gpio_values()
+            for logical, mapping in SIM_MAP.items():
+                if (mapping["modem_slot"] == fresh["sim"]["modem_slot"]
+                        and all(gpio.get(key) == mapping[key] for key in ("gpio29", "gpio30"))):
+                    fresh["sim"]["slot"] = int(logical)
+                    fresh["sim"]["label"] = mapping["label"]
+        nr = registration(self.query("AT+C5GREG?"), "+C5GREG")
+        lte = registration(self.query("AT+CEREG?"), "+CEREG")
+        legacy = registration(self.query("AT+CGREG?"), "+CGREG")
+        regs = ((nr, "5G"), (lte, "4G"), (legacy, "3G"))
+        current, rat = next(((value, mode) for value, mode in regs if value["registered"]),
+                            next(((value, mode) for value, mode in regs if value["registered"] is not None),
+                                 ({"registered": None, "status": None}, "")))
+        fresh["registration"] = dict(current, rat=rat)
+        fresh["signal"], mode = signal_values(self.query("AT^HCSQ?"))
+        if mode == "NR" and fresh["registration"]["registered"]:
+            fresh["registration"]["rat"] = "5G"
+        if fresh["signal"]["percent"] is None:
+            csq = rows(self.query("AT+CSQ"), "+CSQ")
+            if csq and csq[-1][0].isdigit() and 0 <= int(csq[-1][0]) <= 31:
+                fresh["signal"]["rssi"] = -113 + int(csq[-1][0]) * 2
+                fresh["signal"]["percent"] = round(int(csq[-1][0]) * 100 / 31)
+        fresh["session"] = sessions(self.query("AT^NDISSTATQRY?"), int(self.config["cid"]))
+        fresh["cell"] = serving_cell(self.query("AT^MONSC"), self.query("AT^HFREQINFO?"))
+        cops = rows(self.query("AT+COPS?"), "+COPS")
+        fresh["operator"] = cops[-1][2] if cops and len(cops[-1]) >= 3 else ""
+        contexts = rows(self.query("AT+CGDCONT?"), "+CGDCONT")
+        fresh["session"]["apn"] = next((row[2] for row in contexts
+                if len(row) > 2 and row[0] == self.config["cid"]), "")
+        if time.monotonic() - self.last_identity > 300 or not self.last_identity:
+            modem = self.status["modem"]
+            for key, command in (("manufacturer", "AT+CGMI"), ("revision", "AT+CGMR"), ("imei", "AT+CGSN")):
+                modem[key] = plain(self.query(command))
+            iccid = rows(self.query("AT^ICCID?"), "^ICCID")
+            modem["iccid"] = iccid[-1][0] if iccid else ""
+            self.last_identity = time.monotonic()
+        fresh["sampled_at"] = fresh["last_success_at"] = int(time.time())
+        fresh["sampled_monotonic"] = time.monotonic()
+        fresh["stale"] = False
+        fresh["error"] = ""
+        self.status.update(fresh)
+        self.status["network"] = self.network_state()
+        self.publish()
+
+    def apply_radio(self, cfg):
+        changed = False
+        current = rows(self.require("AT^SYSCFGEX?"), "^SYSCFGEX")
+        if not current or len(current[-1]) < 5:
+            raise RuntimeError("Cannot read network mode before applying settings")
+        fields = current[-1][:5]
+        order = {"auto": "080302", "lte": "03", "nr": "08", "lte_nr": "0803"}[cfg["network_mode"]]
+        if fields[0] != order:
+            command = 'AT^SYSCFGEX="' + order + '",' + ",".join(fields[1:]) + ",,"
+            self.require(command)
+            changed = True
+        for radio in ("lte", "nr"):
+            command = "AT^" + radio.upper() + "FREQLOCK?"
+            observed = current_lock(self.require(command), radio)
+            expected = desired_lock(cfg, radio)
+            if observed is None:
+                raise RuntimeError("Cannot read " + radio.upper() + " frequency-lock state")
+            if observed != expected:
+                self.require(lock_command(radio, expected))
+                changed = True
+        if changed:
+            # Lock manual pp.304,307 requires one RF off/on cycle, never a SIM change.
+            self.require("AT+CFUN=0")
+            self.wait_for(lambda: rows(self.query("AT+CFUN?"), "+CFUN") == [["0"]], 8)
+            self.require("AT+CFUN=1")
+            self.wait_for(lambda: rows(self.query("AT+CFUN?"), "+CFUN") == [["1"]], 12)
+        for radio in ("lte", "nr"):
+            if current_lock(self.require("AT^" + radio.upper() + "FREQLOCK?"), radio) != desired_lock(cfg, radio):
+                raise RuntimeError("Frequency policy readback failed")
+        mode = rows(self.require("AT^SYSCFGEX?"), "^SYSCFGEX")
+        if not mode or mode[-1][0] != order:
+            raise RuntimeError("Network mode readback failed")
+
+    def wait_for(self, predicate, timeout):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if predicate():
+                return
+            time.sleep(0.25)
+        raise RuntimeError("Modem state did not reach the requested value")
+
+    def configure_apn(self, cfg, explicit=False):
+        if not cfg["apn"] and not explicit:
+            return
+        records = rows(self.require("AT+CGDCONT?"), "+CGDCONT")
+        target = next((item for item in records if item[0] == cfg["cid"]), [])
+        if target[1:3] != [cfg["pdp_type"], cfg["apn"]]:
+            self.require('AT+CGDCONT=' + cfg["cid"] + ',"' + cfg["pdp_type"] + '","' + cfg["apn"] + '"')
+
+    def data_connect(self):
+        self.configure_apn(self.config)
+        self.require("AT^NDISDUP=" + self.config["cid"] + ",1", 5)
+        self.last_dial = time.monotonic()
+
+    def redial(self):
+        # Recovery affects only the data context; no SCICHG, GPIO or CFUN here.
+        self.network_action(False)
+        self.require("AT^NDISDUP=" + self.config["cid"] + ",0", 5)
+        def disconnected():
+            state = sessions(self.require("AT^NDISSTATQRY?"), int(self.config["cid"]))
+            values = [state[key] for key in ("ipv4_connected", "ipv6_connected")]
+            return any(value is False for value in values) and not any(value is True for value in values)
+        self.wait_for(disconnected, 15)
+        self.data_connect()
+        return {"ok": True, "pending": True}
+
+    def select_sim(self, slot):
+        if isinstance(slot, bool) or str(slot) not in SIM_MAP:
+            raise ValueError("Invalid SIM slot")
+        mapping = SIM_MAP[str(slot)]
+        observed = rows(self.require("AT^SCICHG?"), "^SCICHG")
+        if not observed or observed[-1][0] not in ("0", "1"):
+            raise RuntimeError("Current SIM slot is unavailable")
+        gpio = sim_gpio_values()
+        if (int(observed[-1][0]) != mapping["modem_slot"]
+                or any(gpio.get(key) != mapping[key] for key in ("gpio29", "gpio30"))):
+            self.network_action(False)
+            # AT manual pp.250-251: deactivate the SIM before moving its physical mux.
+            self.require("AT^HVSST=1,0")
+            try:
+                manual_sim_gpio(mapping)
+                modem_slot = mapping["modem_slot"]
+                self.require("AT^SCICHG=%d,%d" % (modem_slot, 1 - modem_slot), 10)
+            finally:
+                self.require("AT^HVSST=1,1")
+            self.wait_for(lambda: rows(self.require("AT^SCICHG?"), "^SCICHG")[0][0]
+                          == str(mapping["modem_slot"]), 15)
+            self.last_identity = 0
+            self.last_dial = time.monotonic()
+        config_save({"selected_sim": str(slot)})
+        self.config["selected_sim"] = str(slot)
+        return {"ok": True, "slot": slot}
+
+    def tick(self):
+        self.collect()
+        if not self.modem_supported() or self.config["enabled"] != "1":
+            return
+        if not self.startup_policy_done:
+            self.startup_policy_done = True
+            try:
+                self.apply_radio(validate(self.config))
+                self.status["policy_applied"] = True
+                self.status["policy_error"] = ""
+            except (OSError, RuntimeError, ValueError) as error:
+                self.status["policy_applied"] = False
+                self.status["policy_error"] = str(error)
+                raise
+        ready = self.status["sim"].get("status") == "READY"
+        registered = self.status["registration"].get("registered") is True
+        connected = any(self.status["session"].get("ipv%d_connected" % family) is True for family in (4, 6))
+        session_known = any(self.status["session"].get("ipv%d_connected" % family) is not None for family in (4, 6))
+        if ready and registered and session_known and not connected and time.monotonic() - self.last_dial >= 30:
+            self.data_connect()
+        if connected and not self.status["network"].get("up") and time.monotonic() - self.last_network_up >= 15:
+            self.network_action(True)
+
+    def handle(self, request):
+        action = request.get("action")
+        if not isinstance(action, str):
+            raise ValueError("Invalid modem action")
+        if action == "status":
+            return self.status
+        if action == "settings":
+            return {"ok": True, "settings": self.config}
+        if action == "save_settings":
+            supplied = request.get("settings")
+            if not isinstance(supplied, dict) or any(key not in DEFAULTS or key == "selected_sim" for key in supplied):
+                raise ValueError("Invalid modem settings")
+            candidate = validate(dict(self.config, **supplied))
+            transport_keys = ("transport", "serial_port", "tcp_host", "tcp_port")
+            transport_changed = any(candidate[key] != self.config[key] for key in transport_keys)
+            if transport_changed:
+                config_save(candidate)
+                self.config = candidate
+                if self.channel:
+                    self.channel.close()
+                self.channel = None
+                self.status["modem"] = {}
+                for key in ("sim", "registration", "session", "network", "signal", "cell"):
+                    self.status[key] = {}
+                self.status["last_success_at"] = 0
+                self.status["stale"] = True
+                self.startup_policy_done = False
+                return {"ok": True, "pending": True}
+            if not self.modem_supported() or not self.channel:
+                config_save(candidate)
+                self.config = candidate
+                self.startup_policy_done = False
+                return {"ok": True, "pending": True}
+            if candidate["enabled"] == "0":
+                self.network_action(False)
+                self.require("AT^NDISDUP=" + self.config["cid"] + ",0", 5)
+            radio_keys = ("network_mode", "frequency_policy", "lte_bands", "lte_arfcn", "lte_pci",
+                          "nr_bands", "nr_arfcn", "nr_scs", "nr_pci")
+            if any(candidate[key] != self.config[key] for key in radio_keys):
+                self.apply_radio(candidate)
+            if any(candidate[key] != self.config[key] for key in ("apn", "pdp_type", "cid")):
+                self.network_action(False)
+                self.require("AT^NDISDUP=" + self.config["cid"] + ",0", 5)
+                self.configure_apn(candidate, explicit=True)
+                self.last_dial = 0
+            config_save(candidate)
+            self.config = candidate
+            self.startup_policy_done = True
+            self.status["policy_applied"] = True
+            self.status["policy_error"] = ""
+            self.publish()
+            return {"ok": True}
+        if not self.channel or not self.modem_supported():
+            raise RuntimeError("No supported modem is connected")
+        if action == "redial":
+            if self.config["enabled"] != "1":
+                raise RuntimeError("Cellular data is disabled")
+            return self.redial()
+        if action == "select_sim":
+            return self.select_sim(request.get("slot"))
+        if action == "diagnostic":
+            command = request.get("command", "")
+            if command not in QUERY_COMMANDS:
+                raise ValueError("Only documented status queries are accepted")
+            return {"ok": True, "response": self.query(command)}
+        if action.startswith("sms_"):
+            return self.sms(request)
+        raise ValueError("Unknown modem action")
+
+    def sms(self, request):
+        self.require("AT+CMGF=0")
+        if request["action"] == "sms_list":
+            response = self.require("AT+CMGL=4", 10)
+            result = []
+            lines = response.replace("\r", "").splitlines()
+            for index, line in enumerate(lines[:-1]):
+                if line.startswith("+CMGL:"):
+                    header = next(csv.reader([line.split(":", 1)[1]], skipinitialspace=True))
+                    if len(header) >= 2 and header[0].isdigit() and re.fullmatch(r"[0-9A-Fa-f]+", lines[index + 1].strip()):
+                        decoded = sms_decode(lines[index + 1].strip())
+                        result.append(dict(decoded, index=int(header[0]), status=header[1]))
+            return {"ok": True, "messages": result}
+        if request["action"] == "sms_delete":
+            index = request.get("index")
+            if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index <= 65535:
+                raise ValueError("Invalid SMS index")
+            self.require("AT+CMGD=" + str(index))
+            return {"ok": True}
+        if request["action"] == "sms_send":
+            pdus = sms_encode(request.get("number", ""), request.get("text", ""))
+            sent = 0
+            for pdu in pdus:
+                try:
+                    self.require("AT+CMGS=" + str(len(pdu) // 2 - 1), 5, pdu.encode("ascii"))
+                except (OSError, RuntimeError) as error:
+                    return {"ok": False, "error": str(error), "segments_sent": sent}
+                sent += 1
+            return {"ok": True, "segments": sent}
+        raise ValueError("Unknown SMS action")
+
+    def serve(self):
+        with open("/var/run/myos-c8-modem.lock", "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            Path(SOCKET).unlink(missing_ok=True)
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+                server.bind(SOCKET)
+                os.chmod(SOCKET, 0o600)
+                server.listen(8)
+                server.settimeout(0.5)
+                next_poll = 0
+                while self.running:
+                    if time.monotonic() >= next_poll:
+                        try:
+                            self.tick()
+                        except (OSError, RuntimeError, ValueError, termios.error) as error:
+                            self.publish(str(error))
+                        next_poll = time.monotonic() + 10
+                    try:
+                        channel, _ = server.accept()
+                    except socket.timeout:
+                        continue
+                    with channel:
+                        channel.settimeout(3)
+                        try:
+                            data = bytearray()
+                            while b"\n" not in data:
+                                part = channel.recv(4096)
+                                if not part or len(data) + len(part) > 65536:
+                                    raise ValueError("Invalid request size")
+                                data.extend(part)
+                            request = json.loads(data.split(b"\n", 1)[0])
+                            if not isinstance(request, dict):
+                                raise ValueError("Invalid modem request")
+                            result = self.handle(request)
+                        except (OSError, ValueError, RuntimeError, IndexError, termios.error) as error:
+                            result = {"ok": False, "error": str(error)}
+                        try:
+                            channel.sendall(json.dumps(result, ensure_ascii=False).encode("utf-8") + b"\n")
+                        except OSError:
+                            pass
+                        next_poll = min(next_poll, time.monotonic() + 1)
+            if self.channel:
+                self.channel.close()
+            Path(SOCKET).unlink(missing_ok=True)
+
+
+GSM7 = ("@\u00a3$\u00a5\u00e8\u00e9\u00f9\u00ec\u00f2\u00c7\n\u00d8\u00f8\r\u00c5\u00e5"
+        "\u0394_\u03a6\u0393\u039b\u03a9\u03a0\u03a8\u03a3\u0398\u039e\x1b\u00c6\u00e6\u00df\u00c9"
+        " !\"#\u00a4%&'()*+,-./0123456789:;<=>?\u00a1ABCDEFGHIJKLMNOPQRSTUVWXYZ\u00c4\u00d6\u00d1\u00dc\u00a7\u00bf"
+        "abcdefghijklmnopqrstuvwxyz\u00e4\u00f6\u00f1\u00fc\u00e0")
+GSM7_EXT = {10: "\f", 20: "^", 40: "{", 41: "}", 47: "\\", 60: "[", 61: "~", 62: "]", 64: "|", 101: "\u20ac"}
+
+
+def swap_digits(data):
+    return "".join("%x%x" % (item & 15, item >> 4) for item in data).rstrip("f")
+
+
+def sms_decode(encoded):
+    result = {"number": "", "text": "", "date": "", "concat": None, "encoding": "unknown"}
+    try:
+        data = bytes.fromhex(encoded)
+        start = data[0] + 1
+        first = data[start]
+        pos = start + 1
+        if first & 3 != 0:
+            return dict(result, text="[Unsupported SMS TPDU]", pdu=encoded)
+        length, address_type = data[pos:pos + 2]
+        pos += 2
+        count = (length + 1) // 2
+        if address_type & 0x70 == 0x50:
+            count = (length + 1) // 2
+            sender = septets(data[pos:pos + count], length * 4 // 7)
+        else:
+            sender = swap_digits(data[pos:pos + count])[:length]
+            if address_type & 0x70 == 0x10:
+                sender = "+" + sender
+        result["number"] = sender
+        pos += count + 1
+        dcs = data[pos]
+        pos += 1
+        stamp = [swap_digits(bytes([item])).zfill(2) for item in data[pos:pos + 7]]
+        result["date"] = "20%s-%s-%s %s:%s:%s" % tuple(stamp[:6])
+        pos += 7
+        length = data[pos]
+        user = data[pos + 1:]
+        header = user[0] + 1 if first & 0x40 and user else 0
+        if header:
+            cursor = 1
+            while cursor + 1 < header:
+                kind, size = user[cursor:cursor + 2]
+                field = user[cursor + 2:cursor + 2 + size]
+                if kind == 0 and size == 3:
+                    result["concat"] = {"reference": field[0], "total": field[1], "part": field[2]}
+                elif kind == 8 and size == 4:
+                    result["concat"] = {"reference": int.from_bytes(field[:2], "big"), "total": field[2], "part": field[3]}
+                cursor += size + 2
+        alphabet = dcs & 12
+        if alphabet == 8:
+            result["encoding"] = "UCS2"
+            result["text"] = user[header:length].decode("utf-16-be", errors="replace")
+        elif alphabet == 0:
+            result["encoding"] = "GSM7"
+            skip = (header * 8 + 6) // 7
+            result["text"] = septets(user, length - skip, skip * 7)
+        else:
+            result["encoding"] = "8bit"
+            result["text"] = user[header:length].decode("utf-8", errors="replace")
+        return result
+    except (ValueError, IndexError, TypeError):
+        return dict(result, text="[Invalid SMS PDU]", pdu=encoded)
+
+
+def septets(data, count, offset=0):
+    result, escaped = [], False
+    bits = int.from_bytes(data, "little")
+    for index in range(max(0, count)):
+        value = (bits >> (offset + index * 7)) & 127
+        if escaped:
+            result.append(GSM7_EXT.get(value, " "))
+            escaped = False
+        elif value == 27:
+            escaped = True
+        else:
+            result.append(GSM7[value])
+    return "".join(result)
+
+
+def sms_encode(destination, text):
+    if not isinstance(destination, str) or not re.fullmatch(r"\+?[0-9]{3,20}", destination):
+        raise ValueError("Invalid SMS destination")
+    if not isinstance(text, str) or not text or len(text.encode("utf-16-be")) > 1340:
+        raise ValueError("SMS text must contain 1-670 UCS2 characters")
+    digits = destination.lstrip("+")
+    address = "".join((digits + ("F" if len(digits) % 2 else ""))[index:index + 2][::-1]
+                      for index in range(0, len(digits), 2))
+    encoded = text.encode("utf-16-be")
+    maximum = 140 if len(encoded) <= 140 else 134
+    chunks, current = [], bytearray()
+    # Split on Unicode code points so a surrogate pair never straddles parts.
+    for char in text:
+        data = char.encode("utf-16-be")
+        if len(current) + len(data) > maximum:
+            chunks.append(bytes(current))
+            current.clear()
+        current.extend(data)
+    chunks.append(bytes(current))
+    reference = os.urandom(1)[0]
+    result = []
+    for index, chunk in enumerate(chunks):
+        header = bytes([5, 0, 3, reference, len(chunks), index + 1]) if len(chunks) > 1 else b""
+        tpdu = bytes([0x41 if header else 0x01, 0, len(digits), 0x91 if destination.startswith("+") else 0x81])
+        tpdu += bytes.fromhex(address) + bytes([0, 8, len(header) + len(chunk)]) + header + chunk
+        result.append((b"\0" + tpdu).hex().upper())
+    return result
+
+
+if __name__ == "__main__":
+    owner = Owner()
+    signal.signal(signal.SIGTERM, lambda *_: setattr(owner, "running", False))
+    signal.signal(signal.SIGINT, lambda *_: setattr(owner, "running", False))
+    owner.serve()

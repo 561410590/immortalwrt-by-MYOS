@@ -1,116 +1,25 @@
 <%+header%>
-<head>
-    <meta charset="UTF-8">
-    <title>AK68 Sender</title>
-    <style>
-        body {
-           
-            background-color: #94e6ff; 
-            color: #000000; 
-            margin: 0;
-            padding: 0;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-        }
-
-        h1 {
-            margin: 20px 0;
-            text-align: center; 
-        }
-
-        input, button {
-            font-family: 'Press Start 2P', cursive;
-            background-color: #000000;
-            border: none;
-            color: white;
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 5px;
-            cursor: pointer;
-            width: 100%;
-        }
-
-        #commandInput {
-            width: calc(90% - 24px);
-            margin: 20px 5%;
-            font-family: 'Press Start 2P', cursive;
-            background-color: #000000;
-            border: none;
-            color: white;
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 5px;
-            cursor: pointer;
-            width: 100%;
-        }
-
-        #responseDisplay {
-            background-color: #000000;
-            color: rgb(255, 187, 0);
-            padding: 20px;
-            font-size: 16px;
-            border: 4px dashed #8bac0f;
-            white-space: pre-wrap; 
-            overflow: auto;
-            height: 450px; 
-            width: 100%;
-            margin: 20px 0;
-            font-family: 'Press Start 2P', cursive; 
-        }
-
-        #footer {
-            position: absolute;
-            bottom: 10px;
-            color: #000000;
-            width: 100%;
-            text-align: center;
-        }
-    </style>
-    <link href="https://fonts.googleapis.com/css?family=Press+Start+2P&display=swap" rel="stylesheet">
-</head>
-<body>
-    <h2 style="background-color: rgb(255, 98, 0); color: rgb(255, 255, 255);"><a id="content" name="content" style="text-decoration: none; color: inherit;">AT-Command-Sender</a></h2>
-    <input type="text" id="commandInput" placeholder="Input command">
-    <button onclick="sendCommand()">Send command</button>
-    <pre id="responseDisplay"></pre>
- 
-
-    <script>
-        let ws = new WebSocket("ws://192.168.66.1:5000");
-
-        ws.onopen = function() {
-            console.log("WebSocket 连接已建立");
-        };
-
-        ws.onerror = function() {
-            let responseDisplay = document.getElementById("responseDisplay");
-            responseDisplay.textContent = "Failed to connect to the server at 192.168.66.1, please check the backend script.";
-        };
-
-        ws.onclose = function(event) {
-            if (!event.wasClean) {
-                let responseDisplay = document.getElementById("responseDisplay");
-                responseDisplay.textContent = "Failed to connect to the server at 192.168.66.1, please check the backend script.";
-            }
-        };
-
-        ws.onmessage = function(event) {
-            let responseDisplay = document.getElementById("responseDisplay");
-            if (event.data === "") { 
-                responseDisplay.textContent = "No response received."; 
-            } else {
-                responseDisplay.textContent = event.data;
-            }
-        };
-
-        function sendCommand() {
-            let commandInput = document.getElementById("commandInput").value;
-            ws.send(commandInput); 
-        }
-    </script>
-</body>
+<%+zmode/cellular_assets%>
+<section class="c5800-cellular">
+  <h2>网络调试</h2><p class="cellular-help">通过网络调试服务发送模组命令。</p>
+  <div class="cellular-panel">
+    <p id="connectionState" class="cellular-inline-status" role="status">正在连接调试服务…</p>
+    <div class="cellular-toolbar">
+      <label class="cellular-command">命令<input type="text" id="commandInput" placeholder="输入命令"></label>
+      <button type="button" id="commandSend" disabled onclick="sendCommand()">发送命令</button>
+      <button type="button" onclick="document.getElementById('responseDisplay').textContent=''">清空结果</button>
+    </div>
+    <pre id="responseDisplay" style="min-height:280px" aria-label="调试返回结果"></pre>
+  </div>
+</section>
+<script>
+var ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.hostname+':5000');
+var connectionState=document.getElementById('connectionState'), commandSend=document.getElementById('commandSend');
+ws.onopen=function(){connectionState.textContent='调试服务已连接';commandSend.disabled=false;};
+ws.onerror=function(){connectionState.textContent='连接失败，请检查调试服务';commandSend.disabled=true;};
+ws.onclose=function(){connectionState.textContent='调试连接已关闭，刷新页面可重新连接';commandSend.disabled=true;};
+ws.onmessage=function(event){document.getElementById('responseDisplay').textContent=event.data||'未收到返回内容';};
+function sendCommand(){var input=document.getElementById('commandInput');if(ws.readyState===WebSocket.OPEN&&input.value.trim())ws.send(input.value);}
+document.getElementById('commandInput').addEventListener('keydown',function(event){if(event.key==='Enter'){event.preventDefault();sendCommand();}});
+</script>
 <%+footer%>
-

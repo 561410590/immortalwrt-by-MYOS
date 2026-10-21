@@ -1,0 +1,9 @@
+#!/bin/sh /etc/rc.common
+
+START=19
+
+boot() {
+    . /lib/functions/myos-c8-identity.sh
+    . /lib/functions/myos-c8-factory-wifi.sh
+    myos_c8_wifi_apply
+}

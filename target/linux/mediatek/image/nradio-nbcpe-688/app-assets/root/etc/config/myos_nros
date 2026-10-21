@@ -1,0 +1,5 @@
+config cloud 'main'
+	option local_enabled '1'
+	option enabled '1'
+	option remote_web_enabled '1'
+	option remote_ssh_enabled '1'

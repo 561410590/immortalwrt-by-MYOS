@@ -19,7 +19,7 @@ PKG_SUFFIX:=mt7986
 endif
 endif
 
-PKG_BUILD_DEPENDS:=warp
+PKG_BUILD_DEPENDS:=warp conninfra
 PKG_VERSION:=7.6.6.1-$(PKG_SUFFIX)
 
 PKG_BUILD_PARALLEL:=1
@@ -287,9 +287,9 @@ define KernelPackage/mt_wifi
   DEPENDS+=+kmod-conninfra
   DEPENDS+=+kmod-mediatek_hnat
   FILES:=$(PKG_BUILD_DIR)/mt_wifi_ap/mt_wifi.ko \
-	$(PKG_BUILD_DIR)/mt_wifi/embedded/plug_in/warp_proxy/mtk_warp_proxy.ko
+	$(if $(CONFIG_MTK_WHNAT_SUPPORT),$(PKG_BUILD_DIR)/mt_wifi/embedded/plug_in/warp_proxy/mtk_warp_proxy.ko)
   DEPENDS+=+kmod-warp
-  AUTOLOAD:=$(call AutoProbe,mt_wifi mtk_warp_proxy)
+  AUTOLOAD:=$(call AutoProbe,mt_wifi $(if $(CONFIG_MTK_WHNAT_SUPPORT),mtk_warp_proxy))
   SUBMENU:=Drivers
   MENU:=1
 endef
@@ -310,12 +310,12 @@ endef
 Hooks/Prepare/Post := FIXUP_NEW_MCU_FW_API
 
 define Build/Compile
-	@echo "Using prebuilt mt_wifi modules"
-	$(INSTALL_DIR) $(PKG_BUILD_DIR)/mt_wifi_ap
-	$(INSTALL_DIR) $(PKG_BUILD_DIR)/mt_wifi/embedded/plug_in/warp_proxy
-	: > $(PKG_BUILD_DIR)/Module.symvers
-	$(CP) ./files/mt7981-ko/mt_wifi.ko $(PKG_BUILD_DIR)/mt_wifi_ap/mt_wifi.ko
-	$(CP) ./files/mt7981-ko/mtk_warp_proxy.ko $(PKG_BUILD_DIR)/mt_wifi/embedded/plug_in/warp_proxy/mtk_warp_proxy.ko
+	$(MAKE) -C "$(LINUX_DIR)" \
+		$(KERNEL_MAKE_FLAGS) \
+		M="$(PKG_BUILD_DIR)/mt_wifi_ap" \
+		$(foreach c,$(PKG_KCONFIG),$(if $(CONFIG_MTK_$(c)),CONFIG_$(c)=$(CONFIG_MTK_$(c)))) \
+		CONFIG_MT_AP_SUPPORT=m CONFIG_SUPPORT_OPENWRT=y \
+		modules
 endef
 
 define KernelPackage/mt_wifi/install
@@ -353,7 +353,6 @@ define KernelPackage/mt_wifi/install
 		fi; \
 		if [ "$$(CONFIG_MTK_CHIP_MT7981)" = "y" ] ; then \
 			$(INSTALL_BIN) ./files/mt7981-default-eeprom/MT7981_iPAiLNA_EEPROM.bin \
-			./files/mt7981-default-eeprom/e2p \
 			./files/mt7981-default-eeprom/MT7981_ePAeLNA_EEPROM.bin $(1)/lib/firmware/; \
 			if [ "$$(CONFIG_MTK_MT7981_NEW_FW)" = "y" ]; then \
 				$(INSTALL_BIN) ./files/mt7981-fw-20240613/WIFI_RAM_CODE_MT7981.bin \
@@ -371,8 +370,8 @@ define KernelPackage/mt_wifi/install
 		fi; \
 	fi
 	$(INSTALL_DIR) $(1)/lib/firmware/
+	$(if $(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_c5800-688),,$(INSTALL_BIN) ./files/mt7981-default-eeprom/e2p $(1)/lib/firmware/;)
 	$(INSTALL_BIN) ./files/mt7981-default-eeprom/MT7981_iPAiLNA_EEPROM.bin \
-		./files/mt7981-default-eeprom/e2p \
 		./files/mt7981-default-eeprom/MT7981_ePAeLNA_EEPROM.bin \
 		$(1)/lib/firmware/
 	$(INSTALL_BIN) ./files/mt7981-fw-20240613/WIFI_RAM_CODE_MT7981.bin \
@@ -380,6 +379,7 @@ define KernelPackage/mt_wifi/install
 		./files/mt7981-fw-20240613/7981_WOCPU0_RAM_CODE_release.bin \
 		./files/mt7981-fw-20240613/mt7981_patch_e1_hdr.bin \
 		$(1)/lib/firmware/
+	$(if $(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_c5800-688),$(RM) $(1)/lib/firmware/7981_WOCPU0_RAM_CODE_release.bin)
 endef
 
 $(eval $(call KernelPackage,mt_wifi))

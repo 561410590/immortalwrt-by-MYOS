@@ -1,0 +1,25 @@
+#!/bin/sh
+# NBCPE keeps the native LAN address and AK68 modem service configuration.
+uci -q set system.@system[0].hostname='MYOS'
+uci -q set luci.main.mediaurlbase='/luci-static/c2000max-ui'
+uci -q delete luci.themes.MYOS_UI
+uci -q set luci.themes.MYOS='/luci-static/c2000max-ui'
+uci -q set luci.themes.MWRT='/luci-static/argon'
+# Preserve web access on 80 and expose the existing phone APP port.
+for address in '0.0.0.0:82' '[::]:82'; do
+    uci -q del_list "uhttpd.main.listen_http=$address"
+    uci -q add_list "uhttpd.main.listen_http=$address"
+done
+uci -q set uhttpd.main.redirect_https=0
+# CGI owns /cgi-bin/luci so APP requests reach the original fast handler.
+for option in lua_prefix ucode_prefix; do
+    for handler in $(uci -q get "uhttpd.main.$option"); do
+        case "$handler" in
+            /cgi-bin/luci=*) uci -q del_list "uhttpd.main.$option=$handler" ;;
+        esac
+    done
+done
+uci -q commit system
+uci -q commit luci
+uci -q commit uhttpd
+exit 0

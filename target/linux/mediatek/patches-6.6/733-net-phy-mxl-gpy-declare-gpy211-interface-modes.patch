@@ -1,0 +1,42 @@
+From: MYOS C8 maintainers
+Subject: [PATCH] net: phy: mxl-gpy: declare GPY211B switching interfaces
+
+GPY211B discovered through Clause 22 does not enter phylink's Clause 45
+interface-switching fallback. With a 2500base-x initial interface, phylink
+therefore removes the PHY's 10/100/1000BASE-T capabilities. Declare the
+SGMII and 2500BASE-X interfaces already selected by gpy_update_interface(),
+retaining copper autonegotiation and automatic host-interface switching.
+Set the bitmap in config_init: phy_init_hw clears possible_interfaces after
+get_features and before config_init, ahead of phylink PHY validation.
+
+--- a/drivers/net/phy/mxl-gpy.c
++++ b/drivers/net/phy/mxl-gpy.c
+@@ -364,3 +364,18 @@
++static int gpy211_config_init(struct phy_device *phydev)
++{
++	/* GPY211B switches its host interface with the negotiated copper
++	 * speed. phy_init_hw() clears possible_interfaces before config_init,
++	 * so declare the modes here, before phylink validates the PHY.
++	 */
++	if (phydev->interface == PHY_INTERFACE_MODE_SGMII ||
++	    phydev->interface == PHY_INTERFACE_MODE_2500BASEX) {
++		__set_bit(PHY_INTERFACE_MODE_SGMII, phydev->possible_interfaces);
++		__set_bit(PHY_INTERFACE_MODE_2500BASEX, phydev->possible_interfaces);
++	}
++
++	return gpy_led_write(phydev);
++}
++
+ static int gpy_config_init(struct phy_device *phydev)
+ {
+ 	/* Nothing to configure. Configuration Requirement Placeholder */
+@@ -1162,8 +1177,8 @@
+ 		.phy_id		= PHY_ID_GPY211B,
+ 		.phy_id_mask	= PHY_ID_GPY21xB_MASK,
+ 		.name		= "Maxlinear Ethernet GPY211B",
+ 		.get_features	= genphy_c45_pma_read_abilities,
+-		.config_init	= gpy_config_init,
++		.config_init	= gpy211_config_init,
+ 		.probe		= gpy_probe,
+ 		.suspend	= genphy_suspend,
+ 		.resume		= genphy_resume,

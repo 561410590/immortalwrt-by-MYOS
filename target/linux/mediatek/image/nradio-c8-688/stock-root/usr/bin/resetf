@@ -1,0 +1,37 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+OVERLAY="$( grep ' /overlay ' /proc/mounts )"
+
+case "$ACTION" in
+pressed)
+	[ -z "$OVERLAY" ] && return 0
+
+	return 5
+;;
+timeout)
+	. /etc/diag.sh
+	set_state failsafe
+;;
+released)
+	if [ "$SEEN" -lt 1 ]
+	then
+		echo "用户短按RESET键，设备进入重启状态，等待电源灯闪烁完成后刷新页面完成重启，重启中...
+125
+#B2EBF2" > /tmp/lucimsg.file
+		echo "REBOOT" > /dev/console
+		sync
+		reboot
+	elif [ "$SEEN" -ge 5 -a -n "$OVERLAY" ]
+	then
+		echo "检测到长按重置键超过5秒，系统正在还原配置分区，请等待电源灯闪烁完成后重新访问后台地址，恢复中...
+125
+#B2EBF2" > /tmp/lucimsg.file
+		echo "FACTORY RESET" > /dev/console
+		jffs2reset -y && reboot &
+	fi
+;;
+esac
+
+return 0

@@ -1,0 +1,12 @@
+#!/bin/sh /etc/rc.common
+START=96
+STOP=04
+USE_PROCD=1
+start_service() {
+    procd_open_instance
+    procd_set_param command /usr/libexec/myos-c8-led
+    procd_set_param respawn 3600 5 5
+    procd_close_instance
+}
+reload_service() { /usr/libexec/myos-c8-led apply; }
+service_triggers() { procd_add_reload_trigger mwrt_led; }

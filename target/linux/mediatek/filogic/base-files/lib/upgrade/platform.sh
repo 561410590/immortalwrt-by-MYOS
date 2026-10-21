@@ -111,8 +111,7 @@ platform_do_upgrade() {
 	zyxel,ex5601-t0-ubootmod)
 		fit_do_upgrade "$1"
 		;;
-	nradio_c5800-688|\
-	nradio,c5800-688|\
+	HCMT7981-emmc-NB68|\
 	HCMT7981-688-emmc|\
 	HCMT7981-emmc)
 		CI_KERNPART="kernel_2nd"
@@ -143,7 +142,7 @@ platform_do_upgrade() {
 	smartrg,sdg-8733a|\
 	huasifei,wh3000-pro|\
 	umi,uax3000e|\
- 	jdcloud,re-cp-03|\
+	jdcloud,re-cp-03|\
 	smartrg,sdg-8734)
 		CI_KERNPART="kernel"
 		CI_ROOTPART="rootfs"
@@ -252,8 +251,7 @@ platform_copy_config() {
 	glinet,gl-mt6000|\
 	glinet,gl-x3000|\
 	glinet,gl-xe3000|\
-	nradio_c5800-688|\
-	nradio,c5800-688|\
+	HCMT7981-emmc-NB68|\
 	HCMT7981-688-emmc|\
 	HCMT7981-emmc|\
 	huasifei,wh3000-emmc|\

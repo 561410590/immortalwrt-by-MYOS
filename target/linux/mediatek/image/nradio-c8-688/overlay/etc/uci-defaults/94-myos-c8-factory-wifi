@@ -1,0 +1,5 @@
+#!/bin/sh
+
+# S10 finishes wireless detection before the S19 defaults service runs.
+/etc/init.d/myos-c8-factory-wifi enable
+exit 0

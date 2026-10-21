@@ -1,0 +1,8 @@
+#!/bin/sh
+# Runtime workaround for kernels that initialize max_mtu after DSA probing.
+case "$ACTION" in ifup|ifupdate) ;; *) exit 0 ;; esac
+case "$INTERFACE" in lan|wan) ;; *) exit 0 ;; esac
+. /lib/functions/myos-c8-identity.sh
+myos_c8_board || exit 0
+[ "$(cat /sys/class/net/eth0/mtu 2>/dev/null)" = 1500 ] || exit 0
+ip link set dev eth0 mtu 1504

@@ -1,0 +1,21 @@
+#!/bin/sh
+. /lib/functions/myos-c8-identity.sh
+myos_c8_board || exit 0
+uci -q get luci.themes >/dev/null || uci -q set luci.themes=internal
+uci -q delete luci.themes.MYOS_UI
+uci -q delete luci.themes.Argon
+uci -q set luci.themes.MYOS=/luci-static/c2000max-ui
+uci -q set luci.themes.MWRT=/luci-static/argon
+uci -q get luci.main >/dev/null || uci -q set luci.main=core
+if [ -f /tmp/myos-c8-new-network ]; then
+    uci -q set luci.main.mediaurlbase=/luci-static/c2000max-ui
+else
+    case "$(uci -q get luci.main.mediaurlbase)" in
+        /luci-static/c2000max-ui|/luci-static/argon) ;;
+        *) uci -q set luci.main.mediaurlbase=/luci-static/c2000max-ui ;;
+    esac
+fi
+uci -q commit luci
+/etc/init.d/c2000max-wallpaper enable
+[ -n "$IPKG_INSTROOT" ] || /etc/init.d/c2000max-wallpaper start
+exit 0

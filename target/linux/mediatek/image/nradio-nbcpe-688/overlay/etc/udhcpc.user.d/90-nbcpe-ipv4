@@ -1,0 +1,4 @@
+#!/bin/sh
+case "$1:$INTERFACE" in
+    bound:cpe_4|renew:cpe_4) /usr/libexec/myos-nbcpe-ipv4-sync ;;
+esac

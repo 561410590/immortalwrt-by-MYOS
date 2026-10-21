@@ -1,0 +1,10 @@
+#!/bin/sh
+# 80_mount_root registers its hook first. Inspect the mounted writable overlay
+# before S10 boot generates a new wireless configuration.
+
+myos_factory_wifi_preinit() {
+	. /lib/functions/myos-factory-wifi.sh
+	myos_factory_wifi_mark_if_new
+}
+
+boot_hook_add preinit_main myos_factory_wifi_preinit

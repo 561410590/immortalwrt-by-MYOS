@@ -1,0 +1,255 @@
+<%#
+	Argon is a clean HTML5 theme for LuCI. It is based on luci-theme-material Argon Template
+
+	luci-theme-argon
+	Copyright 2020 Jerrykuku <jerrykuku@qq.com>
+
+	Have a bug? Please create an issue here on GitHub!
+	https://github.com/jerrykuku/luci-theme-argon/issues
+
+	luci-theme-material:
+	Copyright 2015 Lutty Yang <lutty@wcan.in>
+
+	Agron Theme
+	https://demos.creative-tim.com/argon-dashboard/index.html
+
+	Licensed to the public under the Apache License 2.0
+-%>
+
+<% local ver = require "luci.version" %>
+
+</div>
+<footer>
+	<div>
+		Netconner @Manper-5.1.1139-24
+	</div>
+</footer>
+</div>
+</div>
+<script>
+	// thanks for Jo-Philipp Wich <jow@openwrt.org>
+	var luciLocation = <%= luci.http.write_json(luci.dispatcher.context.path) %>;
+	var winHeight = $(window).height();
+	$(window).resize(function () {
+		var winWidth = $(window).width()
+		if(winWidth < 600){
+			var newHeight = $(this).height();
+			var keyboradHeight = newHeight - winHeight;
+			$(".ftc").css("bottom", keyboradHeight + 30);
+		}
+	})
+</script>
+</body>
+<style>
+body {
+  min-height: 100vh;
+  background: 
+    radial-gradient(circle at 10% 20%, #d6f5ff 0%, #d6e8ff 0%, transparent 60%),
+    radial-gradient(circle at 80% 0%, #ffffff 0%, #ffffff 50%, transparent 90%),
+    radial-gradient(circle at 50% 70%, #dbeafe 0%, #6fb8ca 60%, transparent 100%),
+    radial-gradient(circle at 70% 90%, #a8d8ff 0%, #e0eaff 60%, transparent 95%),
+    radial-gradient(circle at 30% 80%, #fff48f 0%, #d1d1d1 50%, transparent 80%),
+    /* 最下面是纯白作底 */
+    #f7f8fa;
+  background-attachment: fixed;
+  background-size: cover;
+}
+
+#apple-tip {
+  position: fixed;
+  right: 2vw;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  font-size: clamp(1.2rem, 2.8vw, 2.1rem);
+  line-height: 1.7;
+  color: #222831;
+  transition: opacity 1.8s;
+  font-family: 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', Arial, sans-serif;
+  text-align: left;
+}
+#apple-tip .main-title {
+  color: #868686;
+  font-family: "Arial", "Helvetica Neue", Helvetica, sans-serif;
+  font-weight: 800;
+  font-size: clamp(1.5rem, 3vw, 2.5rem);
+  font-size: 40px;
+  margin-bottom: 0.8em;
+}
+#apple-tip .sub {
+  font-family: "Arial", "Helvetica Neue", Helvetica, sans-serif;
+  color: #9c9c9c;
+  font-weight: 500;
+  font-size: clamp(1.08rem, 2vw, 1.25rem);
+  opacity: 0.97;
+  font-style: italic;
+  font-size: 1em;
+}
+@media (max-width: 600px) {
+  #apple-tip {
+    right: 5vw;
+    font-size: clamp(1rem, 4vw, 1.3rem);
+  }
+  #apple-tip .main-title {
+    font-size: clamp(1.18rem, 6vw, 1.5rem);
+  }
+  #apple-tip .sub {
+    font-size: clamp(0.9rem, 3vw, 1.09rem);
+  }
+}
+</style>
+
+<div id="apple-tip">
+  <div class="main-title">Power comes from Manper MWRT-Link</div>
+  <div class="sub">
+    The module function comes from WTModem<br>
+    Welcome to Manper's OpenWRT Club<br>
+    Inspired by OpenWRT/Immortalwrt&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;<br>
+    WEB https://www.manper.me
+  </div>
+</div>
+
+<!-- MWRT -->
+<div id="init-overlay" style="display:none;position:fixed;z-index:9999;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.90);color:#fff;display:flex;flex-direction:column;justify-content:center;align-items:center;font-size:24px;">
+    <div class="argon-spinner"></div>
+    <span style="margin-top:24px;">初始化系统与模组加速服务</span>
+    <span style="margin-top:16px;">大约占用2分钟时间,完成后登录即可</span>
+    <span id="argon-init-dot" style="margin-top:24px;font-size:20px;color:#ccc;">设备正在初始化中,请勿刷新页面！<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></span>
+    <div style="width:380px;max-width:90vw;margin-top:40px;">
+        <div style="background:#333;border-radius:8px;overflow:hidden;height:18px;">
+            <div id="argon-progress-bar" style="background:#4fc3f7;width:0;height:18px;transition:width 0.2s;"></div>
+        </div>
+    </div>
+    <div id="argon-progress-text" style="margin-top:18px;font-size:18px;color:#80d6ff;">
+        正在更新LUCI服务...
+    </div>
+    <div style="position:absolute;bottom:32px;left:0;width:100vw;text-align:center;font-size:16px;color:#a0a0a0;letter-spacing:1px;">
+        Power by Manper-zcy Mwrt
+    </div>
+</div>
+<style>
+.argon-spinner {
+    margin-bottom: 32px;
+    width: 48px;
+    height: 48px;
+    border: 6px solid #4fc3f7;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: argon-spin 1s linear infinite;
+}
+@keyframes argon-spin {
+    100% { transform: rotate(360deg); }
+}
+#argon-init-dot .dot {
+    opacity: 0.2;
+    animation: dotblink 1.4s infinite;
+}
+#argon-init-dot .dot:nth-child(1) { animation-delay: 0s;}
+#argon-init-dot .dot:nth-child(2) { animation-delay: 0.2s;}
+#argon-init-dot .dot:nth-child(3) { animation-delay: 0.4s;}
+@keyframes dotblink {
+    0% { opacity: 0.2;}
+    20% { opacity: 1;}
+    100% { opacity: 0.2;}
+}
+</style>
+<script>
+const progressSteps = [
+  { time: 0, text: "正在更新LUCI服务..." },
+  { time: 8, text: "HNAT服务重启..." },
+  { time: 15, text: "interface 初始化" },
+  { time: 30, text: "注入串口数据..." },
+  { time: 60, text: "正在软重启Mwrt..." },
+  { time: 110, text: "加载SYS完成..." }
+];
+const totalTime = 120; // 秒
+
+function XHRget(url, data, callback) {
+    var xhr = new XMLHttpRequest();
+    var params = Object.keys(data).map(function(k){
+        return encodeURIComponent(k) + '=' + encodeURIComponent(data[k]);
+    }).join('&');
+    xhr.open('GET', url + (params ? ('?' + params) : ''), true);
+    xhr.responseType = "json";
+    xhr.onreadystatechange = function () {
+        if (xhr.readyState === 4) {
+            var rv = xhr.response;
+            if (!rv && xhr.responseText) {
+                try { rv = JSON.parse(xhr.responseText); } catch (e) {}
+            }
+            callback(xhr, rv || {});
+        }
+    };
+    xhr.send();
+}
+
+function animateProgress() {
+    const progressBar = document.getElementById('argon-progress-bar');
+    const progressText = document.getElementById('argon-progress-text');
+    const overlay = document.getElementById('init-overlay');
+    const start = Date.now();
+    let lastText = "";
+
+    function update() {
+        const elapsed = (Date.now() - start) / 1000;
+        const percent = Math.min(100, (elapsed / totalTime) * 100);
+        progressBar.style.width = percent + "%";
+
+        let curText = progressSteps[0].text;
+        for(let i=0;i<progressSteps.length;i++){
+            if(elapsed >= progressSteps[i].time) curText = progressSteps[i].text;
+        }
+        if(curText !== lastText) {
+            progressText.textContent = curText;
+            lastText = curText;
+        }
+
+        if(elapsed < totalTime) {
+            requestAnimationFrame(update);
+        } else {
+            overlay.style.display = "none";
+            window.location.href = "http://192.168.88.1";
+        }
+    }
+    update();
+}
+
+window.addEventListener('DOMContentLoaded', function() {
+    var overlay = document.getElementById('init-overlay');
+    overlay.style.display = "none";
+    var url = '<%=luci.dispatcher.build_url("admin", "modem", "mwrtinit")%>';
+    XHRget(url, { set: 'mwrtinit', p: '1' }, function(x, rv) {
+        if (rv && rv.rv === "NO") {
+            overlay.style.display = "flex";
+            animateProgress();
+        } else {
+            overlay.style.display = "none";
+        }
+    });
+});
+</script>
+
+<script>
+(function() {
+  const tip = document.getElementById("apple-tip");
+  let visible = false;
+  function showTip() {
+    if(!visible) {
+      tip.style.opacity = '1';
+      visible = true;
+      setTimeout(hideTip, 15400); 
+    }
+  }
+  function hideTip() {
+    tip.style.opacity = '0';
+    setTimeout(()=>{visible=false}, 2100);
+  }
+  setTimeout(showTip, 1200); 
+  setInterval(showTip, 22000); 
+})();
+</script>
+
+<!-- MWRT -->
+</html>

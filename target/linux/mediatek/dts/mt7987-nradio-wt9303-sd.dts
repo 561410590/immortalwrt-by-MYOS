@@ -329,4 +329,3 @@
 	phys = <&tphyu2port0 PHY_TYPE_USB2>,
 	       <&tphyu3port0 PHY_TYPE_USB3>;
 };
-

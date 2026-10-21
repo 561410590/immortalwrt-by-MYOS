@@ -1,0 +1,41 @@
+#!/usr/bin/python3
+"""Send one request to the C8 AT owner; status reads never open a modem."""
+import json
+import socket
+import sys
+import time
+from pathlib import Path
+
+
+def main():
+    request = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {"action": "status"}
+    if request.get("action") == "status":
+        try:
+            result = json.loads(Path("/tmp/myos-c8-modem.json").read_text(encoding="utf-8"))
+            result["age"] = max(0, time.monotonic() - result.get("sampled_monotonic", 0))
+            result["stale"] = result.get("stale", True) or result["age"] > 90
+        except (OSError, ValueError):
+            result = {"stale": True, "error": "Modem status has not been collected"}
+    else:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as channel:
+            channel.settimeout(120)
+            channel.connect("/var/run/myos-c8-modem.sock")
+            channel.sendall(json.dumps(request).encode("utf-8") + b"\n")
+            parts = bytearray()
+            while b"\n" not in parts:
+                chunk = channel.recv(4096)
+                if not chunk:
+                    raise RuntimeError("Modem owner disconnected")
+                parts.extend(chunk)
+                if len(parts) > 1024 * 1024:
+                    raise RuntimeError("Modem reply is too large")
+            result = json.loads(parts.split(b"\n", 1)[0])
+    print(json.dumps(result, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, RuntimeError) as error:
+        print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False))
+        sys.exit(1)

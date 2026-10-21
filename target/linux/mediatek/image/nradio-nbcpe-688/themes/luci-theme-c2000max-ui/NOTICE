@@ -1,0 +1,16 @@
+C2000MAX UI
+
+Theme code: Apache License 2.0.
+The LuCI template contract and Bootstrap compatibility are based on OpenWrt LuCI.
+Upstream: https://github.com/openwrt/luci
+Argon component research: https://github.com/jerrykuku/luci-theme-argon
+This package does not redistribute Argon source code or claim Argon affiliation.
+
+Visual assets:
+- c2000max-front.png: existing C2000MAX prototype asset derived from user-supplied references.
+- reference-art.png: user-supplied page artwork reused by the prototype.
+- china-mobile.png: China Mobile mark; see its adjacent source note. Trademark rights remain with the owner.
+- Bing wallpaper: fetched at runtime, not distributed in the APK. Its original copyright credit is displayed on the login page.
+
+The code license does not relicense third-party logos or photographs.
+

@@ -140,6 +140,7 @@ config  MTK_RT_FIRST_CARD
         default 7622 if MTK_FIRST_IF_MT7622
         default 7626 if MTK_FIRST_IF_MT7626
         default 6867 if MTK_FIRST_IF_AXE
+        default 7981 if MTK_FIRST_IF_MT7981
 
 config  MTK_RT_SECOND_CARD
         int
@@ -169,6 +170,7 @@ config  MTK_RT_THIRD_IF_RF_OFFSET
 
 config MTK_MT_WIFI
 	tristate "MT WIFI Driver"
+	default y
 	select MTK_WIFI_BASIC_FUNC if MTK_MT_WIFI
 
 config MTK_MT_WIFI_PATH
@@ -1377,4 +1379,3 @@ endif
 
 endif #MTK_WIFI_DRIVER#
 endif #PACKAGE_kmod-mt_wifi#
-

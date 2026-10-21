@@ -1,0 +1,143 @@
+// Cache-only integration: never opens an AT port or runs a modem command.
+'use strict';
+import { readfile, stat, popen } from 'fs';
+import { connect } from 'ubus';
+import { cursor } from 'uci';
+function native_nbcpe() {
+ return !!match(trim(readfile('/tmp/sysinfo/board_name')||''),/^(nradio_wt9111_No2-manper_NB68|HCMT7981-emmc-NB68)$/);
+}
+function nbcpe_status() {
+ let empty={section:'AK68',cache_only:true,sources:[],sim_label:null};
+ if(!native_nbcpe() || !stat('/usr/libexec/myos-nbcpe-status')) return empty;
+ let pipe=popen('/usr/libexec/myos-nbcpe-status 2>/dev/null','r');
+ if(!pipe) return empty;
+ let output=pipe.read('all'), code=pipe.close();
+ if(code!=0 || length(output||'')>1048576) return empty;
+ try {
+  let data=json(output);
+  if(type(data)=='object' && type(data.sources)=='array') return data;
+ } catch(e) {}
+ return empty;
+}
+return {
+ 'c2000max.ui': {
+  identity: {
+   call: function() {
+    let bus=connect(), board=bus?.call('system','board') || {};
+    bus?.disconnect();
+    return {
+     model:native_nbcpe()?'NBCPE-688':board.model || trim(readfile('/tmp/sysinfo/model') || '') || 'NBCPE-688',
+     board_name:board.board_name || trim(readfile('/tmp/sysinfo/board_name') || ''),
+     modem_route:native_nbcpe()?['admin','modem-AK68','nets']:null,
+     native_nbcpe:native_nbcpe(),
+     modem_url:native_nbcpe()?'/cgi-bin/luci/admin/modem-AK68/webui':null
+    };
+   }
+  },
+  clients: {
+   call: function() {
+    let bus=connect(), macs={}, entries={}, available=false;
+    if (!bus) return { available:false, clients:[] };
+    function client(mac) {
+     mac=lc(mac);
+     if(!entries[mac]) entries[mac]={mac,hostname:'',ipaddrs:[],online:false,lease:false};
+     return entries[mac];
+    }
+    function address(entry, ip) {
+     for(let known in entry.ipaddrs) if(known==ip) return;
+     push(entry.ipaddrs,ip);
+    }
+    for(let line in split(readfile('/tmp/dhcp.leases')||'', '\n')) {
+     let row=match(line,/^([0-9]+)\s+([0-9a-fA-F:]{17})\s+([^ ]+)\s+([^ ]+)/);
+     if(!row || (int(row[1])!=0 && int(row[1])<=time())) continue;
+     let entry=client(row[2]); entry.lease=true;
+     if(row[4]!='*') entry.hostname=row[4];
+     address(entry,row[3]);
+    }
+    let lan=bus.call('network.interface.lan','status');
+    let dev=lan?.l3_device;
+    if(type(dev)=='string' && match(dev,/^[A-Za-z0-9_.:-]+$/)) {
+     let pipe=popen('/sbin/ip neigh show 2>/dev/null','r');
+     if(pipe) {
+      let output=pipe.read('all'), code=pipe.close(); available=(code==0);
+      for(let line in split(output||'', '\n')) {
+       let row=match(line,/^([^ ]+) dev ([^ ]+) lladdr ([0-9a-fA-F:]{17}) (REACHABLE|STALE|DELAY|PROBE|PERMANENT)( |$)/);
+       if(!row || row[2]!=dev) continue;
+       let entry=client(row[3]); address(entry,row[1]);
+       if(row[4]=='REACHABLE') { entry.online=true; macs[entry.mac]=true; }
+      }
+     }
+    }
+    let radios=bus.call('network.wireless','status');
+    if(type(radios)=='object') for(let name, radio in radios) {
+     if(!radio.up) continue;
+     for(let iface in radio.interfaces||[]) {
+      if(type(iface.ifname)!='string') continue;
+      let stations=bus.call('hostapd.'+iface.ifname,'get_clients');
+      if(type(stations?.clients)!='object') continue;
+      available=true;
+      for(let mac, station in stations.clients)
+       if(station.assoc && station.authorized && match(mac,/^[0-9a-fA-F:]{17}$/)) {
+        let entry=client(mac); entry.online=true; macs[entry.mac]=true;
+       }
+     }
+    }
+    bus.disconnect();
+    let clients=[];
+    for(let mac, entry in entries) push(clients,entry);
+    return {available,count:available?length(keys(macs)):null,clients,source:'associated-or-reachable'};
+   }
+  },
+  sensors: {
+   call: function() {
+    let settings=cursor(), cpu_sensor=settings.get('fancontrol','settings','thermal_file');
+    if(type(cpu_sensor)!='string' || !match(cpu_sensor,/^\/sys\/[A-Za-z0-9_\/.:-]+$/))
+     cpu_sensor='/sys/class/thermal/thermal_zone0/temp';
+    let cpu_value=trim(readfile(cpu_sensor) || ''), cpu_temp=null;
+    if(match(cpu_value,/^-?[0-9]+$/) && int(cpu_value)>-40000 && int(cpu_value)<150000)
+     cpu_temp=int(cpu_value);
+    let wifi_temps = [];
+    for (let iface in ['ra0', 'rai0', 'rax0']) {
+     if (!stat('/sys/class/net/' + iface)) continue;
+     let command=stat('/usr/sbin/iwpriv')?'/usr/sbin/iwpriv '+iface+' stat':
+      stat('/usr/sbin/mwctl')?'/usr/sbin/mwctl dev '+iface+' stat':null;
+     if(!command) continue;
+     let pipe = popen(command + ' 2>/dev/null', 'r');
+     if (!pipe) continue;
+     let output = pipe.read('all'); pipe.close();
+     let found = match(output || '', /CurrentTemperature\s*=\s*(-?[0-9]+)/);
+     if (found && int(found[1]) > -40 && int(found[1]) < 150)
+      push(wifi_temps, { phy: iface, milli_c: int(found[1]) * 1000 });
+    }
+    let wireless = null, bus = connect();
+    if (bus) {
+     let radios = bus.call('network.wireless', 'status');
+     if (type(radios) == 'object') {
+      wireless = {};
+      for (let name, radio in radios) {
+       let interfaces = [];
+       for (let iface in radio.interfaces || [])
+        push(interfaces, { config: { ssid: iface.config?.ssid, disabled: iface.config?.disabled } });
+       wireless[name] = { up: radio.up, disabled: radio.disabled, interfaces };
+      }
+     }
+     bus.disconnect();
+    }
+    return { cpu_sensor:cpu_temp==null?null:cpu_sensor, cpu_temp, wifi_temps, wireless };
+   }
+  },
+  sim: {
+   args: { section: '' },
+   call: function(req) {
+    let data=nbcpe_status();
+    return {sim_label:data.sim_label||null,cache_only:true};
+   }
+  },
+  modem: {
+   args: { section: '' },
+   call: function(req) {
+    return nbcpe_status();
+   }
+  }
+ }
+};

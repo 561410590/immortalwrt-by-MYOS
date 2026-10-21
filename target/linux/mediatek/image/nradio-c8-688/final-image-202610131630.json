@@ -1,0 +1,89 @@
+{
+  "file": "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/bin/targets/mediatek/filogic/MYOS-C8-688-3.1.35-202610131630-6.6.110-sysupgrade.bin",
+  "bytes": 46438677,
+  "sha256": "4bc0acfd98688941e11874b9839d3b56631f78a86005c2baa2888efb5a34681a",
+  "version": "3.1.35-202610131630",
+  "board": "HCMT7981-688-emmc",
+  "kernel": "6.6.110",
+  "rootfs_bytes": 41826185,
+  "upgrade_partitions": [
+    "kernel_2nd",
+    "rootfs_2nd"
+  ],
+  "data_device": "eth1",
+  "data_cid": 8,
+  "embedded_fixes": {
+    "usr/libexec/myos-c8-native": "0fd553b9b2da2395feff7e04f503fc2e00e965e112d16f8c2d3e28a373ceaa8a",
+    "lib/netifd/proto/ncm.sh": "49cd0cffebbe5ffac122e9a266cae4c0f6c44302e66abe2724029356b651bd02",
+    "lib/netifd/proto/wwan.sh": "9fe2c0a3a8cb3b5ebcd6f5fa3b79bafbfb92751c29949ac15d7785424c0b342b",
+    "usr/lib/lua/myos_c8_modem.lua": "2a5e14fbe1f0cd3990f4f7a05555a70b2d6e3dd39a7f38c5555badb678f34eb7",
+    "usr/lib/lua/luci/controller/modem.lua": "38b2b0dc0e59a75ef6b91cf5a29b203168d64135529267c0d0ce9ccddc9235d4",
+    "usr/lib/lua/luci/model/cbi/myos_c8_modem.lua": "a91c38dbcb73167363f192737e0a208230af224364a31468f9087cbe9fff3673",
+    "usr/share/ucode/luci/template/themes/c2000max-ui/shell.ut": "cccf22667d55e954d9f4f6daa27b524e2f905a4786e3d7932fcc8d06f3fbe5a8",
+    "www/luci-static/myos/c8-cellular.js": "f6fc9425167ee43fe7d31a8327b4e0f75c0ed2e9f5e534d4917bb240fb802c73",
+    "www/luci-static/resources/view/c2000max/home-c8.js": "138af97289fa860bf0917119e83080c5fa59e247fbe49e099f3af128dc789b3c",
+    "usr/lib/lua/luci/view/myos_c8_modem/status.htm": "baf09c130dff01b158c15b1e61f42ef951fc9df5f91a7e4d5931a90a9d697472",
+    "www/luci-static/resources/protocol/wwan.js": "34224e4c1b9eee2a5271f265bd9e22fa85b4d8ab46332d5db4ec5120f13d1d9c",
+    "www/luci-static/resources/view/network/interfaces.js": "cc5e6cef2b7105240141963aa7c2fc2dbf9f2a4e4a3436ff245001aeb4c41173",
+    "etc/uci-defaults/93-myos-c8": "927214a0c4be1553fe4c1365732db776621ec2790e499acbd0b69bbc99abca39",
+    "usr/libexec/myos-c8-fan": "770dc0dd771803ca0a18bbdf9fa618ca1ca0f6c77e087d2ceca3cc0531f606da",
+    "etc/hotplug.d/iface/32-myos-c8-dsa-mtu": "f0c79b9e947c8ab6f31da42b0617c5781dbaafbaa9a963ccd14689f2d2685a3a",
+    "sbin/mtwifi_cfg": "46afda174a2cb95e92970d18859c9e09e99df44a6b24870d8cd7a1853dd917f5"
+  },
+  "hardware": {
+    "model": "NRadio-C8-New688",
+    "compatible": [
+      "HCMT7981-688-emmc",
+      "mediatek,mt7981"
+    ],
+    "ports": [
+      "port1",
+      "port2",
+      "port3",
+      "port5",
+      "eth1"
+    ],
+    "gpio": {
+      "status": 10,
+      "cmode5": 11,
+      "cmode4": 12,
+      "wifi": 34,
+      "cpe-pwr": 31,
+      "fan-hw": 27,
+      "fan-fg": 28
+    },
+    "manual_sim_slots": 2,
+    "root_partition": "rootfs_2nd",
+    "cellular_phy": {
+      "device": "eth1",
+      "mdio_address": 21,
+      "fixed_link": false
+    }
+  },
+  "modules": {
+    "kernel": "6.6.110",
+    "package_abi": "7b6e534b726d3806dc7bdd177cff3504",
+    "kernel_package_version": "6.6.110~7b6e534b726d3806dc7bdd177cff3504-r1",
+    "module_count": 280,
+    "kmod_package_count": 154,
+    "vermagic": "6.6.110 SMP mod_unload aarch64",
+    "module_package_count": 118,
+    "builtin_package_count": 36,
+    "symbol_versions_enabled": false,
+    "symbol_crcs_checked": 0
+  },
+  "official_runtime": {
+    "files": 19,
+    "architecture": "aarch64",
+    "private_loader": true,
+    "global_libraries_preserved": true,
+    "live_cellular_identity_excluded": true,
+    "script_provenance_verified": 19
+  },
+  "factory_wifi": {
+    "source_identical": true,
+    "hardware_mac_ssid": true,
+    "retained_password_preserved": true
+  },
+  "new_image_live_flash": "not_performed"
+}

@@ -49,17 +49,6 @@
 			gpios = <&pio 28 GPIO_ACTIVE_HIGH>;
 		};
 
-		cpesel0 {
-			gpio-export,name = "cpe-sel0";
-			gpio-export,output = <1>;
-			gpios = <&pio 29 GPIO_ACTIVE_HIGH>;
-		};
-
-		cpesel1 {
-			gpio-export,name = "cpe-sel1";
-			gpio-export,output = <1>;
-			gpios = <&pio 30 GPIO_ACTIVE_HIGH>;
-		};
 	};
 
 	gpio-leds {

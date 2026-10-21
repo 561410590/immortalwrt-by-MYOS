@@ -122,6 +122,7 @@ setup_interface () {
 		local valid="${entry%%,*}"
 		entry="${entry#*,}"
 		local metric="${entry%%,*}"
+		[ -n "$IFACE_METRIC" ] && metric="$IFACE_METRIC"
 
 		for xentry in $RA_ROUTES; do
 			local xprefix="${xentry%%,*}"

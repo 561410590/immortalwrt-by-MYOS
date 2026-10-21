@@ -1,0 +1,68 @@
+# The 6.6 l1profile requests e2p at offset 0, length 0x5000.
+# The 6.6 proprietary driver requests this file rather than reading eMMC.
+# The original factory's bytes at +4 are not a usable board MAC address.
+. /lib/functions.sh
+. /lib/functions/system.sh
+
+nbcpe_caldata_error() {
+	echo "NBCPE: EEPROM extraction failed: $*" > /dev/kmsg
+	echo "NBCPE: EEPROM extraction failed: $*" >&2
+	return 1
+}
+
+nbcpe_extract_caldata() {
+	[ "$(board_name)" = "HCMT7981-emmc-NB68" ] || return 0
+	. /lib/functions/nbcpe.sh
+
+	local factory temporary header mac
+	factory="$(find_mmc_part Factory)"
+	[ -n "$factory" ] || factory="$(find_mmc_part factory)"
+	[ -n "$factory" ] && [ -b "$factory" ] || {
+		nbcpe_caldata_error "no eMMC partition named Factory or factory"
+		return 1
+	}
+
+	temporary=/tmp/nbcpe-e2p.bin
+	if ! dd if="$factory" of="$temporary" bs=4096 count=5 2>/dev/null; then
+		rm -f "$temporary"
+		nbcpe_caldata_error "cannot read $factory"
+		return 1
+	fi
+	if [ "$(wc -c < "$temporary")" -ne 20480 ]; then
+		rm -f "$temporary"
+		nbcpe_caldata_error "short EEPROM read from $factory"
+		return 1
+	fi
+
+	header="$(hexdump -v -n 2 -e '2/1 "%02x"' "$temporary")"
+	# validFlashEepromID() in mt_wifi validates the little-endian chip ID.
+	# EEPROM MAC policy is handled by the driver/profile, not this extractor.
+	if [ "$header" != "8179" ]; then
+		rm -f "$temporary"
+		nbcpe_caldata_error "invalid MT7981 chip ID in $factory"
+		return 1
+	fi
+
+	# Original bdinfo fac_mac is also the primary AP's MAC. Change only the
+	# runtime copy's six MAC bytes; leave this board's calibration untouched.
+	mac="$(nbcpe_factory_mac)"
+	if [ -n "$mac" ]; then
+		if ! printf '%b' "\\x${mac//:/\\x}" | dd of="$temporary" bs=1 seek=4 conv=notrunc 2>/dev/null; then
+			rm -f "$temporary"
+			nbcpe_caldata_error "cannot apply this board's bdinfo MAC"
+			return 1
+		fi
+	else
+		echo "NBCPE: no valid bdinfo MAC; preserving original EEPROM MAC bytes" > /dev/kmsg
+	fi
+
+	mkdir -p /lib/firmware
+	if ! mv "$temporary" /lib/firmware/e2p; then
+		rm -f "$temporary"
+		nbcpe_caldata_error "cannot install /lib/firmware/e2p"
+		return 1
+	fi
+	echo "NBCPE: loaded 0x5000 EEPROM bytes from $factory" > /dev/kmsg
+}
+
+boot_hook_add preinit_main nbcpe_extract_caldata

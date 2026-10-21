@@ -1,0 +1,11 @@
+#!/bin/sh
+# Official scripts use this for local diagnostics; no OEM log transport.
+tag=cellular
+message=
+while getopts 'i:l:m:' option; do
+	case "$option" in
+		i) tag=$OPTARG ;;
+		m) message=$OPTARG ;;
+	esac
+done
+logger -t "$tag" -- "$message"

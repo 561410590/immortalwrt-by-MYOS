@@ -1,113 +1,17 @@
 <%+header%>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <H2>巴龙模组短信管理工具</H2>
-    <H4>温馨提示：短信收取需要打开模组设定-常规设置-短信开关</H4>
-    <style>
+<%+zmode/cellular_assets%>
+<section class="c5800-cellular">
 
-        h2 {
-            margin-bottom: 20px;
-            color: #f2ff00;
-            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
-            background: #3e3e3e;
-            text-align: center;
-        }
+    
+    
+    <h2>短信管理</h2>
+    <p class="cellular-help">收取短信前，请在蜂窝设置中启用短信功能。</p>
+    
 
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-            border-radius: 15px; /* 表格圆角 */
-            overflow: hidden; /* 防止表格内容溢出 */
-        }
-
-        th, td {
-            padding: 10px;
-            border: 1px solid #ccc
-            
-        }
-
-        td:nth-child(3) { /* 针对第三列的特定样式 */
-            word-wrap: break-word; /* 允许单词断行 */
-            text-align: left;
-        }
-
-        td:nth-child(1) { /* 针对第三列的特定样式 */
-            word-wrap: break-word; /* 允许单词断行 */
-            text-align: center
-            
-            
-        }
-
-        td:nth-child(2) { /* 针对第三列的特定样式 */
-            word-wrap: break-word; /* 允许单词断行 */
-            text-align: center;
-        }
-
-        td:nth-child(4) { /* 针对第三列的特定样式 */
-            word-wrap: break-word; /* 允许单词断行 */
-            text-align: center;
-        }
-
-        th {
-            background-color: #4d4d4d;
-            color: white;
-            
-        }
-
-        .button {
-            background: #4d4d4d;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 5px;
-            font-size: 1em;
-            cursor: pointer;
-            transition: background 0.3s ease;
-            width: 49%;
-        }
-
-        .button-2 {
-            background: #4d4d4d;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 5px;
-            font-size: 1em;
-            cursor: pointer;
-            transition: background 0.3s ease;
-            width: 49%;
-        }
-
-        .button:hover {
-            background: #357ab7;
-        }
-
-        .button-2:hover {
-            background: #357ab7;
-        }
-
-        .delete-button {
-            background: #d9534f;
-            color: white;
-            padding: 5px 10px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background 0.3s ease;
-        }
-
-        .delete-button:hover {
-            background: #c9302c;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
+    <div class="cellular-panel">
         <button class="button" onclick="sendcmd()">刷新短信</button>
         <button class="button-2" onclick="confirmDelete()">删除所有短信</button>
-        <table id="messages">
+        <div class="cellular-table-scroll"><table id="messages">
             <thead>
                 <tr>
                     <th>发件人</th>
@@ -118,7 +22,7 @@
             </thead>
             <tbody>
             </tbody>
-        </table>
+        </table></div>
     </div>
 
     <script type="text/javascript">
@@ -192,6 +96,6 @@
             sendcmd();
         };
     </script>
-</body>
-<%+footer%>
 
+</section>
+<%+footer%>

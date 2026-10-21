@@ -54,16 +54,11 @@ endif
 USE_BIN_DIR:=$(MTK_WIFI_DIR)/warp_driver/bin
 
 define Build/Compile
-	if [ "$$(CONFIG_WARP_CHIPSET)" = "mt7981" ]; then \
-		$(INSTALL_DIR) $(PKG_BUILD_DIR); \
-		$(CP) ./files/mt7981-ko/mtk_warp.ko $(PKG_BUILD_DIR)/mtk_warp.ko; \
-	else \
-		$(MAKE) -C "$(LINUX_DIR)" V=1 \
+	$(MAKE) -C "$(LINUX_DIR)" V=1 \
 			$(KERNEL_MAKE_FLAGS) \
 			M="$(PKG_BUILD_DIR)" \
 			$(foreach c, $(PKG_KCONFIG),$(if $(CONFIG_$c),CONFIG_$(c)=$(CONFIG_$(c)))) \
-			modules; \
-	fi
+			modules
 endef
 
 TARGET_CFLAGS += \
@@ -90,6 +85,7 @@ define KernelPackage/warp/install
 			cp $(PKG_BUILD_DIR)/bin/7986*WOCPU*_RAM_CODE_release.bin $(1)/lib/firmware/; \
 		fi; \
 	fi
+	$(if $(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_c5800-688),$(INSTALL_BIN) $(TOPDIR)/package/mtk/drivers/mt_wifi/files/mt7981-fw-20240613/7981_WOCPU0_RAM_CODE_release.bin $(1)/lib/firmware/)
 endef
 
 $(eval $(call KernelPackage,warp))

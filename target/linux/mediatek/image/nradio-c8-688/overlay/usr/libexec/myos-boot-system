@@ -1,0 +1,59 @@
+#!/usr/bin/ucode
+'use strict';
+import * as fs from 'fs';
+
+const ENVTOOL = '/usr/libexec/myos-ubenv';
+function run(command) {
+	let p = fs.popen(command + ' 2>&1', 'r');
+	if (!p) return { code: 127, text: '' };
+	let text = p.read('all');
+	return { code: p.close(), text: trim(text || '') };
+}
+function partition(label) {
+	let result = run('/usr/sbin/blkid -t PARTLABEL=' + label + ' -o device');
+	return !result.code && match(result.text, /^\/dev\/mmcblk[0-9]+p[0-9]+$/) ? result.text : '';
+}
+function bootValue() {
+	let result = run(ENVTOOL + ' -s boot_system -o 1');
+	let found = match(result.text, /^boot_system\s*=\s*([01])$/);
+	return !result.code && found ? int(found[1]) : null;
+}
+function status() {
+	let board = trim(fs.readfile('/tmp/sysinfo/board_name') || '');
+	let compatible = replace(fs.readfile('/proc/device-tree/compatible') || '', /\x00/g, '\n');
+	let supported = !!match(board, /^(HCMT7981-emmc|HCMT7981-688-emmc|HCMT7981-emmc-NB68|nradio_wt9111_No2-manper_NB68|nradio_c5800-688|nradio,c5800-688)$/)
+		|| !!match(compatible, /(^|\n)HCMT7981-(emmc|688-emmc|emmc-NB68)(\n|$)/);
+	let second = !!match(fs.readfile('/proc/cmdline') || '', /(^|\s)root=PARTLABEL=rootfs_2nd(\s|$)/);
+	let result = { board, current: second ? 'second' : 'official', enabled: false, boot_system: null, message: '' };
+	if (!supported) { result.message = '此入口仅用于已验证板型的 eMMC 双系统，当前固件面向 C8-688'; return result; }
+	if (!second) { result.message = '当前已经运行官方系统'; return result; }
+	if (!fs.stat(ENVTOOL)) { result.message = '缺少原厂启动环境工具'; return result; }
+	let labels = {};
+	for (let label in ['kernel', 'rootfs', 'kernel_2nd', 'rootfs_2nd', 'u-boot-env']) {
+		labels[label] = partition(label);
+		if (!labels[label]) { result.message = '无法识别 eMMC 分区：' + label; return result; }
+	}
+	let disk = replace(labels.rootfs_2nd, /p[0-9]+$/, '');
+	for (let label, path in labels)
+		if (replace(path, /p[0-9]+$/, '') != disk) { result.message = '双系统分区不在同一 eMMC'; return result; }
+	result.boot_system = bootValue();
+	if (result.boot_system == null) { result.message = '无法读取原厂 boot_system 启动标记'; return result; }
+	result.enabled = true;
+	result.message = '可返回本机 C8-688 已保留的官方系统';
+	return result;
+}
+let result;
+try {
+	result = status();
+	if (ARGV[0] == 'official') {
+		if (!result.enabled) die(result.message);
+		let write = run(ENVTOOL + ' -s boot_system -v 0 -o 0');
+		if (write.code || bootValue() !== 0) die('写入或读回官方系统启动标记失败');
+		let queue = run('(/bin/sleep 3; /bin/sync; /sbin/reboot) </dev/null >/dev/null 2>&1 & echo queued');
+		if (queue.code || queue.text != 'queued') die('启动标记已设为官方系统，请手动重启');
+		result = { started: true, boot_system: 0 };
+	}
+	else if (ARGV[0] != 'status') die('不支持的操作');
+}
+catch (e) { result = { error: '' + e }; }
+printf('%J\n', result);
