@@ -231,3 +231,35 @@
  	bc = mmap(NULL, len, PROT_READ, MAP_PRIVATE|MAP_LOCKED, fd, 0);
  
  	if ((void *)bc != MAP_FAILED)
+
+--- a/iwinfo_cli.c
++++ b/iwinfo_cli.c
+@@ -276,8 +276,9 @@ static char * format_hwmodes(int modes)
+ {
+-	static char buf[32] = "802.11";
++	static char buf[32];
+ 
++	strcpy(buf, "802.11");
+ 	if (iwinfo_format_hwmodes(modes, buf + 6, sizeof(buf) - 6) < 1)
+ 		snprintf(buf, sizeof(buf), "unknown");
+ 
+ 	return buf;
+ }
+@@ -576,7 +577,7 @@ static char * print_hwmodes(const struct iwinfo_ops *iw, const char *ifname)
+ {
+ 	int modes;
+ 	if (iw->hwmodelist(ifname, &modes))
+-		modes = -1;
++		modes = 0;
+ 
+ 	return format_hwmodes(modes);
+ }
+@@ -586,7 +587,7 @@ static const char *print_htmode(const struct iwinfo_ops *iw, const char *ifname)
+ 	int mode;
+ 	const char *name;
+ 	if (iw->htmode(ifname, &mode))
+-		mode = -1;
++		return "unknown";
+ 
+ 	name = iwinfo_htmode_name(mode);
+ 	if (name)

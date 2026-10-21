@@ -1,0 +1,25 @@
+Use the managed, validated MYOS SD configuration before a retained p6 fstab.
+Only board preinit exports this temporary override after preparing p7.
+
+--- a/block.c
++++ b/block.c
+@@ -1662,6 +1662,19 @@ static int main_extroot(int argc, char **argv)
+ 	/* enable LOG_INFO messages */
+ 	ulog_threshold(LOG_INFO);
+ 
++	/* The board preinit validates and prepares its managed SD p7 first.
++	 * Do not let an older p6 overlay fstab hide that configuration.
++	 * An unsuccessful mount still falls through to normal recovery boot. */
++	char *myos_cfg = getenv("MYOS_SD_EXTROOT_CONFIG");
++	if (myos_cfg &&
++	    (!strcmp(myos_cfg, "/tmp/c2000max-extroot-config") ||
++	     !strcmp(myos_cfg, "/tmp/c2000ultra-extroot-config"))) {
++		err = mount_extroot(myos_cfg);
++		if (!err)
++			return 0;
++		ULOG_ERR("extroot: managed SD mount failed; trying normal configuration\n");
++	}
++
+ 	/* try the currently mounted overlay if exists */
+ 	err = mount_extroot("/tmp/overlay");
+ 	if (!err)

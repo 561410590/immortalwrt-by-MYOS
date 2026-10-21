@@ -1,0 +1,10 @@
+config theme 'main'
+	option modem_section 'auto'
+	# UI advisory defaults: warning 80 C, critical 90 C (CPU and Wi-Fi).
+	# These do not change device fan, throttling or shutdown settings.
+	# Override both levels for a sensor when needed.
+	# option cpu_warning '80'
+	# option cpu_critical '90'
+	# option wifi_warning '80'
+	# option wifi_critical '90'
+

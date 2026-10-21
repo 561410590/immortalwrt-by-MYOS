@@ -4,6 +4,81 @@ START=15
 
 extra_command "compact" "Trigger compaction for all zram swap devices"
 extra_command "status" "Print out information & statistics about zram swap devices"
+extra_command "swapfile" "Prepare the C2000MAX SD swap file"
+
+MAX_SWAP_DIR=/overlay/myos-swap
+MAX_SWAP_PID=/var/run/myos-swapfile.pid
+
+max_board()
+{
+	[ "$(cat /tmp/sysinfo/board_name 2>/dev/null)" = "nradio,c2000-max" ]
+}
+
+swapfile()
+{
+	max_board || return 0
+	local size dev fstype backing free tmp i
+	size="$(uci -q get system.@system[0].swapfile_size_mb)"
+	[ "${size:-512}" = 512 ] || return 0
+	exec 9>/var/lock/myos-swapfile.lock
+	flock -n 9 || return 0
+	grep -q "^$MAX_SWAP_DIR/swapfile " /proc/swaps && return 0
+	# The first allocation runs after normal boot; subsequent boots reuse the file.
+	[ -f "$MAX_SWAP_DIR/swapfile" ] || sleep 60
+	dev="$(awk '$2 == "/overlay" {print $1; exit}' /proc/mounts)"
+	fstype="$(awk '$2 == "/overlay" {print $3; exit}' /proc/mounts)"
+	case "$fstype" in f2fs|ext4) ;; *) logger -t myos-swap 'SD overlay is unavailable'; return 1 ;; esac
+	case "$dev" in
+		/dev/loop*)
+			backing="$(cat /sys/class/block/${dev##*/}/loop/backing_file 2>/dev/null)"
+			case "$backing" in /mmcblk0p4|/dev/mmcblk0p4|/mmcblk0p7|/dev/mmcblk0p7) ;; *)
+				logger -t myos-swap 'Loop backing is not a supported MAX SD data partition'
+				return 1
+				;;
+			esac
+			# Swap over a buffered loop can recurse into memory reclaim.
+			/usr/sbin/losetup --direct-io=on "$dev" || return 1
+			[ "$(cat /sys/class/block/${dev##*/}/loop/dio 2>/dev/null)" = 1 ] || {
+				logger -t myos-swap 'Loop direct I/O unavailable; SD swap skipped'
+				return 1
+			}
+			;;
+		/dev/mmcblk0p7) ;;
+		*) logger -t myos-swap 'Overlay is not a supported MAX SD data partition'; return 1 ;;
+	esac
+	if [ ! -f "$MAX_SWAP_DIR/swapfile" ]; then
+		free="$(df -Pk /overlay | awk 'NR == 2 {print $4}')"
+		case "$free" in ''|*[!0-9]*) return 1 ;; esac
+		[ "$free" -ge 786432 ] || {
+			logger -t myos-swap 'Creating 512 MiB swap requires 768 MiB free space'
+			return 1
+		}
+		mkdir -p "$MAX_SWAP_DIR" || return 1
+		chmod 700 "$MAX_SWAP_DIR"
+		tmp="$MAX_SWAP_DIR/swapfile.new"
+		umask 077
+		: > "$tmp" || return 1
+		i=0
+		while [ "$i" -lt 8 ]; do
+			nice -n 19 dd if=/dev/zero of="$tmp" bs=1048576 count=64 seek=$((i * 64)) conv=notrunc 2>/dev/null || {
+				rm -f "$tmp"
+				logger -t myos-swap 'SD swap allocation failed'
+				return 1
+			}
+			sync
+			i=$((i + 1))
+			sleep 1
+		done
+		busybox mkswap "$tmp" || return 1
+		mv "$tmp" "$MAX_SWAP_DIR/swapfile" || return 1
+		sync
+	fi
+	busybox swapon -p 10 "$MAX_SWAP_DIR/swapfile" || {
+		logger -t myos-swap 'SD swap activation failed'
+		return 1
+	}
+	logger -t myos-swap '512 MiB SD swap active, priority 10'
+}
 
 ram_getsize()
 {
@@ -123,7 +198,7 @@ zram_compact()
 		printf fmt, "Overhead reduced by", (ovr-($3-$2))/ovr*100, "%" }' <$zdev/mm_stat
 }
 
-start()
+zram_start()
 {
 	[ -e /proc/swaps ] || {
 		logger -s -t zram_start -p daemon.crit "kernel doesn't support swap"
@@ -132,10 +207,11 @@ start()
 
 	if [ $( grep -cs zram /proc/swaps ) -ne 0 ]; then
 		logger -s -t zram_start -p daemon.notice "zram swap is already mounted"
-		return 1
+		return 0
 	fi
 
 	local zram_dev="$( zram_getdev )"
+	[ -b "$zram_dev" ] || modprobe zram
 
 	[ -e "$zram_dev" ] || {
 		logger -s -t zram_start -p daemon.crit "[ERROR] device '$zram_dev' not found"
@@ -151,16 +227,33 @@ start()
 
 	logger -s -t zram_start -p daemon.debug "activating '$zram_dev' for swapping ($zram_size MiB)"
 
-	zram_reset "$zram_dev" "enforcing defaults"
+	zram_reset "$zram_dev" "enforcing defaults" || return 1
 	zram_comp_algo "$zram_dev"
-	echo $(( $zram_size * 1024 * 1024 )) >"/sys/block/$( basename "$zram_dev" )/disksize"
-	busybox mkswap "$zram_dev"
-	busybox swapon -d -p $zram_priority "$zram_dev"
+	echo $(( $zram_size * 1024 * 1024 )) >"/sys/block/$( basename "$zram_dev" )/disksize" || return 1
+	busybox mkswap "$zram_dev" || return 1
+	busybox swapon -p "$zram_priority" "$zram_dev" || return 1
+	grep -q "^$zram_dev " /proc/swaps
+}
+
+start()
+{
+	local result=0
+	zram_start || result=$?
+	if max_board; then
+		sysctl -q -w vm.swappiness=100 vm.vfs_cache_pressure=200
+		start-stop-daemon -S -b -m -p "$MAX_SWAP_PID" -x /etc/init.d/zram -- swapfile
+	fi
+	return "$result"
 }
 
 stop()
 {
 	local zram_dev
+	if max_board; then
+		start-stop-daemon -K -p "$MAX_SWAP_PID" 2>/dev/null
+		rm -f "$MAX_SWAP_PID"
+		grep -q "^$MAX_SWAP_DIR/swapfile " /proc/swaps && busybox swapoff "$MAX_SWAP_DIR/swapfile"
+	fi
 
 	for zram_dev in $( grep zram /proc/swaps |awk '{print $1}' ); do {
 		logger -s -t zram_stop -p daemon.debug "deactivate swap $zram_dev"
@@ -176,6 +269,7 @@ stop()
 # show memory stats for all zram swaps
 status()
 {
+	max_board && cat /proc/swaps
 	for zram_dev in $( grep zram /proc/swaps |awk '{print $1}' ); do {
 		zram_stats "$zram_dev"
 	} done

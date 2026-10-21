@@ -137,7 +137,7 @@ rbus_pa_lan_config(struct platform_device *pdev, unsigned int devfn, unsigned ch
 {
 	struct pinctrl *p;
 	struct pinctrl_state *s;
-	unsigned char state[32] = "";
+	const char *state = "state_epa";
 	int ret = 0;
 
 	if (mode != IPA_ELNA_MODE && mode != EPA_ELNA_MODE)
@@ -149,8 +149,6 @@ rbus_pa_lan_config(struct platform_device *pdev, unsigned int devfn, unsigned ch
 		dev_err(&pdev->dev, "%s(): can't get pinctrl by dev:%p\n", __func__, &pdev->dev);
 		return ret;
 	}
-
-	strncpy(state, "state_epa", sizeof("state_epa"));
 
 	s = pinctrl_lookup_state(p, state);
 
@@ -358,4 +356,3 @@ subsys_initcall_sync(rbus_init);
 
 MODULE_DESCRIPTION("Mediatek RBUS host controller driver");
 MODULE_LICENSE("GPL v2");
-

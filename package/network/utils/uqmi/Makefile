@@ -23,7 +23,8 @@ define Package/uqmi
   SECTION:=net
   CATEGORY:=Network
   SUBMENU:=WWAN
-  DEPENDS:=+libubox +libblobmsg-json +kmod-usb-net +kmod-usb-net-qmi-wwan +wwan
+  DEPENDS:=+libubox +libblobmsg-json +kmod-usb-net \
+    +kmod-usb-net-qmi-wwan +wwan
   TITLE:=Control utility for mobile broadband modems
 endef
 

@@ -28,7 +28,7 @@ VOID UniCmdResultRsp(struct cmd_msg *msg, char *payload, UINT16 payload_len)
 			UniCmdResult->u2CID);
 
 	if (UniCmdResult->u4Status != 0 || (UniCmdResult->u2CID != msg->attr.type)) {
-		MTWF_DBG(NULL, DBG_CAT_FW, DBG_SUBCAT_ALL, DBG_LVL_WARN, "BUG::UniCmdResult.u4Status = 0x%x cid: = 0x%x\n",
+		MTWF_DBG(NULL, DBG_CAT_FW, DBG_SUBCAT_ALL, DBG_LVL_INFO, "UniCmdResult.u4Status = 0x%x cid: = 0x%x\n",
 				  UniCmdResult->u4Status, UniCmdResult->u2CID);
 	} else {
 		MTWF_DBG(NULL, DBG_CAT_FW, DBG_SUBCAT_ALL, DBG_LVL_INFO, "UniCmdResult.u4Status = 0x%x\n",

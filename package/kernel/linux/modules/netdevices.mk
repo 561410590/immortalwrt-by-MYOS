@@ -1394,6 +1394,7 @@ $(eval $(call KernelPackage,dummy))
 define KernelPackage/ifb
   SUBMENU:=$(NETWORK_DEVICES_MENU)
   TITLE:=Intermediate Functional Block support
+  DEPENDS:=+kmod-sched-core
   KCONFIG:= \
 	CONFIG_IFB \
 	CONFIG_NET_CLS=y
@@ -2091,14 +2092,14 @@ $(eval $(call KernelPackage,amazon-ena))
 define KernelPackage/mediatek_hnat
   SUBMENU:=$(NETWORK_DEVICES_MENU)
   TITLE:=Mediatek HNAT module
-  AUTOLOAD:=$(call AutoLoad,20,mtkhnat ppe_cnt=2)
+  AUTOLOAD:=$(call AutoLoad,20,mtkhnat)
   DEPENDS:=@TARGET_mediatek +kmod-nf-conntrack +wireless-tools +@KERNEL_WIRELESS_EXT
   KCONFIG:= \
 	CONFIG_BRIDGE_NETFILTER=y \
 	CONFIG_NETFILTER_FAMILY_BRIDGE=y \
 	CONFIG_NET_MEDIATEK_HNAT
   FILES:= \
-        $(LINUX_DIR)/drivers/net/ethernet/mediatek/mtk_hnat/mtkhnat.ko
+        $(if $(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_c2000-max),$(LINUX_DIR)/drivers/net/ethernet/mediatek/mtk_hnat/mtkhnat.ko,$(TOPDIR)/package/kernel/linux/files/mt7981-ko/mtkhnat.ko)
 endef
 
 define KernelPackage/mediatek_hnat/description

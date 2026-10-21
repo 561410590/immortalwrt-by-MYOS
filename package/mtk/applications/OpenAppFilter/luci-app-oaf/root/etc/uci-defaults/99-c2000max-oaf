@@ -1,0 +1,14 @@
+#!/bin/sh
+
+[ "$(cat /tmp/sysinfo/board_name 2>/dev/null)" = "nradio,c2000-max" ] || exit 0
+
+if [ ! -s /etc/appfilter/feature.cfg ] && [ -s /etc/appfilter/feature_cn.cfg ]; then
+    ln -sfn feature_cn.cfg /etc/appfilter/feature.cfg
+fi
+
+if ! uci -q get appfilter.global.user_mode >/dev/null; then
+    uci set appfilter.global.user_mode=0
+    uci commit appfilter
+fi
+
+exit 0

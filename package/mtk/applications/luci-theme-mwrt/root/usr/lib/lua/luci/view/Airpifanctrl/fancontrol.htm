@@ -1,0 +1,790 @@
+<%+header%>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>内置PWM风扇控制台</title>
+<style>
+body,.main,.main .main-right,#maincontent,#maincontent>.container,.darkMask{background:#1a1a2e!important}
+header.bg-primary,header.bg-primary::after,header .fill{background:#1a1a2e!important;border-bottom:1px solid rgba(255,255,255,.06)}
+:root{--fc-bg:#1a1a2e;--fc-card:rgba(255,255,255,.03);--fc-card-hi:rgba(255,255,255,.05);--fc-bd:rgba(255,255,255,.08);--fc-bd-hi:rgba(255,255,255,.14);--fc-t1:#e2e4ea;--fc-t2:#8e92a4;--fc-t3:#5a5e72;--fc-cy:#22d3ee;--fc-pp:#a78bfa;--fc-pk:#f472b6;--fc-gn:#34d399;--fc-og:#fbbf24;--fc-rd:#f87171;--fc-grad:linear-gradient(135deg,#22d3ee,#a78bfa,#f472b6);--fc-r:12px;--fc-mono:ui-monospace,'SF Mono','Cascadia Code',Consolas,monospace;--fc-sans:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI','PingFang SC','Microsoft YaHei',sans-serif}
+.FC,.FC *{box-sizing:border-box}
+.FC{margin:-1rem -1.25rem;padding:24px 20px 32px;min-height:calc(100vh - 56px);font-family:var(--fc-sans);font-size:13px;color:var(--fc-t1);background:var(--fc-bg);overflow-x:hidden}
+.FC .fc-inner{max-width:800px;margin:0 auto}
+.FC .fc-hd{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;margin-bottom:16px;background:var(--fc-card);border:1px solid var(--fc-bd);border-radius:var(--fc-r);position:relative}
+.FC .fc-hd::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;border-radius:2px;background:var(--fc-grad)}
+.FC .fc-hd h2{margin:0;padding:0;font-size:14px;font-weight:600;color:var(--fc-t1);background:none;width:auto;text-shadow:none}
+.FC .fc-hd .fc-tip{font-size:10px;color:var(--fc-t3);display:flex;align-items:center;gap:5px}
+.FC .fc-hd .fc-tip::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--fc-gn);box-shadow:0 0 6px var(--fc-gn)}
+.FC .fc-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px}
+.FC .fc-card{background:var(--fc-card);border:1px solid var(--fc-bd);border-radius:var(--fc-r);padding:14px;position:relative}
+.FC .fc-card-title{font-size:9px;color:var(--fc-t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;font-weight:500}
+.FC .fc-fan-wrap{display:flex;align-items:center;justify-content:center;height:180px;position:relative}
+.FC .fc-fan-ring{position:absolute;width:170px;height:170px;border-radius:50%;border:1.5px solid transparent;background:conic-gradient(from 0deg,var(--fc-cy),var(--fc-pp),var(--fc-pk),var(--fc-cy)) border-box;-webkit-mask:linear-gradient(#fff 0 0) padding-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:fc-spin 8s linear infinite;opacity:.5}
+.FC .fc-fan-glow{position:absolute;width:140px;height:140px;border-radius:50%;background:radial-gradient(circle,rgba(34,211,238,.08),rgba(167,139,250,.05) 50%,transparent 70%);filter:blur(12px);animation:fc-pulse 4s ease-in-out infinite alternate}
+@keyframes fc-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes fc-pulse{0%{opacity:.4;transform:scale(.96)}100%{opacity:.8;transform:scale(1.04)}}
+.FC #fan{display:block;margin:0;border:none;border-radius:0;position:relative;z-index:2}
+.FC #speedDisplay{text-align:center;font-size:22px;font-weight:700;font-family:var(--fc-mono);letter-spacing:-.5px;background:var(--fc-grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;color:transparent;margin:0}
+.FC .fc-rpm-label{text-align:center;font-size:9px;color:var(--fc-t3);margin-top:3px;letter-spacing:1.5px;text-transform:uppercase}
+.FC #temperatureDisplay{text-align:center;font-size:20px;font-weight:700;font-family:var(--fc-mono);color:var(--fc-t1);margin:0}
+.FC #energyBar{width:100%;height:6px;border:none;border-radius:3px;overflow:hidden;margin-top:12px;background:rgba(255,255,255,.04);max-width:none}
+.FC #energyFill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--fc-cy),var(--fc-gn) 40%,var(--fc-og) 70%,var(--fc-rd));transition:width .5s ease}
+.FC .fc-section{background:var(--fc-card);border:1px solid var(--fc-bd);border-radius:var(--fc-r);padding:14px;margin-bottom:12px}
+.FC .fc-section-title{font-size:9px;color:var(--fc-t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;font-weight:500}
+.FC .fc-modes{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
+.FC .button{background:var(--fc-card-hi);color:var(--fc-t2);padding:10px 4px;border-radius:8px;border:1px solid var(--fc-bd);font-size:11px;font-weight:500;cursor:pointer;transition:all .2s ease;width:auto;margin:0;box-shadow:none;font-family:var(--fc-sans);position:relative;overflow:hidden}
+.FC .button::before{content:"";position:absolute;inset:0;background:var(--fc-grad);opacity:0;transition:opacity .2s ease}
+.FC .button>span{position:relative;z-index:1}
+.FC .button:hover{color:var(--fc-t1);border-color:var(--fc-bd-hi);transform:translateY(-1px)}
+.FC .button:active{transform:translateY(0)}
+.FC .button.fc-active{border-color:transparent;color:#fff;box-shadow:0 4px 14px rgba(167,139,250,.25)}
+.FC .button.fc-active::before{opacity:1}
+.FC .slider-container{display:none!important;width:100%;align-items:center;gap:10px;margin-top:10px}
+.FC .slider-container.active{display:flex!important}
+.FC #speedSlider{flex:1;width:auto;-webkit-appearance:none;appearance:none;height:5px;border-radius:3px;background:linear-gradient(90deg,var(--fc-cy),var(--fc-pp),var(--fc-pk));outline:none;cursor:pointer;border:none}
+.FC #speedSlider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:#fff;cursor:pointer;box-shadow:0 0 0 3px rgba(34,211,238,.15),0 2px 8px rgba(0,0,0,.4);border:1.5px solid var(--fc-cy);transition:transform .15s}
+.FC #speedSlider::-webkit-slider-thumb:hover{transform:scale(1.2)}
+.FC #speedSlider::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#fff;cursor:pointer;box-shadow:0 0 0 3px rgba(34,211,238,.15),0 2px 8px rgba(0,0,0,.4);border:1.5px solid var(--fc-cy)}
+.FC .switch-container{display:none!important;align-items:center;justify-content:center;gap:10px;margin-top:10px;padding:10px;background:var(--fc-card-hi);border:1px solid var(--fc-bd);border-radius:8px}
+.FC .switch-container.active{display:flex!important}
+.FC .switch-label{color:var(--fc-t2);font-size:11px;font-weight:500;margin:0}
+.FC .switch{position:relative;width:36px;height:20px;background:rgba(255,255,255,.08);border-radius:10px;cursor:pointer;transition:background .3s;border:1px solid var(--fc-bd)}
+.FC .switch:before{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;background:#fff;border-radius:50%;transition:left .3s;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.FC .switch.active{background:var(--fc-grad);border-color:transparent;box-shadow:0 0 8px rgba(167,139,250,.3)}
+.FC .switch.active:before{left:18px}
+.FC .fc-sched-hd{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.FC .fc-sched-hd .fc-section-title{margin:0}
+.FC .fc-sched-state{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--fc-t3);font-family:var(--fc-mono)}
+.FC .fc-sched-state::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--fc-t3);transition:background .3s,box-shadow .3s}
+.FC .fc-sched-state.on::before{background:var(--fc-cy);box-shadow:0 0 6px var(--fc-cy)}
+.FC .fc-sched-state.hot::before{background:var(--fc-rd);box-shadow:0 0 6px var(--fc-rd)}
+.FC .fc-sched-body{display:none}
+.FC .fc-sched-body.active{display:block}
+.FC .fc-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.FC .fc-lbl{font-size:10px;color:var(--fc-t3);text-transform:uppercase;letter-spacing:1px;min-width:56px;font-weight:500}
+/* time/number/select 在本页没有任何默认样式,且 argon-global-custom.css 用 !important
+   写死了输入框的背景与文字色,所以这里也必须 !important 才压得住。 */
+.FC .fc-in{background-color:var(--fc-card-hi)!important;color:var(--fc-t1)!important;border:1px solid var(--fc-bd)!important;border-radius:8px!important;padding:7px 10px!important;font-size:12px!important;font-family:var(--fc-mono)!important;width:auto!important;min-width:0;height:auto!important;margin:0!important;box-shadow:none!important;outline:none;color-scheme:dark;transition:border-color .2s}
+.FC .fc-in:focus{border-color:var(--fc-cy)!important}
+.FC input.fc-in[type=time]{min-width:112px}
+.FC input.fc-in[type=number]{width:74px!important}
+.FC .fc-sep{font-size:11px;color:var(--fc-t3)}
+.FC .fc-chips{display:flex;gap:6px;flex-wrap:wrap}
+.FC .fc-chip{padding:6px 11px;border-radius:7px;border:1px solid var(--fc-bd);background:var(--fc-card-hi);color:var(--fc-t2);font-size:11px;cursor:pointer;user-select:none;transition:all .2s;line-height:1.2}
+.FC .fc-chip:hover{color:var(--fc-t1);border-color:var(--fc-bd-hi)}
+.FC .fc-chip.on{color:#fff;border-color:transparent;background:var(--fc-grad);box-shadow:0 3px 10px rgba(167,139,250,.22)}
+.FC .fc-gears .button.fc-sel{border-color:transparent;color:#fff;box-shadow:0 4px 14px rgba(167,139,250,.25)}
+.FC .fc-gears .button.fc-sel::before{opacity:1}
+.FC .fc-gears{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;flex:1;min-width:240px}
+.FC .fc-hint{font-size:10px;color:var(--fc-t3);line-height:1.7;margin-top:2px}
+.FC .fc-hint b{color:var(--fc-t2);font-weight:600}
+.FC .fc-actions{display:flex;align-items:center;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--fc-bd)}
+.FC .fc-btn{padding:8px 18px;border-radius:8px;border:1px solid var(--fc-bd);background:var(--fc-card-hi);color:var(--fc-t2);font-size:11px;font-weight:500;cursor:pointer;font-family:var(--fc-sans);transition:all .2s}
+.FC .fc-btn:hover{color:var(--fc-t1);border-color:var(--fc-bd-hi)}
+.FC .fc-btn.primary{border-color:transparent;color:#fff;background:var(--fc-grad);box-shadow:0 4px 14px rgba(167,139,250,.25)}
+.FC .fc-btn.primary:hover{filter:brightness(1.08)}
+.FC .fc-save-tip{font-size:10px;color:var(--fc-gn);opacity:0;transition:opacity .3s}
+.FC .fc-save-tip.show{opacity:1}
+.FC .fc-save-tip.err{color:var(--fc-rd)}
+.FC .fc-banner{display:none;align-items:center;gap:8px;margin-top:10px;padding:9px 12px;border-radius:8px;font-size:11px;line-height:1.5;background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.18);color:var(--fc-t2)}
+.FC .fc-banner.show{display:flex}
+.FC .fc-banner.warn{background:rgba(248,113,113,.07);border-color:rgba(248,113,113,.22)}
+.FC .fc-banner b{color:var(--fc-t1);font-weight:600}
+.FC .fc-banner .fc-btn{margin-left:auto;flex:none;padding:5px 12px;font-size:10px}
+.FC .fc-note{font-size:10px;color:var(--fc-t3);text-align:center;padding:8px 12px;border:1px solid rgba(255,255,255,.04);border-radius:8px;margin-top:12px}
+@media(max-width:768px){
+.FC{margin:-.5rem -.75rem;padding:12px 10px 20px}
+.FC .fc-inner{max-width:100%}
+.FC .fc-hd{padding:10px 12px;margin-bottom:10px}
+.FC .fc-hd h2{font-size:13px}
+.FC .fc-grid{grid-template-columns:1fr;gap:8px;margin-bottom:10px}
+.FC .fc-card{padding:12px}
+.FC .fc-fan-wrap{height:130px}
+.FC #fan{width:110px!important;height:110px!important}
+.FC .fc-fan-ring{width:125px;height:125px}
+.FC .fc-fan-glow{width:100px;height:100px}
+.FC #speedDisplay{font-size:18px}
+.FC #temperatureDisplay{font-size:16px}
+.FC .fc-section{padding:12px}
+.FC .fc-modes{grid-template-columns:repeat(3,1fr);gap:6px}
+.FC .fc-gears{grid-template-columns:repeat(3,1fr);min-width:0;width:100%}
+.FC .fc-lbl{min-width:100%}
+.FC .fc-row{gap:8px;margin-bottom:12px}
+.FC .button{padding:9px 4px;font-size:10px}
+.FC #speedSlider::-webkit-slider-thumb{width:22px;height:22px}
+.FC #speedSlider::-moz-range-thumb{width:22px;height:22px}
+}
+@media(max-width:420px){.FC .fc-modes{grid-template-columns:repeat(2,1fr)}}
+.FC h2,.FC h4{text-align:left;width:auto;margin:0;padding:0;color:inherit;background:none;text-shadow:none;border-radius:0}
+</style>
+</head>
+<body>
+<div class="FC"><div class="fc-inner">
+<div class="fc-hd"><h2>内置PWM风扇控制台</h2><div class="fc-tip">实时温控</div></div>
+<div class="fc-grid">
+<div class="fc-card"><div class="fc-card-title">风扇运行</div>
+<div class="fc-fan-wrap"><div class="fc-fan-glow"></div><div class="fc-fan-ring"></div><canvas id="fan" width="160" height="160"></canvas></div></div>
+<div class="fc-card"><div class="fc-card-title">风扇占空比</div>
+<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:140px"><div id="speedDisplay">风扇占空比：0</div><div class="fc-rpm-label">PWM 0–255</div></div></div>
+<div class="fc-card"><div class="fc-card-title">温度监测</div>
+<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:140px"><div id="temperatureDisplay">当前温度：0</div>
+<div id="energyBar"><div id="energyFill"></div></div></div></div>
+</div>
+<div class="fc-section"><div class="fc-section-title">运行模式</div>
+<div class="fc-modes">
+<button class="button" onclick="fanstop()"><span>静音模式</span></button>
+<button class="button" onclick="fanst1()"><span>低速模式</span></button>
+<button class="button" onclick="fanst2()"><span>常规模式</span></button>
+<button class="button" onclick="fanst3()"><span>狂躁模式</span></button>
+<button class="button" onclick="fanst4()"><span>智能模式</span></button>
+<button class="button" onclick="toggleSlider()"><span>无极调速</span></button>
+</div>
+<div id="sliderContainer" class="slider-container">
+<input type="range" id="speedSlider" min="0" max="255" value="255" oninput="updateSpeed(this.value)">
+</div>
+<div class="fc-hint">智能调速依据 CPU 温度</div>
+<div id="switchContainer" class="switch-container" style="display:none">
+<span class="switch-label">使用模组温度</span>
+<div class="switch" id="temperatureSwitch" onclick="toggleSwitch()"></div>
+<span class="switch-label">使用CPU温度</span>
+</div>
+</div>
+<div class="fc-section" id="schedSection">
+<div class="fc-sched-hd">
+<div class="fc-section-title">定时任务</div>
+<div style="display:flex;align-items:center;gap:12px">
+<span class="fc-sched-state" id="schedState">未启用</span>
+<div class="switch" id="schedSwitch" onclick="schedToggle()"></div>
+</div>
+</div>
+<div class="fc-sched-body" id="schedBody">
+<div class="fc-row">
+<span class="fc-lbl">时间段</span>
+<input type="time" id="schedStart" class="fc-in" value="23:00">
+<span class="fc-sep">至</span>
+<input type="time" id="schedEnd" class="fc-in" value="07:00">
+<span class="fc-hint" id="schedCross"></span>
+</div>
+<div class="fc-row">
+<span class="fc-lbl">挡位</span>
+<div class="fc-gears" id="schedGears">
+<button type="button" class="button" data-gear="0"><span>静音</span></button>
+<button type="button" class="button" data-gear="1"><span>低速</span></button>
+<button type="button" class="button" data-gear="2"><span>常规</span></button>
+<button type="button" class="button" data-gear="3"><span>狂躁</span></button>
+<button type="button" class="button" data-gear="9"><span>智能</span></button>
+</div>
+</div>
+<div class="fc-row">
+<span class="fc-lbl">生效日</span>
+<div class="fc-chips" id="schedDays">
+<span class="fc-chip" data-day="1">周一</span>
+<span class="fc-chip" data-day="2">周二</span>
+<span class="fc-chip" data-day="3">周三</span>
+<span class="fc-chip" data-day="4">周四</span>
+<span class="fc-chip" data-day="5">周五</span>
+<span class="fc-chip" data-day="6">周六</span>
+<span class="fc-chip" data-day="0">周日</span>
+</div>
+</div>
+<div class="fc-row">
+<span class="fc-lbl">过热保护</span>
+<input type="number" id="schedTempmax" class="fc-in" min="50" max="95" step="1" value="80">
+<span class="fc-sep">&deg;C</span>
+<span class="fc-hint">定时期间温度超过该值自动临时提速，回落 6&deg;C 后恢复静音。填 0 关闭（不建议）。</span>
+</div>
+<div class="fc-actions">
+<button type="button" class="fc-btn primary" onclick="schedSave()">保存定时</button>
+<span class="fc-hint" id="schedNext"></span>
+<span class="fc-save-tip" id="schedTip"></span>
+</div>
+</div>
+<div class="fc-banner" id="schedBanner"></div>
+</div>
+<div class="fc-note">温馨提示：请注意风扇处不要密封,会影响进出风向</div>
+</div></div>
+
+<script type="text/javascript">
+        let useModemTemp = false;
+        let modemTempTimer = null;
+        var tms
+        var fanv
+        let currentSpeed = 0;
+        let currentTemperature = 0;
+        const canvas = document.getElementById('fan');
+        const ctx = canvas.getContext('2d');
+        const energyFill = document.getElementById('energyFill');
+        const switchContainer = document.getElementById('switchContainer');
+        const temperatureSwitch = document.getElementById('temperatureSwitch');
+        let wjtsvall = 255; 
+        let timer; 
+        let isSliderActive = false; 
+
+        function handleClick(event) {
+            const slider = event.target;
+            const rect = slider.getBoundingClientRect();
+            const clickX = event.clientX - rect.left;
+            const percentage = clickX / rect.width;
+            const newValue = Math.round(percentage * (slider.max - slider.min));
+            slider.value = newValue;
+            
+            updateSpeed(newValue); // 更新速度
+        }
+
+
+        function toggleSlider() {
+            var s = 'fanswj2'; 
+            var v = '1'; 
+            mwrtFanPost('<%=luci.dispatcher.build_url("admin", "fancontrol", "fanswj2")%>', { set: s, p: v }, function(x, rv) {
+                fanwjvl = parseInt(rv.result, 10); // 确保值是整数
+                const slider = document.getElementById('speedSlider');
+                slider.value = fanwjvl; // 设置调速杆位置
+                updateSpeed(fanwjvl); // 更新调速杆显示及风扇动画
+                fanswj(fanwjvl);
+            });
+            const sliderContainer = document.getElementById('sliderContainer');
+            sliderContainer.classList.add('active');
+            isSliderActive = true;
+            updateButtonStyles(999);
+            switchContainer.classList.remove('active'); 
+
+            if (timer) {
+                clearInterval(timer);
+                timer = null;
+            }
+        }
+
+        function resetSlider() {
+            const sliderContainer = document.getElementById('sliderContainer');
+            sliderContainer.classList.remove('active');
+
+            if (!timer) {
+                timer = setInterval(function() {
+                    fanst();
+                    fansttp();
+                }, 8000); 
+            }
+        }
+
+ 
+        function updateSpeed(value) {
+            wjtsvall = value;
+            updateFanAnimation(wjtsvall);
+            fanswj(wjtsvall); 
+
+            const red = Math.min(255, Math.floor((value / 255) * 255));
+            const blue = 255 - red;
+            const color = `rgb(${red}, 0, ${blue})`;
+            
+            document.getElementById('speedSlider').style.background = `linear-gradient(to right, ${color}, #ff0000)`;
+            document.getElementById('speedDisplay').innerText = `风扇占空比：${wjtsvall}0-RPM`;
+        }
+
+        window.onload = function() {
+            fanst(); 
+            fansttp();
+        };
+
+        function updateFanAnimation(speed) {
+            currentSpeed = speed;
+            drawFan();
+        }
+
+        function drawFan() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const bladeLength = 70;
+            const bladeWidth = 36;
+            const bladeArc = Math.PI / 4;
+
+            var t=Math.min(1,currentSpeed/255),r,g,b;
+            if(t<0.5){var k=t/0.5;r=Math.round(34+(167-34)*k);g=Math.round(211+(139-211)*k);b=Math.round(238+(250-238)*k);}
+            else{var k=(t-0.5)/0.5;r=Math.round(167+(244-167)*k);g=Math.round(139+(114-139)*k);b=Math.round(250+(182-250)*k);}
+            const color=`rgba(${r},${g},${b},0.8)`;
+
+            const minSpeed = 0.3;
+            const maxSpeed = 4.0; 
+            const speedFactor = minSpeed + ((currentSpeed / 255) * (maxSpeed - minSpeed));
+            const angle = (performance.now() / 150) * speedFactor; 
+
+            for (let i = 0; i < 5; i++) {
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                ctx.rotate(angle + (i * (2 * Math.PI / 5)));
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.quadraticCurveTo(
+                    bladeWidth * 0.3, -bladeLength * 0.40,
+                    bladeWidth, -bladeLength * 0.7
+                );
+                ctx.arc(
+                    0, 0, bladeLength,
+                    -Math.PI / 2 + bladeArc / 2,
+                    -Math.PI / 2 - bladeArc / 2,
+                    true
+                );
+                ctx.quadraticCurveTo(
+                    -bladeWidth * 0.3, -bladeLength * 0.40,
+                    0, 0
+                );
+                ctx.closePath();
+
+                ctx.fillStyle = color;
+                ctx.shadowColor=`rgba(${r},${g},${b},0.5)`;
+                ctx.shadowBlur=12;
+                ctx.fill();
+                ctx.restore();
+            }
+            // 中心
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 18, 0, 2 * Math.PI);
+            var grad=ctx.createRadialGradient(centerX,centerY,2,centerX,centerY,18);
+            grad.addColorStop(0,'#e8e8f0');grad.addColorStop(0.6,'#8888a0');grad.addColorStop(1,'#2a2a3e');
+            ctx.fillStyle=grad;ctx.shadowBlur=6;ctx.shadowColor='rgba(0,0,0,0.5)';
+            ctx.fill();
+            ctx.restore();
+
+            document.getElementById('speedDisplay').innerText = `风扇占空比：${Math.round(currentSpeed * 100 / 255)}%（${currentSpeed}/255）`;
+            requestAnimationFrame(drawFan);
+        }
+
+        function updateEnergyBar(temperature) {
+            currentTemperature = temperature;
+            const percentage = Math.min(Math.max(temperature / 100, 0), 1);
+            energyFill.style.width = percentage * 100 + '%';
+            
+            const red = Math.min(255, Math.floor((temperature / 100) * 255));
+            const green = 255 - red;
+            const color = `rgb(${red}, ${green}, 0)`;
+            energyFill.style.backgroundColor = color;
+
+            if (useModemTemp) {
+                let tempShow = modemName ? (modemName + "温度：" + temperature + "℃") : ("模组温度：" + temperature + "℃");
+                document.getElementById('temperatureDisplay').innerText = tempShow;
+                tms = "：" + temperature + "℃";
+            } else {
+                document.getElementById('temperatureDisplay').innerText = `${fanv}：${temperature}℃`;
+                tms = `：${temperature}℃`;
+            }
+        }
+
+
+        function fanstop() {
+            var s = 'fanstop'; 
+            var v = '1'; 
+            mwrtFanPost('<%=luci.dispatcher.build_url("admin", "fancontrol", "fanstop")%>', { set: s, p: v }, function(x, rv) {
+                updateFanAnimation(64);
+            });
+            resetSlider();
+            updateButtonStyles(64);
+            switchContainer.classList.remove('active'); 
+            fansttp();
+        }
+        
+        function fanst1() {
+            var s = 'fanst1'; 
+            var v = '1'; 
+            mwrtFanPost('<%=luci.dispatcher.build_url("admin", "fancontrol", "fanst1")%>', { set: s, p: v }, function(x, rv) {
+                updateFanAnimation(128);
+            });
+            resetSlider();
+            updateButtonStyles(128);
+            switchContainer.classList.remove('active');
+            fansttp();
+        }
+
+        function fanst2() {
+            var s = 'fanst2'; 
+            var v = '1'; 
+            mwrtFanPost('<%=luci.dispatcher.build_url("admin", "fancontrol", "fanst2")%>', { set: s, p: v }, function(x, rv) {
+                updateFanAnimation(192);
+            });
+            resetSlider();
+            updateButtonStyles(192);
+            switchContainer.classList.remove('active'); 
+            fansttp();
+        }
+
+        function fanst3() {
+            var s = 'fanst3'; 
+            var v = '1'; 
+            mwrtFanPost('<%=luci.dispatcher.build_url("admin", "fancontrol", "fanst3")%>', { set: s, p: v }, function(x, rv) {
+                updateFanAnimation(255);
+            });
+            resetSlider();
+            updateButtonStyles(255);
+            switchContainer.classList.remove('active'); 
+            fansttp(); 
+        }
+
+        function fanst4() {
+            var s = 'fanst4'; 
+            var v = '1'; 
+            mwrtFanPost('<%=luci.dispatcher.build_url("admin", "fancontrol", "fanst4")%>', { set: s, p: v }, function(x, rv) {
+                var pd = rv.fanspd;
+            });
+            updateButtonStyles(0);
+            switchContainer.classList.add('active'); 
+            resetSlider();
+        }
+
+        function fanst() {
+            var s = 'fanst'; 
+            var v = '1'; 
+            mwrtFanPost('<%=luci.dispatcher.build_url("admin", "fancontrol", "fanst")%>', { set: s, p: v }, function(x, rv) {
+                var pd = parseInt(rv.fanspd, 10);
+                var pd2 = rv.fancts;
+
+                if (pd2 === "智能") {
+                    updateButtonStyles(0);
+                    switchContainer.classList.add('active'); 
+                    
+                } else if (pd2 === "手动") {
+                    updateButtonStyles(pd);
+                    switchContainer.classList.remove('active'); 
+                } else if (pd2 === "无极") {
+                    updateButtonStyles(999);
+                    switchContainer.classList.remove('active'); 
+                    toggleSlider()
+                }
+
+                updateFanAnimation(pd);
+            });
+        }
+//---------------------------------------------------------------------------------------------------------------------------------------
+        let modemName = "";  // 保存模组型号
+        function fetchModemName() {
+            var url = '<%=luci.dispatcher.build_url("admin", "modem", "qmodem", "get_modem_cfg")%>';
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', url, true);
+            xhr.onreadystatechange = function() {
+                if(xhr.readyState === 4 && xhr.status === 200) {
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        if (data.cfgs && data.cfgs.length > 0) {
+                            modemName = data.cfgs[0].name || "";
+                        } else {
+                            modemName = "";
+                        }
+                    } catch(e) {
+                        modemName = "";
+                    }
+                }
+            }
+            xhr.send();
+        }
+
+        function renderNetInfo(data){
+            if (!useModemTemp) return; // 只在需要时处理
+            if (Array.isArray(data)) {
+                let tempItem = data.find(item => item.key === "temperature");
+                if (tempItem && tempItem.value) {
+                    // 提取数值部分，例如 "44°C"
+                    let match = tempItem.value.match(/(\d+)\s*°C/i);
+                    let tempNum = match ? parseInt(match[1], 10) : 0;
+                    updateEnergyBar(tempNum);
+                }
+            }
+        }
+
+        function pollNetInfo(){
+            var ts = Date.now();
+            var url = '<%=luci.dispatcher.build_url("admin", "fancontrol", "modem_ctrl")%>'
+                + '?cfg=2_1&action=info&translate=1&' + ts;
+            pollXHR = new window.XMLHttpRequest();
+            pollXHR.open('GET', url, true);
+            pollXHR.onreadystatechange = function(){
+                if(pollXHR.readyState === 4 && pollXHR.status === 200){
+                    var data;
+                    try{ data = JSON.parse(pollXHR.responseText); }catch(e){}
+                    renderNetInfo(data);
+                }
+            };
+            pollXHR.send();
+        }
+
+        function startModemTempPoll() {
+            stopModemTempPoll();
+            pollNetInfo(); // 先立即请求一次
+            modemTempTimer = setInterval(pollNetInfo, 5000); // 每5秒刷新
+        }
+
+        function stopModemTempPoll() {
+            if (modemTempTimer) {
+                clearInterval(modemTempTimer);
+                modemTempTimer = null;
+            }
+        }
+
+        function toggleSwitch() {
+            if (temperatureSwitch.classList.contains('active')) {
+                // 切换到模组温度
+                mwrtFanPost('<%=luci.dispatcher.build_url("admin", "fancontrol", "fansvm")%>', { set: 's', p: 'v' }, function(x, rv) {
+                    useModemTemp = true;
+                    startModemTempPoll();
+                    fanst();
+                    fansttp();
+                });
+            } else {
+                // 切换到CPU温度
+                mwrtFanPost('<%=luci.dispatcher.build_url("admin", "fancontrol", "fansvc")%>', { set: 's', p: 'v' }, function(x, rv) {
+                    useModemTemp = false;
+                    stopModemTempPoll();
+                    fanst();
+                    fansttp();
+                });
+            }
+            temperatureSwitch.classList.toggle('active');
+        }
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+
+        function updateButtonStyles(speed) {
+            document.querySelectorAll('.FC .button').forEach(function(btn){btn.classList.remove('fc-active');});
+
+            let buttonElement;
+            switch (speed) {
+                case 255:
+                    buttonElement = document.querySelector('button[onclick="fanst3()"]');
+                    break;
+                case 192:
+                    buttonElement = document.querySelector('button[onclick="fanst2()"]');
+                    break;
+                case 128:
+                    buttonElement = document.querySelector('button[onclick="fanst1()"]');
+                    break;
+                case 64:
+                    buttonElement = document.querySelector('button[onclick="fanstop()"]');
+                    break;
+                case 999:
+                    buttonElement = document.querySelector('button[onclick="toggleSlider()"]');
+                    break;
+                default:
+                    buttonElement = document.querySelector('button[onclick="fanst4()"]');
+                    break;
+            }
+
+            if(buttonElement){buttonElement.classList.add('fc-active');}
+        }
+
+        function fansttp() {
+            var s = 'fanst'; 
+            var v = '1'; 
+            mwrtFanPost('<%=luci.dispatcher.build_url("admin", "fancontrol", "fansttp")%>', { set: s, p: v }, function(x, rv) {
+                var pd = rv.fansttp;
+                fanv = rv.fansv;
+                if (fanv === "模组温度") {
+                    temperatureSwitch.classList.remove('active');
+                    useModemTemp = true;
+                    fetchModemName(); 
+                    startModemTempPoll();
+                } else {
+                    temperatureSwitch.classList.add('active');
+                    useModemTemp = false;
+                    stopModemTempPoll();
+                    updateEnergyBar(pd); // 只用CPU温度
+                }
+            });
+        }
+
+
+//---------------------------------------------------------------------------------------------------------------------------------------
+// 定时任务(夜间静音)
+//
+// 页面只是 /usr/bin/mwrt-fansched 的前端:真正开窗/关窗的是 cron 每分钟一次的
+// apply,所以保存完必须回读引擎返回的状态,不能拿表单值当真。
+
+        var schedEnabled = false;
+        var schedGear = '0';
+        var schedSt = null;
+        var SCHED_GEAR_NAME = {'0':'静音','1':'低速','2':'常规','3':'狂躁','9':'智能','999':'无极'};
+        var SCHED_DAY_NAME = ['周日','周一','周二','周三','周四','周五','周六'];
+
+        function schedEl(id){ return document.getElementById(id); }
+
+        function schedTip(msg, err){
+            var t = schedEl('schedTip');
+            if(!t) return;
+            t.textContent = msg;
+            t.className = 'fc-save-tip show' + (err ? ' err' : '');
+            setTimeout(function(){ t.className = 'fc-save-tip' + (err ? ' err' : ''); }, 2600);
+        }
+
+        function schedDays(){
+            var out = [];
+            document.querySelectorAll('#schedDays .fc-chip.on').forEach(function(c){
+                out.push(c.getAttribute('data-day'));
+            });
+            return out.join(',');
+        }
+
+        function schedCrossHint(){
+            var a = schedEl('schedStart').value || '', b = schedEl('schedEnd').value || '';
+            var h = schedEl('schedCross');
+            if(!h) return;
+            h.textContent = (a && b && b <= a) ? '（次日 ' + b + ' 结束）' : '';
+        }
+
+        // 窗口归属它"开始"的那一天:只勾周一 + 23:00-07:00 = 周一夜里到周二早上。
+        function schedRender(st){
+            if(!st) return;
+            schedSt = st;
+
+            if(st.supported === false){
+                var sec = schedEl('schedSection');
+                if(sec) sec.style.display = 'none';
+                return;
+            }
+
+            schedEnabled = (st.enabled === '1' || st.enabled === 1);
+            schedEl('schedSwitch').classList.toggle('active', schedEnabled);
+            schedEl('schedBody').classList.toggle('active', schedEnabled);
+
+            if(document.activeElement !== schedEl('schedStart')) schedEl('schedStart').value = st.starttime || '23:00';
+            if(document.activeElement !== schedEl('schedEnd'))   schedEl('schedEnd').value   = st.endtime   || '07:00';
+            if(document.activeElement !== schedEl('schedTempmax')) schedEl('schedTempmax').value = st.tempmax || '80';
+
+            schedGear = String(st.gear === undefined ? '0' : st.gear);
+            document.querySelectorAll('#schedGears .button').forEach(function(b){
+                b.classList.toggle('fc-sel', b.getAttribute('data-gear') === schedGear);
+            });
+
+            var wd = (st.weekdays || '').split(/[ ,]+/);
+            document.querySelectorAll('#schedDays .fc-chip').forEach(function(c){
+                c.classList.toggle('on', wd.indexOf(c.getAttribute('data-day')) >= 0);
+            });
+
+            var stEl = schedEl('schedState'), nx = schedEl('schedNext');
+            var cls = 'fc-sched-state', txt = '未启用';
+            if(schedEnabled){
+                if(st.active && st.hot){ cls += ' hot'; txt = '过热提速中'; }
+                else if(st.active && st.bypass){ cls += ' on'; txt = '已交还手动'; }
+                else if(st.active){ cls += ' on'; txt = '生效中'; }
+                else { txt = '待生效'; }
+            }
+            stEl.className = cls;
+            stEl.textContent = txt;
+
+            if(nx){
+                if(st.next_at){
+                    var when = st.next_day === 0 ? '今天'
+                             : (st.next_day === 1 ? '明天'
+                             : SCHED_DAY_NAME[(new Date().getDay() + st.next_day) % 7]);
+                    nx.textContent = '下次：' + when + ' ' + st.next_at + (st.next_state === 'start' ? ' 开始' : ' 结束');
+                } else {
+                    nx.textContent = '';
+                }
+            }
+
+            // 横幅:生效中给个"暂停"出口,被接管后给个"恢复"出口
+            var bn = schedEl('schedBanner');
+            bn.className = 'fc-banner';
+            bn.innerHTML = '';
+            if(schedEnabled && st.active){
+                var msg = '', btn = '';
+                if(st.hot){
+                    bn.className = 'fc-banner show warn';
+                    msg = '<span>机身温度已达 <b>' + (st.temp !== undefined ? st.temp : '?') + '&deg;C</b>，已临时提速降温，回落后自动恢复 <b>' + (SCHED_GEAR_NAME[schedGear] || '') + '</b>。</span>';
+                } else if(st.bypass){
+                    bn.className = 'fc-banner show';
+                    msg = '<span>本时段已交还手动控制，<b>' + (st.next_at || '') + '</b> 时段结束后仍会恢复为原模式。</span>';
+                    btn = '<button type="button" class="fc-btn" onclick="schedBypass(&quot;resume&quot;)">恢复定时</button>';
+                } else {
+                    bn.className = 'fc-banner show';
+                    msg = '<span>定时任务生效中：风扇已锁定 <b>' + (SCHED_GEAR_NAME[schedGear] || '') + '</b>，结束后恢复为 <b>' + (SCHED_GEAR_NAME[String(st.prev_gear)] || '原模式') + '</b>。</span>';
+                    btn = '<button type="button" class="fc-btn" onclick="schedBypass(&quot;bypass&quot;)">本次暂停</button>';
+                }
+                bn.innerHTML = msg + btn;
+            }
+            schedCrossHint();
+        }
+
+        function schedLoad(){
+            mwrtFanPost('<%=luci.dispatcher.build_url("admin", "fancontrol", "sched_get")%>', null, function(x, rv){
+                schedRender(rv);
+            });
+        }
+
+        function schedSave(quiet){
+            var payload = {
+                enabled:   schedEnabled ? '1' : '0',
+                starttime: schedEl('schedStart').value,
+                endtime:   schedEl('schedEnd').value,
+                gear:      schedGear,
+                tempmax:   schedEl('schedTempmax').value,
+                weekdays:  schedDays()
+            };
+            if(payload.starttime === payload.endtime){
+                schedTip('起止时间不能相同', true);
+                return;
+            }
+            mwrtFanPost('<%=luci.dispatcher.build_url("admin", "fancontrol", "sched_set")%>', payload, function(x, rv){
+                schedRender(rv);
+                fanst();   // 挡位可能当场生效,顺手刷新主面板高亮
+                if(!quiet) schedTip('已保存');
+            });
+        }
+
+        function schedToggle(){
+            schedEnabled = !schedEnabled;
+            schedEl('schedSwitch').classList.toggle('active', schedEnabled);
+            schedEl('schedBody').classList.toggle('active', schedEnabled);
+            schedSave(true);
+        }
+
+        function schedBypass(mode){
+            mwrtFanPost('<%=luci.dispatcher.build_url("admin", "fancontrol", "sched_bypass")%>', { mode: mode }, function(x, rv){
+                schedRender(rv);
+                fanst();
+            });
+        }
+
+        function schedInit(){
+            document.querySelectorAll('#schedGears .button').forEach(function(b){
+                b.addEventListener('click', function(){
+                    schedGear = b.getAttribute('data-gear');
+                    document.querySelectorAll('#schedGears .button').forEach(function(o){
+                        o.classList.toggle('fc-sel', o === b);
+                    });
+                });
+            });
+            document.querySelectorAll('#schedDays .fc-chip').forEach(function(c){
+                c.addEventListener('click', function(){ c.classList.toggle('on'); });
+            });
+            var sIn = schedEl('schedStart'), eIn = schedEl('schedEnd');
+            if(sIn) sIn.addEventListener('change', schedCrossHint);
+            if(eIn) eIn.addEventListener('change', schedCrossHint);
+
+            // 定时段内用户手动点挡位:立刻把本段交还给他。否则下一分钟 cron 再 apply
+            // 一次又把挡位改回去,在页面上看就是"点了没反应"。
+            var modes = document.querySelector('.fc-modes');
+            if(modes){
+                modes.addEventListener('click', function(ev){
+                    if(!ev.target.closest('.button')) return;
+                    if(schedSt && schedSt.active && !schedSt.bypass){
+                        setTimeout(function(){ schedBypass('bypass'); }, 300);
+                    }
+                }, true);
+            }
+            schedLoad();
+            setInterval(schedLoad, 30000);
+        }
+
+        if(document.readyState === 'loading'){
+            document.addEventListener('DOMContentLoaded', schedInit);
+        } else {
+            schedInit();
+        }
+
+        function fanswj(value) {
+        var s = 'fanswj'; 
+        var v = value; 
+            mwrtFanPost('<%=luci.dispatcher.build_url("admin", "fancontrol", "fanswj")%>', { set: s, p: v }, function(x, rv) {
+                
+            });
+        }
+    </script>
+</body>
+<%+footer%>

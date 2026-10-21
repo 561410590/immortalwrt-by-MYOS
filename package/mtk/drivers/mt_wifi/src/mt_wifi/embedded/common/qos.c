@@ -527,7 +527,7 @@ static INT wext_send_qos_action_frame(struct wifi_dev *wdev,
 	req_data->chan = channel;
 
 	NdisCopyMemory(req_data->frm, frm, frm_len);
-	MTWF_DBG(NULL, DBG_CAT_PROTO, DBG_SUBCAT_ALL, DBG_LVL_INFO,
+	MTWF_DBG(NULL, DBG_CAT_PROTO, DBG_SUBCAT_ALL, DBG_LVL_DEBUG,
 		"%s, to wapp, src mac:%02x:%02x:%02x:%02x:%02x:%02x, frm_len:%lu, buflen:%d\n",
 		__func__, PRINT_MAC(req_data->src), frm_len, buflen);
 	RtmpOSWrielessEventSend(wdev->if_dev, RT_WLAN_EVENT_CUSTOM,

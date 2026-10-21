@@ -21,7 +21,13 @@ PKG_KCONFIG:= \
 	third_card_name \
 	WIFI_NORMAL_SETTING \
 	WIFI_QUICK_SETTING \
-	MTK_WIFI_SKU_TYPE
+	MTK_WIFI7_CHIP_MT7990 \
+	MTK_WIFI7_CHIP_MT7992 \
+	MTK_WIFI7_CHIP_MT7993 \
+	MTK_WIFI7_UNIFIED_COMMAND \
+	MTK_WIFI7_SKU_TYPE \
+	MTK_WIFI7_PROFILING_SUPPORT \
+	MTK_WIFI7_2ADIE_TRIBAND
 
 PKG_CONFIG_DEPENDS:=$(foreach c, $(PKG_KCONFIG),$(if $(CONFIG_$c),CONFIG_$(c)))
 
@@ -82,7 +88,9 @@ if PACKAGE_wifi-dats
 	if first_card
 	config first_card_name
 		string "1st card name"
-		default "MT7981"
+		default "MT7990" if MTK_WIFI7_CHIP_MT7990
+		default "MT7992" if MTK_WIFI7_CHIP_MT7992
+		default "MT7993" if MTK_WIFI7_CHIP_MT7993
 	endif
 
 	menuconfig second_card
@@ -92,7 +100,9 @@ if PACKAGE_wifi-dats
 	if second_card
 	config second_card_name
 		string "2nd card name"
-		default "MT7981"
+		default "MT7990" if MTK_WIFI7_CHIP_MT7990
+		default "MT7992" if MTK_WIFI7_CHIP_MT7992
+		default "MT7993" if MTK_WIFI7_CHIP_MT7993
 	endif
 
 	menuconfig third_card
@@ -102,8 +112,12 @@ if PACKAGE_wifi-dats
 	if third_card
 	config third_card_name
 		string "3rd card name"
-		default "MT7981"
+		default "MT7990" if MTK_WIFI7_CHIP_MT7990
 	endif
+
+	config MTK_WIFI7_PROFILING_SUPPORT
+		bool "wifi7 profiling dat files"
+		default n
 endif
 endef
 
@@ -126,6 +140,28 @@ endef
 
 define Package/wifi-dats/install
 	$(INSTALL_DIR) $(1)/etc/wireless/mediatek/
+
+ifneq ($(CONFIG_MTK_WIFI7_PROFILING_SUPPORT),y)
+	if [ "$$(CONFIG_first_card_name)" = "MT7990" -o "$$(CONFIG_second_card_name)" = "MT7990" ] ; then \
+		$(INSTALL_DATA) ./files/mt7990/* $(1)/etc/wireless/mediatek/; \
+	fi
+
+	if [ "$$(CONFIG_first_card_name)" = "MT7992" -o "$$(CONFIG_second_card_name)" = "MT7992" ] ; then \
+		if [ "$$(CONFIG_MTK_WIFI7_SKU_TYPE)" = "BE3600SDB" ] ; then \
+			$(INSTALL_DATA) ./files/mt7992/BE3600SDB/* $(1)/etc/wireless/mediatek/; \
+		else \
+			$(INSTALL_DATA) ./files/mt7992/*.dat $(1)/etc/wireless/mediatek/; \
+		fi; \
+	fi
+
+	if [ "$$(CONFIG_first_card_name)" = "MT7993" -o "$$(CONFIG_second_card_name)" = "MT7993" ] ; then \
+		$(INSTALL_DATA) ./files/mt7993/* $(1)/etc/wireless/mediatek/; \
+		if [ "$$(CONFIG_MTK_WIFI7_SKU_TYPE)" = "BE3600_26" ] ; then \
+			sed -i "s/mt7993.b1.dat/mt7993.b2.dat/" $(1)/etc/wireless/mediatek/mt7993.1.dat; \
+		fi; \
+	fi
+endif
+
 	if [ "$$(CONFIG_first_card_name)" = "MT7986" -o "$$(CONFIG_second_card_name)" = "MT7986" ] ; then \
 		if [ "$$(CONFIG_MTK_WIFI_SKU_TYPE)" = "AX4200" ] ; then \
 			$(INSTALL_DATA) ./files/mt7986-ax4200/* $(1)/etc/wireless/mediatek/; \

@@ -24,6 +24,10 @@ sanitize = $(call tolower,$(subst _,-,$(subst $(space),-,$(1))))
 
 VERSION_NUMBER:=$(call qstrip,$(CONFIG_VERSION_NUMBER))
 VERSION_NUMBER:=$(if $(VERSION_NUMBER),$(VERSION_NUMBER),24.10-SNAPSHOT)
+ifeq ($(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_c2000-max),y)
+  C2000MAX_BUILD_TIMESTAMP ?= $(shell TZ=Asia/Shanghai date +%Y%m%d%H%M)
+  VERSION_NUMBER:=$(VERSION_NUMBER)-$(C2000MAX_BUILD_TIMESTAMP)
+endif
 
 VERSION_CODE:=$(call qstrip,$(CONFIG_VERSION_CODE))
 VERSION_CODE:=$(if $(VERSION_CODE),$(VERSION_CODE),$(REVISION))
@@ -106,4 +110,3 @@ VERSION_SED_SCRIPT:=$(SED) 's,%U,$(call sed_escape,$(VERSION_REPO)),g' \
 	-e 's,%P,$(call sed_escape,$(VERSION_PRODUCT)),g' \
 	-e 's,%h,$(call sed_escape,$(VERSION_HWREV)),g' \
 	-e 's,%B,$(call sed_escape,$(SOURCE_DATE_EPOCH)),g'
-

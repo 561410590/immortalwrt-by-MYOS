@@ -1,4 +1,19 @@
 local m, section, m2, s2
+
+local function read_runtime_file(path, default)
+    local file = io.open(path, "r")
+    local data
+
+    if not file then
+        return default or ""
+    end
+
+    data = file:read("*all") or ""
+    file:close()
+
+    return data
+end
+
 m = Map("modem", translate("模组蜂窝-移动网络配置"))
 section = m:section(TypedSection, "ndis", translate("移动蜂窝参数设置"))
 section.anonymous = true
@@ -24,18 +39,16 @@ pincode.default=""
 apnconfig = section:taboption("general", Value, "apnconfig", translate("APN配置"))
 apnconfig.rmempty = true
 ------
-local cmd = io.popen("cat /tmp/modconf.conf")
-local content = cmd:read("*all") or ""
-cmd:close()
+local content = read_runtime_file("/tmp/modconf.conf", "")
 if (content and string.find(content, "RM520")) or (content and string.find(content, "RM500U")) then
     -- RM520NSIN卡状态查询
     sim_card_stat = section:taboption("general", DummyValue, "sim_card_stat", translate("SIM状态"))
-    sim_card_stat.value = luci.sys.exec("cat /tmp/simcardstat")
+    sim_card_stat.value = read_runtime_file("/tmp/simcardstat", "未获取到值,请刷新。")
 else
     -- RM520NSIN卡状态查询
     sim_card_stat = section:taboption("general", DummyValue, "sim_card_stat", translate("SIM状态"))
 
-    local sim_status_output =luci.sys.exec("cat /tmp/simcardstat")
+    local sim_status_output = read_runtime_file("/tmp/simcardstat", "")
     local sim_status_output = luci.sys.exec("sendat 1 'AT^SIMSQ?' | awk '/^\\^SIMSQ:/ {split($0, a, \",\"); print a[2]}'")
     if sim_status_output == "" then
         local sim_status_description = "未获取到值,请刷新。"
@@ -80,7 +93,7 @@ current_mod.default = ""
 
 function current_mod.cfgvalue(self, section)
     if nixio.fs.access("/tmp/modconf.conf") then
-        return luci.sys.exec("cat /tmp/modconf.conf")
+        return read_runtime_file("/tmp/modconf.conf", "")
     else
         return "未知模块或未接入模式"
     end
@@ -270,9 +283,7 @@ function poe_status.write(self, section)
 end
 ------------
 
-local cmd2 = io.popen("cat /tmp/modconf.conf")
-local content = cmd2:read("*all") or ""
-cmd2:close()
+local content = read_runtime_file("/tmp/modconf.conf", "")
 
 if (content and string.find(content, "MT5700")) or (content and string.find(content, "5700")) then
     enable_imei = section:taboption("advanced", Flag, "enable_imei", translate("ModifyI"))
@@ -359,18 +370,16 @@ function btn_send.write(self, section)
     return nil
 end
 -----------------------------------------------------------------
-local cmd2 = io.popen("cat /tmp/modconf.conf")
-local content2 = cmd2:read("*all") or ""
-cmd2:close()
+local content2 = read_runtime_file("/tmp/modconf.conf", "")
 
 --Check if the content is not empty
 if content2 ~= "" then
     --Check if the content contains "RM520"
    if string.find(content2, "RM520") then
-	   section:tab("ipv6", translate("当前OP固件不适用于RM520N模组,请刷移远固件！"), translate("当前OP固件不适用于RM520N模组,请刷移远固件！"))
+       section:tab("ipv6", translate("当前OP固件不适用于RM520N模组,请刷移远固件！"), translate("当前OP固件不适用于RM520N模组,请刷移远固件！"))
    else
       if string.find(content2, "MT5700") then
-		section:tab("ipv6", translate("巴龙IPV6"), translate("温馨提示：请选择你需要的IPV6执行结果后点击按钮完成设置。"))
+        section:tab("ipv6", translate("巴龙IPV6"), translate("温馨提示：请选择你需要的IPV6执行结果后点击按钮完成设置。"))
         local ipv6mode = section:taboption("ipv6", ListValue, "ipv6mode", translate("IPV6模式选择"))
         ipv6mode:value("full", translate("打开IPV6通信"))
         ipv6mode:value("half", translate("仅限CPE开IPV6"))
@@ -420,7 +429,7 @@ if content2 ~= "" then
        --section:tab("ipv6"):addoption("note", translate("当前模组暂不支持IPV6设置"))
    end
 else
-	section:tab("ipv6", translate("未检测到模组信息或不支持"), translate("当前未检测到模组信息，请不要操作以下参数。"))
+   section:tab("ipv6", translate("未检测到模组信息或不支持"), translate("当前未检测到模组信息，请不要操作以下参数。"))
 end
 
 if content2 ~= "" then
@@ -546,11 +555,9 @@ end
 
 local apply = luci.http.formvalue("cbi.apply")
 local sys = require "luci.sys"
-local file = io.open("/tmp/modconf.conf", "r")
 if apply then
-    if file then
-        local content = file:read("*all")
-        file:close()
+    local content = read_runtime_file("/tmp/modconf.conf", "")
+    if content ~= "" then
         if content and string.find(content, "RM520") then
             io.popen("/usr/share/modem/rm520n.sh &")
         elseif content and string.find(content, "RM500U") then

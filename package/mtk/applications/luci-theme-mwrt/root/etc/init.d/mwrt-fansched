@@ -1,0 +1,40 @@
+#!/bin/sh /etc/rc.common
+# Apply the fan schedule at boot and whenever the config is committed.
+#
+# Trigger-only service, no instance: rc.common registers service_triggers()
+# from _procd_close_service() regardless of how many instances were declared,
+# so procd calls reload_service() on commit without anything staying resident.
+# The minute-by-minute work is cron's; this only reacts to events.
+#
+# START=99 puts us after S99Airpifanctrl (uppercase sorts first), which is what
+# we want: that script launches fancts.sh unconditionally, so we get to decide
+# afterwards whether the window says it should be running at all.
+
+START=99
+USE_PROCD=1
+
+ENGINE=/usr/bin/mwrt-fansched
+
+# Deliberately no boot() override, unlike mwrt-ledsched. The LED snapshot is
+# dropped at boot because the hardware comes up in its power-on state anyway;
+# the fan snapshot must survive, because /etc/fanvall is on the overlay and
+# still holds the gear we pinned before the reboot. Dropping it here would
+# leave the unit stuck on the quiet gear after the window closes.
+
+start_service() {
+	[ -x "$ENGINE" ] && "$ENGINE" apply
+}
+
+reload_service() {
+	[ -x "$ENGINE" ] && "$ENGINE" apply
+}
+
+stop_service() {
+	# Never leave the fan pinned with the service stopped: nothing else would
+	# put the previous mode back.
+	[ -x "$ENGINE" ] && "$ENGINE" restore >/dev/null 2>&1
+}
+
+service_triggers() {
+	procd_add_reload_trigger mwrt_fan
+}

@@ -111,8 +111,6 @@ platform_do_upgrade() {
 	zyxel,ex5601-t0-ubootmod)
 		fit_do_upgrade "$1"
 		;;
-	nradio_c5800-688|\
-	nradio,c5800-688|\
 	HCMT7981-688-emmc|\
 	HCMT7981-emmc)
 		CI_KERNPART="kernel_2nd"
@@ -128,6 +126,9 @@ platform_do_upgrade() {
 	glinet,gl-mt6000|\
 	glinet,gl-x3000|\
 	glinet,gl-xe3000|\
+	nradio,c2000-max|\
+	HCMT7987-EMMC|\
+	hcmt7987-emmc|\
 	huasifei,wh3000-emmc|\
 	airpi,ap3000m|\
 	*Airpi*|\
@@ -143,7 +144,7 @@ platform_do_upgrade() {
 	smartrg,sdg-8733a|\
 	huasifei,wh3000-pro|\
 	umi,uax3000e|\
- 	jdcloud,re-cp-03|\
+	jdcloud,re-cp-03|\
 	smartrg,sdg-8734)
 		CI_KERNPART="kernel"
 		CI_ROOTPART="rootfs"
@@ -230,6 +231,18 @@ platform_check_image() {
 		}
 		return 0
 		;;
+	nradio,c2000-max|\
+	HCMT7987-EMMC|\
+	hcmt7987-emmc)
+		magic="$(dd if="$1" bs=1 skip=257 count=5 2>/dev/null)"
+
+		[ "$magic" = "ustar" ] || {
+			echo "Invalid image type."
+			return 1
+		}
+
+		return 0
+		;;
 	*)
 		nand_do_platform_check "$board" "$1"
 		return $?
@@ -252,8 +265,9 @@ platform_copy_config() {
 	glinet,gl-mt6000|\
 	glinet,gl-x3000|\
 	glinet,gl-xe3000|\
-	nradio_c5800-688|\
-	nradio,c5800-688|\
+	nradio,c2000-max|\
+	HCMT7987-EMMC|\
+	hcmt7987-emmc|\
 	HCMT7981-688-emmc|\
 	HCMT7981-emmc|\
 	huasifei,wh3000-emmc|\

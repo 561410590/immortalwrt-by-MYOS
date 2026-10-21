@@ -404,6 +404,7 @@ int en8811h_of_init(struct phy_device *phydev)
 }
 #endif /* CONFIG_OF */
 
+#ifdef CONFIG_AIROHA_EN8811H_PHY_DEBUGFS
 static int air_resolve_an_speed(struct phy_device *phydev)
 {
 	int lpagb = 0, advgb = 0, common_adv_gb = 0;
@@ -532,7 +533,7 @@ static int air_read_status(struct phy_device *phydev)
 
 	return ret;
 }
-#ifdef CONFIG_AIROHA_EN8811H_PHY_DEBUGFS
+
 static void air_polarity_help(void)
 {
 	pr_notice("\nUsage:\n"

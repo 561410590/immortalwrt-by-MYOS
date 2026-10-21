@@ -78,6 +78,9 @@ typedef struct _RT_802_11_MAC_TABLE_FIX {
 #define MODE_HE_EXT_SU	9
 #define MODE_HE_TRIG	10
 #define MODE_HE_MU	11
+#define MODE_EHT_SU	13
+#define MODE_EHT_TRIG	14
+#define MODE_EHT_MU	15
 
 #define TMI_TX_RATE_OFDM_6M     11
 #define TMI_TX_RATE_OFDM_9M     15
@@ -97,6 +100,7 @@ typedef struct _RT_802_11_MAC_TABLE_FIX {
 #define TMI_TX_RATE_CCK_5M_SP   6
 #define TMI_TX_RATE_CCK_11M_SP  7
 
+/* Keep vendor ABI values, including modes this backend does not expose. */
 enum oid_bw {
 	BAND_WIDTH_20,
 	BAND_WIDTH_40,
@@ -105,6 +109,7 @@ enum oid_bw {
 	BAND_WIDTH_10,
 	BAND_WIDTH_5,
 	BAND_WIDTH_8080,
+	BAND_WIDTH_320,
 	BAND_WIDTH_BOTH,
 	BAND_WIDTH_25,
 	BAND_WIDTH_20_242TONE,
@@ -118,6 +123,7 @@ enum oid_bw {
 #define BW_10		BAND_WIDTH_10
 #define BW_5		BAND_WIDTH_5
 #define BW_8080		BAND_WIDTH_8080
+#define BW_320		BAND_WIDTH_320
 #define BW_25		BAND_WIDTH_25
 #define BW_20_242TONE	BAND_WIDTH_20_242TONE
 #define BW_NUM		BAND_WIDTH_NUM
@@ -133,12 +139,16 @@ enum WIFI_MODE {
 	WMODE_AX_24G = 1 << 6,
 	WMODE_AX_5G = 1 << 7,
 	WMODE_AX_6G = 1 << 8,
-	WMODE_COMP = 9,
+	WMODE_BE_24G = 1 << 9,
+	WMODE_BE_5G = 1 << 10,
+	WMODE_BE_6G = 1 << 11,
+	WMODE_COMP = 12,
 };
 
 #define WMODE_CAP_N(_x)			(((_x) & (WMODE_GN | WMODE_AN)) != 0)
 #define WMODE_CAP_AC(_x)		(((_x) & (WMODE_AC)) != 0)
 #define WMODE_CAP_AX(_x)		((_x) & (WMODE_AX_24G | WMODE_AX_5G | WMODE_AX_6G))
+#define WMODE_CAP_BE(_x)		((_x) & (WMODE_BE_24G | WMODE_BE_5G | WMODE_BE_6G))
 
 enum MTK_CH_BAND {
 	MTK_CH_BAND_24G = 0,

@@ -316,6 +316,10 @@
             function(x, rv) {
                 updateElement('stsss', rv.stsss);
                 updateElement('modem', rv.modem);
+                var errorBanner = document.getElementById('content');
+                if (errorBanner && (rv.modem || rv.imei || rv.iccid)) {
+                    errorBanner.parentNode.style.display = 'none';
+                }
                 updateElement('conntype', rv.conntype);
                 updateElement('firmware', rv.firmware);
                 updateElement('date', rv.date);
@@ -519,4 +523,3 @@
     </fieldset>
 </div>
 <%+footer%>
-

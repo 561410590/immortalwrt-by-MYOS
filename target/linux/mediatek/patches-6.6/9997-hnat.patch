@@ -157,7 +157,7 @@ diff -u -r a/drivers/net/ethernet/mediatek/mtk_eth_soc.h b/drivers/net/ethernet/
  
  	seq_puts(m, "Usage of the QDMA PPPQ for the HW path:\n");
 -	for (i = 0; i < MTK_QDMA_NUM_QUEUES; i++)
-+	for (i = 0; i < 64; i++)
++	for (i = 0; i < MTK_QDMA_NUM_QUEUES; i++)
  		seq_printf(m, "qdma_txq%d:	%5d Mbps %8d refcnt\n",
  			   i, eth->qdma_shaper.speed[i],
  			   atomic_read(&eth->qdma_shaper.refcnt[i]));
@@ -181,11 +181,32 @@ diff -u -r a/drivers/net/ethernet/mediatek/mtk_eth_soc.h b/drivers/net/ethernet/
  			ret = -ENOMEM;
 --- a/drivers/net/ethernet/mediatek/mtk_eth_soc.c	2025-06-15 22:32:46.130001496 +0800
 +++ b/drivers/net/ethernet/mediatek/mtk_eth_soc.c	2025-06-18 00:22:51.492001032 +0800
-@@ -39,11 +39,14 @@
+@@ -39,11 +39,35 @@
  #if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
  #include "mtk_hnat/nf_hnat_mtk.h"
  #endif
 -
++#include "mtk_eth_reset.h"
++extern struct mtk_eth *g_eth;
++
++bool (*mtk_check_wifi_busy)(u32 wdma_idx) = NULL;
++EXPORT_SYMBOL(mtk_check_wifi_busy);
++
++void mtk_set_pse_drop(u32 config)
++{
++	struct mtk_eth *eth = g_eth;
++
++	if (!eth || mtk_is_netsys_v1(eth))
++		return;
++
++	mtk_w32(eth, config, PSE_PPE_DROP(0));
++	if (MTK_HAS_CAPS(eth->soc->caps, MTK_RSTCTRL_PPE1))
++		mtk_w32(eth, config, PSE_PPE_DROP(1));
++	if (MTK_HAS_CAPS(eth->soc->caps, MTK_RSTCTRL_PPE2))
++		mtk_w32(eth, config, PSE_PPE_DROP(2));
++}
++EXPORT_SYMBOL(mtk_set_pse_drop);
++
 +static int mtk_wifi_num = 0;
 +static int mtk_rest_cnt = 0;
 +atomic_t eth1_in_br = ATOMIC_INIT(0);

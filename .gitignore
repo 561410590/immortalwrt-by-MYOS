@@ -26,6 +26,7 @@ public-key.pem
 *.orig
 *.rej
 *~
+MYOS-nros-identity.local
 .#*
 *#
 .emacs.desktop*

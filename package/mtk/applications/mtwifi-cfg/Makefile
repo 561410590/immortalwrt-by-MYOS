@@ -8,7 +8,7 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=mtwifi-cfg
 PKG_LICENSE:=GPL-2.0+
 PKG_VERSION:=1
-PKG_RELEASE:=1
+PKG_RELEASE:=3
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -24,6 +24,8 @@ define Build/Compile
 endef
 
 define Package/mtwifi-cfg/install
+	$(INSTALL_DIR) $(1) $(1)/etc $(1)/etc/hotplug.d \
+		$(1)/lib $(1)/lib/netifd $(1)/usr $(1)/usr/lib
 	$(INSTALL_DIR) $(1)/sbin $(1)/usr/lib/lua
 	$(INSTALL_DIR) $(1)/lib/netifd/wireless/ $(1)/lib/wifi/
 

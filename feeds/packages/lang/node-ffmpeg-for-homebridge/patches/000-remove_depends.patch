@@ -1,0 +1,9 @@
+--- a/package.json
++++ b/package.json
+@@ -39,6 +39,5 @@
+     "videotoolbox"
+   ],
+   "dependencies": {
+-    "tar": "^7.5.12"
+   }
+ }

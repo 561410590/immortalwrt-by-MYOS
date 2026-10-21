@@ -1185,17 +1185,11 @@ Signed-off-by: Martin KaFai Lau <martin.lau@kernel.org>
  /* include statistics in the dump */
 --- a/kernel/bpf/syscall.c
 +++ b/kernel/bpf/syscall.c
-@@ -35,8 +35,9 @@
- #include <linux/rcupdate_trace.h>
- #include <linux/memcontrol.h>
- #include <linux/trace_events.h>
--#include <net/netfilter/nf_bpf_link.h>
+@@ -39,3 +39,4 @@
+ #include <net/netfilter/nf_bpf_link.h>
  
-+#include <net/netfilter/nf_bpf_link.h>
 +#include <net/netkit.h>
  #include <net/tcx.h>
- 
- #define IS_FD_ARRAY(map) ((map)->map_type == BPF_MAP_TYPE_PERF_EVENT_ARRAY || \
 @@ -3828,6 +3829,8 @@ attach_type_to_prog_type(enum bpf_attach
  		return BPF_PROG_TYPE_LSM;
  	case BPF_TCX_INGRESS:

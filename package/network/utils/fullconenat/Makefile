@@ -23,6 +23,8 @@ PKG_MAINTAINER:=Chion Tang <tech@chionlab.moe>
 
 include $(INCLUDE_DIR)/package.mk
 
+TARGET_CPPFLAGS += -I$(STAGING_DIR)/usr/include
+
 define Package/iptables-mod-fullconenat
   SUBMENU:=Firewall
   SECTION:=net
@@ -53,7 +55,7 @@ include $(INCLUDE_DIR)/kernel-defaults.mk
 
 define Build/Compile
 	+$(KERNEL_MAKE) M="$(PKG_BUILD_DIR)" modules
-	$(call Build/Compile/Default)
+	$(call Build/Compile/Default,CC="$(TARGET_CC) -L$(STAGING_DIR)/usr/lib")
 endef
 
 define Package/iptables-mod-fullconenat/install

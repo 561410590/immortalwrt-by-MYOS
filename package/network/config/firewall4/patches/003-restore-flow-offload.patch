@@ -1,0 +1,33 @@
+diff -u -r a/root/usr/share/ucode/fw4.uc b/root/usr/share/ucode/fw4.uc
+--- a/root/usr/share/ucode/fw4.uc
++++ b/root/usr/share/ucode/fw4.uc
+@@ -536,11 +536,25 @@
+ 		}
+ 
+ 		if (!devices) {
++			let devstatus = null;
++			let bus = ubus.connect();
++
++			if (bus) {
++				devstatus = bus.call("network.device", "status") || {};
++				bus.disconnect();
++			}
++
+ 			devices = [];
+ 
+-			for (let zone in this.zones())
+-				for (let device in zone.related_physdevs)
+-					if (fs.access(`/sys/class/net/${device}`))
++			for (let zone in this.zones()) {
++				for (let device in zone.related_physdevs) {
++					let lower_devices = resolve_lower_devices(devstatus, device);
++
++					if (length(lower_devices))
++						push(devices, ...lower_devices);
++					else if (fs.access(`/sys/class/net/${device}`))
+ 						push(devices, device);
++				}
++			}
+ 
+ 			devices = sort(uniq(devices));
+ 		}

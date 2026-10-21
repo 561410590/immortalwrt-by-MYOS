@@ -27,6 +27,11 @@ case "$board" in
 		[ "$PHYNBR" = "0" ] && mmc_get_mac_ascii u-boot-env 2gMAC > /sys${DEVPATH}/macaddress
 		[ "$PHYNBR" = "1" ] && mmc_get_mac_ascii u-boot-env 5gMAC > /sys${DEVPATH}/macaddress
 		;;
+	airpi,ap3000m)
+		addr=$(macaddr_generate_from_mmc_cid mmcblk0)
+		[ "$PHYNBR" = "0" ] && macaddr_add $addr 2 > /sys${DEVPATH}/macaddress
+		[ "$PHYNBR" = "1" ] && macaddr_add $addr 3 > /sys${DEVPATH}/macaddress
+		;;
 	asus,rt-ax59u)
 		CI_UBIPART="UBI_DEV"
 		addr=$(mtd_get_mac_binary_ubi "Factory" 0x4)
@@ -72,6 +77,8 @@ case "$board" in
 	cudy,tr3000-v1|\
 	cudy,tr3000-v1-ubootmod|\
 	cudy,tr3000-v1-256mb|\
+	cudy,wbr3000uax-v1|\
+	cudy,wbr3000uax-v1-ubootmod|\
 	cudy,wr3000s-v1|\
 	cudy,wr3000-v1)
 		addr=$(mtd_get_mac_binary bdinfo 0xde00)
@@ -130,7 +137,8 @@ case "$board" in
 		[ "$PHYNBR" = "0" ] && macaddr_add $hw_mac_addr 2 > /sys${DEVPATH}/macaddress
 		[ "$PHYNBR" = "1" ] && macaddr_add $hw_mac_addr 3 > /sys${DEVPATH}/macaddress
 		;;
-	netis,nx31)
+	netis,nx31|\
+	netis,nx32u)
 		addr=$(mtd_get_mac_binary "Factory" 0x4)
 		addr=$(macaddr_unsetbit $(macaddr_setbit_la $addr) 25)
 		addr_2g=$(macaddr_unsetbit $(macaddr_unsetbit $addr 26) 27)
@@ -158,8 +166,13 @@ case "$board" in
 		[ "$PHYNBR" = "0" ] && macaddr_add $addr 3 > /sys${DEVPATH}/macaddress
 		[ "$PHYNBR" = "1" ] && macaddr_add $addr 4 > /sys${DEVPATH}/macaddress
 		;;
-        sl,3000-emmc)
+    sl,3000-emmc)
 		label_mac=$(mmc_get_mac_binary factory 0x04)
+		[ "$PHYNBR" = "0" ] && macaddr_add $label_mac 1 > /sys${DEVPATH}/macaddress
+		[ "$PHYNBR" = "1" ] && macaddr_add $label_mac 2 > /sys${DEVPATH}/macaddress
+		;;
+    bt,r320)
+		label_mac=$(mmc_get_mac_binary factory 0x24)
 		[ "$PHYNBR" = "0" ] && macaddr_add $label_mac 1 > /sys${DEVPATH}/macaddress
 		[ "$PHYNBR" = "1" ] && macaddr_add $label_mac 2 > /sys${DEVPATH}/macaddress
 		;;
