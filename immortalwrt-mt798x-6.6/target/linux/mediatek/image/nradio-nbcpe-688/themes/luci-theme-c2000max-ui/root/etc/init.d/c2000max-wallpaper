@@ -1,0 +1,17 @@
+#!/bin/sh /etc/rc.common
+START=95
+STOP=10
+USE_PROCD=1
+start_service() {
+ mkdir -p /tmp/c2000max-ui
+ chmod 755 /tmp/c2000max-ui
+ # Both uhttpd and nginx can serve the same RAM cache as static resources.
+ ln -sf /tmp/c2000max-ui/bing.jpg /www/luci-static/c2000max-ui/wallpaper/daily.jpg
+ ln -sf /tmp/c2000max-ui/bing.json /www/luci-static/c2000max-ui/wallpaper/daily.json
+ procd_open_instance
+ procd_set_param command /bin/sh -c 'while :; do if /usr/libexec/c2000max-bing; then sleep 900; else sleep 30; fi; done'
+ procd_set_param respawn 3600 5 5
+ procd_set_param stdout 0
+ procd_set_param stderr 0
+ procd_close_instance
+}

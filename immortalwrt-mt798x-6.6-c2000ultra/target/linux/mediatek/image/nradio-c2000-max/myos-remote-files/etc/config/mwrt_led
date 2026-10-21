@@ -1,0 +1,12 @@
+config sched 'main'
+	option enabled '0'
+	option mode 'schedule'
+	option starttime '23:00'
+	option endtime '07:00'
+	option weekdays ''
+	list leds 'hc:blue:status'
+	list leds 'hc:blue:sig1'
+	list leds 'hc:blue:sig2'
+	list leds 'hc:blue:sig3'
+	list leds 'hc:red:error'
+

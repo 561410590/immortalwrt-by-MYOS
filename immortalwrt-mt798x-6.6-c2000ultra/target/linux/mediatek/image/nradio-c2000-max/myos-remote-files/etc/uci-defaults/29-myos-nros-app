@@ -1,0 +1,205 @@
+#!/bin/sh
+
+valid_mac() {
+	printf '%s' "$1" | grep -iqE '^[0-9a-f]{2}(:[0-9a-f]{2}){5}$'
+}
+
+placeholder_mac() {
+	case "$(printf '%s' "$1" | tr 'a-f' 'A-F')" in
+		''|'00:00:00:00:00:00'|'FF:FF:FF:FF:FF:FF'|'00:66:88:00:00:00') return 0 ;;
+	esac
+	return 1
+}
+
+valid_identity_mac() {
+	valid_mac "$1" && ! placeholder_mac "$1"
+}
+
+bd_dev() {
+	local dev
+	dev="$(awk -F: '/"(bd|oem)info"/ {print "/dev/" $1; exit}' /proc/mtd 2>/dev/null)"
+	[ -n "$dev" ] && { printf '%s\n' "$dev"; return; }
+	dev="$(blkid -t PARTLABEL=bdinfo -o device 2>/dev/null | head -n 1)"
+	[ -n "$dev" ] && { printf '%s\n' "$dev"; return; }
+	[ -e /dev/disk/by-partlabel/bdinfo ] && readlink -f /dev/disk/by-partlabel/bdinfo 2>/dev/null
+}
+
+bd_get() {
+	local key="$1" file dev val
+	if command -v bdinfo >/dev/null 2>&1; then
+		val="$(bdinfo -g "$key" 2>/dev/null | head -n 1)"
+		[ -n "$val" ] && { printf '%s\n' "$val"; return; }
+	fi
+	for file in /mnt/app_data/bdinfo /etc/bdinfo.bin /bdinfo/bdinfo.bin; do
+		[ -f "$file" ] || continue
+		val="$(tr '\000\377' '\n\n' < "$file" 2>/dev/null | sed -n -e "s/^${key}[[:space:]]*=[[:space:]]*//p" -e "s/^.*[^A-Za-z0-9_]${key}[[:space:]]*=[[:space:]]*//p" | head -n 1)"
+		[ -n "$val" ] && { printf '%s\n' "$val"; return; }
+	done
+	dev="$(bd_dev)"
+	if [ -n "$dev" ]; then
+		val="$(dd if="$dev" bs=65536 count=1 2>/dev/null | tr '\000\377' '\n\n' | sed -n -e "s/^${key}[[:space:]]*=[[:space:]]*//p" -e "s/^.*[^A-Za-z0-9_]${key}[[:space:]]*=[[:space:]]*//p" | head -n 1)"
+		[ -n "$val" ] && { printf '%s\n' "$val"; return; }
+	fi
+	for file in /etc/nradio/identity /boot/nradio-identity; do
+		[ -f "$file" ] || continue
+		val="$(tr '\000\377' '\n\n' < "$file" 2>/dev/null | sed -n -e "s/^${key}[[:space:]]*=[[:space:]]*//p" -e "s/^.*[^A-Za-z0-9_]${key}[[:space:]]*=[[:space:]]*//p" | head -n 1)"
+		[ -n "$val" ] && { printf '%s\n' "$val"; return; }
+	done
+}
+
+normalize_mac() {
+	local mac
+	mac="$(printf '%s' "$1" | tr -d '[:space:]' | tr 'a-f' 'A-F')"
+	mac="${mac%-MYOS}"
+	if printf '%s' "$mac" | grep -qE '^[0-9A-F]{12}$'; then
+		printf '%s\n' "$mac" | sed 's/../&:/g;s/:$//'
+	elif printf '%s' "$mac" | grep -qE '^([0-9A-F]{2}:){5}[0-9A-F]{2}$'; then
+		printf '%s\n' "$mac"
+	fi
+}
+
+factory_mac() {
+	local dev hex
+	dev="$(blkid -t PARTLABEL=factory -o device 2>/dev/null | head -n 1)"
+	[ -n "$dev" ] || {
+		[ -e /dev/disk/by-partlabel/factory ] || return
+		dev="$(readlink -f /dev/disk/by-partlabel/factory 2>/dev/null)"
+	}
+	[ -n "$dev" ] || return
+	hex="$(dd if="$dev" bs=1 skip=4 count=6 2>/dev/null | hexdump -v -e '1/1 "%02X"')"
+	case "$hex" in
+		????????????) printf '%s\n' "$hex" | sed 's/../&:/g;s/:$//' ;;
+	esac
+}
+
+pick_mac() {
+	local mac
+	mac="$(uci -q get myos_nros.main.manual_mac 2>/dev/null || true)"
+	mac="$(normalize_mac "$mac")"
+	valid_identity_mac "$mac" && { printf '%s\n' "$mac"; return; }
+	mac="$(normalize_mac "$(bd_get fac_mac)")"
+	valid_identity_mac "$mac" && { printf '%s\n' "$mac"; return; }
+	mac="$(normalize_mac "$(bd_get mac)")"
+	valid_identity_mac "$mac" && { printf '%s\n' "$mac"; return; }
+	mac="$(uci -q get oem.board.id 2>/dev/null || true)"
+	mac="$(normalize_mac "$mac")"
+	valid_identity_mac "$mac" && { printf '%s\n' "$mac"; return; }
+	mac="$(normalize_mac "$(factory_mac)")"
+	valid_identity_mac "$mac" && { printf '%s\n' "$mac"; return; }
+	mac="$(uci -q get mosquitto.bridge.remote_clientid 2>/dev/null || true)"
+	mac="$(normalize_mac "$mac")"
+	valid_identity_mac "$mac" && { printf '%s\n' "$mac"; return; }
+	printf '%s\n' '00:66:88:00:00:00'
+}
+
+# uci set 不会创建不存在的配置包,先把空文件建出来,否则下面整个 batch
+# 对 oem/cloudd/mqttagent/report_proactively 的写入会静默全丢。
+for _cfg in oem cloudd mqttagent report_proactively mosquitto myos_nros; do
+	[ -f "/etc/config/$_cfg" ] || : > "/etc/config/$_cfg"
+done
+
+# Read identity from factory records or the mounted UCI configuration. A raw
+# rootfs scan blocks S10boot on large official SD partitions and can recover
+# stale credentials from deleted filesystem data.
+mac="$(pick_mac)"
+id="$(printf '%s' "$mac" | tr -d ':' | tr 'a-f' 'A-F')"
+device_code="$(bd_get device_code)"
+[ -n "$device_code" ] || device_code="$(uci -q get oem.board.device_code 2>/dev/null || true)"
+remote_password="$(bd_get remote_password)"
+[ -n "$remote_password" ] || remote_password="$(uci -q get mosquitto.bridge.remote_password 2>/dev/null || true)"
+remote_username="router"
+remote_address="$id.dev.nradio.com.cn"
+cloud_enabled=1
+if printf '%s' "$remote_password" | grep -qE '^[0-9A-Fa-f]{32}$'; then
+	remote_username="$id"
+	remote_address="$id.pro.nradio.com.cn"
+else
+	remote_password=
+fi
+board_name="$(bd_get board)"
+pname="$(bd_get oem_pname)"
+ptype="$(bd_get oem_ptype)"
+vendor="$(bd_get oem_vendor)"
+imei="$(bd_get imei)"
+iccid="$(bd_get iccid)"
+simid="$(bd_get simid)"
+
+uci -q batch <<UCI
+set oem.board='board'
+set oem.board.id='$mac'
+set oem.board.device_code='$device_code'
+set oem.board.name='${board_name:-WT9303}'
+set oem.board.pname='${pname:-C2000-788}'
+set oem.board.ptype='${ptype:-rt}'
+set oem.board.vendor='${vendor:-nradio}'
+set oem.feature='feature'
+set oem.feature.cpe='1'
+set cloudd.config='cloudd'
+set cloudd.config.version='1.0'
+set mqttagent.config='mqttagent'
+set mqttagent.config.sub_mosca='0'
+set report_proactively.config='config'
+set report_proactively.config.interval='2'
+set myos_nros.main='cloud'
+set myos_nros.main.local_enabled='1'
+set myos_nros.main.enabled='$cloud_enabled'
+set myos_nros.main.remote_web_enabled='1'
+set myos_nros.main.remote_ssh_enabled='1'
+set myos_nros.main.remote_access_version='2'
+set mosquitto.owrt='owrt'
+set mosquitto.owrt.use_uci='1'
+set mosquitto.mosquitto='mosquitto'
+set mosquitto.mosquitto.log_dest='syslog'
+set mosquitto.mosquitto.log_types='warning'
+set mosquitto.mosquitto.allow_anonymous='1'
+set mosquitto.listener='listener'
+set mosquitto.listener.port='1883'
+set mosquitto.listener.no_remote_access='1'
+delete mosquitto.bridge
+set mosquitto.bridge='bridge'
+set mosquitto.bridge.connection='$id'
+set mosquitto.bridge.keepalive_interval='10'
+set mosquitto.bridge.bridge_protocol_version='mqttv311'
+set mosquitto.bridge.cleansession='0'
+set mosquitto.bridge.start_type='automatic'
+set mosquitto.bridge.remote_clientid='$id'
+set mosquitto.bridge.remote_username='$remote_username'
+set mosquitto.bridge.address='$remote_address'
+set mosquitto.bridge.notifications='1'
+set mosquitto.bridge.notifications_local_only='1'
+set mosquitto.bridge.restart_timeout='5'
+set mosquitto.bridge.try_private='0'
+delete mosquitto.bridge.topic
+add_list mosquitto.bridge.topic='sysinfo/# out 1 "" $id/'
+add_list mosquitto.bridge.topic='exec/# both 1 rpc/ $id/'
+add_list mosquitto.bridge.topic='kp/mosca/$id/# out 1 "" ""'
+add_list mosquitto.bridge.topic='kp/$id/+/# in 1 "" ""'
+add_list mosquitto.bridge.topic='mosca/# in 1 kp/$id/ kp/FFFFFFFFFFFF/'
+commit oem
+commit cloudd
+commit mqttagent
+commit report_proactively
+commit myos_nros
+commit mosquitto
+UCI
+[ -n "$imei" ] && uci -q set oem.board.imei="$imei"
+[ -n "$iccid" ] && uci -q set oem.board.iccid="$iccid"
+[ -n "$simid" ] && uci -q set oem.board.simid="$simid"
+[ -n "$remote_password" ] && uci -q set mosquitto.bridge.remote_password="$remote_password"
+uci -q commit oem
+uci -q commit mosquitto
+
+# broker 由 myos-nros-mqtt 接管,feeds mosquitto 的 init 必须退场,
+# 否则两个 init 会抢同一个 mosquitto 进程。
+/etc/init.d/mosquitto disable >/dev/null 2>&1 || true
+rm -f /etc/rc.d/S[0-9]*mosquitto /etc/rc.d/K[0-9]*mosquitto
+# 有效出厂身份启动开发桥接，官方云下发生产凭据后切换生产桥接。
+if [ "$cloud_enabled" = 1 ]; then
+	/etc/init.d/myos-nros-mqtt enable >/dev/null 2>&1 || true
+else
+	/etc/init.d/myos-nros-mqtt disable >/dev/null 2>&1 || true
+fi
+# 本地 APP 发现服务要跑,init 内部自己再按 cloud_enabled 决定云端 instance。
+/etc/init.d/myos-nros-app enable >/dev/null 2>&1 || true
+
+exit 0

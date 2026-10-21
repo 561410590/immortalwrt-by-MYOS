@@ -1,0 +1,32 @@
+#!/bin/sh
+# Install the cron tick for the structured cell-info collector.
+#
+# /usr/bin/mwrt-cellinfo reads the MT5700's ^HFREQINFO / ^MONNC / ^MONSC and
+# writes /tmp/mwrt_cellinfo.json. The home page (admin/modeminfo) only ever
+# reads that cache, so the collector has to be driven from outside the request:
+# the page polls every 4 seconds and the AT port cannot take a dozen synchronous
+# commands per poll (that is exactly how admin/modem/nets saturates ttyUSB1).
+#
+# The collector holds its own flock and exits 0 when another copy is running, so
+# a minute tick is safe even if a run overlaps the next one.
+#
+# Idempotent: safe to re-run.
+
+CRONTAB=/etc/crontabs/root
+TICK='* * * * * /usr/bin/mwrt-cellinfo >/dev/null 2>&1'
+
+[ -x /usr/bin/mwrt-cellinfo ] || exit 0
+
+touch "$CRONTAB"
+if ! grep -qF 'mwrt-cellinfo' "$CRONTAB" 2>/dev/null; then
+	echo "$TICK" >> "$CRONTAB"
+	/etc/init.d/cron enable >/dev/null 2>&1
+	/etc/init.d/cron restart >/dev/null 2>&1
+fi
+
+# Prime the cache in the background so the first page load after a flash has
+# data instead of the "not collected yet" placeholder. Non-5700 modules make
+# the collector exit immediately, so this costs nothing on those boards.
+(/usr/bin/mwrt-cellinfo >/dev/null 2>&1 &) &
+
+exit 0

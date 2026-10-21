@@ -1,0 +1,218 @@
+#!/bin/sh /etc/rc.common
+
+START=97
+
+resolve_target() {
+	local mapping="$1" cur="$2" index entry gpio usim
+	case "$cur" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	[ "$cur" -ge 1 ] || return 1
+	index=1
+	while [ "$index" -lt "$cur" ]; do
+		case "$mapping" in
+			*,*) mapping="${mapping#*,}" ;;
+			*) return 1 ;;
+		esac
+		index=$((index + 1))
+	done
+	entry="${mapping%%,*}"
+	case "$entry" in
+		*-*) gpio="${entry%%-*}"; usim="${entry#*-}" ;;
+		*) return 1 ;;
+	esac
+	case "$gpio" in ''|*[!01]*) return 1 ;; esac
+	case "$usim" in ''|*[!0-9]*|0) return 1 ;; esac
+	printf '%s %s\n' "$gpio" "$((usim - 1))"
+}
+
+pick_modem() {
+	local section="$1" state port override path
+	[ -z "$modem_section" ] || return
+	config_get state "$section" state
+	[ "$state" != "disabled" ] || return
+	config_get path "$section" path
+	[ -n "$path" ] && [ -d "$path" ] || return
+	config_get port "$section" at_port
+	config_get override "$section" override_at_port
+	[ -z "$override" ] || port="$override"
+	[ -n "$port" ] && [ -c "$port" ] || return
+	modem_section="$section"
+	modem_at_port="$port"
+}
+
+wait_for_modem() {
+	local retries="${1:-45}"
+	while [ "$retries" -gt 0 ]; do
+		modem_section=
+		modem_at_port=
+		config_load qmodem
+		config_foreach pick_modem modem-device
+		[ -z "$modem_section" ] || return 0
+		retries=$((retries - 1))
+		sleep 1
+	done
+	return 1
+}
+
+find_gpio_prefix() {
+	local prefix default root="${SIM_GPIO_ROOT:-/sys/class/gpio}"
+	default="$(uci -q get network.globals.default_cellular 2>/dev/null)"
+	for prefix in "$modem_section" "$default" cpe; do
+		case "$prefix" in ''|*[!A-Za-z0-9_-]*) continue ;; esac
+		[ -w "$root/$prefix-sel0/value" ] || continue
+		printf '%s\n' "$prefix"
+		return 0
+	done
+	return 1
+}
+
+read_gpio() {
+	local prefix="$1" root="${SIM_GPIO_ROOT:-/sys/class/gpio}" index=0 bit value=
+	while [ -r "$root/$prefix-sel$index/value" ]; do
+		read -r bit < "$root/$prefix-sel$index/value"
+		case "$bit" in 0|1) value="$bit$value" ;; *) return 1 ;; esac
+		index=$((index + 1))
+	done
+	printf '%s\n' "$value"
+}
+
+write_gpio() {
+	local prefix="$1" value="$2" root="${SIM_GPIO_ROOT:-/sys/class/gpio}"
+	local index=0 rest bit path
+	while [ -n "$value" ]; do
+		rest="${value%?}"
+		bit="${value#"$rest"}"
+		path="$root/$prefix-sel$index/value"
+		[ -w "$path" ] || return 1
+		printf '%s\n' "$bit" > "$path" || return 1
+		value="$rest"
+		index=$((index + 1))
+	done
+}
+
+apply_sim() {
+	local mapping cur target target_gpio target_slot gpio_prefix old_gpio payload result status retries cpin old_modem_section
+	mapping="$(uci -q get cpesel.sim.gval 2>/dev/null)"
+	cur="$(uci -q get cpesel.sim.cur 2>/dev/null)"
+	[ -n "$cur" ] || cur=1
+	target="$(resolve_target "$mapping" "$cur")" || {
+		logger -t c2000max-sim-select "invalid SIM mapping for logical slot $cur"
+		return 1
+	}
+	set -- $target
+	target_gpio="$1"
+	target_slot="$2"
+
+	. /lib/functions.sh
+	wait_for_modem || {
+		logger -t c2000max-sim-select "modem not ready; logical slot $cur not applied"
+		return 1
+	}
+	old_modem_section="$modem_section"
+	gpio_prefix="$(find_gpio_prefix)" || {
+		logger -t c2000max-sim-select "SIM GPIO not ready; logical slot $cur not applied"
+		return 1
+	}
+	old_gpio="$(read_gpio "$gpio_prefix")" || return 1
+	write_gpio "$gpio_prefix" "$target_gpio" || return 1
+
+	payload="{\"config_section\":\"$modem_section\",\"slot\":\"$target_slot\"}"
+	retries=5
+	while [ "$retries" -gt 0 ]; do
+		result="$(ubus call qmodem set_sim_slot "$payload" 2>/dev/null)"
+		status="$(printf '%s' "$result" | jsonfilter -e '@.status' 2>/dev/null)"
+		[ "$status" = "1" ] && {
+			result="$(tom_modem -d "$modem_at_port" -o a -c 'AT+CFUN=1,1' 2>/dev/null)"
+			case "$result" in
+				*OK*) logger -t c2000max-sim-select "logical slot $cur applied; modem reset requested" ;;
+				*) logger -t c2000max-sim-select "modem reset response unavailable; waiting for restart" ;;
+			esac
+
+			# MT5700M can reset its USB connection before returning the final OK.
+			retries=15
+			while [ "$retries" -gt 0 ] && [ -c "$modem_at_port" ]; do
+				sleep 1
+				retries=$((retries - 1))
+			done
+			[ ! -c "$modem_at_port" ] || {
+				logger -t c2000max-sim-select "modem did not restart after logical slot $cur"
+				return 1
+			}
+			wait_for_modem 90 || {
+				logger -t c2000max-sim-select "modem path not ready after reset"
+				return 1
+			}
+
+			retries=45
+			while [ "$retries" -gt 0 ]; do
+				sleep 1
+				if [ -c "$modem_at_port" ]; then
+					cpin="$(tom_modem -t 1 -d "$modem_at_port" -o a -c 'AT+CPIN?' 2>/dev/null)"
+					case "$cpin" in
+						*READY*)
+							if [ "$old_modem_section" != "$modem_section" ]; then
+								uci -q set "qmodem.$old_modem_section.state=disabled"
+							fi
+							uci -q set "qmodem.$modem_section.state=enabled"
+							uci -q commit qmodem
+							logger -t c2000max-sim-select "logical slot $cur ready after modem reset"
+							return 0
+							;;
+					esac
+				fi
+				retries=$((retries - 1))
+			done
+			logger -t c2000max-sim-select "SIM not ready after modem reset for logical slot $cur"
+			return 1
+		}
+		retries=$((retries - 1))
+		sleep 1
+	done
+	write_gpio "$gpio_prefix" "$old_gpio" >/dev/null 2>&1
+	logger -t c2000max-sim-select "modem rejected logical slot $cur"
+	return 1
+}
+
+start() {
+	local status had_dial=0 wan_zone wan_networks
+	pgrep -f '/usr/share/qmodem/modem_dial.sh .* dial' >/dev/null 2>&1 && had_dial=1
+	rm -f /var/run/c2000max-sim-select.ready
+	apply_sim
+	status=$?
+	if [ "$status" -eq 0 ]; then
+		uci -q batch <<'EOF'
+set network.2_1=interface
+set network.2_1.proto='dhcp'
+set network.2_1.device='eth2'
+set network.2_1.ifname='eth2'
+set network.2_1.defaultroute='1'
+set network.2_1.metric='11'
+set network.2_1.modem_config='2_1'
+set network.2_1v6=interface
+set network.2_1v6.proto='dhcpv6'
+set network.2_1v6.device='@2_1'
+set network.2_1v6.ifname='@2_1'
+set network.2_1v6.metric='11'
+set network.2_1v6.extendprefix='1'
+set network.2_1v6.modem_config='2_1'
+commit network
+EOF
+		wan_zone="$(uci show firewall | sed -n "s/^firewall\.@zone\[\([0-9][0-9]*\)\]\.name='wan'$/\1/p" | head -n 1)"
+		if [ -n "$wan_zone" ]; then
+			wan_networks=" $(uci -q get "firewall.@zone[$wan_zone].network") "
+			case "$wan_networks" in *' 2_1 '*) ;; *) uci -q add_list "firewall.@zone[$wan_zone].network=2_1" ;; esac
+			case "$wan_networks" in *' 2_1v6 '*) ;; *) uci -q add_list "firewall.@zone[$wan_zone].network=2_1v6" ;; esac
+			uci -q commit firewall
+		fi
+		ubus call network reload >/dev/null 2>&1
+		ifup 2_1 >/dev/null 2>&1
+		ifup 2_1v6 >/dev/null 2>&1
+		/etc/init.d/firewall reload >/dev/null 2>&1
+		: > /var/run/c2000max-sim-select.ready
+		[ "$had_dial" = 0 ] || /etc/init.d/qmodem_network reload >/dev/null 2>&1 || true
+	else
+		logger -t c2000max-sim-select "SIM selection failed; keep modem dial blocked"
+	fi
+	return "$status"
+}

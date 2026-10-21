@@ -1,0 +1,104 @@
+#!/bin/sh
+
+[ -e /usr/sbin/nft ] && exit 0
+
+if [ -e /usr/sbin/iptables-legacy ]; then
+	IPTABLES="/usr/sbin/iptables-legacy"
+	IP6TABLES="/usr/sbin/ip6tables-legacy"
+	IPTABLESSAVE="/usr/sbin/iptables-legacy-save"
+	IP6TABLESSAVE="/usr/sbin/ip6tables-legacy-save"
+else
+	IPTABLES="/usr/sbin/iptables"
+	IP6TABLES="/usr/sbin/ip6tables"
+	IPTABLESSAVE="/usr/sbin/iptables-save"
+	IP6TABLESSAVE="/usr/sbin/ip6tables-save"
+fi
+
+ss_rules_fw_drop() {
+	timeout 1 fw3 -4 print 2>/dev/null | awk '/iptables/&&/zone_lan_forward/&&/tcp/&&/-t filter/&&/-j reject/ {for(i=6; i<=NF; i++) { printf "%s ",$i } print "\n" }' |
+	while IFS=$"\n" read -r c; do
+		fwrule=$(echo "$c" | sed 's/reject/REDIRECT --to-ports 65535/')
+		if [ -n "$fwrule" ] && [ -z "$($IPTABLESSAVE 2>/dev/null | grep zone_lan_prerouting | grep '${fwrule}')" ]; then
+			eval "$IPTABLES -w -t nat -A zone_lan_prerouting ${fwrule} >/dev/null 2>&1"
+			fw=$((fw+1))
+		fi
+	done
+	timeout 1 fw3 -4 print 2>/dev/null | awk '/iptables/&&/zone_lan_forward/&&/tcp/&&/-t filter/&&/-j DROP/ {for(i=6; i<=NF; i++) { printf "%s ",$i } print "\n" }' |
+	while IFS=$"\n" read -r c; do
+		fwrule=$(echo "$c" | sed 's/DROP/REDIRECT --to-ports 65535/')
+		if [ -n "$fwrule" ] && [ -z "$($IPTABLESSAVE 2>/dev/null | grep zone_lan_prerouting | grep '${fwrule}')" ]; then
+			eval "$IPTABLES -w -t nat -A zone_lan_prerouting ${fwrule} >/dev/null 2>&1"
+			fw=$((fw+1))
+		fi
+	done
+}
+
+ss_rules6_fw_drop() {
+	timeout 1 fw3 -6 print 2>/dev/null | awk '/iptables/&&/zone_lan_forward/&&/tcp/&&/-t filter/&&/-j reject/ {for(i=6; i<=NF; i++) { printf "%s ",$i } print "\n" }' |
+	while IFS=$"\n" read -r c; do
+		fwrule=$(echo "$c" | sed 's/reject/REDIRECT --to-ports 65535/')
+		if [ -n "$fwrule" ] && [ -z "$($IPTABLESSAVE 2>/dev/null | grep zone_lan_prerouting | grep '${fwrule}')" ]; then
+			eval "$IP6TABLES -w -t nat -A zone_lan_prerouting ${fwrule} >/dev/null 2>&1"
+			fw=$((fw+1))
+		fi
+	done
+	timeout 1 fw3 -6 print 2>/dev/null | awk '/iptables/&&/zone_lan_forward/&&/tcp/&&/-t filter/&&/-j DROP/ {for(i=6; i<=NF; i++) { printf "%s ",$i } print "\n" }' |
+	while IFS=$"\n" read -r c; do
+		fwrule=$(echo "$c" | sed 's/DROP/REDIRECT --to-ports 65535/')
+		if [ -n "$fwrule" ] && [ -z "$($IPTABLESSAVE 2>/dev/null | grep zone_lan_prerouting | grep '${fwrule}')" ]; then
+			eval "$IP6TABLES -w -t nat -A zone_lan_prerouting ${fwrule} >/dev/null 2>&1"
+			fw=$((fw+1))
+		fi
+	done
+}
+
+v2r_rules_fw_drop() {
+	timeout 1 fw3 -4 print 2>/dev/null | awk '/iptables/&&/zone_lan_forward/&&/tcp/&&/-t filter/&&/-j reject/ {for(i=6; i<=NF; i++) { printf "%s ",$i } print "\n" }' |
+	while IFS=$"\n" read -r c; do
+		fwrule=$(echo "$c" | sed 's/reject/REDIRECT --to-ports 65535/')
+		if [ -n "$fwrule" ] && [ -z "$($IPTABLESSAVE 2>/dev/null | grep zone_lan_prerouting | grep '${fwrule}')" ]; then
+			eval "$IPTABLES -w -t nat -I zone_lan_prerouting 1 ${fwrule} >/dev/null 2>&1"
+			fw=$((fw+1))
+		fi
+	done
+	timeout 1 fw3 -4 print 2>/dev/null | awk '/iptables/&&/zone_lan_forward/&&/tcp/&&/-t filter/&&/-j DROP/ {for(i=6; i<=NF; i++) { printf "%s ",$i } print "\n" }' |
+	while IFS=$"\n" read -r c; do
+		fwrule=$(echo "$c" | sed 's/DROP/REDIRECT --to-ports 65535/')
+		if [ -n "$fwrule" ] && [ -z "$($IPTABLESSAVE 2>/dev/null | grep zone_lan_prerouting | grep '${fwrule}')" ]; then
+			eval "$IPTABLES -w -t nat -I zone_lan_prerouting 1 ${fwrule} >/dev/null 2>&1"
+			fw=$((fw+1))
+		fi
+	done
+}
+
+v2ray_rules6_fw_drop() {
+	timeout 1 fw3 -6 print 2>/dev/null | awk '/iptables/&&/zone_lan_forward/&&/tcp/&&/-t filter/&&/-j reject/ {for(i=6; i<=NF; i++) { printf "%s ",$i } print "\n" }' |
+	while IFS=$"\n" read -r c; do
+		fwrule=$(echo "$c" | sed 's/reject/REDIRECT --to-ports 65535/')
+		if [ -n "$fwrule" ] && [ -z "$($IPTABLESSAVE 2>/dev/null | grep zone_lan_prerouting | grep '${fwrule}')" ]; then
+			eval "$IP6TABLES -w -t nat -I zone_lan_prerouting 1 ${fwrule} >/dev/null 2>&1"
+		fi
+	done
+	timeout 1 fw3 -6 print 2>/dev/null | awk '/iptables/&&/zone_lan_forward/&&/tcp/&&/-t filter/&&/-j DROP/ {for(i=6; i<=NF; i++) { printf "%s ",$i } print "\n" }' |
+	while IFS=$"\n" read -r c; do
+		fwrule=$(echo "$c" | sed 's/DROP/REDIRECT --to-ports 65535/')
+		if [ -n "$fwrule" ] && [ -z "$($IPTABLESSAVE 2>/dev/null | grep zone_lan_prerouting | grep '${fwrule}')" ]; then
+			eval "$IP6TABLES -w -t nat -I zone_lan_prerouting 1 ${fwrule} >/dev/null 2>&1"
+		fi
+	done
+}
+
+[ -n "$(pgrep blocklanfw)" ] && exit 0
+[ -z "$($IPTABLESSAVE 2>/dev/null | grep zone_lan)" ] && exit 0
+fw=0
+if [ "$(uci -q get openmptcprouter.settings.proxy)" = "shadowsocks" ] || [ "$(uci -q get openmptcprouter.settings.proxy)" = "shadowsocks-rust" ]; then
+	ss_rules6_fw_drop
+	ss_rules_fw_drop
+elif [ -n "$(uci -q get openmptcprouter.settings.proxy | grep v2ray)" ] || [ -n "$(uci -q get openmptcprouter.settings.proxy | grep xray)" ]; then
+	v2r_rules_fw_drop
+	v2ray_rules6_fw_drop
+fi
+rule=$(timeout 1 fw3 -4 print | grep 'A PREROUTING' | grep zone_lan_prerouting | sed 's/-A PREROUTING/-D PREROUTING/')
+eval "$rule >/dev/null 2>&1"
+newrule=$(echo "$rule" | sed 's/-D PREROUTING/-I PREROUTING 1/')
+eval "$newrule >/dev/null 2>&1"

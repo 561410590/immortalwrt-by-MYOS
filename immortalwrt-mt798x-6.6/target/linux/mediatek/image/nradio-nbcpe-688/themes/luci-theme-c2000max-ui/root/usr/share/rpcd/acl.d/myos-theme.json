@@ -1,0 +1,10 @@
+{
+  "myos-theme": {
+    "description": "Switch MYOS and MWRT themes",
+    "read": { "uci": ["luci"] },
+    "write": {
+      "uci": ["luci"],
+      "ubus": { "uci": ["commit"] }
+    }
+  }
+}

@@ -1,0 +1,103 @@
+#!/bin/sh
+#
+# Copyright (C) 2018-2026 Ycarus (Yannick Chabanois) <ycarus@zugaina.org> for OpenMPTCProuter
+#
+# This is free software, licensed under the GNU General Public License v2.
+# See /LICENSE for more information.
+#
+# This script manages glorytun-udp paths when an interface comes up
+
+if [ "$OMR_TRACKER_STATUS" = "ERROR" ]; then
+	exit 0
+fi
+
+if [ -z "$OMR_TRACKER_INTERFACE" ]; then
+	exit 0
+fi
+
+if [ "$(uci -q get glorytun-udp.vpn.enable)" != "1" ]; then
+	exit 0
+fi
+
+gtudp_init="/etc/init.d/glorytun-udp"
+[ -x "$gtudp_init" ] || gtudp_init="glorytun-udp"
+
+# Resume a hold-down: 002-error stopped the tunnel so the silence makes the
+# server purge its stale paths, start it again once the silence lasted long
+# enough. Done here because this runs on every pass of every tracked
+# interface, while 002-error only acts on status transitions
+gtudp_holddown="$(cat /tmp/omr-tracker-gtudp-holddown 2>/dev/null)"
+if [ -n "$gtudp_holddown" ]; then
+	if [ "$(($(date +%s) - gtudp_holddown))" -ge 150 ]; then
+		_log "Glorytun UDP hold-down finished, start it again"
+		rm -f /tmp/omr-tracker-gtudp-holddown
+		# Next hold-down only if the tunnel stays in error for 15 more minutes
+		date +%s > /tmp/omr-tracker-gtudp-outage-start
+		date +%s > /tmp/omr-tracker-gtudp-error-since
+		date +%s > /tmp/omr-tracker-gtudp-last-restart
+		"$gtudp_init" start >/dev/null 2>&1
+	else
+		# The silence must not be broken: stop the tunnel again if
+		# something else (respawn, hotplug, user) restarted it meanwhile
+		[ -n "$(pidof glorytun-udp)" ] && "$gtudp_init" stop >/dev/null 2>&1
+		exit 0
+	fi
+fi
+
+multipath_config=$(uci -q get "openmptcprouter.$OMR_TRACKER_INTERFACE.multipath")
+[ -z "$multipath_config" ] && multipath_config=$(uci -q get "network.$OMR_TRACKER_INTERFACE.multipath" || echo "off")
+
+if [ "$multipath_config" != "on" ] && [ "$multipath_config" != "backup" ]; then
+	exit 0
+fi
+
+download="$(uci -q get network.$OMR_TRACKER_INTERFACE.downloadspeed)"
+[ -z "$download" ] && download="$(uci -q get sqm.$OMR_TRACKER_INTERFACE.download)"
+upload="$(uci -q get network.$OMR_TRACKER_INTERFACE.uploadspeed)"
+[ -z "$upload" ] && upload="$(uci -q get sqm.$OMR_TRACKER_INTERFACE.upload)"
+
+glorytunudppath() {
+	gtudp_port="$(uci -q get glorytun-udp.vpn.port)"
+	gtudp_dev="$(uci -q get glorytun-udp.vpn.dev)"
+	addpath() {
+		serverip=$1
+		[ "$(uci -q get glorytun-udp.vpn.rateauto)" = "1" ] && rate_mode="auto" || rate_mode="fixed"
+		if [ "$download" != "0" ] && [ "$download" != "" ] && [ "$upload" != "0" ] && [ "$upload" != "" ]; then
+			rate_tx=$((upload*1000))
+			rate_rx=$((download*1000))
+		else
+			rate_tx=12500000
+			rate_rx=12500000
+		fi
+		if [ "$OMR_TRACKER_DEVICE_IP" != "" ] && [ "$(uci -q get openmptcprouter.$OMR_TRACKER_INTERFACE.vpn)" != "1" ] && [ "$(pgrep -f glorytun-udp)" != "" ] && [ "$(glorytun-udp path | grep $OMR_TRACKER_DEVICE_IP | grep running)" = "" ] && [ -n "$(resolveip -4 -t 5 $serverip)" ]; then
+			serverip="$(resolveip -4 -t 5 $serverip | head -n 1 | tr -d '\n')"
+			glorytun-udp path addr $OMR_TRACKER_DEVICE_IP to addr $serverip port ${gtudp_port} dev ${gtudp_dev} set up rate $rate_mode tx $rate_tx rx $rate_rx pref 1 > /dev/null 2>&1
+		fi
+		if [ "$OMR_TRACKER_DEVICE_IP6" != "" ] && [ "$(uci -q get openmptcprouter.$OMR_TRACKER_INTERFACE.vpn)" != "1" ] && [ "$(pgrep -f glorytun-udp)" != "" ] && [ "$(glorytun-udp path | grep $OMR_TRACKER_DEVICE_IP6 | grep running)" = "" ] && [ -n "$(resolveip -6 -t 5 $serverip)" ]; then
+			serverip="$(resolveip -6 -t 5 $serverip | head -n 1 | tr -d '\n')"
+			glorytun-udp path addr "$OMR_TRACKER_DEVICE_IP6" to addr "$serverip" port ${gtudp_port} dev ${gtudp_dev} set up rate $rate_mode tx $rate_tx rx $rate_rx pref 1 > /dev/null 2>&1
+		fi
+		[ "$multipath_config" = "backup" ] && [ "$(pgrep -f glorytun-udp)" != "" ] && {
+			[ -n "$OMR_TRACKER_DEVICE_IP" ] && [ -n "$(resolveip -4 -t 5 $serverip)" ] && glorytun-udp path addr $OMR_TRACKER_DEVICE_IP to addr $serverip port ${gtudp_port} dev ${gtudp_dev} set pref 125 > /dev/null 2>&1
+			[ -n "$OMR_TRACKER_DEVICE_IP6" ] && [ -n "$(resolveip -6 -t 5 $serverip)" ] && glorytun-udp path addr $OMR_TRACKER_DEVICE_IP6 to addr $serverip port ${gtudp_port} dev ${gtudp_dev} set pref 125 > /dev/null 2>&1
+		}
+	}
+	config_list_foreach $1 ip addpath
+}
+
+config_load openmptcprouter
+config_foreach glorytunudppath server
+
+# Set down any path whose local address is no longer assigned to any
+# interface (stale path left after an IP change)
+if [ -n "$(pgrep -f glorytun-udp)" ]; then
+	gtudp_dev="$(uci -q get glorytun-udp.vpn.dev)"
+	[ -z "$gtudp_dev" ] && gtudp_dev="tun0"
+	for gtudp_path_addr in $(glorytun-udp path 2>/dev/null | awk '$1 == "path" {print $2}'); do
+		[ -n "$(ip -o addr show 2>/dev/null | grep -F " ${gtudp_path_addr}/")" ] && continue
+		_log "Set down stale Glorytun UDP path $gtudp_path_addr (address no longer assigned)"
+		glorytun-udp path addr "$gtudp_path_addr" dev "$gtudp_dev" set down > /dev/null 2>&1
+	done
+fi
+
+exit 0

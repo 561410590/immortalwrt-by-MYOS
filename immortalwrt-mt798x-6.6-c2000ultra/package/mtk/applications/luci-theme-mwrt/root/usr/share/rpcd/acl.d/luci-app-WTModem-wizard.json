@@ -1,0 +1,28 @@
+{
+	"luci-app-WTModem-wizard": {
+		"description": "Grant access to the Mwrt quick setup wizard",
+		"read": {
+			"ubus": {
+				"mwrt-wizard": [ "status", "modem", "bootsw" ],
+				"luci": [ "getLEDs", "getTimezones", "getBuiltinEthernetPorts" ],
+				"network.interface": [ "dump" ]
+			},
+			"uci": [
+				"mwrt", "WTMmodem", "Mwrt-Assurance", "mwrt_led",
+				"myos_nros", "oem", "qmodem",
+				"network", "wireless", "dhcp", "system", "luci"
+			]
+		},
+		"write": {
+			"ubus": {
+				"mwrt-wizard": [ "slot", "led", "nros", "bootsw", "apply", "markdone" ],
+				"luci": [ "setPassword" ]
+			},
+			"uci": [
+				"mwrt", "WTMmodem", "Mwrt-Assurance", "mwrt_led",
+				"myos_nros",
+				"network", "wireless", "dhcp", "system", "luci"
+			]
+		}
+	}
+}

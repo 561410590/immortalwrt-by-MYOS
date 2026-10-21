@@ -1,0 +1,2 @@
+inet4_only = on
+prefer_family = IPv4

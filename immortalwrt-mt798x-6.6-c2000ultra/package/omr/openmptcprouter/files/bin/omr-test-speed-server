@@ -1,0 +1,108 @@
+#!/bin/sh
+. /usr/lib/unbound/iptools.sh
+SERVER=$1
+INTERFACE=$2
+[ "$3" = "upload" ] && UPLOAD=$3
+[ "$3" = "fasttest" ] && FASTTEST=$3
+[ "$4" = "upload" ] && UPLOAD=$4
+[ "$4" = "fasttest" ] && FASTTEST=$4
+[ -z "$SERVER" ] && SERVER="vps"
+#KEY=$(uci -q get openmptcprouter.$SERVER.token)
+HOST=$(uci -q get openmptcprouter.$SERVER.ip | awk '{print $1}')
+PORT=$(uci -q get openmptcprouter.$SERVER.port)
+USERNAME=$(uci -q get openmptcprouter.$SERVER.username)
+PASSWORD=$(uci -q get openmptcprouter.$SERVER.password)
+MP=false
+if [ -n "$HOST" ] && [ -n "$PORT" ] && [ -n "$USERNAME" ] && [ -n "$PASSWORD" ]; then
+	trap : HUP INT TERM
+	[ -z "$FASTTEST" ] && echo "Get API token on $SERVER"
+	resolve="$(resolveip ${HOST})"
+	valid_ip6=$(valid_subnet6 ${HOST})
+	if [ "$resolve" != "${HOST}" ] || [ "$valid_ip6" != "ok" ]; then
+		auth=`curl --max-time 10 -s -k -H "accept: application/json" -H "Content-Type: application/x-www-form-urlencoded" -X POST -d 'username='${USERNAME}'&password='${PASSWORD} https://${HOST}:${PORT}/token`
+	else
+		auth=`curl --max-time 10 -s -k -H "accept: application/json" -H "Content-Type: application/x-www-form-urlencoded" -X POST -d 'username='${USERNAME}'&password='${PASSWORD} https://[${HOST}]:${PORT}/token`
+	fi
+	[ -z "$auth" ] && {
+		[ -z "$FASTTEST" ] && echo "No answer to API request..."
+		exit 1
+	}
+	KEY=$(echo "$auth" | jsonfilter -q -e '@.access_token')
+	[ -z "$KEY" ] && {
+		[ -z "$FASTTEST" ] && echo "No token..."
+		exit 1
+	}
+	[ -z "$FASTTEST" ] && echo "Disable SQM bandwidth limit on $INTERFACE"
+	[ -z "$FASTTEST" ] && echo "Download test via server ${SERVER}:"
+	if [ -n "$INTERFACE" ]; then
+		[ -n "$(tc qdisc show dev $INTERFACE | grep bandwidth)" ] && {
+			export SQM_VERBOSITY_MIN=10
+			export SQM_VERBOSITY_MAX=0
+			export SQM_SYSLOG=1
+			/etc/init.d/sqm stop $INTERFACE >/dev/null 2>&1
+			#tc qdisc delete dev $INTERFACE root >/dev/null 2>&1
+			#tc qdisc delete dev ifb4$INTERFACE root >/dev/null 2>&1
+		}
+		#if [ "$(multipath ${INTERFACE} | grep default)" ]; then
+		#	MP=true
+		#	/etc/init.d/omr-tracker stop >/dev/null 2>&1
+		#	multipath ${INTERFACE} off
+		#fi
+		if [ -n "$UPLOAD" ]; then
+			if [ -f /usr/bin/v2ray ]; then
+				upload_file="/usr/bin/v2ray"
+			elif [ -f /usr/bin/xray ]; then
+				upload_file="/usr/bin/xray"
+			elif [ -f /boot/vmlinuz ]; then
+				upload_file="/boot/vmlinuz"
+			elif [ -f /bin/bash ]; then
+				upload_file="/bin/bash"
+			else
+				upload_file="/bin/busybox"
+			fi
+		fi
+		if [ -n "$FASTTEST" ]; then
+			if [ -n "$UPLOAD" ]; then
+				if [ "$resolve" != "${HOST}" ] || [ "$valid_ip6" != "ok" ]; then
+					avg_speed=$(curl -k --max-time 30 -o /dev/null -qfsS -w '%{speed_upload}' -X POST -d @${upload_file} -d @${upload_file} --interface $INTERFACE -H "Authorization: Bearer ${KEY}" https://${HOST}:${PORT}/speedtest 2>/dev/null)
+				else
+					avg_speed=$(curl -k --max-time 30 -o /dev/null -qfsS -w '%{speed_upload}' -X POST -d @${upload_file} -d @${upload_file} --interface $INTERFACE -H "Authorization: Bearer ${KEY}" https://[${HOST}]:${PORT}/speedtest 2>/dev/null)
+				fi
+				echo -n "$avg_speed"
+			else
+				if [ "$resolve" != "${HOST}" ] || [ "$valid_ip6" != "ok" ]; then
+					avg_speed=$(curl -k --max-time 30 -o /dev/null -qfsS -w '%{speed_download}' --interface $INTERFACE -H "Authorization: Bearer ${KEY}" https://${HOST}:${PORT}/speedtest 2>/dev/null)
+				else
+					avg_speed=$(curl -k --max-time 30 -o /dev/null -qfsS -w '%{speed_download}' --interface $INTERFACE -H "Authorization: Bearer ${KEY}" https://[${HOST}]:${PORT}/speedtest 2>/dev/null)
+				fi
+				echo -n "$avg_speed"
+			fi
+		else
+			if [ -n "$UPLOAD" ]; then
+				if [ "$resolve" != "${HOST}" ] || [ "$valid_ip6" != "ok" ]; then
+					curl -k -o /dev/null -X POST -d @${upload_file} -d @${upload_file} --interface $INTERFACE -H "Authorization: Bearer ${KEY}" https://${HOST}:${PORT}/speedtest || echo
+				else
+					curl -k -o /dev/null -X POST -d @${upload_file} -d @${upload_file} --interface $INTERFACE -H "Authorization: Bearer ${KEY}" https://[${HOST}]:${PORT}/speedtest || echo
+				fi
+			else
+				if [ "$resolve" != "${HOST}" ] || [ "$valid_ip6" != "ok" ]; then
+					curl -k -o /dev/null --interface $INTERFACE -H "Authorization: Bearer ${KEY}" https://${HOST}:${PORT}/speedtest || echo
+				else
+					curl -k -o /dev/null --interface $INTERFACE -H "Authorization: Bearer ${KEY}" https://[${HOST}]:${PORT}/speedtest || echo
+				fi
+			fi
+		fi
+		#if [ $MP ]; then
+		#	multipath ${INTERFACE} on
+		#	/etc/init.d/omr-tracker start & >/dev/null 2>&1
+		#fi
+		[ -z "$FASTTEST" ] && echo "Restart SQM on $INTERFACE"
+		/etc/init.d/sqm start $INTERFACE >/dev/null 2>&1
+	else
+		if [ "$resolve" != "${HOST}" ] || [ "$valid_ip6" != "ok" ]; then
+			curl -k -o /dev/null -H "Authorization: Bearer ${KEY}" https://${HOST}:${PORT}/speedtest || echo
+		else
+			curl -k -o /dev/null -H "Authorization: Bearer ${KEY}" https://[${HOST}]:${PORT}/speedtest || echo
+		fi
+	fi
+fi

@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# Only enable irqbalance on first boot, not on package upgrades.
+# openmptcprouter.settings.version is written by zzzzz-omr-update at the end
+# of every defaults run, so its presence means this is not a first boot.
+[ -n "$(uci -q get openmptcprouter.settings.version)" ] && exit 0
+
+[ "$(grep -c '^processor' /proc/cpuinfo)" -le 2 ] && exit 0
+
+uci set irqbalance.irqbalance.enabled='1'
+uci commit irqbalance
+
+exit 0

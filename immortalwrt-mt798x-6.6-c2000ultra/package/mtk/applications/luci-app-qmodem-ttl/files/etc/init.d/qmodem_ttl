@@ -1,0 +1,39 @@
+#!/bin/sh /etc/rc.common
+START=95
+STOP=13
+USE_PROCD=1
+
+. /lib/functions.sh
+INCLUDE=/etc/nftables.d/99-qmodem-ttl.nft
+
+start_service() {
+    local enable ttl
+    config_load qmodem_ttl
+    config_get enable main enable 0
+    config_get ttl main ttl 64
+    case "$ttl" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$ttl" -ge 1 ] && [ "$ttl" -le 255 ] || return 1
+    if [ "$enable" != 1 ]; then
+        [ ! -f "$INCLUDE" ] && return 0
+        rm -f "$INCLUDE"
+    else
+        mkdir -p /etc/nftables.d
+        cat > "$INCLUDE" <<-EOF
+	chain qmodem_ttl {
+	    type filter hook postrouting priority mangle + 1; policy accept;
+	    ip ttl set $ttl
+	    ip6 hoplimit set $ttl
+	}
+EOF
+    fi
+    /etc/init.d/firewall reload
+}
+
+stop_service() {
+    [ -f "$INCLUDE" ] || return 0
+    rm -f "$INCLUDE"
+    /etc/init.d/firewall reload
+}
+
+reload_service() { start_service; }
+service_triggers() { procd_add_reload_trigger qmodem_ttl; }

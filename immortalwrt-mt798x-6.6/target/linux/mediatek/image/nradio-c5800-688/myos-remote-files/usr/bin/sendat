@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# sendat - AT command tool with automatic AT-port detection + flock serialization.
+# Usage (unchanged):  sendat <index> '<AT command>' [timeout_seconds]
+# The <index> is kept for compatibility; the real AT port is auto-detected
+# (whichever /dev/ttyUSB*/ttyACM* answers "AT" with OK), cached in /tmp, and
+# self-healed if it changes. A file lock serializes concurrent sendat calls.
+import sys
+import os
+import time
+import glob
+import select
+import fcntl
+import termios
+
+DEFAULT_TIMEOUT = 3.0
+PROBE_TIMEOUT = 1.2
+BAUD = termios.B19200
+CACHE = "/tmp/sendat.atport"
+LOCKFILE = "/tmp/sendat.at.lock"
+_lock_fh = None
+
+
+def acquire_lock(max_wait=8.0):
+    global _lock_fh
+    try:
+        _lock_fh = open(LOCKFILE, "w")
+    except OSError:
+        return
+    end = time.monotonic() + max_wait
+    while True:
+        try:
+            fcntl.flock(_lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except OSError:
+            if time.monotonic() > end:
+                return          # best effort: proceed without exclusivity
+            time.sleep(0.05)
+
+
+def configure_port(fd):
+    attrs = termios.tcgetattr(fd)
+    iflag, oflag, cflag, lflag, ispeed, ospeed, cc = attrs
+    iflag = 0
+    oflag = 0
+    lflag = 0
+    cflag = (cflag & ~termios.CSIZE) | termios.CS8 | termios.CLOCAL | termios.CREAD
+    cflag &= ~termios.PARENB
+    cflag &= ~termios.CSTOPB
+    ispeed = ospeed = BAUD
+    cc[termios.VMIN] = 0
+    cc[termios.VTIME] = 0
+    termios.tcsetattr(fd, termios.TCSANOW, [iflag, oflag, cflag, lflag, ispeed, ospeed, cc])
+    termios.tcflush(fd, termios.TCIOFLUSH)
+
+
+def drain(fd):
+    while True:
+        r, _, _ = select.select([fd], [], [], 0)
+        if not r:
+            return
+        try:
+            if not os.read(fd, 4096):
+                return
+        except OSError:
+            return
+
+
+def read_response(fd, timeout):
+    buf = b""
+    end = time.monotonic() + timeout
+    while True:
+        remaining = end - time.monotonic()
+        if remaining <= 0:
+            break
+        r, _, _ = select.select([fd], [], [], min(0.3, remaining))
+        if not r:
+            continue
+        try:
+            chunk = os.read(fd, 4096)
+        except OSError:
+            continue
+        if not chunk:
+            continue
+        buf += chunk
+        stripped = buf.rstrip()
+        if (stripped.endswith(b"OK") or stripped.endswith(b"ERROR")
+                or b"+CME ERROR" in buf or b"+CMS ERROR" in buf):
+            break
+    return buf
+
+
+def send_command(dev, cmd, timeout):
+    try:
+        fd = os.open(dev, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        try:
+            configure_port(fd)
+        except termios.error:
+            pass
+        drain(fd)
+        os.write(fd, (cmd + "\r\n").encode())
+        resp = read_response(fd, timeout)
+    finally:
+        os.close(fd)
+    return resp.decode(errors="replace")
+
+
+def candidates(hint_index):
+    devs = sorted(glob.glob("/dev/ttyUSB*")) + sorted(glob.glob("/dev/ttyACM*"))
+    hint = "/dev/ttyUSB%d" % hint_index
+    if hint in devs:
+        devs.remove(hint)
+        devs.insert(0, hint)
+    return devs
+
+
+def probe_at_port(hint_index):
+    for dev in candidates(hint_index):
+        resp = send_command(dev, "AT", PROBE_TIMEOUT)
+        if resp and "OK" in resp:
+            return dev
+    return None
+
+
+def cache_read():
+    try:
+        with open(CACHE) as f:
+            dev = f.read().strip()
+        return dev if dev and os.path.exists(dev) else None
+    except (OSError, IOError):
+        return None
+
+
+def cache_write(dev):
+    try:
+        with open(CACHE, "w") as f:
+            f.write(dev)
+    except OSError:
+        pass
+
+
+def resolve_port(hint_index):
+    dev = cache_read()
+    if dev:
+        return dev
+    dev = probe_at_port(hint_index)
+    if dev:
+        cache_write(dev)
+        return dev
+    fb = "/dev/ttyUSB%d" % hint_index
+    return fb if os.path.exists(fb) else None
+
+
+def main():
+    if len(sys.argv) < 3:
+        print("ERROR demo: sendat 1 'ATI'")
+        sys.exit(1)
+    try:
+        index = int(sys.argv[1])
+    except ValueError:
+        index = 1
+    command = sys.argv[2]
+    timeout = DEFAULT_TIMEOUT
+    if len(sys.argv) > 3:
+        try:
+            timeout = float(sys.argv[3])
+        except ValueError:
+            pass
+
+    acquire_lock()
+
+    dev = resolve_port(index)
+    if not dev:
+        print("AT ERROR absent.")
+        sys.exit(1)
+
+    resp = send_command(dev, command, timeout)
+    if resp is None:
+        print("Can't Open Serial Port!")
+        sys.exit(1)
+
+    if resp.strip() == "":
+        newdev = probe_at_port(index)
+        if newdev and newdev != dev:
+            cache_write(newdev)
+            retry = send_command(newdev, command, timeout)
+            if retry is not None and retry.strip() != "":
+                resp = retry
+
+    sys.stdout.write(resp)
+    if resp and not resp.endswith("\n"):
+        sys.stdout.write("\n")
+
+
+if __name__ == "__main__":
+    main()

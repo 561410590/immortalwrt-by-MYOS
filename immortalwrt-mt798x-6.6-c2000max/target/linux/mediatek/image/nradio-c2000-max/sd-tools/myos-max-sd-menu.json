@@ -1,0 +1,19 @@
+{
+  "admin/system/myos_sd": {
+    "title": "SD 扩容与回官方",
+    "order": 85,
+    "action": {
+      "type": "view",
+      "path": "myos/max_sd"
+    },
+    "depends": {
+      "acl": [
+        "myos-max-sd"
+      ],
+      "fs": {
+        "/usr/libexec/myos-max-gpt": "executable"
+      }
+    }
+  }
+}
+

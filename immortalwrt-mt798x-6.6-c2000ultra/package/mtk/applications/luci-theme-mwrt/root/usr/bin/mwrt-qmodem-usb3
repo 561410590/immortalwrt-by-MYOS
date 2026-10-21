@@ -1,0 +1,840 @@
+#!/bin/sh
+# 5700 落在 USB2 总线上时,让模组自己复位一次,把它拉回 USB3。
+#
+# 现象: 刷完固件后的第一次开机必然如此(绝对复现),模组以 High-Speed 挂在 1-1,
+# eth2 只能跑到 ~350 Mb/s。手动断电冷启动就好了。
+#
+# 机制(实测): 软重启不切模组电源,模组带着上一次的链路状态回来,在 ~6.3s 就被枚举,
+# SuperSpeed 训练来不及/失败,于是以 USB 2.x 身份上线;冷启动模组一起断电,枚举发生
+# 在 ~15.4s,SS 训练成功。关键证据是设备描述符自报的版本:
+#     挂 1-1 时 /sys/bus/usb/devices/1-1/version = 2.10
+#     挂 2-1 时 /sys/bus/usb/devices/2-1/version = 3.00
+#
+# 为什么不用主机端掐端口(上一版的做法,已证伪): 模组已经以 USB 2.x 身份完成绑定,
+# 把它所在的端口 disable 再放开只是重新枚举同一个"已经认定自己是 2.x"的设备,
+# 两次重枚举都还是 high-speed(dmesg: usb 1-1: new high-speed ... number 3 / number 4)。
+# 把 SS 伴生端口从 disable 写回 0 同样不会把已挂好的设备搬过去。
+#
+# 正解是复位模组自己的 USB PHY —— AT+CFUN=1,1(3GPP 标准的带复位置全功能)。实测:
+#     before: 1-1@480Mbps ver=2.10
+#     [3s] modem left the bus
+#     [27s] modem back: 2-1@5000Mbps ver=3.00
+# 之后 qmodem 的 hotplug 自己建 2_1 段并拨号,eth2 拿到地址,ping 通。
+#
+# 为什么 CFUN 复位不会动 SIM 卡槽: 这块板子的卡槽是 GPIO(cpe-sel0)选的,只在
+# modeminit(START=99)开机时按已存的 simsel 写一次,没有任何 hotplug 路径碰它。
+# 复位模组只是让它重新读当前 GPIO 选中的那个槽,不存在切到内置卡的可能。
+#
+# 为什么有次数上限: 万一这次真的训不出 SS(线材、温度、硬件),无限复位等于把网络
+# 反复掐断。350 Mb/s 有网 >> 反复断网。所以只给 2 次机会,用完就认了,
+# 留在 HS 上继续提供网络,只在 logread 里留话。
+#
+# 【只做刷机后的第一次开机】实测第二次开机(冷启、热启都试过)根本不会落在 USB2.0,
+# 所以重训这件事从第二次开机起完全不参与 —— 不是"速率对了所以空转一趟",而是在
+# 速率都还没看之前就 exit。开关是 $ONCE 这个持久标记,内容为当前固件镜像的标识:
+#   重启     -> 标识没变 -> 机会已用掉 -> 直接退出
+#   刷新固件 -> 标识变了 -> 自动重新武装一次
+# 三个出口都会把机会用掉(见 retrain_disarm 的三处调用): 训成了、训满 2 次没训成、
+# 以及本来就已经在 SuperSpeed 上。
+#
+# 注意下面的自愈那一段不受这个标记约束 —— 它治的是另一个病(见后面的长注释),
+# 任何一次开机都可能发作。
+#
+# 只认 MT5700M —— 其他模组一个字都不动。
+#
+# ---------------------------------------------------------------------------
+# 顺带治另一件事,和降速完全无关: 第二次开机 qmodem 界面上"没有模组"、不拨号。
+#
+# 真正的病根是 qmodem 自己的 qmodem_init(START=80) 里 _try_device() 把已经是
+# 绝对路径的 path 又拼了一次前缀,判断恒假,于是**每次开机都把模组段 disable 掉**,
+# 而 disable() 不打任何日志。修法是关掉作者自己的 try_preset_usb 开关 ——
+# 详见下面 disarm_qmodem_preset_usb() 上面的长注释。那一步做掉之后,正常开机
+# 这个脚本从头到尾零动作: 重训被 ONCE 标记拦在门外,自愈第一道 state 判断就返回。
+#
+# 下面这条是**另一条**独立的 disabled 来源,由自愈兜底(实测踩过):
+# 关机时的 usb remove 也会持久化 disabled,正常由开机那一轮 hotplug add 救回来,
+# 只在它也失败时才轮到自愈。链条是:
+#   1. 关机时 usb remove 事件走 qmodem 自己的 /etc/hotplug.d/usb/20-modem-usb,
+#      映射到 modem_scan.sh disable -> uci set qmodem.<段>.state=disabled 并 commit,
+#      这个 disabled 是**持久化**到 /etc/config/qmodem 的,会活过重启。
+#   2. 于是下一次开机能不能用,全靠 add() 成功把它写回 enabled。而 add() 里
+#      validate_at_port 要求某个口对 ATI 回 OK|ATI,拿不到型号就
+#      `lock -u && return` —— 静默退出,state 原封不动停在 disabled。
+#   3. 压垮它的是 AT 口编号会变: 总线从 1-1 翻到 2-1 后,能应答的口从 ttyUSB2
+#      变成了 ttyUSB1,而 config5700.json 里还钉着旧的 ttyUSB2。
+#      websocket_server.py 守着那个哑口反复发 AT,每一发都占满全局 AT 锁
+#      /tmp/sendat.at.lock 直到超时;更糟的是偶尔有 tom_modem.real 卡在哑口上
+#      连 20 秒的看门狗都没收掉,锁被攥死。整机每个 AT 调用于是统统返回
+#      Terminated,validate_at_port 一个能应答的口都探不到 -> 回到第 2 条。
+# 取证(修复当时): 裸串口 ATI 在 ttyUSB1 上完整返回 MT5700M-CN/V200R001C20B024,
+# 而 tom_modem 在同一个口上只回 Terminated;ps 里 20 多个 tom_modem 全堵在锁上,
+# 队首是一个 `tom_modem.real -d /dev/ttyUSB2 -c ATI`。清掉队首、清掉陈旧的
+# at_port 再跑一遍作者的 add(),state 立刻回到 enabled,eth2 拿到地址。
+#
+# 所以下面三个自愈函数放在速率判断**之前**跑 —— 这个病在 5000Mbps 上照样发作。
+# 改 state 不会跟用户的手动开关冲突: state 只由 modem_scan.sh 写(add->enabled /
+# disable->disabled),LuCI 只读不写(controller/qmodem.lua:114,173),
+# 用户的意图在另一个字段 enable_dial 上。
+# ---------------------------------------------------------------------------
+
+MT5700_ID="3466:3301"
+TAG=mwrt-qmodem-usb3
+TRIES=/tmp/mwrt-qmodem-usb3.tries
+MAX_TRIES=2
+# 开机多久之后才允许复位,见下面 gate 处的长注释
+BOOT_SETTLE=120
+# 重训只做一次的持久标记。放 /etc(overlay,活过重启),内容是当前固件镜像的标识;
+# 刷了新固件 -> 标识变了 -> 自动重新武装一次,不用手工清。
+ONCE=/etc/mwrt-qmodem-usb3.done
+# 自愈的开机静默期: 让 qmodem 自己开机那几轮 add() 先跑完,别跟它抢
+HEAL_SETTLE=60
+# 超过这个岁数的 tom_modem.real 属于看门狗漏网的(上限默认 20s),可以收
+AT_STUCK_AGE=40
+# 重钉 AT 口的最小间隔。重钉要重起 websocket_server.py,代价不小,不能每分钟一次
+REPIN=/tmp/mwrt-qmodem-usb3.repin
+REPIN_EVERY=300
+
+log() { logger -t "$TAG" "$@"; }
+
+# 节流日志: 同一条原因不重复刷,免得每分钟一行把 logread 冲掉。
+#
+# 为什么非要有它(实测踩过): 上一版自愈里每一条提前 return 都是**静音**的,
+# 于是那次开机自愈明明跑了、什么也没修好、却一行日志都没留下 —— 事后完全无从下手,
+# 只能靠猜。现在"模组在总线上而段是 disabled"之后的每一条退出路径都必须留话。
+#
+# 稳态(state 正常)时 why_clear 会把记录清掉,所以"坏掉 -> 修好 -> 又坏掉"
+# 第二次照样打得出来,不会被节流吃掉。
+WHY=/tmp/mwrt-qmodem-usb3.why
+log_once() {
+	local key="$1" msg="$2" f
+	f="$WHY.$key"
+	[ "$(cat "$f" 2>/dev/null)" = "$msg" ] && return 0
+	echo "$msg" > "$f" 2>/dev/null
+	log "$msg"
+}
+why_clear() { rm -f "$WHY".* 2>/dev/null; }
+
+# 复位会让模组离开总线二十来秒,而这块固件里有好几处是靠 "lsusb | grep 5700"
+# 判型的。如果那个窗口正好压在它们判型的当口,它们会把"没有模组"这个错误结论
+# 固化下来,表现就是"WTM 没检测到 5700,一系列初始化都是错的":
+#   - /etc/init.d/modeminit 往 /tmp/modconf.conf 写"未知模块...",主动 kill 掉
+#     websocket_server.py,也不跑 mt5700m.sh
+#   - luci 的菜单缓存 /tmp/luci-indexcache.* 会把"模组设定"注册成 cbi("modem")
+#     而不是 cbi("modem5700"),WEB界面/模组状态/短信管理 三个子页都不出现,
+#     /usr/bin/modemflag.conf 也不会被 touch
+#
+# 两道防线: 上面的 BOOT_SETTLE 让复位躲开开机判型(模组挂在 HS 上时 lsusb 本来就
+# 看得见它,判型是对的,不抢它就不会错),这里再把残余竞态补回来。
+#
+# 另外复位后 ttyUSB 编号会变(总线号从 1 变 2,接口重新编号),websocket_server 那边
+# 是 detect_at_port.py 把口钉死的,不重跑一遍就会守着一个已经不存在的口。所以
+# 重钉 AT 口这一下是必须的,不是可选的。
+#
+# 为什么不直接 /etc/init.d/modeminit restart(试过,有害): modeminit 没有 stop(),
+# restart 就是再跑一遍 modem_init,而 modem_init 里 mwrt_wan_failover.sh /
+# 5700netchek.sh / smstrun.py 都是无条件 `&` 起的常驻进程 —— 每复位一次就多叠
+# 一份不退的 AT 轮询进程。所以这里只复刻 webui() 稳态分支真正需要的那几步。
+#
+# 故意不动 Airpifanctrl: 它 start() 里 5700 和非 5700 两个分支铺的文件完全一样
+# (footer5700.htm 那行是注释掉的),开机漏判并不会丢东西;而它 restart() 两个分支
+# 是不一样的,贸然重启反而会把 footer 换成开机时不会用的 footer5700.htm。
+refresh_modem_detection() {
+	# Next refreshes AT ownership through its normal modem add/hook path.
+	echo MT5700M-CN > /tmp/modconf.conf
+	rm -f /tmp/luci-indexcache*
+}
+
+repin_lockfree() {
+	local last now
+	now="$(cut -d. -f1 /proc/uptime 2>/dev/null)"
+	case "$now" in ''|*[!0-9]*) return 0 ;; esac
+	last="$(cat "$REPIN" 2>/dev/null)"
+	case "$last" in ''|*[!0-9]*) last=0 ;; esac
+	[ "$last" -gt 0 ] && [ "$last" -le "$now" ] && \
+		[ $((now - last)) -lt "$REPIN_EVERY" ] && return 0
+	echo "$now" > "$REPIN" 2>/dev/null
+	refresh_modem_detection
+}
+
+# 和 cron/hotplug 两路入口互斥,更要防的是自己: 一次复位要三十来秒,
+# 期间下一个 cron tick 就到了,不能让两份同时复位模组。
+#
+# 坑(实测踩过): flock 的锁跟着"打开的文件描述符"走,不跟着进程走。任何从这里
+# fork 出去又常驻的后代都会把 fd 9 一起继承走 —— modeminit 起的
+# mwrt_wan_failover.sh 就这样把锁攥到了重启,之后每一分钟的 usb3 都在这行静默
+# 退出,功能等于废了(而且一声不吭)。两手都要:
+#   1. 下面凡是可能派生常驻进程的调用一律带 9>&-,从源头不让它继承
+#   2. 万一还有漏网的,这里认出来自愈 —— 锁文件里记着持有者 pid,那个 pid 要么
+#      不在了要么根本不是本脚本,就说明是泄漏,删掉锁文件换个新 inode 重来。
+#      老的泄漏 fd 指着已经被 unlink 的旧 inode,锁自然作废。
+LOCK=/var/lock/mwrt-qmodem-usb3.lock
+# 用 >> 打开: > 会在拿到锁之前就把里面记的 pid 截没了
+exec 9>>"$LOCK"
+if ! flock -nx 9; then
+	holder="$(cat "$LOCK" 2>/dev/null)"
+	case "$holder" in ''|*[!0-9]*) holder=0 ;; esac
+	if [ "$holder" -gt 0 ] && [ -r "/proc/$holder/cmdline" ] && \
+	   tr '\0' ' ' 2>/dev/null < "/proc/$holder/cmdline" | grep -q mwrt-qmodem-usb3; then
+		# 真有一个实例在跑,让路
+		exit 0
+	fi
+	logger -t "$TAG" "lock was held by something that is not a mwrt-qmodem-usb3 run (leaked fd); taking a fresh lock"
+	rm -f "$LOCK"
+	exec 9>>"$LOCK"
+	flock -nx 9 || exit 0
+fi
+echo $$ > "$LOCK"
+
+# 找到 5700 当前挂在哪个槽位
+find_modem() {
+	local d
+	for d in /sys/bus/usb/devices/[0-9]-[0-9]*; do
+		[ -d "$d" ] || continue
+		case "$(basename "$d")" in *:*) continue ;; esac
+		[ "$(cat "$d/idVendor" 2>/dev/null):$(cat "$d/idProduct" 2>/dev/null)" = "$MT5700_ID" ] || continue
+		basename "$d"
+		return 0
+	done
+	return 1
+}
+
+# 槽位 A-B -> 它所在的 root hub 端口目录(只用来查 SS 伴生口是否被人为关掉)
+port_dir_of() {
+	local slot="$1" bus port p
+
+	case "$slot" in *-*) ;; *) return 1 ;; esac
+	bus="${slot%%-*}"
+	port="${slot#*-}"
+	case "$port" in *[!0-9]*) return 1 ;; esac
+
+	p="/sys/bus/usb/devices/usb$bus/$bus-0:1.0/usb$bus-port$port"
+	[ -d "$p" ] || return 1
+	echo "$p"
+}
+
+slot_to_section() { echo "$1" | sed 's/[\.:-]/_/g'; }
+
+# 某个 ttyUSB 是不是挂在指定槽位下面
+tty_belongs_to() {
+	local tty="$1" slot="$2" real
+	real="$(readlink -f "/sys/class/tty/$(basename "$tty")/device" 2>/dev/null)" || return 1
+	case "$real" in *"/$slot:"*) return 0 ;; esac
+	return 1
+}
+
+# 找一个能应答 AT 的口。优先用 qmodem 自己存的 at_port(它已经探过一轮),
+# 但必须校验节点存在且确实属于当前槽位 —— 总线一翻 ttyUSB 编号会变,
+# uci 里可能是上一次枚举留下的陈旧值。拿不到就在当前槽位下逐个试。
+resolve_at_port() {
+	local slot="$1" sect p t
+	sect="$(slot_to_section "$slot")"
+
+	p="$(uci -q get "qmodem.$sect.at_port")"
+	if [ -n "$p" ] && [ -c "$p" ] && tty_belongs_to "$p" "$slot"; then
+		echo "$p"
+		return 0
+	fi
+
+	for t in /dev/ttyUSB*; do
+		[ -c "$t" ] || continue
+		tty_belongs_to "$t" "$slot" || continue
+		# 9>&- : tom_modem 的 wrapper 自己会后台一个看门狗,别让它继承走锁
+		case "$(TOM_MODEM_MAXSEC=8 /usr/bin/tom_modem "$t" -c 'AT' -t 3 2>/dev/null 9>&-)" in
+			*OK*) echo "$t"; return 0 ;;
+		esac
+	done
+	return 1
+}
+
+# qmodem 自己是不是正在动这个槽位。
+#
+# 以前这里是一句 `ps w | grep -q '[m]odem_scan.sh'` —— 太宽了: enable_pcie_scan
+# 默认是 1,开机会起一个 `modem_scan.sh scan 15 pcie`,它在的那段时间里 USB 这边的
+# 自愈**整轮**被挡掉,而这两件事毫无关系。
+#
+# 现在只认三种真冲突,按 modem_scan.sh 后面的三个参数判:
+#   add <slot|section> / disable <同>  -> 只有动本槽位(或本段名)的才算
+#   scan <delay> <type>               -> type=usb 会遍历所有 USB 槽位,算;pcie 无关
+scan_busy_for() {
+	local slot="$1" sect p pid t seen action arg1 arg2
+	sect="$(slot_to_section "$slot")"
+
+	for p in /proc/[0-9]*; do
+		pid="${p#/proc/}"
+		[ "$pid" = "$$" ] && continue
+
+		seen=0; action=""; arg1=""; arg2=""
+		for t in $(tr '\0' '\n' 2>/dev/null < "$p/cmdline"); do
+			if [ "$seen" = 0 ]; then
+				# 可能是 `ash /usr/share/qmodem/modem_scan.sh ...`,所以逐个 token
+				# 比 basename,而不是只看 argv[0]
+				case "${t##*/}" in modem_scan.sh) seen=1 ;; esac
+				continue
+			fi
+			if [ -z "$action" ]; then action="$t"
+			elif [ -z "$arg1" ]; then arg1="$t"
+			elif [ -z "$arg2" ]; then arg2="$t"
+			fi
+		done
+		[ "$seen" = 1 ] || continue
+
+		case "$action" in
+			add|disable)
+				[ "$arg1" = "$slot" ] && return 0
+				[ "$arg1" = "$sect" ] && return 0
+				;;
+			scan)
+				# 不带 type = 扫全部,也算
+				[ "$arg2" = "usb" ] && return 0
+				[ -z "$arg2" ] && return 0
+				;;
+		esac
+	done
+	return 1
+}
+
+# add() 拿的是 /tmp/lock/modem_add_<slot>,而且是**非阻塞**的 `lock -n`:
+#     lock -n /tmp/lock/modem_add_$slot
+#     [ $? -eq 0 ] || return          <- 拿不到就立刻退,一声不响
+# busybox 的 lock 是 daemonize 持锁的 —— 它 fork 一个常驻进程攥着 fd 不放,
+# 父进程退出锁依然在。所以只要那个守护进程泄漏了(父进程被杀、脚本被 kill),
+# 之后每一次 add() 都是瞬间空转,表现就是"怎么修都修不回来"。
+#
+# 只在 state=disabled 这条罕见分支里检查,稳态路径上零开销。
+# 没人真持有(只是一个留着旧 pid 文本的空壳)就不用管 —— add() 照样 flock 得到。
+clear_leaked_add_lock() {
+	local slot="$1" f p fd tgt holder=""
+	f="/tmp/lock/modem_add_$slot"
+	[ -e "$f" ] || return 0
+
+	for p in /proc/[0-9]*; do
+		[ -d "$p/fd" ] || continue
+		for fd in "$p"/fd/*; do
+			tgt="$(readlink "$fd" 2>/dev/null)" || continue
+			[ "$tgt" = "$f" ] || continue
+			holder="${p#/proc/}"
+			break
+		done
+		[ -n "$holder" ] && break
+	done
+
+	[ -n "$holder" ] || return 0
+	# 持有者就是正在动这个槽位的 modem_scan.sh -> 锁是正常持有的,让路
+	scan_busy_for "$slot" && return 0
+
+	log "the add-lock $f is held by pid $holder [$(tr '\0' ' ' 2>/dev/null < "/proc/$holder/cmdline" | head -c 60)] which is not a live modem_scan.sh for $slot; add() takes that lock non-blocking, so a stale holder makes every retry a silent no-op -- releasing it"
+	# lock -u 是 busybox 自己的释放方式(读锁文件里的 pid 并收掉它);再 rm 换个新
+	# inode,万一还有漏网的 fd 也指着已经被 unlink 的旧 inode,锁自然作废。
+	lock -u "$f" 2>/dev/null
+	rm -f "$f" 2>/dev/null
+}
+
+# 进程岁数(秒)。busybox 没 ps -o etimes,自己读 /proc/PID/stat 第 22 个字段
+# (starttime,单位是时钟节拍 100Hz)。comm 字段里可能带空格和括号,所以先砍到
+# 最后一个 ')' 为止 —— 砍完剩下的第 1 个字段是 state,于是 22 号字段变成第 20 个。
+proc_age() {
+	local pid="$1" start now
+	now="$(cut -d. -f1 /proc/uptime 2>/dev/null)"
+	case "$now" in ''|*[!0-9]*) return 1 ;; esac
+	start="$(sed 's/.*) //' "/proc/$pid/stat" 2>/dev/null | cut -d' ' -f20)"
+	case "$start" in ''|*[!0-9]*) return 1 ;; esac
+	echo $((now - start / 100))
+}
+
+# 收掉攥着全局 AT 锁不放的僵尸 AT 调用。
+# 只收两种:岁数超过 AT_STUCK_AGE 的 tom_modem.real,以及同样岁数的 `flock -x 9`
+# (wrapper 里等锁的那个子进程)。看门狗上限是 20 秒,活过 40 秒的按定义就是漏网的。
+# 而且只收命令行里那个串口属于当前 5700 槽位的 —— 别人的模组一概不碰。
+reap_stuck_at() {
+	local slot="$1" p pid cmd a0 dev age killed=0
+
+	for p in /proc/[0-9]*; do
+		pid="${p#/proc/}"
+		[ "$pid" = "$$" ] && continue
+
+		cmd="$(tr '\0' ' ' 2>/dev/null < "$p/cmdline")" || continue
+		cmd="${cmd% }"
+		[ -n "$cmd" ] || continue
+
+		# 认进程要看 argv[0](真正在执行的那个程序),不能拿整条命令行做子串匹配。
+		# 踩过: 一条 `grep -rl "flock -x 9" /usr/bin ...` 因为参数里字面带着这个
+		# 字符串,被当成僵尸 AT 调用杀掉了。argv[0] 是 grep,一比就分得清。
+		a0="$(tr '\0' '\n' 2>/dev/null < "$p/cmdline" | head -1)"
+		case "${a0##*/}" in
+			tom_modem.real)
+				;;
+			flock)
+				# wrapper 里等锁的那个子进程,argv 恰好就是这三个词。
+				# 只有 /usr/bin/tom_modem 会产生它,而它本该在 20 秒内被看门狗
+				# 连带收掉,活到 40 秒就是漏网的。
+				[ "$cmd" = "flock -x 9" ] || continue
+				;;
+			*)
+				continue
+				;;
+		esac
+
+		age="$(proc_age "$pid")" || continue
+		[ "$age" -ge "$AT_STUCK_AGE" ] || continue
+
+		# tom_modem.real 的命令行里认得出串口,据此把范围锁在当前 5700 的槽位上,
+		# 别人的模组一概不碰。等锁的 flock 认不出口,但它只可能来自
+		# /usr/bin/tom_modem,而且已经卡了 40 秒,留着只会继续堵队。
+		#
+		# 节点已经不在了(模组掉总线,正是调用会卡死的典型场景)就直接收 ——
+		# 那种调用定义上已经死了,再问它属于谁是问不出来的,而要求"必须属于本槽位"
+		# 反倒会把这类僵尸永远留着,把整机 AT 通道一直堵死。
+		dev="$(echo "$cmd" | grep -o '/dev/tty[A-Za-z0-9]*' | head -1)"
+		if [ -n "$dev" ] && [ -c "$dev" ]; then
+			tty_belongs_to "$dev" "$slot" || continue
+		fi
+
+		log "reaping a stuck AT call the tom_modem watchdog missed: pid $pid age ${age}s [$(echo "$cmd" | head -c 70)]"
+		kill -9 "$pid" 2>/dev/null
+		killed=$((killed + 1))
+	done
+
+	[ "$killed" -gt 0 ] || return 0
+
+	# 锁文件里可能还留着已死进程的 fd 引用,换个新 inode 最干净:
+	# 老的泄漏 fd 指着被 unlink 的旧 inode,锁自然作废。
+	sleep 1
+	rm -f /tmp/sendat.at.lock
+	log "cleared the global AT lock after reaping $killed stuck call(s)"
+}
+
+# add() 救回来之后的共同收尾。
+heal_done() {
+	local sect="$1" what="$2"
+
+	why_clear
+	log "$what, at_port=$(uci -q get "qmodem.$sect.at_port")"
+
+	# add() 结尾自己会 `qmodem_network reload`,但只在判定有变化时;拨号真没起来
+	# 才补一脚,免得每次都去踢网络。
+	sleep 3
+	ps w | grep -q '[m]odem_dial.sh' || {
+		log "no dial instance after the heal; nudging qmodem_network"
+		/etc/init.d/qmodem_network reload >/dev/null 2>&1 9>&-
+	}
+}
+
+# 5700 明明在总线上,段却停在 disabled 或者压根没建出来 —— 用作者自己的 add()
+# 把它救回来。
+#
+# 这是**兜底**。病根已经在 disarm_qmodem_preset_usb 那里拔掉了,正常开机走不到这儿
+# (第一道 state != disabled 就返回了,连日志都不打)。留着它是为了另外两条路径:
+#   1. 关机 usb remove -> 20-modem-usb -> disable,也是持久化的。那条正常由开机那一轮
+#      hotplug add 兜住,只在它也失败时才轮到这里。
+#   2. 刷机后第一次开机段根本没建出来,见下面"段还不存在"那段。
+heal_qmodem_state() {
+	local slot="$1" sect st before
+
+	# qmodem 没装(WTModem 装在全部机型上,很多机型没有 qmodem) -> 静默,不是故障
+	[ -x /usr/share/qmodem/modem_scan.sh ] || return 0
+	[ -f /etc/config/qmodem ] || return 0
+
+	sect="$(slot_to_section "$slot")"
+
+	# 段还不存在。以前这里只说一声就交给 qmodem 自己的 hotplug,可 hotplug 只在
+	# 开机那一轮调 add(),那一次没成就再也没人调了 —— 界面一直"没有模组"、不拨号,
+	# 直到用户手动点"USB 模组扫描"。刷完固件后的第一次开机(/etc/config/qmodem 是
+	# 全新的)就会这样。2026-10-14 B 板 OTA 升级后实测:
+	#   12:57:13  hotplug add(): 对 ttyUSB0-3 各发一次 ATI,全没应答(模组 7 秒后
+	#             12:57:20 才"模块启用"),valid_at_ports 为空 -> 三轮重试一个口都
+	#             没试 -> 静默 return
+	#   12:57:18  qmodem_init 那轮 scan 扫到了 2-1,但 modem_add_2-1 还被上面那个
+	#             add() 攥着,lock -n 拿不到 -> 同样静默 return
+	#   13:01:09  用户手动扫描,第一轮就认出来了
+	# 走到这儿时已经过了 HEAL_SETTLE,开机那几轮早跑完了,补一次 add() 不会跟它抢。
+	# 没成就下一分钟再来;成了段就在了,以后再也走不到这儿。
+	# 用户在 qmodem 设置里勾了"阻止自动探测"(block_auto_probe)就不替它加 ——
+	# 它自己的 hotplug 和 qmodem_init 也都认这个开关。
+	if [ -z "$(uci -q get "qmodem.$sect")" ]; then
+		[ "$(uci -q get qmodem.main.block_auto_probe)" = "1" ] && return 0
+
+		if scan_busy_for "$slot"; then
+			log_once heal "5700 is on $slot and qmodem.$sect does not exist yet, but qmodem's own modem_scan.sh is working on $slot right now; standing back for this tick"
+			return 0
+		fi
+
+		clear_leaked_add_lock "$slot"
+
+		log_once headrop "5700 is on $slot but qmodem.$sect was never created (the boot-time add() ran before the modem answered AT); running the author's add()"
+
+		/usr/share/qmodem/modem_scan.sh add "$slot" usb >/dev/null 2>&1 9>&-
+
+		if [ -z "$(uci -q get "qmodem.$sect")" ]; then
+			log_once headd "add() still cannot identify the modem on $slot, qmodem.$sect is still missing; will retry on the next tick"
+			return 0
+		fi
+
+		heal_done "$sect" "qmodem.$sect has been created"
+		return 0
+	fi
+
+	st="$(uci -q get "qmodem.$sect.state")"
+	if [ "$st" != "disabled" ]; then
+		# 稳态: 什么都不做也不打日志。顺手把节流状态清掉,
+		# 这样下次真出事时第一行日志才打得出来。
+		why_clear
+		return 0
+	fi
+
+	# ---- 从这儿往下,模组确实在总线上而段是 disabled。
+	# ---- 每一条退出路径都必须留话 —— 上一版这些分支全是静音的,出事时无从下手。
+
+	if scan_busy_for "$slot"; then
+		log_once heal "qmodem.$sect.state=disabled but qmodem's own modem_scan.sh is working on $slot right now; standing back for this tick"
+		return 0
+	fi
+
+	# add() 用的是非阻塞锁,被泄漏的守护进程攥着的话它每次都瞬间空转
+	clear_leaked_add_lock "$slot"
+
+	before="$(uci -q get "qmodem.$sect.at_port")"
+
+	# 陈旧的 at_port 是这个病的一半原因,先删掉让 add() 重新探。
+	uci -q del "qmodem.$sect.at_port"
+	uci -q del "qmodem.$sect.valid_at_ports"
+	uci commit qmodem
+
+	# 节流: 病好不了的话这行会每分钟刷一次(实测刷过 4 次),而 at_port 已经被
+	# 删空,后面几行连内容都一样,纯噪音。why_clear 在恢复时会清掉节流状态,
+	# 所以"下一次真出事"照样打得出第一行。
+	log_once headrop "5700 is on $slot but qmodem.$sect.state=disabled; dropped the stale at_port (${before:-<none>}) and re-running the author's add()"
+
+	/usr/share/qmodem/modem_scan.sh add "$slot" usb >/dev/null 2>&1 9>&-
+
+	st="$(uci -q get "qmodem.$sect.state")"
+	if [ "$st" != "enabled" ]; then
+		log_once headd "add() still cannot identify the modem on $slot (state=${st:-<unset>} valid_at_ports=[$(uci -q get "qmodem.$sect.valid_at_ports")]); AT probing is the usual reason -- the AT pin is heal_at_port_pin's call, see below"
+		# 【拆死抱】上面刚把 valid_at_ports 删了,add() 又失败,于是它一直是空的;
+		# 而 heal_at_port_pin 原来的第一道闸门正是 [ -n "$valid" ] —— 重钉 AT 口
+		# 这条路就此**永久关闭**,下一轮 add() 继续失败,自己把自己锁死了。
+		# 死抱现在是在 heal_at_port_pin 里拆的: 没有参照物时它改用"钉着的那个口
+		# 是不是本槽位下的一个活节点"来判断,该重钉照样重钉。
+		#
+		# 这里**不要**再自己重钉一次。实测教训(19:11 那一轮): add() 刚拿 tom_modem
+		# 把四个口连轰十六秒,紧接着跑 detect_at_port.py,它一个应答都收不到,于是
+		# 按自己的设计把 SERIAL.PORT 从好端端的 /dev/ttyUSB1 降级成 "auto" ——
+		# 在最差的时机把一个本来正确的钉子弄没了。判断权集中到 heal_at_port_pin
+		# 一处,它有活口判据,不会在这种时候误判。
+		return 0
+	fi
+
+	heal_done "$sect" "qmodem.$sect is back to enabled"
+}
+
+# config5700.json 里的 AT 口是 detect_at_port.py 钉死的,总线一翻(1-1 -> 2-1)
+# ttyUSB 编号会变,旧钉子就指向一个哑口,websocket_server.py 会守着它把全局 AT
+# 锁打满。判据不花钱: 拿 qmodem 自己探出来的 valid_at_ports 当权威,对不上就重钉。
+# 必须排在 heal_qmodem_state 之后 —— 那一步刚把 valid_at_ports 重新探过,这里
+# 才有可信的参照物。
+heal_at_port_pin() {
+	local slot="$1" sect valid pin
+
+	# 不是 5700 那套栈 -> 无事可做,静默
+	[ -f /usr/bin/config5700.json ] || return 0
+
+	sect="$(slot_to_section "$slot")"
+	valid="$(uci -q get "qmodem.$sect.valid_at_ports" 2>/dev/null)"
+	pin="$(grep -o '/dev/tty[A-Za-z0-9]*' /usr/bin/config5700.json 2>/dev/null | head -1)"
+
+	if [ -z "$pin" ]; then
+		# detect_at_port.py 一个口都探不到时会留下 "SERIAL": { "PORT": "auto" },
+		# 让 websocket_server.py 运行时自己探 —— 那是它自己的合法回退,不是故障,
+		# 这里也就没有"钉错的口"可修。说一声就好,别让人误以为坏了。
+		log_once pin "config5700.json has no hard /dev/tty pin (SERIAL.PORT is on auto-detect); nothing to correct here"
+		return 0
+	fi
+
+	if [ -z "$valid" ]; then
+		# 没有参照物。以前这里直接 return,于是 add() 一失败就再也走不到重钉
+		# (见 heal_qmodem_state 里"拆死抱"那段)。现在退一步用一个不花钱的判据:
+		# 钉着的那个口要是连节点都不在、或者根本不属于当前槽位,它必然是错的。
+		if [ ! -c "$pin" ] || ! tty_belongs_to "$pin" "$slot"; then
+			log_once pin "qmodem has no valid_at_ports to compare against, and the 5700 stack is pinned to $pin which is not a live port under $slot; re-pinning anyway"
+			repin_lockfree
+		else
+			log_once pin "qmodem has no valid_at_ports yet, but $pin does exist under $slot; leaving the pin alone"
+		fi
+		return 0
+	fi
+
+	case " $valid " in *" $pin "*) return 0 ;; esac
+
+	log "the 5700 stack is pinned to $pin but qmodem probed [$valid]; re-pinning the AT port"
+	repin_lockfree
+}
+
+# ===========================================================================
+# 【第二次开机 state=disabled、不拨号的病根】—— 这一段治的就是它。
+#
+# qmodem 自己的 /etc/init.d/qmodem_init(START=80) 里 _try_device() 长这样:
+#     config_get path "$1" path                  # add() 存进去的是**全路径**
+#     path="/sys/bus/usb/devices/${path}"        # 又拼了一次前缀
+#     [ ! -d "$path" ] && modem_scan.sh disable "$1" && return
+# 作者以为 path 里存的是 "2-1",实际是 "/sys/bus/usb/devices/2-1/",于是拼成
+#     /sys/bus/usb/devices//sys/bus/usb/devices/2-1/
+# 这个目录永远不存在 -> **每次开机都把已存在的模组段 disable 掉**。而 disable()
+# 不打任何日志(modem_scan.sh 里就 uci set + uci commit 两行),所以查不到痕迹。
+# 就算路径对了也没救,紧接着那句:
+#     is_parent=`echo "$device_path" | grep -q "^$netdevice_path"`
+# 因为 grep -q 不输出,恒为空串,[ -z "$is_parent" ] 恒真,照样 disable,
+# 再跟一个 $slot 未赋值的畸形 add。_try_device 没有一条分支能得出好结果。
+#
+# 时间线(设备 /etc/rc.d 实测):
+#   ~6-20s  内核枚举 -> hotplug.d/{usb,net}/20-modem-* -> modem_scan.sh add -> enabled
+#   S80     qmodem_init -> _try_vendor_preset_usb -> _try_device -> disable(持久化!)
+#   S99     qmodem_network:78 看到 state=disabled -> 不建拨号实例
+# S80 之后再没有任何东西会跑 add: enable_usb_scan 默认 0、全树没有 modem-slot 段、
+# hotplug 那一波早就结束了。于是永久停在 disabled。
+#
+# 刷完机第一次开机为什么没事: 那会儿 /etc/config/qmodem 只有 config main,
+# config_foreach _try_usb_device modem-device 一个段都没有,这段代码空转;
+# 段是之后 hotplug 建的,自然是 enabled。第二次开机段已经在了 -> 必然被禁用。
+#
+# 修法用作者自己的开关 try_preset_usb(qmodem_init:15,24;LuCI 设置页上就是一个
+# Flag),它只门控 _try_vendor_preset_usb(),而那个函数只做两件事:
+#     _try_usb_device -> 上面那个 100% 有害的 _try_device
+#     _try_usb_slot   -> _try_slot,只处理 modem-slot 段 —— 作者默认配置里没有,
+#                        整棵树(package/ target/ feeds/luci)也搜不出任何
+#                        modem-slot,等于空转
+# 所以关掉它只丢掉害处,不丢功能。
+#
+# 特别注意**不能**用 block_auto_probe: 那个开关 hotplug 自己也看
+# (20-modem-usb / 20-modem-net 第一行),一关连热插拔识别一起没了。
+# try_preset_pcie / enable_pcie_scan 保持原样,PCIe 那套完全不受影响。
+# /etc/config/ucitrack 里没有 qmodem 条目,所以 commit 不会触发 qmodem_init reload。
+#
+# 不改 feeds/qmodem 里的 qmodem_init(约定: 不动作者仓库)。用配置开关也不会被
+# ./scripts/feeds update 冲掉。
+#
+# 只有总线上确实挂着 3466:3301 才会走到这里(主流程开头的 find_modem),
+# 天然满足"只动 5700"。
+# ===========================================================================
+disarm_qmodem_preset_usb() {
+	# The native Next init already resolves absolute device paths correctly.
+	grep -Fq 'device_path=$(readlink -f "$path"' /etc/init.d/qmodem_init 2>/dev/null && return 0
+	local slot="$1" s found=0
+
+	[ -f /etc/config/qmodem ] || return 0
+	# 已经是 0 -> 什么都不做。稳态下这一步就是一次 uci -q get,零开销、零日志。
+	[ "$(uci -q get qmodem.main.try_preset_usb)" = "0" ] && return 0
+
+	# 真有人配了 usb 类型的 modem-slot 段(作者默认没有,本树也没有)就别关 ——
+	# 那种配置下 _try_usb_slot 是有意义的,关掉会丢功能。
+	for s in $(uci show qmodem 2>/dev/null | sed -n 's/^qmodem\.\([^.=]*\)=modem-slot$/\1/p'); do
+		[ "$(uci -q get "qmodem.$s.type")" = "usb" ] && found=1
+	done
+	if [ "$found" = 1 ]; then
+		log_once preset "qmodem has usb modem-slot sections configured, so _try_usb_slot is meaningful here; leaving try_preset_usb alone"
+		return 0
+	fi
+
+	# 别跟 qmodem 正在跑的 add/scan 抢着 commit 同一个配置文件(uci commit 是整文件
+	# 重写,并发会丢写)。这轮让路,下一分钟的 cron 再来 —— 这件事不急,
+	# 只要在刷机后的第一次开机里某一刻做掉就行,第二次开机就再也不会被禁用了。
+	if scan_busy_for "$slot"; then
+		log_once preset "want to disable qmodem.main.try_preset_usb but modem_scan.sh is mid-run on $slot; will do it on the next tick"
+		return 0
+	fi
+
+	uci -q set qmodem.main.try_preset_usb='0'
+	uci commit qmodem
+	rm -f "$WHY.preset" 2>/dev/null
+	log "disabled qmodem.main.try_preset_usb: its _try_device() re-prefixes the already-absolute stored path (/sys/bus/usb/devices//sys/bus/usb/devices/$slot/), so the test can never pass and it silently disables the modem section on every boot after a flash, after which qmodem_network refuses to dial. hotplug detection is untouched (that is gated on block_auto_probe, not this), and the pcie side is untouched."
+}
+
+# 当前固件镜像的标识,用来认"这还是不是刷机后那一版"。
+# 关键是 OPENWRT_BUILD_DATE —— 每次编译都变的时间戳。于是:
+#   重启      -> 标识不变 -> 已用掉,不武装
+#   刷新固件  -> 标识变了 -> 自动重新武装一次(哪怕版本号字符串一模一样)
+# 也正因为键是内容而不是"文件存在与否",带 keep-settings 的 sysupgrade 保留了
+# /etc 也不会把自己锁死。不 source 这个文件: 里面的 VERSION_ID 有乱码,只挑两行。
+image_id() {
+	local b d
+	b="$(sed -n 's/^BUILD_ID="\(.*\)"$/\1/p' /usr/lib/os-release 2>/dev/null)"
+	d="$(sed -n 's/^OPENWRT_BUILD_DATE="\(.*\)"$/\1/p' /usr/lib/os-release 2>/dev/null)"
+	[ -n "$b$d" ] || b="$(cat /etc/openwrt_version 2>/dev/null)"
+	echo "${b:-unknown}-$d"
+}
+
+# 重训该不该武装。就一次 —— 刷机后的第一次开机。
+# 第二次开机本来就不会落在 2.0(实测: 冷/热启动都直接 2-1@5000),所以从第二次
+# 开机起这个脚本连总线速率都不用看,直接不参与。
+retrain_armed() {
+	[ "$(cat "$ONCE" 2>/dev/null)" = "$(image_id)" ] && return 1
+	return 0
+}
+
+# 用掉这一次机会,之后除非刷新固件(镜像标识变了)都不再武装
+retrain_disarm() {
+	image_id > "$ONCE" 2>/dev/null
+	sync 2>/dev/null
+}
+
+slot="$(find_modem)" || exit 0
+speed="$(cat "/sys/bus/usb/devices/$slot/speed" 2>/dev/null)"
+
+# 病根: qmodem_init 每次开机都会把模组段 disable 掉(详见函数上面的长注释)。
+# 不受 HEAL_SETTLE 约束也不受 ONCE 约束 —— 越早关掉越好,而且值已经是 0 时
+# 它就是一次 uci -q get,稳态零开销、零日志。
+disarm_qmodem_preset_usb "$slot"
+
+# 自愈这一段和总线速率、和上面那个一次性标记都无关 —— 它治的是另一个病
+# (关机持久化的 state=disabled + 陈旧 AT 口,以及刷机后开机那次 add() 没建出段),
+# 哪次开机都可能发作,所以不受
+# ONCE 约束,也放在下面速率判断之前。开机头一分钟不插手,让 qmodem 自己那几轮
+# add() 先跑完。
+up="$(cut -d. -f1 /proc/uptime 2>/dev/null)"
+case "$up" in ''|*[!0-9]*) up=0 ;; esac
+if [ "$up" -ge "$HEAL_SETTLE" ]; then
+	reap_stuck_at "$slot"
+	heal_qmodem_state "$slot"
+	heal_at_port_pin "$slot"
+fi
+
+# 重训已经用掉了 -> 降速这件事从此不管,到此为止
+retrain_armed || exit 0
+
+# 已经在 SuperSpeed 上(5000/10000/20000): 清掉计数,收工
+case "$speed" in
+	480|12|1.5)
+		;;
+	*)
+		# 刷机后第一次开机就已经在 SuperSpeed 上 —— 这一版镜像没什么要重训的,
+		# 直接把机会用掉。能走到这儿说明标记还没写(上面 retrain_armed 拦过),
+		# 所以不会每分钟重复写。
+		rm -f "$TRIES" "$TRIES.done" "$TRIES.wait"
+		retrain_disarm
+		log "MT5700 is already on $slot at ${speed}Mbps on this image; the one-shot retrain is not needed and is now disarmed"
+		exit 0
+		;;
+esac
+
+hs_port="$(port_dir_of "$slot")" || exit 0
+
+# SS 伴生端口必须存在且没有被人为 disable —— 如果是用户/别的脚本故意关掉 USB3
+# 通道(比如为了排查),那就别跟它对着干。
+peer="$(readlink -f "$hs_port/peer" 2>/dev/null)"
+[ -n "$peer" ] && [ -d "$peer" ] || exit 0
+[ "$(cat "$peer/disable" 2>/dev/null)" = "1" ] && {
+	log "MT5700 on $slot at ${speed}Mbps but SS companion port is deliberately disabled, leaving it"
+	exit 0
+}
+
+# 等开机判型跑完再动手。模组挂在 HS 总线上时 lsusb 照样看得见它,所以开机那一轮
+# 判型本身是对的 —— 真正会出事的是在它们判型的当口把模组从总线上拽下来。
+# 让复位晚于 modeminit(START=99)和第一次 luci 请求,代价是刷完固件后头两分钟只有
+# 350 Mb/s,换来的是开机初始化不被打断。hotplug 那一路在 ~7s 就会跑到这里,
+# 直接退出交给每分钟的 cron,不用自己等。
+up="$(cut -d. -f1 /proc/uptime 2>/dev/null)"
+case "$up" in ''|*[!0-9]*) up=0 ;; esac
+if [ "$up" -lt "$BOOT_SETTLE" ]; then
+	[ -f "$TRIES.wait" ] || {
+		: > "$TRIES.wait"
+		log "MT5700 on $slot at ${speed}Mbps; holding the reset until boot-time module detection is done (uptime ${up}s < ${BOOT_SETTLE}s)"
+	}
+	exit 0
+fi
+
+n=0
+[ -f "$TRIES" ] && n="$(cat "$TRIES" 2>/dev/null)"
+case "$n" in *[!0-9]*) n=0 ;; esac
+
+if [ "$n" -ge "$MAX_TRIES" ]; then
+	# 已经放弃过了就别每分钟再刷一行日志
+	[ -f "$TRIES.done" ] || {
+		: > "$TRIES.done"
+		# 试满了还训不出来就是这一版镜像/这套硬件训不出来,下次开机再来一遍
+		# 只是白白多断两次网。一次就是一次,标记也用掉。
+		retrain_disarm
+		log "MT5700 stuck on $slot at ${speed}Mbps after $n modem resets; giving up on this image and keeping the HS link"
+	}
+	exit 0
+fi
+
+# 开机时 hotplug 比 ttyUSB 节点早,等 AT 口出来,最多 30 秒
+at=""
+i=0
+while [ "$i" -lt 30 ]; do
+	at="$(resolve_at_port "$slot")" && break
+	sleep 3
+	i=$((i + 3))
+done
+[ -n "$at" ] || {
+	log "MT5700 on $slot at ${speed}Mbps but no usable AT port yet; will retry on the next tick"
+	exit 0
+}
+
+n=$((n + 1))
+echo "$n" > "$TRIES"
+log "MT5700 on $slot negotiated only ${speed}Mbps; resetting the modem via $at to retrain SuperSpeed (attempt $n/$MAX_TRIES)"
+
+# AT+CFUN=1,1 = 置全功能并复位。模组答 OK 后就掉总线,三十来秒后重新枚举。
+# WAN 会断这三十来秒,这是拿 350 Mb/s 换 5000 Mb/s 必要的代价,而且只在协商错了
+# 的时候发生(实际就是刷完固件的第一次开机)。
+TOM_MODEM_MAXSEC=12 /usr/bin/tom_modem "$at" -c 'AT+CFUN=1,1' -t 6 >/dev/null 2>&1 9>&-
+
+# 先等它离开总线(确认复位真的生效),最多 30 秒
+gone=0
+i=0
+while [ "$i" -lt 30 ]; do
+	sleep 2
+	i=$((i + 2))
+	find_modem >/dev/null 2>&1 || { gone=1; break; }
+done
+
+if [ "$gone" = 0 ]; then
+	log "MT5700 did not leave the bus after the reset; still on $(find_modem) at $(cat "/sys/bus/usb/devices/$(find_modem)/speed" 2>/dev/null)Mbps"
+	exit 0
+fi
+
+# 再等它回来,最多 90 秒(实测 ~27 秒)
+i=0
+while [ "$i" -lt 90 ]; do
+	sleep 3
+	i=$((i + 3))
+	new_slot="$(find_modem)" || continue
+	new_speed="$(cat "/sys/bus/usb/devices/$new_slot/speed" 2>/dev/null)"
+	case "$new_speed" in
+		480|12|1.5|"")
+			# 还在 HS 上,或者描述符还没读全 —— 交给下一个 tick 再判
+			;;
+		*)
+			log "MT5700 came back on $new_slot at ${new_speed}Mbps (SuperSpeed), done"
+			rm -f "$TRIES" "$TRIES.done" "$TRIES.wait"
+			# 成了。这一版镜像的重训机会就此用掉,以后每次开机直接不参与。
+			retrain_disarm
+
+			# 旧的 HS 段这时还在 uci 里,要交给 dedup 回收 —— 但不能立刻叫它:
+			# 新槽位的段是 qmodem 的 hotplug 建的,这会儿还没建出来,dedup 找不到
+			# 活段就只会打一行 warn 走掉。等新段真的出现再叫,最多等 45 秒;
+			# 等不到也没关系,hotplug 那一路和每分钟的 cron 都会兜住。
+			new_sect="$(slot_to_section "$new_slot")"
+			j=0
+			while [ "$j" -lt 45 ]; do
+				[ -n "$(uci -q get "qmodem.$new_sect")" ] && break
+				sleep 3
+				j=$((j + 3))
+			done
+
+			# 先把判型/AT 口修回来,再让 qmodem 重扫一遍,最后回收孪生段 ——
+			# scan 会建/改段,所以 dedup 一定放最后收尾。
+			refresh_modem_detection
+
+			[ -x /usr/share/qmodem/modem_scan.sh ] && \
+				/usr/share/qmodem/modem_scan.sh scan 0 usb >/dev/null 2>&1 9>&-
+
+			[ -x /usr/bin/mwrt-qmodem-dedup ] && /usr/bin/mwrt-qmodem-dedup >/dev/null 2>&1 9>&-
+			exit 0
+			;;
+	esac
+done
+
+new_slot="$(find_modem)"
+log "after reset $n/$MAX_TRIES MT5700 is on ${new_slot:-<gone>} at $(cat "/sys/bus/usb/devices/$new_slot/speed" 2>/dev/null)Mbps"
+
+exit 0

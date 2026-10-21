@@ -1,0 +1,20 @@
+{
+  "myos-max-sd": {
+    "description": "MAX SD overlay and stock boot selection",
+    "read": {
+      "ubus": {
+        "myos.max.sd": [
+          "status"
+        ]
+      }
+    },
+    "write": {
+      "ubus": {
+        "myos.max.sd": [
+          "stock"
+        ]
+      }
+    }
+  }
+}
+

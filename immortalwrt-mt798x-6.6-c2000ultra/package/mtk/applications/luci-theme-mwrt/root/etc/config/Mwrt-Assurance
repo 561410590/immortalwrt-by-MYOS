@@ -1,0 +1,11 @@
+
+config settings 'wan_failover'
+	option enabled '0'
+	option primary_if 'eth0'
+	option secondary_if 'eth2'
+	option ping_target '223.5.5.5'
+	option check_interval '3'
+	option fail_threshold '4'
+	option success_threshold '4'
+	option force_primary '1'
+

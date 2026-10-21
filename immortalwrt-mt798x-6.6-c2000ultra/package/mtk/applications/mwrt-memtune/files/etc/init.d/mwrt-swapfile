@@ -1,0 +1,106 @@
+#!/bin/sh /etc/rc.common
+# Mwrt SD swap 兜底 (B 方案)
+# 在 SD 卡的 f2fs overlay 上放一个 512MB swap 文件,优先级 10 —— 只在 zram(pri100)
+# 用尽后才会用到,充当 OOM 兜底。首次开机时文件不存在则【后台】生成,不阻塞启动。
+#
+# ============================ 安全红线 ============================
+# 只在 /overlay(SD 的 f2fs)上建 swap 文件;官方系统的 NAND/eMMC/SPI-NOR 一律不碰。
+# 判据:必须存在 " /overlay " 这个 f2fs 挂载点(本定制 SD 镜像特征)才动手。
+# =================================================================
+#
+# 首次生成必须分块写:一次性 dd 512MB conv=fsync 再紧跟 f2fs 首次 swapon(块迁移,
+# 实测 53s)曾把 B 板拖到看门狗复位(10-13)。现做法:开机 60s 后、8×64MB 每块 sync、
+# 写到 .tmp 再改名(中途掉电不会留下半截 swapfile)。
+# dmesg 里 "Swapfile is not align to section" 是 f2fs 首次 swapon 的正常提示:内核会
+# 迁移并 pin 住文件,之后每次开机再挂只要几毫秒(extents:1)。
+#
+# SD 镜像的 /overlay 是 f2fs 挂在 loop0 上(loop0 带偏移指向 SD 分区)。loop 默认是
+# 缓冲模式,往这里换页时,每页都要先在底层块设备的页缓存里变成一页脏页 =
+# "要内存才能腾内存":2026-10-14 B 板压测 zram 一满、往 SD 溢出约 1 秒内复位。
+# 所以挂之前先用 mwrt-loopdio 把 loop 切到 direct I/O(运行时可切,同样负载实测
+# 平稳落盘);切不了就不挂 SD swap —— 没有兜底也比一用就复位强。
+#
+# 首次生成期间 BUSY 里是后台进程号,做完(不论成败)删掉。右上角消息中心
+# (luci.mwrt-notice)据此挂一条关不掉的"正在创建虚拟内存",进度按 .tmp 的大小算。
+
+START=12
+STOP=88
+
+SWAP=/overlay/swapfile
+SIZE_MB=512
+CHUNK_MB=64
+PRIO=10
+BUSY=/tmp/mwrt-swapfile.busy
+
+boot() {
+	start "$@"
+}
+
+# /overlay 在 loop 上时确保 loop 是 direct I/O;不在 loop 上(直接挂分区)不涉及
+overlay_loop_dio() {
+	local dev dio
+	dev=$(awk '$2 == "/overlay" { print $1; exit }' /proc/mounts)
+	case "$dev" in
+		/dev/loop*) ;;
+		*) return 0 ;;
+	esac
+	dio=/sys/block/${dev#/dev/}/loop/dio
+	[ "$(cat "$dio" 2>/dev/null)" = 1 ] && return 0
+	/usr/sbin/mwrt-loopdio "$dev" 1 2>/dev/null
+	[ "$(cat "$dio" 2>/dev/null)" = 1 ] && return 0
+	logger -t mwrt-swapfile "cannot enable direct I/O on $dev, SD swap skipped"
+	return 1
+}
+
+# 首次生成:延后、分块写 .tmp,写完再改名挂上。在后台跑,失败返回 1
+create_swap() {
+	local tmp="${SWAP}.tmp" avail i=0
+
+	sleep 60
+	rm -f "$tmp"
+	avail=$(df -m /overlay 2>/dev/null | awk 'NR==2{print $4}')
+	if [ "${avail:-0}" -lt $((SIZE_MB + 256)) ]; then
+		logger -t mwrt-swapfile "overlay free ${avail}MB too low, skip"
+		return 1
+	fi
+	while [ $i -lt $((SIZE_MB / CHUNK_MB)) ]; do
+		nice -n 19 dd if=/dev/zero of="$tmp" bs=1M count="$CHUNK_MB" \
+			seek=$((i * CHUNK_MB)) conv=notrunc 2>/dev/null || { rm -f "$tmp"; return 1; }
+		sync
+		i=$((i + 1))
+	done
+	chmod 600 "$tmp"
+	mkswap "$tmp" >/dev/null 2>&1 || { rm -f "$tmp"; return 1; }
+	mv -f "$tmp" "$SWAP" && sync
+	swapon -p "$PRIO" "$SWAP" 2>/dev/null
+	logger -t mwrt-swapfile "created ${SWAP} ${SIZE_MB}MB, swapon pri ${PRIO}"
+}
+
+start() {
+	# 只在 SD f2fs overlay 上做
+	grep -q ' /overlay ' /proc/mounts || return 0
+	# 已经挂了就跳过
+	grep -q "^${SWAP} " /proc/swaps 2>/dev/null && return 0
+	# loop 切不到 direct I/O 就整个不做(也不白占 512MB 去生成文件)
+	overlay_loop_dio || return 0
+
+	# 注意:本固件的 busybox swapon 不支持 -d(discard),用了会整条失败 -> 不加 -d
+	if [ -f "$SWAP" ]; then
+		# 文件已在(往次开机生成):直接挂;若头无效则补 mkswap 再挂
+		swapon -p "$PRIO" "$SWAP" 2>/dev/null && return 0
+		mkswap "$SWAP" >/dev/null 2>&1
+		swapon -p "$PRIO" "$SWAP" 2>/dev/null
+		return 0
+	fi
+
+	# 文件不存在(首次):后台生成。已经有一份在生成就别再起(两份会互删 .tmp)
+	local pid
+	pid=$(cat "$BUSY" 2>/dev/null)
+	[ -n "$pid" ] && grep -q mwrt-swapfile "/proc/$pid/cmdline" 2>/dev/null && return 0
+	( create_swap; rm -f "$BUSY" ) &
+	echo $! > "$BUSY"
+}
+
+stop() {
+	swapoff "$SWAP" 2>/dev/null
+}

@@ -1,0 +1,101 @@
+#!/bin/sh /etc/rc.common
+
+START=18
+
+. /lib/functions.sh
+. /lib/functions/system.sh
+
+normalize_mac() {
+	local mac
+	mac="$(printf '%s' "$1" | tr -d '[:space:]:-' | tr 'a-f' 'A-F')"
+	printf '%s' "$mac" | grep -qE '^[0-9A-F]{12}$' || return 1
+	mac="$(printf '%s\n' "$mac" | sed 's/../&:/g;s/:$//')"
+	case "$mac" in
+		'00:00:00:00:00:00'|'FF:FF:FF:FF:FF:FF'|'00:66:88:00:00:00') return 1 ;;
+	esac
+	[ $((0x${mac%%:*} & 1)) -eq 0 ] || return 1
+	printf '%s\n' "$mac"
+}
+
+pick_mac() {
+	local mac
+	mac="$(normalize_mac "$(uci -q get myos_nros.main.manual_mac 2>/dev/null)")" && {
+		printf '%s\n' "$mac"
+		return
+	}
+	mac="$(normalize_mac "$(uci -q get oem.board.id 2>/dev/null)")" && printf '%s\n' "$mac"
+}
+
+find_lan_device() {
+	local section="$1" name
+	config_get name "$section" name
+	[ "$name" = 'br-lan' ] && lan_device_section="$section"
+}
+
+set_live_mac() {
+	local device="$1" mac="$2" current
+	[ -e "/sys/class/net/$device/address" ] || return 0
+	read -r current < "/sys/class/net/$device/address"
+	[ "$(printf '%s' "$current" | tr 'a-f' 'A-F')" = "$mac" ] ||
+		ip link set dev "$device" address "$mac"
+}
+
+apply_mac() {
+	local board base hnat_mac eth0_mac changed=0
+	board="$(cat /tmp/sysinfo/board_name 2>/dev/null)"
+	[ "$board" = 'nradio,c2000-max' ] || return 0
+	rm -f /etc/rc.d/S95embed_simcard
+	base="$(pick_mac)" || {
+		logger -t c2000max-mac 'no valid per-device MAC found'
+		return 1
+	}
+	hnat_mac="$(macaddr_add "$base" 1)"
+	eth0_mac="$(macaddr_add "$base" 2)"
+
+	config_load network
+	lan_device_section=
+	config_foreach find_lan_device device
+	if [ "$(uci -q get network.lan.macaddr)" != "$base" ]; then
+		uci -q set network.lan.macaddr="$base"
+		changed=1
+	fi
+	if [ -n "$lan_device_section" ] &&
+	   [ "$(uci -q get network.$lan_device_section.macaddr)" != "$base" ]; then
+		uci -q set network.$lan_device_section.macaddr="$base"
+		changed=1
+	fi
+	[ "$changed" = 0 ] || uci -q commit network
+
+	set_live_mac eth0 "$eth0_mac"
+	set_live_mac eth1 "$base"
+	set_live_mac hnat "$hnat_mac"
+	set_live_mac br-lan "$base"
+	logger -t c2000max-mac "stable LAN MAC applied: $base"
+}
+
+ensure_eth1_up() {
+	local attempt board
+	board="$(cat /tmp/sysinfo/board_name 2>/dev/null)"
+	[ "$board" = 'nradio,c2000-max' ] || return 0
+
+	for attempt in 1 2 3 4 5 6; do
+		if [ -e /sys/class/net/eth1 ] && ip link set dev eth1 up 2>/dev/null; then
+			logger -t c2000max-mac "eth1 ready on attempt $attempt"
+			return 0
+		fi
+		sleep 1
+	done
+
+	logger -t c2000max-mac 'eth1 failed to open after 6 attempts'
+	return 1
+}
+
+boot() {
+	apply_mac
+	ensure_eth1_up
+}
+
+start() {
+	apply_mac
+	ensure_eth1_up
+}

@@ -1,0 +1,21 @@
+{
+	"luci-app-WTModem-leds": {
+		"description": "Grant access to the scheduled LED shutdown",
+		"read": {
+			"file": {
+				"/usr/bin/mwrt-ledsched": [ "exec" ]
+			},
+			"ubus": {
+				"luci": [ "getLEDs" ]
+			},
+			"uci": [ "mwrt_led" ]
+		},
+		"write": {
+			"file": {
+				"/usr/bin/mwrt-ledsched": [ "exec" ]
+			},
+			"uci": [ "mwrt_led" ]
+		}
+	}
+}
+

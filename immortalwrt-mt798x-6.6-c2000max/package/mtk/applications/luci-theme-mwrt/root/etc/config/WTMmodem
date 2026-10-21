@@ -1,0 +1,5 @@
+config ndis 'main'
+	option simsel '0'
+	option rshowtime '1'
+	option showtime '10'
+	option USBEN '0'

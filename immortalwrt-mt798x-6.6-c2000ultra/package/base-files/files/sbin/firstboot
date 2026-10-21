@@ -1,0 +1,22 @@
+#!/bin/sh
+
+board="$(cat /tmp/sysinfo/board_name 2>/dev/null)"
+
+if [ "$board" = 'nradio,c2000-max' ] && \
+	grep -qs '^/dev/mmcblk0p7 /overlay ' /proc/mounts; then
+	confirmed=0
+	for arg in "$@"; do
+		[ "$arg" = '-y' ] && confirmed=1
+	done
+	[ "$confirmed" = 1 ] || {
+		echo 'C2000MAX SD extroot reset requires: firstboot -y' >&2
+		exit 1
+	}
+
+	touch /overlay/.c2000max-reset-on-boot || exit 1
+	sync
+	echo 'C2000MAX system overlay will be reset during next boot; p7 will be preserved.'
+	exit 0
+fi
+
+exec /sbin/jffs2reset "$@"

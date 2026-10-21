@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/*
+ * Copyright (C) 2022 MediaTek Inc.
+ * Author: Sam.Shih <sam.shih@mediatek.com>
+ */
+
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/gpio/gpio.h>
+
+/ {
+	compatible = "mediatek,mt7988a-rfb", "mediatek,mt7988a";
+
+	fragment@0 {
+		target = <&mdio_bus>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			/* external Aquantia AQR113C */
+			phy0: ethernet-phy@0 {
+				reg = <0>;
+				compatible = "ethernet-phy-ieee802.3-c45";
+				firmware-name = "Rhe-05.06-Candidate9-AQR_Mediatek_23B_P5_ID45824_LCLVER1.cld";
+				reset-gpios = <&pio 72 GPIO_ACTIVE_LOW>;
+				reset-assert-us = <100000>;
+				reset-deassert-us = <221000>;
+			};
+		};
+	};
+
+	fragment@1 {
+		target = <&gmac1>;
+		__overlay__ {
+			phy-mode = "usxgmii";
+			phy-connection-type = "usxgmii";
+			phy = <&phy0>;
+			status = "okay";
+		};
+	};
+};

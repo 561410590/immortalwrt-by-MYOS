@@ -1,0 +1,21 @@
+{
+  "myos-ultra-sd": {
+    "description": "Ultra SD overlay and stock boot selection",
+    "read": {
+      "ubus": {
+        "myos.ultra.sd": [
+          "status"
+        ]
+      }
+    },
+    "write": {
+      "ubus": {
+        "myos.ultra.sd": [
+          "stock"
+        ]
+      }
+    }
+  }
+}
+
+

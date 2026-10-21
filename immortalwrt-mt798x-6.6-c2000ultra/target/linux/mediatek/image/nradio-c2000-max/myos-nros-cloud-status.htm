@@ -1,0 +1,90 @@
+<fieldset class="cbi-section">
+	<legend><%:远控运行状态%></legend>
+	<table class="table" id="myos-nros-status">
+		<tr><td width="35%"><%:总体状态%></td><td id="myos-nros-overall"><em><%:正在读取...%></em></td></tr>
+		<tr><td><%:官方云桥接%></td><td id="myos-nros-bridge"><em><%:正在读取...%></em></td></tr>
+		<tr><td><%:远程登录隧道%></td><td id="myos-nros-rweb"><em><%:正在读取...%></em></td></tr>
+		<tr><td><%:MQTT 服务%></td><td id="myos-nros-mqtt"><em><%:正在读取...%></em></td></tr>
+		<tr><td><%:本地 MQTT 链路%></td><td id="myos-nros-local-mqtt"><em><%:正在读取...%></em></td></tr>
+		<tr><td><%:命令 Agent%></td><td id="myos-nros-command"><em><%:正在读取...%></em></td></tr>
+		<tr><td><%:状态 Agent%></td><td id="myos-nros-agent-status"><em><%:正在读取...%></em></td></tr>
+		<tr><td><%:身份与凭据%></td><td id="myos-nros-identity"><em><%:正在读取...%></em></td></tr>
+		<tr><td><%:状态更新时间%></td><td id="myos-nros-updated"><em><%:正在读取...%></em></td></tr>
+	</table>
+	<div class="cbi-section-descr"><%:开启远控后，客户端可登录 LuCI 菜单，并通过会话临时公钥免密登录 SSH。SSH 授权随连接撤销，异常退出时 120 秒后自动清理。%></div>
+</fieldset>
+
+<style type="text/css">
+	.myos-nros-ok { color: #2e7d32; font-weight: bold; }
+	.myos-nros-warn { color: #b26a00; font-weight: bold; }
+	.myos-nros-error { color: #c62828; font-weight: bold; }
+	.myos-nros-muted { opacity: .75; }
+</style>
+
+<script type="text/javascript">//<![CDATA[
+(function() {
+	function setText(id, text, state) {
+		var node = document.getElementById(id);
+		if (!node) return;
+		node.textContent = text;
+		node.className = state ? 'myos-nros-' + state : '';
+	}
+
+	function serviceState(running) {
+		return running ? ['<%:运行中%>', 'ok'] : ['<%:未运行%>', 'error'];
+	}
+
+	XHR.poll(5, '<%=luci.dispatcher.build_url("admin", "system", "myos_nros", "status")%>', null,
+		function(x, data) {
+			if (!x || x.status != 200 || !data) return;
+
+			var overall = {
+				disabled: ['<%:已停用%>', 'muted'],
+				configuration_error: ['<%:身份或云配置不完整%>', 'error'],
+				stopped: ['<%:远控服务异常%>', 'error'],
+				online: ['<%:已连接官方云%>', 'ok'],
+				connecting: ['<%:正在连接官方云%>', 'warn'],
+				starting: ['<%:等待本地 MQTT 链路%>', 'warn']
+			}[data.overall] || ['<%:未知%>', 'warn'];
+			setText('myos-nros-overall', overall[0], overall[1]);
+
+			if (!data.enabled)
+				setText('myos-nros-bridge', '<%:未启用%>', 'muted');
+			else if (data.bridge_online)
+				setText('myos-nros-bridge', '<%:已连接%>', 'ok');
+			else
+				setText('myos-nros-bridge', '<%:未连接%>', 'warn');
+
+			if (!data.remote_web_enabled)
+				setText('myos-nros-rweb', '<%:已禁用%>', 'muted');
+			else if (data.rweb_active)
+				setText('myos-nros-rweb', '<%:已建立，远端端口%> ' + String(data.rweb_port || ''), 'ok');
+			else
+				setText('myos-nros-rweb', '<%:未建立（APP 点击时按需创建）%>', 'muted');
+
+			var state = serviceState(data.mosquitto);
+			setText('myos-nros-mqtt', state[0], state[1]);
+			state = serviceState(data.command_agent);
+			setText('myos-nros-command', state[0], state[1]);
+			state = serviceState(data.status_agent);
+			setText('myos-nros-agent-status', state[0], state[1]);
+			setText('myos-nros-local-mqtt', data.local_broker_online ? '<%:已连接%>' : '<%:未连接%>',
+				data.local_broker_online ? 'ok' : (data.enabled ? 'warn' : 'muted'));
+
+			var identity = [];
+			identity.push(data.identity_ready ? '<%:MAC 已就绪%>' : '<%:MAC 缺失%>');
+			identity.push(data.device_code_ready ? '<%:设备码已就绪%>' : '<%:设备码缺失%>');
+			identity.push(data.credential_ready ? '<%:生产凭据已就绪%>' : '<%:生产凭据未配置%>');
+			setText('myos-nros-identity', identity.join(' / '),
+				data.identity_ready && data.device_code_ready && data.credential_ready ? 'ok' : 'warn');
+
+			if (data.state_fresh)
+				setText('myos-nros-updated', String(data.state_age || 0) + ' <%:秒前%>', 'ok');
+			else if (data.state_age != null)
+				setText('myos-nros-updated', '<%:状态已过期%> (' + String(data.state_age) + ' <%:秒%>)', 'warn');
+			else
+				setText('myos-nros-updated', '<%:等待状态 Agent 上报%>', 'warn');
+		}
+	);
+})();
+//]]></script>

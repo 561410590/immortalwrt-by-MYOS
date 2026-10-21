@@ -1,0 +1,34 @@
+#!/bin/sh
+
+[ "$ACTION" = "add" ] || exit 0
+case "$INTERFACE" in
+	ra[0-9]*|ra[xiyez][0-9]*) ;;
+	*) exit 0 ;;
+esac
+
+# S10boot generates the configuration after loading all modules.
+[ -e /tmp/.config_pending ] && exit 0
+
+wireless_config_ready() {
+	local radio
+
+	[ -s /etc/config/wireless ] && uci -q show wireless >/dev/null || return 1
+	radio="$(uci -q get 'wireless.@wifi-iface[0].device')" || return 1
+	[ -n "$radio" ] && [ "$(uci -q get "wireless.$radio")" = "wifi-device" ] &&
+		[ -n "$(uci -q get "wireless.$radio.type")" ]
+}
+
+if [ -s /etc/config/wireless ] && ! uci -q show wireless >/dev/null; then
+	logger -t mtwifi-cfg "Invalid wireless configuration; preserving it for repair"
+	exit 1
+fi
+
+wireless_config_ready && exit 0
+/sbin/wifi config || exit 1
+wireless_config_ready || {
+	logger -t mtwifi-cfg "Wireless configuration is not ready after device detection"
+	exit 1
+}
+
+# Avoid recursive wireless down/up while a netdev is being added.
+ubus call network reload

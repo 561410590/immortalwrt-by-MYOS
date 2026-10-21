@@ -1,0 +1,36 @@
+#!/bin/sh
+# 雷神账号定时暂停(改自 https://github.com/isecret/leigod-helper)。
+# 由 cron 调用, 账号密码运行时从 uci leigod.base 读, 不经 crontab/环境变量传。
+
+USERNAME="$(uci -q get leigod.base.username)"
+PASSWORD="$(uci -q get leigod.base.password)"
+
+log() { logger -t leigod-pause "$*"; echo "$*"; }
+
+if [ -z "$USERNAME" ] || [ -z "$PASSWORD" ]; then
+	log "未设置雷神账号或密码"
+	exit 1
+fi
+
+command -v jq >/dev/null || { log "缺少 jq"; exit 1; }
+
+password_hash=$(printf '%s' "$PASSWORD" | md5sum | awk '{print $1}')
+
+# 请求体用 jq 拼, 账号里带引号/反斜杠也不会把 JSON 拼坏
+login_body=$(jq -nc --arg u "$USERNAME" --arg p "$password_hash" \
+	'{account_token: null, country_code: 86, lang: "zh_CN", password: $p, region_code: 1, src_channel: "guanwang", user_type: "0", username: $u}')
+
+login=$(curl -Ls --connect-timeout 10 -m 30 -X POST https://webapi.leigod.com/api/auth/login \
+	-H 'content-type: application/json' -d "$login_body")
+
+if [ "$(echo "$login" | jq -r '.code' 2>/dev/null)" != "0" ]; then
+	log "登录失败: $(echo "$login" | jq -r '.msg' 2>/dev/null)"
+	exit 1
+fi
+
+account_token=$(echo "$login" | jq -r '.data.login_info.account_token')
+pause_body=$(jq -nc --arg t "$account_token" '{account_token: $t, lang: "zh_CN"}')
+pause=$(curl -Ls --connect-timeout 10 -m 30 -X POST https://webapi.leigod.com/api/user/pause \
+	-H 'content-type: application/json' -d "$pause_body")
+
+log "暂停结果: $(echo "$pause" | jq -r '.msg' 2>/dev/null)"

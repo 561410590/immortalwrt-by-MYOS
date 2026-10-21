@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# smssend - submit an SMS through the AT port in PDU mode.
+#
+# Why this exists: the TD Tech MT5700M-CN does not implement the two-stage
+# AT+CMGS handshake. Sending `AT+CMGS=<len>` gets no '>' prompt back and the
+# module does not wait for a PDU -- it answers the line it was given and moves
+# on. The only form it accepts is length and PDU on one line separated by a
+# literal backslash-r, which is exactly what /usr/bin/pdul.lua emits:
+#
+#     AT+CMGS=24\r0001000D91683108108300F000080A00700072006F00620065
+#
+# sms_tool_q (and therefore `ubus call qmodem send_sms`, which the NRadio APP
+# used) waits for the prompt, so on this module it can never send. Callers that
+# want a message out should use this tool instead.
+#
+# Usage:
+#   smssend <number> <text>      submit, print one line of JSON
+#   smssend --dry <number> <text>  encode only, print the PDUs, touch no port
+#
+# Output: {"ok":true,"refs":[44],"segments":1,"number":"8613...","toa":"91"}
+#         {"ok":false,"error":"...","refs":[],"segments":2,"sent":1}
+import fcntl
+import json
+import os
+import re
+import subprocess
+import sys
+
+PDUL = "/usr/bin/pdul.lua"
+SENDAT = "/usr/bin/sendat"
+SMS_TOOL = "/usr/bin/sms_tool_q"
+PORT_CACHE = "/tmp/sendat.atport"
+LOCKFILE = "/tmp/sendat.at.lock"
+AT_INDEX = "1"
+SEND_TIMEOUT = 40
+
+
+def emit(ok, **fields):
+    fields["ok"] = ok
+    sys.stdout.write(json.dumps(fields, ensure_ascii=False) + "\n")
+    sys.exit(0 if ok else 1)
+
+
+def normalize(raw):
+    """Return (digits, type-of-address) for a destination the user typed.
+
+    pdul.lua hardcodes TOA 91 (international). That is right for a full number
+    but wrong for a service short code: the SMSC would read 10086 as +10086 and
+    drop it. Short and national-format numbers therefore get TOA 81 instead.
+    """
+    text = re.sub(r"[\s\-()]", "", raw or "")
+    if text.startswith("+"):
+        digits, international = text[1:], True
+    elif text.startswith("00") and len(text) > 8:
+        digits, international = text[2:], True
+    else:
+        digits, international = text, False
+
+    if not digits.isdigit() or not 2 <= len(digits) <= 20:
+        return None, None
+    if international:
+        return digits, "91"
+    if len(digits) == 11 and digits[0] == "1":
+        return "86" + digits, "91"          # bare CN mobile number
+    if len(digits) >= 12 and digits.startswith("86"):
+        return digits, "91"                 # country code typed without the +
+    return digits, "81"                     # short code / landline, national
+
+
+def encode(digits, text):
+    try:
+        done = subprocess.run(["lua", PDUL, "", digits, text],
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                              timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    lines = [l.strip() for l in done.stdout.decode("utf-8", "replace").splitlines()]
+    lines = [l for l in lines if "\\r" in l]
+    return lines or None
+
+
+def fix_udhi(line):
+    """Clear the UDHI bit on a lone segment that carries no UDH.
+
+    pdul.lua sets UDHI at `len(MSG) >= limit` but only writes the concatenation
+    header at `> limit`, so a message of exactly the limit comes out claiming a
+    user-data header it does not have and the receiver eats the first six bytes
+    of the text as one. Only reachable on that single length.
+    """
+    head, sep, body = line.partition("\\r")
+    if not sep or len(body) < 6 or not body.startswith("00"):
+        return line
+    try:
+        pdu_type = int(body[2:4], 16)
+    except ValueError:
+        return line
+    if not pdu_type & 0x40:
+        return line
+    return head + sep + body[:2] + "%02X" % (pdu_type & ~0x40) + body[4:]
+
+
+def retarget(line, toa):
+    """Rewrite the destination's type-of-address byte in an encoded PDU.
+
+    Layout after the length and the literal \\r, with an empty SMSC:
+        00 <PDU-type> <TP-MR> <DA-len> <DA-TOA> <digits> ...
+    so the byte to change is always at offset 8. The length prefix counts it
+    either way and does not move.
+    """
+    head, sep, body = line.partition("\\r")
+    if not sep or len(body) < 12 or not body.startswith("00"):
+        return line
+    return head + sep + body[:8] + toa + body[10:]
+
+
+def at(command, timeout=8):
+    try:
+        done = subprocess.run([SENDAT, AT_INDEX, command, str(timeout)],
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                              timeout=timeout + 20)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return done.stdout.decode("utf-8", "replace")
+
+
+def at_error(response):
+    m = re.search(r"\+(?:CMS|CME) ERROR:\s*([^\r\n]+)", response)
+    if m:
+        return m.group(1).strip()
+    if re.search(r"^\s*ERROR\s*$", response, re.M):
+        return "ERROR"
+    return "no +CMGS response"
+
+
+def fallback(number, text):
+    """Last resort for modules that do want the '>' prompt.
+
+    Only reached when the inline form failed, so a module that behaves the
+    standard way still gets its message out. sms_tool_q opens the port itself
+    and honours no lock, hence the explicit one here.
+    """
+    if not os.path.exists(SMS_TOOL):
+        return None
+    try:
+        with open(PORT_CACHE) as f:
+            port = f.read().strip()
+    except OSError:
+        return None
+    if not port or not os.path.exists(port):
+        return None
+    try:
+        with open(LOCKFILE, "w") as lock:
+            try:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            except OSError:
+                pass
+            done = subprocess.run([SMS_TOOL, "-d", port, "send", number, text],
+                                  stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT, timeout=90)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return done.returncode == 0
+
+
+def main():
+    argv = sys.argv[1:]
+    dry = False
+    if argv and argv[0] == "--dry":
+        dry, argv = True, argv[1:]
+    if len(argv) < 2:
+        emit(False, error="usage: smssend [--dry] <number> <text>")
+
+    number, text = argv[0], argv[1]
+    digits, toa = normalize(number)
+    if not digits:
+        emit(False, error="invalid destination number")
+    if not text:
+        emit(False, error="empty message")
+
+    # pdul.lua's UCS2 encoder only walks 1..3-byte UTF-8, so anything outside
+    # the BMP (emoji, mostly) makes it return nil and produce no PDU at all.
+    if any(ord(c) > 0xFFFF for c in text):
+        emit(False, error="unsupported character (emoji)")
+
+    segments = encode(digits, text)
+    if not segments:
+        emit(False, error="PDU encoding failed")
+    if len(segments) == 1:
+        segments = [fix_udhi(segments[0])]
+    if toa != "91":
+        segments = [retarget(s, toa) for s in segments]
+
+    if dry:
+        emit(True, number=digits, toa=toa, segments=len(segments), pdu=segments)
+
+    # PDU mode: the vendor web UI switches the module to text mode for its own
+    # reads, and an encoded PDU sent in text mode goes out as gibberish.
+    at("AT+CMGF=0", 5)
+
+    refs = []
+    for position, segment in enumerate(segments):
+        response = at("AT+CMGS=" + segment, SEND_TIMEOUT)
+        found = re.search(r"\+CMGS:\s*(\d+)", response)
+        if found:
+            refs.append(int(found.group(1)))
+            continue
+        # Clear a half-opened prompt before doing anything else with the port.
+        at("\x1b", 3)
+        if position == 0:
+            handled = fallback(digits, text)
+            if handled:
+                emit(True, number=digits, toa=toa, segments=1, refs=[],
+                     via="sms_tool_q")
+            if handled is False:
+                emit(False, error="sms_tool_q refused the message",
+                     number=digits, toa=toa, segments=len(segments),
+                     sent=0, refs=refs)
+        emit(False, error=at_error(response), number=digits, toa=toa,
+             segments=len(segments), sent=len(refs), refs=refs)
+
+    emit(True, number=digits, toa=toa, segments=len(segments), refs=refs)
+
+
+if __name__ == "__main__":
+    main()

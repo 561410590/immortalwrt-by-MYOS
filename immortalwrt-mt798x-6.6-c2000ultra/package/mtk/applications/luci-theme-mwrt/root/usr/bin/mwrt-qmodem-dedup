@@ -1,0 +1,264 @@
+#!/bin/sh
+# 回收 qmodem 给同一根 5700 建出来的孪生配置。
+#
+# 这块板子只有一个 USB 控制器(11200000.usb),但它导出两个 root hub,而两个 port 是
+# 内核确认的 HS/SS 伴生对 —— 同一个物理插座的两个身份:
+#
+#   /sys/bus/usb/devices/usb1/1-0:1.0/usb1-port1/peer -> ../../../usb2/2-0:1.0/usb2-port1
+#   usb1 1d6b:0002 speed=480     usb2 1d6b:0003 speed=20000
+#
+# MT5700M 支持 USB 3.x: SuperSpeed 训练成功挂在 2-1,冷启动偶发训练失败就退回
+# High-Speed 挂在 1-1。同一根模组、同一个插座,只是总线号不同。
+#
+# 而 qmodem 拿槽位字符串当配置段名,并且只按这个名字去重(modem_scan.sh:397,430):
+#
+#   section_name=$(echo $slot | sed 's/[\.:-]/_/g')   # 1-1 -> 1_1 ; 2-1 -> 2_1
+#   is_exist=$(uci -q get qmodem.$section_name)        # 没有任何物理身份比对
+#
+# 于是同一根模组会拿到两个段,modem_dial.sh:190 用段名当接口名、:379/:413 据此建
+# network.<段名> 和 network.<段名>v6 -> 两套 WAN、两对 IPv4/IPv6;qmodem_network
+# 每个段开一个 procd 实例 -> 两个拨号。
+#
+# 这里不阻止降速、不锁死探测(block_auto_probe)、不碰作者仓库,只做一件事:认出哪套
+# 是活的,把它的孪生那套回收掉。删除本身一律走作者自己的 modem_scan.sh remove,
+# 因为 modem_count 的回退在那里(disable() 是不回退的,metric 会永久漂)。
+#
+# 只对 5700 生效 —— 其他模组一个字都不动。
+
+[ -x /usr/share/qmodem/modem_scan.sh ] || exit 0
+[ -f /etc/config/qmodem ] || exit 0
+
+. /lib/functions.sh
+
+TAG=mwrt-qmodem-dedup
+MT5700_ID="3466:3301"
+
+# 和 cron/hotplug 两路入口互斥,别在 boot 期间两份一起删同一个段
+exec 9>/var/lock/mwrt-qmodem-dedup.lock
+flock -nx 9 || exit 0
+
+log() { logger -t "$TAG" "$@"; }
+
+# 段名 <- 槽位,与 modem_scan.sh:397 同一套替换规则
+slot_to_section() { echo "$1" | sed 's/[\.:-]/_/g'; }
+
+# 伴生槽位: 读 sysfs 的 peer 链接,不写死总线号。
+# 只有直挂 root hub 的端口才有 peer;挂在外部 hub 后面的(1-1.2 这种)没有伴生概念。
+twin_slot_of() {
+	local slot="$1" bus port peer twin
+
+	case "$slot" in
+		*-*) ;;
+		*) return 1 ;;
+	esac
+
+	bus="${slot%%-*}"
+	port="${slot#*-}"
+
+	case "$port" in
+		*[!0-9]*) return 1 ;;
+	esac
+
+	peer="/sys/bus/usb/devices/usb$bus/$bus-0:1.0/usb$bus-port$port/peer"
+	[ -e "$peer" ] || return 1
+
+	twin="$(basename "$(readlink -f "$peer" 2>/dev/null)" 2>/dev/null)"
+	echo "$twin" | sed -n 's/^usb\([0-9][0-9]*\)-port\([0-9][0-9]*\)$/\1-\2/p'
+}
+
+is_5700() {
+	local sect="$1" name path vid pid
+
+	config_get name "$sect" name
+	case "$name" in
+		*5700*) return 0 ;;
+	esac
+
+	config_get path "$sect" path
+	[ -n "$path" ] || return 1
+	vid="$(cat "$path/idVendor" 2>/dev/null)"
+	pid="$(cat "$path/idProduct" 2>/dev/null)"
+	[ "$vid:$pid" = "$MT5700_ID" ]
+}
+
+# 收集全部 5700 段: "段名|槽位|是否活着"
+SECTS=""
+classify() {
+	local sect="$1" path slot netdevs n alive=0
+
+	is_5700 "$sect" || return 0
+
+	config_get path "$sect" path
+	slot="$(basename "$path" 2>/dev/null)"
+	[ -n "$slot" ] || return 0
+
+	# path 目录还在,说明这个总线身份此刻真的挂着设备。这一条同时是竞态护栏:
+	# qmodem 正在对 1-1 跑 add() 时该目录是存在的,于是不会被判成死段。
+	if [ -d "$path" ]; then
+		config_get netdevs "$sect" network
+		if [ -z "$netdevs" ]; then
+			alive=1
+		else
+			for n in $netdevs; do
+				[ -d "/sys/class/net/$n" ] && alive=1
+			done
+		fi
+	fi
+
+	SECTS="$SECTS $sect|$slot|$alive"
+}
+
+config_load qmodem
+config_foreach classify modem-device
+
+live_sect=""
+live_slot=""
+for e in $SECTS; do
+	[ "${e##*|}" = "1" ] || continue
+	live_sect="${e%%|*}"
+	live_slot="${e#*|}"
+	live_slot="${live_slot%%|*}"
+	break
+done
+
+# 没有活着的 5700 段。要么这机器上没有 5700,要么模组这次降速落在了伴生口 ——
+# 后者此刻正靠那一套提供网络,绝不能删,只告警。
+if [ -z "$live_sect" ]; then
+	for d in /sys/bus/usb/devices/[0-9]-[0-9]*; do
+		[ -d "$d" ] || continue
+		[ "$(cat "$d/idVendor" 2>/dev/null):$(cat "$d/idProduct" 2>/dev/null)" = "$MT5700_ID" ] || continue
+		log "warn: MT5700 at $(basename "$d") speed=$(cat "$d/speed" 2>/dev/null) but no live qmodem section yet, nothing removed"
+	done
+	exit 0
+fi
+
+twin_slot="$(twin_slot_of "$live_slot")"
+[ -n "$twin_slot" ] || exit 0
+
+twin_sect="$(slot_to_section "$twin_slot")"
+[ -n "$twin_sect" ] && [ "$twin_sect" != "$live_sect" ] || exit 0
+
+# ---- 防火墙 wan 区 ---------------------------------------------------------
+# modem_scan.sh 的 remove() 删 qmodem/network/dhcp,但从不动防火墙,所以孪生段会
+# 永久残留在 wan 区的 network 列表里(本机现场就留着 1_1 和 1_1v6)。
+
+wan_zone_idx() {
+	local i=0 name
+
+	while :; do
+		name="$(uci -q get "firewall.@zone[$i].name")" || break
+		[ -n "$name" ] || break
+		[ "$name" = "wan" ] && { echo "$i"; return 0; }
+		i=$((i + 1))
+	done
+
+	return 1
+}
+
+changed_fw=0
+drop_from_wan_zone() {
+	local name="$1" idx
+
+	idx="$(wan_zone_idx)" || return 0
+	uci -q get "firewall.@zone[$idx].network" | grep -qw "$name" || return 0
+	uci -q del_list "firewall.@zone[$idx].network=$name"
+	changed_fw=1
+	log "drop $name from firewall wan zone"
+}
+
+# ---- 拨号设置搬迁 ----------------------------------------------------------
+# 总线一翻就丢 APN 属于本脚本自己引入的回归,所以删段之前把用户设过的搬过去。
+# 只在活段该项为空时搬;不搬 metric(派生值)、不搬 alias(会改接口名)。
+
+migrate_opts() {
+	local from="$1" to="$2" k v cur
+
+	for k in apn username password auth pincode \
+	         apn2 username2 password2 auth2 pincode2 pdp_type; do
+		v="$(uci -q get "qmodem.$from.$k")"
+		[ -n "$v" ] || continue
+		cur="$(uci -q get "qmodem.$to.$k")"
+		[ -n "$cur" ] && continue
+		uci -q set "qmodem.$to.$k=$v"
+		log "migrate $k from $from to $to"
+	done
+
+	uci -q commit qmodem
+}
+
+# ---- 回收 -----------------------------------------------------------------
+
+removed=0
+
+# 孪生段必须自己也是 5700 才动。伴生口上插过别的模组(留下一个非 5700 的段)时,
+# 那是别人的配置,"只改 5700"这条约束在这里也得成立。
+twin_is_5700=0
+if [ -n "$(uci -q get "qmodem.$twin_sect")" ]; then
+	twin_name="$(uci -q get "qmodem.$twin_sect.name")"
+	twin_path="$(uci -q get "qmodem.$twin_sect.path")"
+
+	case "$twin_name" in
+		*5700*)
+			twin_is_5700=1
+			;;
+		"")
+			# 没名字 = add() 半途而废留下的空壳。只有它的 path 也确实不在了才算死段,
+			# 否则可能是 qmodem 此刻正在建它,别去拆别人手里的活。
+			[ -n "$twin_path" ] && [ ! -d "$twin_path" ] && twin_is_5700=1
+			;;
+	esac
+
+	if [ "$twin_is_5700" != "1" ]; then
+		log "twin section $twin_sect is not a dead 5700 (name=$twin_name), leaving it alone"
+		exit 0
+	fi
+fi
+
+if [ "$twin_is_5700" = "1" ]; then
+	log "twin section $twin_sect (slot $twin_slot) is the companion of live $live_sect (slot $live_slot); recycling. path=$(uci -q get "qmodem.$twin_sect.path") network=$(uci -q get "qmodem.$twin_sect.network") metric=$(uci -q get "qmodem.$twin_sect.metric")"
+
+	migrate_opts "$twin_sect" "$live_sect"
+
+	# 先摘掉 procd 实例,否则 respawn 120 15 10 会让它一直重生。
+	#
+	# 这里故意不走 /etc/init.d/qmodem_network hang <段>: 那条路会执行
+	# modem_dial.sh <段> hang -> ecm_hang -> fastat "$at_port" "AT^NDISDUP=0,0",
+	# 而死段存的 at_port 是 /dev/ttyUSB1 —— 重新枚举后 ttyUSB 号是复用的,那正是
+	# 活着的模组此刻占的节点,一发过去就把正常的 WAN 挂断了。
+	# 摘实例不需要任何 AT 流量;接口清理由下面的 remove 一并做掉。
+	. /lib/functions/procd.sh
+	procd_kill qmodem_network "modem_$twin_sect" 2>/dev/null
+
+	/usr/share/qmodem/modem_scan.sh remove "$twin_sect" >/dev/null 2>&1
+	removed=1
+fi
+
+# 残留清扫: qmodem 段可能早就不在了(手工删过、或上一版回收过),但 network/dhcp/
+# 防火墙里的同名条目还在。按伴生口反推出的段名直接清。
+for leftover in "$twin_sect" "${twin_sect}v6"; do
+	if [ -n "$(uci -q get "network.$leftover")" ]; then
+		uci -q delete "network.$leftover"
+		uci -q commit network
+		log "delete leftover network.$leftover"
+		removed=1
+	fi
+	if [ -n "$(uci -q get "dhcp.$leftover")" ]; then
+		uci -q delete "dhcp.$leftover"
+		uci -q commit dhcp
+		log "delete leftover dhcp.$leftover"
+		removed=1
+	fi
+	drop_from_wan_zone "$leftover"
+done
+
+if [ "$changed_fw" = "1" ]; then
+	uci -q commit firewall
+	/etc/init.d/firewall reload >/dev/null 2>&1
+fi
+
+if [ "$removed" = "1" ]; then
+	/etc/init.d/qmodem_network reload >/dev/null 2>&1
+	log "done: only $live_sect (slot $live_slot) remains"
+fi
+
+exit 0

@@ -1,0 +1,35 @@
+#!/bin/sh
+
+INTERFACE="$1"
+HOSTNAME="$2"
+
+_too_big() {
+	count=$(ping -B -w 2 -M do -c 3 -s "$1" -I "$INTERFACE" "$HOSTNAME" 2>&1 | grep -cE 'Message too long|100% packet loss')
+	[ "$count" -ge 1 ]
+}
+
+lo=1252
+hi=1472
+
+# Fast path: max size already works
+if ! _too_big $hi; then
+	printf "%d" $((hi + 28))
+	exit 0
+fi
+
+# Nothing in our range works
+if _too_big $lo; then
+	exit 0
+fi
+
+# Binary search: invariant: lo works, hi fails
+while [ $((hi - lo)) -gt 1 ]; do
+	mid=$(( (lo + hi) / 2 ))
+	if _too_big "$mid"; then
+		hi=$mid
+	else
+		lo=$mid
+	fi
+done
+
+printf "%d" $((lo + 28))

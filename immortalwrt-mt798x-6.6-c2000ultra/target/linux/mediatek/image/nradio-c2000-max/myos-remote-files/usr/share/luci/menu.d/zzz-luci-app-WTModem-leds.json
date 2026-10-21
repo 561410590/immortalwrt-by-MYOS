@@ -1,0 +1,13 @@
+{
+	"admin/system/leds": {
+		"action": {
+			"type": "view",
+			"path": "mwrt/leds"
+		},
+		"depends": {
+			"acl": [ "luci-mod-system-config" ],
+			"fs": { "/sys/class/leds": "directory" }
+		}
+	}
+}
+

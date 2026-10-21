@@ -1,0 +1,24 @@
+#!/bin/sh
+
+cd /etc/uci-defaults || exit 0
+# Keep dnsmasq ipset with old method
+rm -f /etc/uci-defaults/50-dnsmasq-migrate-ipset.sh
+uci -q del dhcp.@dnsmasq[0].ipset
+
+source /etc/os-release
+
+files="$(ls /etc/uci-defaults/)"
+[ -n "$files" ] && {
+	mkdir -p /usr/share/omr-update
+	if [ "$(grep rom /etc/mtab)" = "" ]; then
+		#rm /usr/share/omr-update/*
+		cp /etc/uci-defaults/* /usr/share/omr-update
+	fi
+}
+
+# Do not keep /etc/nftables.d
+rm -f /lib/upgrade/keep.d/firewall4
+
+sed -i 's:cmd="$ipkg_bin":cmd="$ipkg_bin --allow-untrusted":' /usr/libexec/package-manager-call
+
+exit 0

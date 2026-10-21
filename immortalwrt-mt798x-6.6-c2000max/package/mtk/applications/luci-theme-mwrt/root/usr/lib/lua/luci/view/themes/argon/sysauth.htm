@@ -1,0 +1,386 @@
+<%#
+    Argon theme - Mwrt custom login
+    Licensed under Apache License 2.0
+-%>
+<%
+	-- Hardware facts were hardcoded below and were wrong on this board (the
+	-- template claimed C2000Ultra / MT7987A / BE5040 / 2 x 2.5G EN8811H). Read
+	-- them at runtime instead. This page renders unauthenticated, so mwrt_hwinfo
+	-- deliberately touches only world-readable files and never ubus.
+	--
+	-- pcall so a missing/broken library degrades to dashes rather than taking the
+	-- whole login page down -- you cannot log in to fix it if it does.
+	-- Shipped by luci-app-WTModem as luasrc/controller/mwrt_hwinfo.lua, hence the
+	-- controller. path. It has no index() so the dispatcher just skips it.
+	local hwok, hw = pcall(require, "luci.controller.mwrt_hwinfo")
+	local function hwget(k)
+		if not hwok then return "—" end
+		local ok, v = pcall(hw[k])
+		return (ok and v and v ~= "") and v or "—"
+	end
+	-- 公司标识(NRadio · 深圳鲲鹏无限科技有限公司)只针对 C2000 系列;其余机型(E87N 等)
+	-- 品牌显示为 Mwrt。判据用机型串是否含 C2000(直接读 world-readable 的 sysinfo,
+	-- 不经 ubus,与本页免鉴权前提一致)。
+	local is_c2000 = false
+	do
+		local function _rd(p)
+			local f = io.open(p, "r"); if not f then return "" end
+			local s = f:read("*a") or ""; f:close(); return s
+		end
+		local id = (_rd("/tmp/sysinfo/model") .. " " .. _rd("/tmp/sysinfo/board_name")):upper()
+		if id:find("C2000", 1, true) then is_c2000 = true end
+	end
+	local brand_logo   = is_c2000 and "NRadio" or "Mwrt"
+	local brand_footer = is_c2000 and "NRadio · 深圳鲲鹏无限科技有限公司" or "欢迎使用Mwrt"
+%>
+<%+themes/argon/out_header_login%>
+<style>
+/* Hide all default argon elements */
+.login-page,.main-bg,.video,.login-container,.login-form,.brand{display:none !important}
+body{margin:0;padding:0;overflow:hidden}
+
+.lo{position:fixed;inset:0;z-index:1000;overflow:hidden;background:radial-gradient(ellipse at 18% 35%,rgba(31,111,235,0.18),transparent 55%),radial-gradient(ellipse at 65% 85%,rgba(57,208,216,0.14),transparent 55%),radial-gradient(ellipse at 90% 10%,rgba(120,90,220,0.10),transparent 60%),linear-gradient(135deg,#f0f6ff 0%,#e6efff 30%,#dbe7ff 65%,#cfdcff 100%);color:#1f2a3d;font-family:'Segoe UI','Microsoft YaHei',sans-serif}
+.ls-bg{position:absolute;inset:0;pointer-events:none}
+.ls-grid{position:absolute;inset:0;background-image:linear-gradient(rgba(31,111,235,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(31,111,235,0.05) 1px,transparent 1px);background-size:60px 60px;-webkit-mask-image:radial-gradient(ellipse at 35% 50%,#000 20%,transparent 75%);mask-image:radial-gradient(ellipse at 35% 50%,#000 20%,transparent 75%)}
+.ls-stage{position:absolute;top:50%;left:32%;transform:translate(-50%,-50%);width:min(640px,56vw);aspect-ratio:1/1;display:flex;align-items:center;justify-content:center}
+.ls-orbit{position:absolute;border-radius:50%;border:1px solid rgba(31,111,235,0.18);pointer-events:none}
+.ls-orbit-1{inset:0;border-style:dashed;border-color:rgba(31,111,235,0.14);animation:lsOrbitSpin 60s linear infinite}
+.ls-orbit-2{inset:8%;border-color:rgba(57,208,216,0.30);animation:lsOrbitSpin 45s linear infinite reverse}
+.ls-orbit-2::before,.ls-orbit-2::after{content:'';position:absolute;width:7px;height:7px;border-radius:50%;background:#14b8a6;box-shadow:0 0 14px #14b8a6,0 0 28px rgba(20,184,166,0.5)}
+.ls-orbit-2::before{top:-3.5px;left:50%;transform:translateX(-50%)}
+.ls-orbit-2::after{bottom:-3.5px;left:50%;transform:translateX(-50%);background:#1f6feb;box-shadow:0 0 14px #1f6feb}
+.ls-orbit-3{inset:16%;border-color:rgba(31,111,235,0.30);animation:lsOrbitSpin 30s linear infinite}
+@keyframes lsOrbitSpin{to{transform:rotate(360deg)}}
+.ls-earth{position:relative;width:60%;aspect-ratio:1/1;border-radius:50%;overflow:hidden;box-shadow:0 0 60px rgba(31,111,235,0.22),0 0 140px rgba(31,111,235,0.12),inset 0 -20px 40px rgba(120,150,200,0.20),inset 0 0 30px rgba(255,255,255,0.4)}
+.earth-svg{width:100%;height:100%;display:block}
+.earth-lines{transform-origin:100px 100px;animation:lsEarthPulse 6s ease-in-out infinite}
+.earth-rotate{transform-origin:100px 100px;animation:lsEarthRotate 18s linear infinite}
+@keyframes lsEarthRotate{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes lsEarthPulse{0%,100%{transform:scale(1) rotate(0deg)}50%{transform:scale(1.05) rotate(4deg)}}
+.earth-shine{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 30% 25%,rgba(255,255,255,0.55),transparent 40%),radial-gradient(circle at 75% 80%,rgba(140,165,200,0.30),transparent 45%);pointer-events:none}
+.ls-attack{position:absolute;width:78%;height:78%;pointer-events:none;overflow:visible;z-index:4}
+.atk-arc{stroke-dasharray:38 220;stroke-dashoffset:258;filter:drop-shadow(0 0 4px currentColor)}
+.atk-1{animation:lsArcShoot 3.2s ease-in infinite;color:#ff5252}
+.atk-2{animation:lsArcShoot 3.6s ease-in infinite -0.8s;color:#1f6feb}
+.atk-3{animation:lsArcShoot 4.2s ease-in infinite -1.6s;color:#14b8a6}
+@keyframes lsArcShoot{0%{stroke-dashoffset:258;opacity:0}8%{opacity:1}70%{stroke-dashoffset:0;opacity:1}85%{opacity:0}100%{stroke-dashoffset:0;opacity:0}}
+.atk-hit{transform-box:fill-box;transform-origin:center;opacity:0}
+.hit-1{animation:lsHitFlash 3.2s ease-out infinite}
+.hit-2{animation:lsHitFlash 3.6s ease-out infinite -0.8s}
+.hit-3{animation:lsHitFlash 4.2s ease-out infinite -1.6s}
+@keyframes lsHitFlash{0%,65%{opacity:0;transform:scale(0)}72%{opacity:1;transform:scale(1.8)}85%{opacity:0;transform:scale(3.8)}100%{opacity:0;transform:scale(3.8)}}
+.ls-particle{position:absolute;width:5px;height:5px;border-radius:50%;background:#1f6feb;box-shadow:0 0 10px #1f6feb,0 0 20px rgba(31,111,235,0.55);top:50%;left:50%;margin:-2.5px 0 0 -2.5px}
+.ls-particle.p1{animation:lsParOrbit1 8s linear infinite}
+.ls-particle.p2{animation:lsParOrbit1 8s linear infinite -2.5s;background:#14b8a6;box-shadow:0 0 10px #14b8a6}
+.ls-particle.p3{animation:lsParOrbit1 8s linear infinite -5s}
+.ls-particle.p4{animation:lsParOrbit2 12s linear infinite;background:#14b8a6;box-shadow:0 0 10px #14b8a6}
+.ls-particle.p5{animation:lsParOrbit2 12s linear infinite -4s}
+.ls-particle.p6{animation:lsParOrbit2 12s linear infinite -8s}
+@keyframes lsParOrbit1{from{transform:rotate(0) translateX(46%) rotate(0)}to{transform:rotate(360deg) translateX(46%) rotate(-360deg)}}
+@keyframes lsParOrbit2{from{transform:rotate(0) translateX(38%) rotate(0)}to{transform:rotate(-360deg) translateX(38%) rotate(360deg)}}
+.ls-badge{position:absolute;bottom:36px;left:36px;display:inline-flex;align-items:center;gap:8px;padding:8px 16px;background:rgba(255,255,255,0.7);border:1px solid rgba(31,111,235,0.2);border-radius:30px;font-size:10px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 4px 16px rgba(31,111,235,0.10);z-index:6}
+.ls-badge-label{color:#5a6680;font-weight:500;letter-spacing:1px}
+.ls-badge-ver{font-weight:700;letter-spacing:1px;background:linear-gradient(135deg,#1f6feb,#14b8a6);-webkit-background-clip:text;background-clip:text;color:transparent}
+.ls-badge-dot{width:7px;height:7px;border-radius:50%;background:#14b885;box-shadow:0 0 8px #14b885;animation:lsPulse 2s infinite}
+@keyframes lsPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.5;transform:scale(1.4)}}
+.ls-brand{position:absolute;top:28px;left:28px;z-index:6}
+.ls-brand-name{font-size:28px;font-weight:800;letter-spacing:1px;background:linear-gradient(135deg,#1f6feb,#14b8a6);-webkit-background-clip:text;background-clip:text;color:transparent;margin-bottom:4px}
+.ls-brand-tag{font-size:11px;color:#5a6680;letter-spacing:2px;text-transform:uppercase;font-weight:600}
+.ls-tech{display:none;position:absolute;right:28px;bottom:30px;display:inline-flex;align-items:center;gap:6px;font-size:10px;color:#6478a0;letter-spacing:1.5px;font-family:"JetBrains Mono",Consolas,monospace;z-index:6;font-weight:600}
+.ls-tech span:nth-child(even){color:#b1c0dd}
+.login-main{position:absolute;inset:0;display:flex;align-items:center;justify-content:flex-end;padding:4vh 6vw 4vh 2vw;overflow-y:auto;z-index:5}
+.login-box{width:100%;max-width:400px;padding:36px 32px;background:linear-gradient(155deg,rgba(255,255,255,0.88),rgba(255,255,255,0.62));border:1px solid rgba(31,111,235,0.22);border-radius:18px;backdrop-filter:blur(20px) saturate(140%);-webkit-backdrop-filter:blur(20px) saturate(140%);box-shadow:0 20px 60px rgba(31,50,100,0.15),0 8px 24px rgba(31,111,235,0.10),0 0 0 1px rgba(255,255,255,0.6) inset;display:flex;flex-direction:column;gap:6px;position:relative}
+.login-box::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(31,111,235,0.7) 30%,rgba(57,208,216,0.6) 70%,transparent);border-radius:18px 18px 0 0}
+.login-logo-area{display:flex;flex-direction:column;align-items:center;gap:6px;margin-bottom:16px}
+.login-brand-main{display:flex;align-items:center;gap:0;font-size:22px;font-weight:700}
+.brand-mwrt{background:linear-gradient(135deg,#1f6feb,#14b8a6);-webkit-background-clip:text;background-clip:text;color:transparent;font-size:26px;font-weight:800;letter-spacing:1px}
+.brand-sep{width:1px;height:18px;background:rgba(31,111,235,0.3);margin:0 12px}
+.brand-auth{color:#1f2a3d;font-size:16px;font-weight:600;letter-spacing:3px}
+.login-brand-en{font-size:9px;color:rgba(31,42,61,0.4);letter-spacing:3px;text-transform:uppercase;margin-top:6px;font-weight:600}
+.login-field{margin-bottom:14px}
+.login-label{display:block;font-size:11px;font-weight:700;color:#3a5080;letter-spacing:1px;margin-bottom:6px;text-transform:uppercase}
+.login-box input[type="text"],.login-box input[type="password"]{width:100%;padding:11px 14px;background:rgba(255,255,255,0.85);border:1px solid rgba(31,111,235,0.18);border-radius:7px;color:#1f2a3d;font-size:14px;transition:all 0.2s;outline:none}
+.login-box input:focus{border-color:#1f6feb;box-shadow:0 0 0 3px rgba(31,111,235,0.15);background:#fff}
+.login-box input::placeholder{color:rgba(31,42,61,0.30);font-size:13px}
+.login-btn{width:100%;padding:12px;font-size:15px;font-weight:600;border-radius:8px;margin-top:8px;background:linear-gradient(135deg,#2f81f7,#1f6feb);color:#fff;border:none;cursor:pointer;transition:all 0.2s;box-shadow:0 6px 18px rgba(31,111,235,0.4);letter-spacing:3px}
+.login-btn:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(31,111,235,0.5)}
+.login-btn:active{transform:translateY(0)}
+.error-msg{color:#dc3545;font-size:13px;text-align:center;border-radius:8px;padding:8px;margin-bottom:8px;background:rgba(220,53,69,0.08);border:1px solid rgba(220,53,69,0.2)}
+.login-footer{text-align:center;margin-top:16px;font-size:11px;letter-spacing:0.5px}
+.ft-brand{color:rgba(31,42,61,0.45);font-weight:500}
+.ft-sep{color:rgba(31,111,235,0.3);margin:0 4px}
+.ft-author{background:linear-gradient(135deg,#1f6feb,#14b8a6);-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:600;letter-spacing:1px}
+
+/* ---- 关于 Mwrt:右上角入口 + 弹窗 ---- */
+/* z-index 要高于 .login-main(5) 和 .ls-badge(6),否则会被登录卡片盖住 */
+.ab-entry{position:absolute;top:24px;right:28px;z-index:8;display:inline-flex;align-items:center;gap:7px;
+padding:9px 16px;background:rgba(255,255,255,0.72);border:1px solid rgba(31,111,235,0.22);border-radius:30px;
+color:#1f6feb;font-size:12px;font-weight:600;letter-spacing:.5px;text-decoration:none;cursor:pointer;
+backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 4px 16px rgba(31,111,235,0.10);
+transition:all .2s;-webkit-tap-highlight-color:transparent}
+.ab-entry:hover{background:rgba(255,255,255,0.92);border-color:rgba(31,111,235,0.42);
+box-shadow:0 6px 22px rgba(31,111,235,0.18);transform:translateY(-1px)}
+.ab-entry svg{width:15px;height:15px;flex:0 0 auto}
+
+.ab-mask{position:fixed;inset:0;z-index:12000;display:none;align-items:center;justify-content:center;padding:20px;
+background:rgba(15,23,42,0.5);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);opacity:0;transition:opacity .25s}
+.ab-mask.ab-open{display:flex}
+.ab-mask.ab-in{opacity:1}
+.ab-box{width:100%;max-width:600px;max-height:88vh;display:flex;flex-direction:column;background:#fff;
+border-radius:16px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,0.3);
+transform:translateY(16px) scale(.97);transition:transform .28s cubic-bezier(.2,.8,.3,1)}
+.ab-mask.ab-in .ab-box{transform:none}
+/* 注意:argon 的 cascade.css 给全局 h3 加了 background:#fff + padding + 圆角,
+   给全局 button 加了 padding/border/line-height。下面这些看似多余的
+   归零声明都是用来压掉它们的,别删。line-height 那条在主题里带 !important。 */
+.ab-hd{position:relative;display:flex;align-items:center;gap:13px;padding:17px 20px;flex:0 0 auto;
+background:linear-gradient(135deg,#1b62d6 0%,#2f81f7 48%,#14b8a6 100%);color:#fff;overflow:hidden}
+/* 顶边一道高光 + 右上角柔光,免得大块纯色太平 */
+.ab-hd::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent)}
+.ab-hd::after{content:'';position:absolute;top:-60%;right:-10%;width:220px;height:220px;border-radius:50%;
+background:radial-gradient(circle,rgba(255,255,255,.18),transparent 68%);pointer-events:none}
+.ab-hd-ico{position:relative;z-index:1;flex:0 0 auto;width:34px;height:34px;border-radius:10px;
+display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.20);
+box-shadow:inset 0 0 0 1px rgba(255,255,255,.28)}
+.ab-hd-ico svg{width:19px;height:19px}
+.ab-hd-txt{position:relative;z-index:1;flex:1 1 auto;min-width:0}
+.ab-hd h3{margin:0;padding:0;width:auto;background:none;border-radius:0;color:#fff;
+font-size:16.5px;font-weight:600;letter-spacing:.6px;line-height:1.25 !important;
+text-shadow:0 1px 2px rgba(0,0,0,.12)}
+.ab-hd-sub{margin-top:3px;font-size:10.5px;letter-spacing:1.4px;text-transform:uppercase;
+color:rgba(255,255,255,.72);font-weight:600}
+.ab-x{position:relative;z-index:1;flex:0 0 auto;width:30px;height:30px;padding:0;margin:0;border:0;
+border-radius:50%;background:rgba(255,255,255,.16);color:#fff;cursor:pointer;line-height:1 !important;
+display:flex;align-items:center;justify-content:center;transition:background .2s,transform .2s;
+-webkit-appearance:none;appearance:none;box-shadow:none}
+.ab-x svg{width:15px;height:15px;display:block}
+.ab-x:hover{background:rgba(255,255,255,.32);transform:rotate(90deg)}
+.ab-x:active{transform:rotate(90deg) scale(.92)}
+
+/* 选项卡:介绍 / 免责声明 */
+.ab-tabs{display:flex;flex:0 0 auto;border-bottom:1px solid #eef1f5;background:#fafbfc}
+/* border-radius / line-height 同样是压主题的全局 button 规则 */
+.ab-tab{flex:1 1 0;padding:12px 8px;margin:0;border:0;border-radius:0;line-height:1.5 !important;
+background:none;-webkit-appearance:none;appearance:none;box-shadow:none;cursor:pointer;font-size:13.5px;font-weight:600;
+color:#64748b;border-bottom:2px solid transparent;transition:all .2s;-webkit-tap-highlight-color:transparent}
+.ab-tab.on{color:#1f6feb;border-bottom-color:#1f6feb;background:#fff}
+
+.ab-bd{padding:18px 22px;overflow-y:auto;-webkit-overflow-scrolling:touch;flex:1 1 auto;
+font-size:13.5px;line-height:1.75;color:#374151}
+.ab-pane{display:none}
+.ab-pane.on{display:block}
+.ab-bd p{margin:0 0 12px;text-align:justify}
+.ab-bd b{color:#1d4ed8;font-weight:600}
+.ab-kv{width:100%;border-collapse:collapse;margin:0 0 4px}
+.ab-kv td{padding:7px 0;border-bottom:1px solid #f1f4f8;vertical-align:top}
+.ab-kv td:first-child{width:34%;color:#64748b;font-size:12.5px}
+.ab-kv td:last-child{color:#1f2a3d;font-weight:500;word-break:break-all}
+.ab-kv tr:last-child td{border-bottom:0}
+.ab-sec{margin:14px 0 8px;font-size:12px;font-weight:700;color:#94a3b8;letter-spacing:1px}
+.ab-ft{padding:12px 22px 16px;flex:0 0 auto;border-top:1px solid #eef1f5;background:#fafbfc;
+text-align:center;font-size:11.5px;color:#94a3b8}
+
+@media(max-width:768px){
+.login-main{justify-content:center;padding:3vh 4vw}
+.login-box{max-width:340px;padding:28px 24px}
+.ls-brand{left:50%;transform:translateX(-50%);text-align:center}
+.ls-badge{left:50%;transform:translateX(-50%)}
+/* 小屏把入口收成图标+短字,免得压住品牌区 */
+.ab-entry{top:14px;right:14px;padding:8px 13px;font-size:11.5px}
+.ab-mask{padding:12px}
+.ab-box{max-height:92vh;border-radius:14px}
+.ab-hd{padding:14px 16px;gap:11px}
+.ab-hd h3{font-size:15.5px}
+.ab-hd-ico{width:31px;height:31px;border-radius:9px}
+.ab-hd-ico svg{width:17px;height:17px}
+.ab-hd-sub{font-size:9.5px;letter-spacing:1.1px}
+.ab-bd{padding:15px 18px;font-size:13px}
+.ab-kv td:first-child{width:38%;font-size:12px}
+.ab-ft{padding:10px 18px calc(14px + env(safe-area-inset-bottom))}
+}
+</style>
+
+<div class="lo">
+  <div class="ls-bg">
+    <div class="ls-grid"></div>
+    <div class="ls-stage">
+      <div class="ls-orbit ls-orbit-1"></div>
+      <div class="ls-orbit ls-orbit-2"></div>
+      <div class="ls-orbit ls-orbit-3"></div>
+      <div class="ls-earth">
+        <svg class="earth-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="earthCore" cx="35%" cy="32%" r="80%"><stop offset="0%" stop-color="#fff" stop-opacity="1"/><stop offset="55%" stop-color="#f3f8ff"/><stop offset="90%" stop-color="#d4e3ff"/><stop offset="100%" stop-color="#a9c1e8"/></radialGradient>
+            <radialGradient id="earthAtmo" cx="50%" cy="50%" r="50%"><stop offset="78%" stop-color="rgba(120,170,235,0)"/><stop offset="100%" stop-color="rgba(120,170,235,0.55)"/></radialGradient>
+            <linearGradient id="meridian" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="rgba(31,111,235,0.30)"/><stop offset="100%" stop-color="rgba(57,208,216,0.22)"/></linearGradient>
+          </defs>
+          <circle cx="100" cy="100" r="80" fill="url(#earthCore)"/>
+          <circle cx="100" cy="100" r="92" fill="url(#earthAtmo)"/>
+          <g class="earth-lines" stroke="url(#meridian)" stroke-width="0.6" fill="none">
+            <ellipse cx="100" cy="100" rx="80" ry="80" opacity=".5"/>
+            <ellipse cx="100" cy="100" rx="80" ry="55" opacity=".6"/>
+            <ellipse cx="100" cy="100" rx="80" ry="28" opacity=".7"/>
+            <ellipse cx="100" cy="100" rx="80" ry="0.5" opacity=".75"/>
+            <ellipse cx="100" cy="100" rx="55" ry="80" opacity=".6"/>
+            <ellipse cx="100" cy="100" rx="28" ry="80" opacity=".7"/>
+            <ellipse cx="100" cy="100" rx="0.5" ry="80" opacity=".75"/>
+          </g>
+          <g class="earth-rotate earth-nodes">
+            <circle cx="100" cy="100" r="3" fill="#1f6feb" opacity="0.9"><animate attributeName="r" values="2.5;4;2.5" dur="2.4s" repeatCount="indefinite"/></circle>
+            <circle cx="100" cy="100" r="6" fill="none" stroke="#1f6feb" stroke-width="0.6" opacity="0.5"><animate attributeName="r" values="3;12;3" dur="2.4s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.7;0;0.7" dur="2.4s" repeatCount="indefinite"/></circle>
+            <circle cx="58" cy="68" r="1.6" fill="#f59f00"><animate attributeName="opacity" values="0.4;1;0.4" dur="2s" repeatCount="indefinite"/></circle>
+            <circle cx="78" cy="124" r="1.6" fill="#14b8a6"><animate attributeName="opacity" values="0.4;1;0.4" dur="2.2s" begin=".4s" repeatCount="indefinite"/></circle>
+            <circle cx="115" cy="64" r="1.6" fill="#ec4899"><animate attributeName="opacity" values="0.4;1;0.4" dur="2.6s" begin=".7s" repeatCount="indefinite"/></circle>
+            <circle cx="120" cy="110" r="1.6" fill="#f59f00"><animate attributeName="opacity" values="0.4;1;0.4" dur="2.8s" begin="1s" repeatCount="indefinite"/></circle>
+            <circle cx="135" cy="74" r="1.6" fill="#a78bfa"><animate attributeName="opacity" values="0.4;1;0.4" dur="2.4s" begin="1.3s" repeatCount="indefinite"/></circle>
+          </g>
+        </svg>
+        <div class="earth-shine"></div>
+      </div>
+      <svg class="ls-attack" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="atkRed" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="rgba(255,82,82,0)"/><stop offset="65%" stop-color="rgba(255,82,82,0.9)"/><stop offset="100%" stop-color="#fff"/></linearGradient>
+          <linearGradient id="atkBlue" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="rgba(31,111,235,0)"/><stop offset="65%" stop-color="rgba(31,111,235,0.95)"/><stop offset="100%" stop-color="#fff"/></linearGradient>
+          <linearGradient id="atkCyan" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="rgba(20,184,166,0)"/><stop offset="65%" stop-color="rgba(20,184,166,0.95)"/><stop offset="100%" stop-color="#fff"/></linearGradient>
+        </defs>
+        <path class="atk-arc atk-1" d="M 30 50 Q 50 56 58 68" fill="none" stroke="url(#atkRed)" stroke-width="1.4" stroke-linecap="round"/>
+        <path class="atk-arc atk-2" d="M 170 40 Q 145 52 115 64" fill="none" stroke="url(#atkBlue)" stroke-width="1.4" stroke-linecap="round"/>
+        <path class="atk-arc atk-3" d="M 40 170 Q 60 154 78 124" fill="none" stroke="url(#atkCyan)" stroke-width="1.4" stroke-linecap="round"/>
+        <circle cx="58" cy="68" r="2.6" fill="rgba(255,82,82,1)" class="atk-hit hit-1"/>
+        <circle cx="115" cy="64" r="2.6" fill="rgba(31,111,235,1)" class="atk-hit hit-2"/>
+        <circle cx="78" cy="124" r="2.6" fill="rgba(20,184,166,1)" class="atk-hit hit-3"/>
+      </svg>
+      <div class="ls-particle p1"></div><div class="ls-particle p2"></div><div class="ls-particle p3"></div>
+      <div class="ls-particle p4"></div><div class="ls-particle p5"></div><div class="ls-particle p6"></div>
+    </div>
+    <div class="ls-badge"><span class="ls-badge-dot"></span><span class="ls-badge-label">固件版本</span><span class="ls-badge-ver"><%=pcdata(hwget("firmware"))%></span></div>
+    <div class="ls-brand"><div class="ls-brand-name"><%=pcdata(hwget("model"))%></div><div class="ls-brand-tag">Router Management System</div></div>
+    
+  </div>
+  <a class="ab-entry" href="#" onclick="abOpen();return false;" role="button" aria-haspopup="dialog">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+    </svg>关于 Mwrt
+  </a>
+  <div class="login-main">
+    <div class="login-box">
+      <div class="login-logo-area">
+        <div class="login-brand-main"><span class="brand-mwrt"><%=brand_logo%></span><span class="brand-sep"></span><span class="brand-auth">认证登录</span></div>
+        <div class="login-brand-en">SECURE AUTHENTICATION</div>
+      </div>
+      <%- if fuser then %>
+      <div class="error-msg">用户名或密码错误，请重试</div>
+      <% end -%>
+      <form method="post" action="<%=pcdata(luci.http.getenv("REQUEST_URI"))%>">
+        <div class="login-field">
+          <label class="login-label">用户名</label>
+          <input type="text" name="luci_username" value="<%=duser%>" placeholder="请输入管理员账号" />
+        </div>
+        <div class="login-field">
+          <label class="login-label">密码</label>
+          <input type="password" name="luci_password" placeholder="请输入密码" />
+        </div>
+        <input type="submit" value="登 录 系 统" class="login-btn" />
+      </form>
+      <div class="login-footer"><% if is_c2000 then %><span class="ft-brand">NRadio </span> <span class="ft-sep">·</span> <span class="ft-author">深圳鲲鹏无限科技有限公司</span><% else %><span class="ft-author">欢迎使用Mwrt</span><% end %></div>
+    </div>
+  </div>
+</div>
+<div class="ab-mask" id="abMask" role="dialog" aria-modal="true" aria-labelledby="abTitle">
+  <div class="ab-box">
+    <div class="ab-hd">
+      <div class="ab-hd-ico">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+        </svg>
+      </div>
+      <div class="ab-hd-txt">
+        <h3 id="abTitle">关于 Mwrt</h3>
+        <div class="ab-hd-sub">Router Management System</div>
+      </div>
+      <button class="ab-x" type="button" onclick="abClose()" aria-label="关闭">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="ab-tabs">
+      <button class="ab-tab on" type="button" data-ab-tab="info">系统介绍</button>
+      <button class="ab-tab" type="button" data-ab-tab="law">免责声明</button>
+    </div>
+    <div class="ab-bd">
+      <div class="ab-pane on" data-ab-pane="info">
+        <p><b>Mwrt</b> 是基于 ImmortalWrt / OpenWrt 构建的路由器管理系统,面向 <%=pcdata(hwget("model"))%> 设备做了针对性适配,整合了路由切换、蜂窝管理、USB加速等优化。</p>
+        <div class="ab-sec">设备信息</div>
+        <table class="ab-kv">
+          <tr><td>设备型号</td><td><%=pcdata(hwget("model"))%></td></tr>
+          <tr><td>主控平台</td><td><%=pcdata(hwget("soc"))%></td></tr>
+          <tr><td>无线规格</td><td><%=pcdata(hwget("wifi"))%></td></tr>
+          <tr><td>有线接口</td><td><%=pcdata(hwget("ethernet"))%></td></tr>
+          <tr><td>固件版本</td><td><%=pcdata(hwget("firmware"))%></td></tr>
+          <tr><td>系统基线</td><td><%=pcdata(hwget("baseline"))%></td></tr>
+        </table>
+        <div class="ab-sec">主要功能</div>
+        <p>
+          · <b>5G 模组管理</b>:巴龙模组短信PDU\TXT短信适配,webui与模组基本功能<br/>
+          · <b>网络服务</b>:路由器保活功能，自动切换5G与有线网处理<br/>
+          · <b>加速服务</b>:USB虚拟网卡硬件加速服务，媲美PCIE直通性能<br/>
+          · <b>系统维护</b>:预留PWM温控软/硬驱动，软件PWM可适配一切风扇
+        </p>
+        <div class="ab-sec">默认信息</div>
+        <table class="ab-kv">
+          <tr><td>管理地址</td><td>192.168.66.1</td></tr>
+          <tr><td>默认账号</td><td>root</td></tr>
+          <tr><td>构建时间</td><td>20260909</td></tr>
+        </table>
+      </div>
+      <div class="ab-pane" data-ab-pane="law">
+        <p>本固件为第三方定制固件,由社区维护,<b>仅供个人学习、研究与测试使用</b>,不随设备销售,也不构成任何形式的商业承诺。</p>
+        <p>固件按“现状”提供,不附带任何明示或暗示的担保。作者与分发者<b>不对因使用本固件而导致的任何后果负责</b>,包括但不限于:设备无法启动或变砖、数据丢失、网络中断、硬件损坏,以及由此产生的直接或间接损失。</p>
+        <p>刷写、修改配置或启用第三方插件均由您<b>自行承担风险</b>。操作前请务必备份原厂固件与重要数据,并确认您有权对该设备进行修改。</p>
+        <p>请遵守所在国家和地区的法律法规。<b>严禁将本固件用于任何违法用途</b>;因违规使用产生的一切责任由使用者自行承担。</p>
+        <p>继续使用即表示您已阅读、理解并接受以上全部条款。若不同意,请立即停止使用并刷回官方固件。</p>
+      </div>
+    </div>
+    <div class="ab-ft"><%=brand_footer%></div>
+  </div>
+</div>
+<script>
+/* 关于 Mwrt 弹窗:纯前端,登录页不依赖任何后端接口 */
+function abOpen(){
+  var m=document.getElementById('abMask');
+  m.classList.add('ab-open');
+  /* 先上 display 再上透明度,否则同一帧内过渡不生效 */
+  requestAnimationFrame(function(){m.classList.add('ab-in');});
+}
+function abClose(){
+  var m=document.getElementById('abMask');
+  m.classList.remove('ab-in');
+  setTimeout(function(){m.classList.remove('ab-open');},250);
+}
+(function(){
+  var m=document.getElementById('abMask');
+  /* 这个框只是介绍,点遮罩和 ESC 都可以关(跟首登强制确认的那个不同) */
+  m.addEventListener('click',function(e){if(e.target===m)abClose();});
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'&&m.classList.contains('ab-open'))abClose();
+  });
+  var tabs=m.querySelectorAll('.ab-tab');
+  for(var i=0;i<tabs.length;i++){
+    tabs[i].addEventListener('click',function(){
+      var k=this.getAttribute('data-ab-tab'),j;
+      for(j=0;j<tabs.length;j++)tabs[j].classList.remove('on');
+      this.classList.add('on');
+      var ps=m.querySelectorAll('.ab-pane');
+      for(j=0;j<ps.length;j++)
+        ps[j].classList.toggle('on',ps[j].getAttribute('data-ab-pane')===k);
+      m.querySelector('.ab-bd').scrollTop=0;
+    });
+  }
+})();
+</script>
+<script>
+var p=document.querySelector('input[name="luci_password"]');if(p)p.focus();
+</script>
+<%+themes/argon/footer_login%>

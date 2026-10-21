@@ -1,0 +1,136 @@
+#!/bin/sh
+# =============================================================================
+# router3d-data  ——  免鉴权只读状态端点 (放 /www/cgi-bin/, 需 chmod +x)
+# 只读 /proc /sys uci ubus,绝不调 sendat/AT(热路径,避免 tom_modem 进程泄漏)。
+# 输出: Content-type application/json + 空行 + JSON。
+# =============================================================================
+printf 'Content-type: application/json\r\n'
+printf 'Cache-Control: no-store\r\n'
+printf '\r\n'
+
+# --- helpers ---------------------------------------------------------------
+rd() { cat "$1" 2>/dev/null; }                 # safe read (empty on error)
+json_str() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+is_num() { case "$1" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
+
+# --- model -----------------------------------------------------------------
+# board_name 对 MAX/Ultra 是同一份 DTS(实测为 "NRadio-C2000MAX-Ultra",同时含
+# MAX 与 Ultra 字样),无法据此区分。改用【物理核心数】判定:MAX=双核(mt7987B),
+# Ultra=四核(mt7987A)。核心数是真实硬件反馈,不受共用机型名影响。
+BOARD=$(rd /tmp/sysinfo/board_name)
+[ -n "$BOARD" ] || BOARD=$(rd /proc/device-tree/model)
+NCPU=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
+is_num "$NCPU" || NCPU=1
+[ "$NCPU" -gt 0 ] 2>/dev/null || NCPU=1
+# E87N 先按机型串识别(model="EdgePi E87N" / board_name="edgepi,e87n"),它也是四核,
+# 不先拦下会被下面"≥4核=Ultra"误判成 Ultra。前端 IMG 表据此选 e87n.png。
+MODEL_ID=$(printf '%s %s' "$BOARD" "$(rd /tmp/sysinfo/model)" | tr 'A-Z' 'a-z')
+case "$MODEL_ID" in
+  *h5000m*) MODEL="H5000M" ;;
+  *e87n*|*edgepi*) MODEL="E87N" ;;
+  *) if [ "$NCPU" -ge 4 ]; then MODEL="Ultra"; else MODEL="MAX"; fi ;;
+esac
+UPTIME=$(cut -d. -f1 /proc/uptime 2>/dev/null)
+is_num "$UPTIME" || UPTIME=0
+
+# --- firmware --------------------------------------------------------------
+FW=$(sed -n "s/^DISTRIB_DESCRIPTION='\(.*\)'/\1/p" /etc/openwrt_release 2>/dev/null)
+[ -n "$FW" ] || FW=$(rd /etc/openwrt_version)
+[ -n "$FW" ] || FW="OpenWrt"
+FW="${FW%% by *}"        # 去掉 "... by Padavanonly's ..." 冗长后缀,保留版本号
+
+# --- cpu (load + cores) ----------------------------------------------------
+# NCPU 已在上面 model 区块算过(用于机型判定),此处复用。
+read LOAD1 _rest < /proc/loadavg 2>/dev/null
+[ -n "$LOAD1" ] || LOAD1=0
+
+# --- memory (KB) -----------------------------------------------------------
+MEM_T=$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null)
+MEM_A=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo 2>/dev/null)
+is_num "$MEM_T" || MEM_T=0
+is_num "$MEM_A" || MEM_A=0
+
+# --- temperature (max thermal zone, °C) ------------------------------------
+TEMP="null"; TMAX=-1
+for z in /sys/class/thermal/thermal_zone*/temp; do
+    [ -e "$z" ] || continue
+    v=$(rd "$z"); is_num "$v" || continue
+    [ "$v" -gt "$TMAX" ] && TMAX="$v"
+done
+[ "$TMAX" -ge 0 ] 2>/dev/null && TEMP=$(( (TMAX + 500) / 1000 ))
+
+# --- storage (overlay, KB) -------------------------------------------------
+SLINE=$(df -k /overlay 2>/dev/null | awk 'NR==2{print $2" "$3}')
+[ -n "$SLINE" ] || SLINE=$(df -k / 2>/dev/null | awk 'NR==2{print $2" "$3}')
+ST_T=$(echo "$SLINE" | cut -d' ' -f1); ST_U=$(echo "$SLINE" | cut -d' ' -f2)
+is_num "$ST_T" || ST_T=0
+is_num "$ST_U" || ST_U=0
+
+# --- online clients (distinct reachable MACs on LAN bridge) ----------------
+# 用 ARP 完成态(flag 0x2)按 MAC 去重,而非 DHCP 租约行数
+# (租约会残留离线设备;同一主机多 IP 也应算 1 台)。
+LANDEV=$(uci -q get network.lan.device); [ -n "$LANDEV" ] || LANDEV=br-lan
+CLIENTS=$(awk -v d="$LANDEV" '$6==d && $3=="0x2" && $4!="00:00:00:00:00:00"{print $4}' /proc/net/arp 2>/dev/null | sort -u | grep -c .)
+is_num "$CLIENTS" || CLIENTS=0
+
+# --- wan ip (effective default-route source addr, no AT) -------------------
+WANIP=$(ip -4 route get 8.8.8.8 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p' | head -1)
+[ -n "$WANIP" ] || WANIP=""
+
+# --- unique premium fields (与下方蜂窝模组区块不重复) -----------------------
+KERNEL=$(uname -r 2>/dev/null)
+LANIP=$(uci -q get network.lan.ipaddr)
+[ -n "$LANIP" ] || LANIP=$(ip -4 addr show br-lan 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -1)
+CONNS=$(rd /proc/sys/net/netfilter/nf_conntrack_count); is_num "$CONNS" || CONNS=0
+
+# --- ports (eth carrier/speed) --------------------------------------------
+WANDEV=$(uci -q get network.wan.device)
+[ -n "$WANDEV" ] || WANDEV=eth0
+port_json=""
+for dev in /sys/class/net/eth*; do
+    [ -e "$dev" ] || continue
+    name=$(basename "$dev")
+    # 只保留【物理真实存在】的网口:
+    #   1) 设备树 GMAC(uevent 含 OF_NAME=mac),排除 modem/内部虚拟口
+    #      (如 eth2 = 2_1 数据口,MAC 伪造、carrier 恒 1);
+    #   2) 且必须绑定了 PHY(存在 phydev 符号链接)。C2000MAX 只有一个物理网口,
+    #      源码 02_network 为方便同时声明了 eth0/eth1,但 MAX 上未接 PHY 的那个 MAC
+    #      (eth0)无 phydev、operstate 恒 down —— 据此过滤掉,面板只反映真实网口。
+    #      Ultra 两个物理口都绑 PHY,均保留。
+    grep -q 'OF_NAME=mac' "$dev/uevent" 2>/dev/null || continue
+    [ -e "$dev/phydev" ] || continue
+    car=$(rd "$dev/carrier"); [ "$car" = "1" ] || car=0
+    spd=$(rd "$dev/speed"); is_num "$spd" || spd=-1
+    [ "$car" = "1" ] || spd=-1
+    up=$(rd "$dev/operstate"); [ "$up" = "up" ] && upv=1 || upv=0
+    if [ "$name" = "$WANDEV" ]; then role="WAN"; else role="LAN"; fi
+    [ -n "$port_json" ] && port_json="$port_json,"
+    port_json="$port_json{\"id\":\"$name\",\"role\":\"$role\",\"carrier\":$car,\"speed\":$spd,\"up\":$upv}"
+done
+
+# --- wan traffic (累计收发字节,单次读取) -----------------------------------
+# 计数取【实际出口】,不取 network.wan.device: 后者是物理 WAN 口(eth0),
+# 走 5G 模组上网时它没插线、计数恒 0,真正出流量的是模组数据口(eth2 = 2_1)。
+# 出口和上面 WANIP 用同一条 route get,两格永远对应同一个接口;
+# 没有默认路由时回落到物理 WAN 口。
+TRDEV=$(ip -4 route get 8.8.8.8 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -1)
+[ -n "$TRDEV" ] && [ -e "/sys/class/net/$TRDEV/statistics" ] || TRDEV=$WANDEV
+WRX=$(rd "/sys/class/net/$TRDEV/statistics/rx_bytes"); is_num "$WRX" || WRX=0
+WTX=$(rd "/sys/class/net/$TRDEV/statistics/tx_bytes"); is_num "$WTX" || WTX=0
+
+# --- modem (no AT!) --------------------------------------------------------
+MODCONF=$(rd /tmp/modconf.conf)
+SIMSEL=$(rd /tmp/sim_sel); [ -n "$SIMSEL" ] || SIMSEL=$(uci -q get mwrt.@ndis[0].simsel)
+[ -n "$SIMSEL" ] || SIMSEL="0"
+present=0
+[ -n "$MODCONF" ] && present=1
+CSQ="null"
+for cf in /tmp/modem_csq /tmp/run/modem_csq; do
+    v=$(rd "$cf"); if is_num "$v"; then CSQ="$v"; fi
+done
+
+printf '{"model":"%s","board":"%s","fw":"%s","kernel":"%s","uptime":%s,"cpu":{"load1":%s,"ncpu":%s},"mem":{"total":%s,"avail":%s},"temp":%s,"storage":{"total":%s,"used":%s},"clients":%s,"conns":%s,"wan_ip":"%s","lan_ip":"%s","wan_rx":%s,"wan_tx":%s,"ports":[%s],"modem":{"present":%s,"modconf":"%s","sim_sel":"%s","csq":%s}}\n' \
+    "$MODEL" "$(json_str "$BOARD")" "$(json_str "$FW")" "$(json_str "$KERNEL")" "$UPTIME" \
+    "$LOAD1" "$NCPU" "$MEM_T" "$MEM_A" "$TEMP" "$ST_T" "$ST_U" "$CLIENTS" "$CONNS" \
+    "$(json_str "$WANIP")" "$(json_str "$LANIP")" "$WRX" "$WTX" "$port_json" \
+    "$present" "$(json_str "$MODCONF")" "$(json_str "$SIMSEL")" "$CSQ"

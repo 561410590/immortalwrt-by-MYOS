@@ -1,0 +1,8 @@
+config ndis 'main'
+	option simsel '0'
+	option rshowtime '1'
+	option showtime '10'
+	option USBEN '0'
+
+config access 'access'
+	option unlocked '0'
