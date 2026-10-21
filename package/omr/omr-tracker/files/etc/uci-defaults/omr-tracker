@@ -1,0 +1,265 @@
+#!/bin/sh
+. /lib/functions.sh
+
+uci -q batch <<-EOF >/dev/null
+	delete ucitrack.@omr-tracker[-1]
+	add ucitrack omr-tracker
+	set ucitrack.@omr-tracker[-1].init="omr-tracker"
+	commit ucitrack
+EOF
+if [ "$(uci -q get ucitrack.@network[-1].affects | grep omr-tracker)" = "" ]; then
+	uci -q batch <<-EOF >/dev/null
+		add_list ucitrack.@network[-1].affects="omr-tracker"
+		commit ucitrack
+	EOF
+fi
+if [ "$(uci -q get ucitrack.@shadowsocks-libev[-1].affects | grep omr-tracker)" = "" ]; then
+	uci -q batch <<-EOF >/dev/null
+		add_list ucitrack.@shadowsocks-libev[-1].affects="omr-tracker"
+		commit ucitrack
+	EOF
+fi
+if [ "$(uci -q get omr-tracker.defaults.interval_tries)" = "" ]; then
+	uci -q batch <<-EOF >/dev/null
+		set omr-tracker.defaults.interval_tries=1
+		commit omr-tracker
+	EOF
+fi
+
+if [ "$(uci -q get omr-tracker.shadowsocks)" != "" ]; then
+	uci -q batch <<-EOF >/dev/null
+		rename omr-tracker.shadowsocks=proxy
+		uci set omr-tracker.proxy=proxy
+		uci commit omr-tracker
+	EOF
+fi
+
+if [ "$(uci -q get omr-tracker.proxy)" = "shadowsocks" ]; then
+	uci -q batch <<-EOF >/dev/null
+		uci set omr-tracker.proxy=proxy
+		uci commit omr-tracker
+	EOF
+fi
+
+if [ "$(uci -q get omr-tracker.defaults.wait_test)" = "" ]; then
+	uci -q batch <<-EOF >/dev/null
+		set omr-tracker.defaults.wait_test=1
+		set omr-tracker.proxy.wait_test=1
+		set omr-tracker.server.wait_test=1
+		commit omr-tracker
+	EOF
+fi
+
+if [ "$(uci -q get omr-tracker.defaults.server_http_test)" = "" ]; then
+	uci -q batch <<-EOF >/dev/null
+		set omr-tracker.defaults.server_http_test=0
+		commit omr-tracker
+	EOF
+fi
+
+if [ "$(uci -q get omr-tracker.defaults.server_test)" = "" ] || [ "$(uci -q get omr-tracker.defaults.server_test)" = "0" ]; then
+	uci -q batch <<-EOF >/dev/null
+		set omr-tracker.defaults.server_test=1
+		commit omr-tracker
+	EOF
+fi
+
+if [ -z "$(uci -q get omr-tracker.defaults.failure_interval)" ] || [ "$(uci -q get omr-tracker.defaults.failure_interval)" = "5" ]; then
+	uci -q batch <<-EOF >/dev/null
+		set omr-tracker.defaults.failure_interval=20
+		commit omr-tracker
+	EOF
+fi
+
+if [ "$(uci -q get omr-tracker.defaults.family)" = "" ]; then
+	uci -q batch <<-EOF >/dev/null
+		set omr-tracker.defaults.initial_state='online'
+		set omr-tracker.defaults.family='ipv4ipv6'
+		set omr-tracker.defaults.reliability='1'
+		set omr-tracker.defaults.interval='1'
+		set omr-tracker.defaults.failure_interval='5'
+		set omr-tracker.defaults.count='1'
+		set omr-tracker.defaults.tries_up='5'
+		set omr-tracker.omrvpn.initial_state='online'
+		set omr-tracker.omrvpn.family='ipv4'
+		set omr-tracker.omrvpn.reliability='1'
+		set omr-tracker.omrvpn.failure_interval='3'
+		set omr-tracker.omrvpn.tries_up='3'
+		set omr-tracker.omrvpn.count='1'
+		set omr-tracker.proxy.initial_state='online'
+		set omr-tracker.proxy.family='ipv4ipv6'
+		set omr-tracker.server.initial_state='online'
+		commit omr-tracker
+	EOF
+fi
+if [ "$(uci -q get omr-tracker.server.type)" = "" ]; then
+	uci -q batch <<-EOF >/dev/null
+		set omr-tracker.server.type='apiping'
+		commit omr-tracker
+	EOF
+fi
+if [ -z "$(uci -q get omr-tracker.omrvpn.restart_down)" ]; then
+	uci -q batch <<-EOF >/dev/null
+		set omr-tracker.omrvpn.restart_down='0'
+		commit omr-tracker
+	EOF
+fi
+# Recreate the hosts sections when missing, or when their lists contain
+# duplicates: an earlier version of this script guarded on a misspelled
+# section name, so every sysupgrade appended the whole block again. A later
+# "uci commit" merges the duplicate-named sections into one, concatenating
+# the lists, so the reliable symptom is repeated values in world.hosts.
+_world_hosts=$(uci -q get omr-tracker.world.hosts)
+if [ -z "$_world_hosts" ] || [ -n "$(echo "$_world_hosts" | tr ' ' '\n' | sort | uniq -d)" ]; then
+	# rewrite the config without any hosts_defaults/hosts_proxy section,
+	# bypassing uci: staged-delta semantics around duplicate-named sections
+	# are unreliable
+	uci -q revert omr-tracker
+	awk '
+		/^config[ \t]/ { skip = ($2 == "hosts_defaults" || $2 == "hosts_proxy") }
+		!skip
+	' /etc/config/omr-tracker > /tmp/omr-tracker.uci-defaults.$$ && \
+		mv /tmp/omr-tracker.uci-defaults.$$ /etc/config/omr-tracker
+	uci -q set omr-tracker.defaults.country='world'
+	uci -q set omr-tracker.proxy.country='world_proxy'
+	uci -q delete omr-tracker.defaults.hosts
+	uci -q delete omr-tracker.defaults.hosts6
+	uci -q commit omr-tracker
+	cat >> "/etc/config/omr-tracker" <<-EOF
+config hosts_defaults 'world'
+        list hosts '4.2.2.1'
+        list hosts '8.8.8.8'
+        list hosts '8.8.4.4'
+        list hosts '9.9.9.9'
+        list hosts '1.0.0.1'
+        list hosts '114.114.115.115'
+        list hosts '1.2.4.8'
+        list hosts '194.0.5.3'
+        list hosts '114.114.114.114'
+        list hosts '1.1.1.1'
+        list hosts '193.110.81.0'
+        list hosts '4.2.2.4'
+        list hosts '185.253.5.0'
+        list hosts '208.67.222.222'
+        list hosts '194.0.5.64'
+        list hosts '208.67.222.220'
+        list hosts '149.112.112.112'
+        list hosts '185.222.222.222'
+        list hosts '45.11.45.11'
+        list hosts6 '2a09::'
+        list hosts6 '2a11::'
+        list hosts6 '2606:4700:4700::1111'
+        list hosts6 '2001:678:8::3'
+        list hosts6 '2a0f:fc80::'
+        list hosts6 '2606:4700:4700::1001'
+        list hosts6 '2620:fe::fe'
+        list hosts6 '2620:fe::9'
+        list hosts6 '2001:4860:4860::8888'
+        list hosts6 '2001:4860:4860::8844'
+        list hosts6 '2a0f:fc81::'
+        list hosts6 '2001:678:8::64'
+        list hosts6 '2620:119:35::35'
+        list hosts6 '2620:119:53::53'
+
+config hosts_defaults 'usa'
+        list hosts '4.2.2.1'
+        list hosts '8.8.8.8'
+        list hosts '8.8.4.4'
+        list hosts '4.2.2.4'
+        list hosts '208.67.222.222'
+        list hosts '208.67.222.220'
+        list hosts6 '2001:4860:4860::8888'
+        list hosts6 '2001:4860:4860::8844'
+        list hosts6 '2620:119:35::35'
+        list hosts6 '2620:119:53::53'
+
+
+config hosts_defaults 'custom'
+        list hosts '1.1.1'
+        list hosts6 '2606:4700:4700::1111'
+
+config hosts_defaults 'china'
+        list hosts '114.114.115.115'
+        list hosts '1.2.4.8'
+        list hosts '114.114.114.114'
+        list hosts6 '240c::6666:240c::6644'
+        list hosts6 '240c::6666:240c::6666'
+
+config hosts_defaults 'europe'
+        list hosts '149.112.112.112'
+        list hosts '9.9.9.9'
+        list hosts '193.110.81.0'
+        list hosts '185.253.5.0'
+        list hosts '185.222.222.222'
+        list hosts '194.0.5.64'
+        list hosts '45.11.45.11'
+        list hosts '86.54.11.100'
+        list hosts '194.0.5.3'
+        list hosts6 '2a09::'
+        list hosts6 '2a11::'
+        list hosts6 '2001:678:8::3'
+        list hosts6 '2a0f:fc80::'
+        list hosts6 '2620:fe::fe'
+        list hosts6 '2620:fe::9'
+        list hosts6 '2001:678:8::64'
+        list hosts6 '2a0f:fc81::'
+        list hosts6 '2a13:1001::86:54:11:100'
+
+config hosts_proxy 'world_proxy'
+        list hosts '212.27.48.10'
+        list hosts '198.27.92.1'
+        list hosts '151.101.129.164'
+        list hosts '77.88.55.77'
+        list hosts '1.1.1.1'
+        list hosts '74.82.42.42'
+        list hosts '176.103.130.130'
+        list hosts6 '2606:4700:4700::1111'
+        list hosts6 '2606:4700:4700::1001'
+        list hosts6 '2620:119:35::35'
+        list hosts6 '2620:119:53::53'
+
+config hosts_proxy 'europe_proxy'
+        list hosts '212.27.48.10'
+        list hosts '198.27.92.1'
+        list hosts '147.67.210.45'
+        list hosts '54.39.46.56'
+        list hosts '147.67.34.45'
+        list hosts '213.133.116.44'
+        list hosts6 '2a01:e0c:1::1'
+        list hosts6 '2a01:4f8:0:1::7:4'
+        list hosts6 '2a01:7080:24:100::666:45'
+        list hosts6 '2a01:7080:14:100::666:45'
+
+config hosts_proxy 'china_proxy'
+        list hosts '39.156.66.10'
+        list hosts '110.242.68.66'
+        list hosts 'www.alibaba.com'
+        list hosts '54.222.60.218'
+        list hosts '113.108.81.189'
+        list hosts '203.205.254.157'
+        list hosts '123.150.76.218'
+
+config hosts_proxy 'usa_proxy'
+        list hosts '151.101.129.164'
+        list hosts '74.82.42.42'
+        list hosts '176.103.130.130'
+        list hosts '142.251.36.36'
+        list hosts6 '2620:119:35::35'
+        list hosts6 '2620:119:53::53'
+        list hosts6 '2a00:1450:400e:810::2004'
+
+
+config hosts_proxy 'custom_proxy'
+        list hosts '1.1.1.1'
+        list hosts6 '2606:4700:4700::1111'
+EOF
+	uci -q commit omr-tracker
+fi
+if [ -z "$(uci -q get omr-tracker.proxy.country)" ] || [ "$(uci -q get omr-tracker.proxy.country)" = "world" ]; then
+	uci -q batch <<-EOF >/dev/null
+		set omr-tracker.proxy.country='world_proxy'
+		commit omr-tracker
+	EOF
+fi
+
+exit 0

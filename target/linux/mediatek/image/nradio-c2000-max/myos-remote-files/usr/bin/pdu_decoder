@@ -1,0 +1,259 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# pdu_decoder - GSM SMS-DELIVER PDU decoder (cross-arch Python replacement).
+# Modes:
+#   (default)  read ONE PDU hex from stdin, print From/Date-Time/Textlen/text.
+#   --list     read a full AT+CMGL=4 PDU dump from stdin, reassemble multipart
+#              messages, print blocks for the web UI (with 发件人/发件时间/IDX).
+#   --json     same reassembly, emitted as JSON for callers that need the fields
+#              separately -- the read/unread flag in particular, which --list has
+#              no room for. Shape:
+#                {"ok": true, "messages": [{"indices": [3,4], "stat": 0,
+#                 "sender": "...", "dt": "YYYY-MM-DD HH:MM:SS", "text": "...",
+#                 "ref": 133, "total": 2}]}
+#              "ok" is whether the dump was a complete AT response (terminated
+#              by OK): an empty SIM and a dead AT port both yield zero messages,
+#              and only the second one is an error.
+import json
+import sys
+
+GSM_BASIC = (
+    "@£$¥èéùìòÇ\nØø\rÅå"
+    "Δ_ΦΓΛΩΠΨΣΘΞ\x1bÆæßÉ"
+    " !\"#¤%&'()*+,-./0123456789:;<=>?"
+    "¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§"
+    "¿abcdefghijklmnopqrstuvwxyzäöñüà"
+)
+GSM_EXT = {0x0A: "\f", 0x14: "^", 0x28: "{", 0x29: "}", 0x2F: "\\",
+           0x3C: "[", 0x3D: "~", 0x3E: "]", 0x40: "|", 0x65: "€"}
+SEP = "------------------------------------------------------"
+
+
+def swap_semi(h):
+    return "".join(h[i + 1] + h[i] for i in range(0, len(h) - 1, 2))
+
+
+def decode_7bit(data, septets, skip=0):
+    bits = val = 0
+    chars = []
+    for b in data:
+        val |= b << bits
+        bits += 8
+        while bits >= 7:
+            chars.append(val & 0x7F)
+            val >>= 7
+            bits -= 7
+            if len(chars) >= septets:
+                break
+        if len(chars) >= septets:
+            break
+    chars = chars[skip:]
+    out = []
+    ext = False
+    for c in chars:
+        if ext:
+            out.append(GSM_EXT.get(c, GSM_BASIC[c] if c < len(GSM_BASIC) else "?"))
+            ext = False
+        elif c == 0x1B:
+            ext = True
+        else:
+            out.append(GSM_BASIC[c] if c < len(GSM_BASIC) else "?")
+    return "".join(out)
+
+
+def decode_address(pdu, pos):
+    addr_len = int(pdu[pos:pos + 2], 16); pos += 2
+    toa = int(pdu[pos:pos + 2], 16); pos += 2
+    n = (addr_len + 1) // 2
+    digits = pdu[pos:pos + n * 2]
+    if (toa & 0x70) == 0x50:
+        raw = bytes(int(digits[i:i + 2], 16) for i in range(0, len(digits), 2))
+        addr = decode_7bit(raw, (addr_len * 4) // 7)
+    else:
+        addr = swap_semi(digits)[:addr_len].replace("f", "").replace("F", "")
+        if (toa & 0x70) == 0x10:
+            addr = "+" + addr
+    return addr, pos + n * 2
+
+
+def decode_scts(pdu, pos):
+    ts = swap_semi(pdu[pos:pos + 14])
+    try:
+        yy, mo, dd = int(ts[0:2]), int(ts[2:4]), int(ts[4:6])
+        hh, mi, ss = int(ts[6:8]), int(ts[8:10]), int(ts[10:12])
+        year = 2000 + yy if yy < 90 else 1900 + yy
+        return "%04d-%02d-%02d %02d:%02d:%02d" % (year, mo, dd, hh, mi, ss), pos + 14
+    except ValueError:
+        return "", pos + 14
+
+
+def decode_pdu(pdu):
+    pdu = "".join(c for c in pdu if c in "0123456789abcdefABCDEF").upper()
+    if len(pdu) < 4:
+        return None
+    try:
+        smsc_len = int(pdu[0:2], 16)
+        pos = 2 + smsc_len * 2
+        first = int(pdu[pos:pos + 2], 16); pos += 2
+        udhi = bool(first & 0x40)
+        sender, pos = decode_address(pdu, pos)
+        pos += 2
+        dcs = int(pdu[pos:pos + 2], 16); pos += 2
+        dt, pos = decode_scts(pdu, pos)
+        udl = int(pdu[pos:pos + 2], 16); pos += 2
+        ud_hex = pdu[pos:]
+        ud = bytes(int(ud_hex[i:i + 2], 16) for i in range(0, len(ud_hex) - 1, 2))
+        ref = total = seq = None
+        udh_len = 0
+        if udhi and ud:
+            udh_len = ud[0]
+            hdr = ud[1:1 + udh_len]
+            i = 0
+            while i + 1 < len(hdr):
+                iei, ielen = hdr[i], hdr[i + 1]
+                d = hdr[i + 2:i + 2 + ielen]
+                if iei == 0x00 and len(d) >= 3:
+                    ref, total, seq = d[0], d[1], d[2]
+                elif iei == 0x08 and len(d) >= 4:
+                    ref, total, seq = (d[0] << 8) | d[1], d[2], d[3]
+                i += 2 + ielen
+        coding = (dcs >> 2) & 0x03
+        if coding == 2:
+            body = ud[1 + udh_len:] if udhi else ud
+            text = body.decode("utf-16-be", errors="replace")
+        elif coding == 1:
+            body = ud[1 + udh_len:] if udhi else ud
+            text = body.decode("latin-1", errors="replace")
+        else:
+            skip = (((udh_len + 1) * 8 + 6) // 7) if udhi else 0
+            text = decode_7bit(ud, udl, skip)
+        return {"sender": sender, "dt": dt, "text": text,
+                "ref": ref, "total": total, "seq": seq}
+    except Exception:
+        return None
+
+
+def mode_single():
+    info = decode_pdu(sys.stdin.read())
+    if not info:
+        return
+    sys.stdout.write("From:%s\n" % info["sender"])
+    sys.stdout.write("Date/Time:%s\n" % info["dt"])
+    sys.stdout.write("Textlen=%d\n" % len(info["text"]))
+    sys.stdout.write(info["text"] + "\n")
+    if info["ref"] is not None:
+        sys.stdout.write("Reference number: %d\n" % info["ref"])
+
+
+def parse_cmgl(raw):
+    """Yield (index, stat, pdu_hex) for every part in an AT+CMGL dump.
+
+    Header format is `+CMGL: <idx>,<stat>,,<len>`; stat is 0 for REC UNREAD and
+    1 for REC READ. It is None when the modem left it out.
+    """
+    lines = raw.replace("\r", "").split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if line.startswith("+CMGL:"):
+            fields = line.split(":", 1)[1].split(",")
+            try:
+                idx = int(fields[0].strip())
+            except (ValueError, IndexError):
+                idx = None
+            try:
+                stat = int(fields[1].strip())
+            except (ValueError, IndexError):
+                stat = None
+            j = i + 1
+            while j < len(lines):
+                cand = lines[j].strip()
+                if cand and all(c in "0123456789abcdefABCDEF" for c in cand):
+                    if idx is not None:
+                        yield idx, stat, cand
+                    i = j
+                    break
+                if cand.startswith("+CMGL:"):
+                    break
+                j += 1
+        i += 1
+
+
+def collect(raw):
+    """Decode a CMGL dump into merged messages, oldest SIM slot first."""
+    parts = []
+    for idx, stat, pdu in parse_cmgl(raw):
+        info = decode_pdu(pdu)
+        if info:
+            info["idx"] = idx
+            info["stat"] = stat
+            parts.append(info)
+    groups = []
+    by_ref = {}
+    for p in parts:
+        if p["ref"] is not None:
+            key = (p["sender"], p["ref"])
+            g = by_ref.get(key)
+            if g is None:
+                g = {"sender": p["sender"], "dt": p["dt"], "items": [], "indices": []}
+                by_ref[key] = g
+                groups.append(g)
+            g["items"].append(p)
+            g["indices"].append(p["idx"])
+        else:
+            groups.append({"sender": p["sender"], "dt": p["dt"],
+                           "items": [p], "indices": [p["idx"]]})
+    groups.sort(key=lambda g: min(g["indices"]))
+    return groups
+
+
+def merge(g):
+    """Flatten one group into (sorted items, joined text, timestamp, indices)."""
+    items = sorted(g["items"], key=lambda x: (x["seq"] if x["seq"] else 1))
+    return (items, "".join(it["text"] for it in items),
+            items[0]["dt"] or g["dt"], sorted(g["indices"]))
+
+
+def mode_list():
+    out = []
+    for n, g in enumerate(collect(sys.stdin.read())):
+        _, text, dt, indices = merge(g)
+        idxs = ",".join(str(i) for i in indices)
+        out += ["第%d条短信" % n, " ", "发件人:%s" % g["sender"],
+                "发件时间:%s" % dt, "IDX:%s" % idxs, text, " ", SEP]
+    sys.stdout.write("\n".join(out) + ("\n" if out else ""))
+
+
+def mode_json():
+    raw = sys.stdin.read()
+    messages = []
+    for g in collect(raw):
+        items, text, dt, indices = merge(g)
+        # A multipart message counts as unread while any of its parts is, so
+        # that opening it in one UI does not hide the rest from another.
+        stats = [it["stat"] for it in items if it["stat"] is not None]
+        messages.append({
+            "indices": indices,
+            "stat": min(stats) if stats else 1,
+            "sender": g["sender"],
+            "dt": dt,
+            "text": text,
+            "ref": items[0]["ref"],
+            "total": items[0]["total"] or len(items),
+        })
+    ok = any(l.strip() == "OK" for l in raw.replace("\r", "").split("\n"))
+    sys.stdout.write(json.dumps({"ok": ok, "messages": messages},
+                                ensure_ascii=False) + "\n")
+
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--list":
+        mode_list()
+    elif len(sys.argv) > 1 and sys.argv[1] == "--json":
+        mode_json()
+    else:
+        mode_single()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,361 @@
+#!/bin/sh
+# vim: set noexpandtab tabstop=4 shiftwidth=4 softtabstop=4 :
+
+[ -n "$1" ] || exit
+
+. /lib/functions.sh
+
+basename="$(basename "$0")"
+
+export OMR_TRACKER_STATUS
+export OMR_TRACKER_PREV_STATUS
+export OMR_TRACKER_STATUS_MSG
+
+
+
+_log() {
+	logger -p daemon.info -t "${basename}" "$@"
+}
+
+_post_tracking() {
+	[ -d /usr/share/omr/ss-post-tracking.d ] && {
+		for tracker_bin in /usr/share/omr/ss-post-tracking.d/*; do
+			[ -x "$tracker_bin" ] && (
+				_log() {
+					logger -t "ss-post-tracking-${tracker_bin##*/}" "$*"
+				}
+				. "$tracker_bin" 2>&1
+			)
+		done
+	}
+	[ -d /usr/share/omr/proxy-post-tracking.d ] && {
+		for tracker_bin in /usr/share/omr/proxy-post-tracking.d/*; do
+			[ -x "$tracker_bin" ] && (
+				_log() {
+					logger -t "proxy-post-tracking-${tracker_bin##*/}" "$*"
+				}
+				. "$tracker_bin" 2>&1
+			)
+		done
+	}
+}
+
+_ping_server() {
+	local host=$1
+	ping \
+	    -w "$OMR_TRACKER_TIMEOUT" \
+	    -c 1 \
+	    -q \
+	    "${host}" >/dev/null 2>&1 && {
+		server_ping=true
+	}
+}
+
+_get_ip() {
+	uci -q set openmptcprouter.omr=router
+	if [ "$(uci -q get openmptcprouter.settings.external_check)" != "0" ]; then
+		check_ipv4_website="$(uci -q get openmptcprouter.settings.check_ipv4_website)"
+		[ -z "$check_ipv4_website" ] && check_ipv4_website="http://ip.openmptcprouter.com"
+		check_ipv6_website="$(uci -q get openmptcprouter.settings.check_ipv6_website)"
+		[ -z "$check_ipv6_website" ] && check_ipv6_website="http://ipv6.openmptcprouter.com"
+		public_ipv4="$(curl -s -4 -m 3 "$check_ipv4_website")"
+		uci -q set openmptcprouter.omr.detected_public_ipv4="${public_ipv4}"
+		[ -n "$public_ipv4" ] && {
+			uci -q set upnpd.config.external_ip="${public_ipv4}"
+			uci -q commit upnpd
+		}
+		if [ "$(uci -q get openmptcprouter.omr.shadowsocks)" != "down" ]; then
+			uci -q set openmptcprouter.omr.detected_ss_ipv4="$(curl -s -4 --socks5 "${proxy}" --max-time 3 "$check_ipv4_website")"
+		else
+			uci -q del openmptcprouter.omr.detected_ss_ipv4
+		fi
+		if [ "$(uci -q get openmptcprouter.settings.disable_ipv6)" != "1" ]; then
+			uci -q set openmptcprouter.omr.detected_public_ipv6="$(curl -s -6 -m 3 "$check_ipv6_website")"
+		else
+			uci -q del openmptcprouter.omr.detected_public_ipv6
+		#	uci -q set openmptcprouter.omr.detected_ss_ipv6=$(curl -s -6 --socks5 ":::1111" --max-time 3 http://ip.openmptcprouter.com)
+		fi
+	fi
+	uci -q commit openmptcprouter
+}
+
+_send_mail_alert_ss() {
+	local type="$1"
+	local mail_alert mail_to OMR_SYSNAME mail_subject mail_message
+	mail_alert="$(uci -q get omr-tracker.proxy.mail_alert)"
+	[ "$mail_alert" != "1" ] && return
+	mail_to="$(uci -q get mail.default.to | tr -d '\r\n')"
+	case "$mail_to" in
+		-*|*[[:space:]]*) mail_to="" ;;
+	esac
+	[ -z "$mail_to" ] && return
+	OMR_SYSNAME="$(uci -q get system.@system[0].hostname)"
+	mail_subject="$(uci -q get omr-tracker.defaults.mail_${type}_subject)"
+	mail_message="$(uci -q get omr-tracker.defaults.mail_${type}_message)"
+	if [ -n "$mail_subject" ] && [ -n "$mail_message" ]; then
+		mail_subject=$(echo "$mail_subject" | sed -e "s/%SYSNAME%/$OMR_SYSNAME/g" -e "s/%INTERFACE%/Shadowsocks Proxy/g" -e "s/%DEVICE%/Shadowsocks Proxy/g" -e "s/%MESSAGE%/$OMR_TRACKER_STATUS_MSG/g")
+		mail_subject="$(printf '%s' "$mail_subject" | tr -d '\r\n')"
+		mail_message=$(echo "$mail_message" | sed -e "s/%SYSNAME%/$OMR_SYSNAME/g" -e "s/%INTERFACE%/Shadowsocks Proxy/g" -e "s/%DEVICE%/Shadowsocks Proxy/g" -e "s/%MESSAGE%/$OMR_TRACKER_STATUS_MSG/g")
+		printf 'Subject: %s\n\n%s\n' "$mail_subject" "$mail_message" | sendmail "$mail_to"
+	else
+		if [ "$type" = "up" ]; then
+			mail_subject="$(printf '%s' "$OMR_SYSNAME: Shadowsocks Proxy is UP." | tr -d '\r\n')"
+			printf 'Subject: %s\n\n' "$mail_subject" | sendmail "$mail_to"
+		else
+			mail_subject="$(printf '%s' "$OMR_SYSNAME: Shadowsocks Proxy is down" | tr -d '\r\n')"
+			printf 'Subject: %s\n\nConnection failure of ShadowSocks proxy detected. The reason is "%s".\n' "$mail_subject" "$OMR_TRACKER_STATUS_MSG" | sendmail "$mail_to"
+		fi
+	fi
+}
+
+# Keep the generic proxy state (openmptcprouter.omr.proxy) in sync with this
+# tracker's view. Guarded on the current value so the steady state costs one
+# uci get per cycle and never a commit.
+_set_omr_proxy_state() {
+	[ "$(uci -q get openmptcprouter.omr.proxy)" = "$1" ] && return
+	uci -q set openmptcprouter.omr.proxy="$1"
+	uci -q commit openmptcprouter
+}
+
+# Is the procd instance of the ss_redir section $1 (in $_ss_cfg) running?
+# Both shadowsocks init scripts name their instances "<cfgtype>.<section>".
+_ss_redir_running() {
+	[ "$(ubus -S call service list "{\"name\":\"${_ss_cfg}\"}" 2>/dev/null \
+		| jsonfilter -q -e "@[\"${_ss_cfg}\"].instances[\"ss_redir.$1\"].running")" = "true" ]
+}
+
+# Print the ss_redir sections pointing at ${server} that are enabled in uci but
+# have no running procd instance. The ss_rules redirect range is built from the
+# uci state and the kernel hands a DNAT range to its first free port, so one
+# such section makes every proxied TCP connection (router and LAN) get refused
+# on the loopback: only a service restart brings the instance back, a
+# rules_reset alone re-points the range at the dead port.
+_ss_missing_redirs() {
+	local _missing=""
+	_check_redir() {
+		[ "$(uci -q get ${_ss_cfg}.$1.server)" != "$2" ] && return
+		[ "$(uci -q get ${_ss_cfg}.$1.disabled)" = "1" ] && return
+		_ss_redir_running "$1" || _missing="${_missing:+$_missing }$1"
+	}
+	config_load "$_ss_cfg"
+	config_foreach _check_redir ss_redir "${server}"
+	printf '%s' "$_missing"
+}
+
+# Number of ss_redir sections pointing at ${server} still enabled in uci. Zero
+# once the down path has disabled them, which keeps that path from firing (and
+# reloading the firewall twice) on every further failed cycle.
+_ss_active_redirs() {
+	local _n=0
+	_count_redir() {
+		[ "$(uci -q get ${_ss_cfg}.$1.server)" != "$2" ] && return
+		[ "$(uci -q get ${_ss_cfg}.$1.disabled)" = "1" ] && return
+		_n=$((_n + 1))
+	}
+	# config_foreach iterates nothing until the package is loaded in this
+	# process: a server that never came up would otherwise never be marked down
+	config_load "$_ss_cfg"
+	config_foreach _count_redir ss_redir "${server}"
+	printf '%s' "$_n"
+}
+
+# Flip every ss_redir section pointing at ${server} to disabled=$1, so the
+# redirect port list the shadowsocks init builds follows this tracker's view of
+# its server. Self-contained on purpose: config_foreach walks $CONFIG_SECTIONS,
+# which only a config_load in the *calling* shell fills in, and every other
+# config_load here runs inside a command substitution
+# (_ss_active_redirs/_ss_missing_redirs). The down path used to open-code this
+# loop without its own config_load, so on a server that never came up it
+# iterated nothing: the redirs stayed enabled, _ss_active_redirs kept returning
+# >=1 and the whole down path (rules_down + fw4 reload + ping + mail alert)
+# re-ran every cycle while the dead port stayed in the redirect map.
+_ss_set_redirs_disabled() {
+	local _want="$1"
+	_set_redir_disabled() {
+		[ "$(uci -q get ${_ss_cfg}.$1.server)" != "$2" ] && return
+		uci -q set ${_ss_cfg}.$1.disabled="$_want"
+	}
+	config_load "$_ss_cfg"
+	config_foreach _set_redir_disabled ss_redir "${server}"
+	uci -q commit "$_ss_cfg"
+}
+
+# Restart the proxy service when _ss_missing_redirs finds something, re-checked
+# once after a short pause so a restart already in progress is not doubled.
+# Returns 0 when a restart was issued.
+_ss_restart_if_redir_missing() {
+	local _missing
+	_missing="$(_ss_missing_redirs)"
+	[ -n "$_missing" ] || return 1
+	sleep 2
+	_missing="$(_ss_missing_redirs)"
+	[ -n "$_missing" ] || return 1
+	_log "Shadowsocks $type ${server}: redir instance ${_missing} not running, restart ${_ss_cfg}"
+	/etc/init.d/${_ss_cfg} restart >/dev/null 2>&1
+	return 0
+}
+
+timeout=${OMR_TRACKER_TIMEOUT:-5}
+interval=${OMR_TRACKER_INTERVAL:-10}
+retry=${OMR_TRACKER_TRIES:-4}
+proxy=${OMR_TRACKER_PROXY:-127.0.0.1:1111}
+hosts=${OMR_TRACKER_HOSTS:-1.1.1.1 1.0.0.1}
+#hosts6=${OMR_TRACKER_HOSTS6}
+wait_test=${OMR_TRACKER_WAIT_TEST:-0}
+server=${OMR_TRACKER_SERVER:-sss0}
+type=${OMR_TRACKER_SS_TYPE:-libev}
+#nodns=0
+
+last=0
+nocontact=""
+uci -q set openmptcprouter.omr=router
+uci -q delete openmptcprouter.omr.shadowsocks=""
+_get_ip
+
+OMR_TRACKER_PREV_STATUS=""
+
+case "$type" in
+	libev) _ss_cfg="shadowsocks-libev" ;;
+	rust)  _ss_cfg="shadowsocks-rust" ;;
+	*)     _ss_cfg="" ;;
+esac
+
+while true; do
+	host="${hosts%% *}"
+	[ "$host" = "$hosts" ] || {
+		hosts="${hosts#* } $host"
+	}
+	#if [ -n "$host6" ]; then
+	#	host6="${hosts6%% *}"
+	#	[ "$host6" = "$hosts6" ] || {
+	#		hosts6="${hosts6#* } $host6"
+	#	}
+	#fi
+	#if [ "$(curl -s -I -w %{http_code} --socks5 "${proxy}" --max-time "${timeout}" "$host" -o /dev/null)" != "000" ] || [ "$(curl -s -I -w %{http_code} --socks5 "${proxy}" --max-time "${timeout}" "$host6" -o /dev/null)" != "000" ]; then
+	if [ "$(curl -s -I -w %{http_code} --socks5 "${proxy}" --max-time "${timeout}" "$host" -o /dev/null)" != "000" ]; then
+		nocontact=""
+		[ "${last}" -ge "${retry}" ] || [ "$(uci -q get openmptcprouter.omr.ss_${server})" != "up" ] && {
+			_log "Shadowsocks $type ${server} is up (can contact via http ${host})"
+			OMR_TRACKER_STATUS_MSG="Shadowsocks $type ${server} is up (can contact via http ${host})"
+			uci -q set openmptcprouter.omr.ss_${server}="up"
+			uci -q commit openmptcprouter
+			if [ -n "$_ss_cfg" ]; then
+				_ss_set_redirs_disabled 0
+				# The sections re-enabled above have no running instance when the
+				# service was restarted while they were disabled: restart it then,
+				# a rules_reset alone would redirect to a port nobody listens on
+				_ss_restart_if_redir_missing || /etc/init.d/${_ss_cfg} rules_reset 2>/dev/null
+			fi
+			#[ "$type" = "libev" ] && /etc/init.d/shadowsocks-libev rules_up 2> /dev/null
+			#[ "$type" = "rust" ] && /etc/init.d/shadowsocks-rust rules_up 2> /dev/null
+
+			_send_mail_alert_ss "up"
+			script_alert_up="$(uci -q get omr-tracker.proxy.script_alert_up)"
+			[ -n "$script_alert_up" ] && eval $script_alert_up
+			_get_ip
+		}
+		nft_ruleset="$(nft list ruleset 2>/dev/null)"
+		if ! printf '%s\n' "$nft_ruleset" | grep -q 'goto ss_rules_forward_tcp'; then
+			if [ "$type" = "libev" ] && [ "$(uci -q get shadowsocks-libev.ss_rules.disabled)" != "1" ] && [ "$(uci -q get shadowsocks-libev.${server}.key)" != "" ] && [ "$(uci -q get shadowsocks-libev.${server}.server)" != "" ] && [ "$(uci -q get shadowsocks-libev.${server}.disabled)" != "1" ]; then
+				_log "Reload Shadowsocks rules"
+				/etc/init.d/shadowsocks-libev rules_up 2> /dev/null
+				_rules_ok=0
+				for _try in 1 2 3; do
+					/etc/init.d/shadowsocks-libev rules_exist >/dev/null 2>&1 && { _rules_ok=1; break; }
+					sleep 2
+				done
+				if [ "$_rules_ok" = "0" ]; then
+					_log "Rules still not set, restart Shadowsocks"
+					/etc/init.d/shadowsocks-libev restart >/dev/null 2>&1
+				fi
+				_get_ip
+			elif [ "$type" = "rust" ] && [ "$(uci -q get shadowsocks-rust.ss_rules.disabled)" != "1" ] && [ "$(uci -q get shadowsocks-rust.${server}.password)$(uci -q get shadowsocks-rust.${server}.key)" != "" ] && [ "$(uci -q get shadowsocks-rust.${server}.server)" != "" ] && [ "$(uci -q get shadowsocks-rust.${server}.disabled)" != "1" ]; then
+				_log "Reload Shadowsocks Rust rules"
+				/etc/init.d/shadowsocks-rust rules_up 2> /dev/null
+				_rules_ok=0
+				for _try in 1 2 3; do
+					/etc/init.d/shadowsocks-rust rules_exist >/dev/null 2>&1 && { _rules_ok=1; break; }
+					sleep 2
+				done
+				if [ "$_rules_ok" = "0" ]; then
+					_log "Rules still not set, restart Shadowsocks-Rust"
+					/etc/init.d/shadowsocks-rust restart >/dev/null 2>&1
+				fi
+				_get_ip
+			fi
+		fi
+		[ "$(uci -q get openmptcprouter.omr.detected_public_ipv4)" = "" ] || { [ "$(uci -q get openmptcprouter.settings.disable_ipv6)" != "1" ] && [ "$(uci -q get openmptcprouter.omr.detected_public_ipv6)" = "" ]; } && _get_ip
+		# First healthy cycle of this tracker process: catch a redir section that
+		# was re-enabled without a service restart before this process existed
+		[ -n "$_ss_cfg" ] && [ -z "$OMR_TRACKER_PREV_STATUS" ] && _ss_restart_if_redir_missing
+		last=0
+		OMR_TRACKER_STATUS="OK"
+		_set_omr_proxy_state "up"
+	else
+		last=$((last + 1 ))
+		[ -z "$nocontact" ] && nocontact="$host" || nocontact="$nocontact, $host"
+		case "$type" in
+		libev)
+			serverip="$(uci -q get shadowsocks-libev.${server}.server)"
+			disabled="$(uci -q get shadowsocks-libev.${server}.disabled)"
+			;;
+		rust)
+			serverip="$(uci -q get shadowsocks-rust.${server}.server)"
+			disabled="$(uci -q get shadowsocks-rust.${server}.disabled)"
+			;;
+		esac
+		ssredir=0
+		[ -n "$_ss_cfg" ] && ssredir="$(_ss_active_redirs)"
+
+		[ "${last}" -ge "${retry}" ] && [ "$ssredir" -ge 1 ] && {
+			nft_ruleset="$(nft list ruleset 2>/dev/null)"
+			if printf '%s\n' "$nft_ruleset" | grep -q -- "$serverip" && printf '%s\n' "$nft_ruleset" | grep -q 'goto ss_rules_forward_tcp'; then
+				_log "Shadowsocks $type ${server} is down (can't contact via http ${nocontact})"
+				OMR_TRACKER_STATUS_MSG="Shadowsocks $type ${server} is down (can't contact via http ${nocontact})"
+				uci -q set openmptcprouter.omr.ss_${server}="down"
+				uci -q commit openmptcprouter
+				_set_omr_proxy_state "down"
+
+				[ "$type" = "libev" ] && /etc/init.d/shadowsocks-libev rules_down 2>/dev/null
+				[ "$type" = "rust" ] && /etc/init.d/shadowsocks-rust rules_down 2>/dev/null
+				if [ -n "$_ss_cfg" ]; then
+					_ss_set_redirs_disabled 1
+					/etc/init.d/${_ss_cfg} rules_reset 2>/dev/null
+				fi
+				_get_ip
+				server_ping=false
+				_ping_server $serverip
+				if [ "$server_ping" = false ]; then
+					_log "Server $server ($serverip) seems down, no answer to ping"
+					OMR_TRACKER_STATUS_MSG="${OMR_TRACKER_STATUS_MSG} - Server $server ($serverip) seems down, no answer to ping"
+				fi
+				_send_mail_alert_ss "down"
+				script_alert_down="$(uci -q get omr-tracker.proxy.script_alert_down)"
+				[ -n "$script_alert_down" ] && eval $script_alert_down
+				if [ "$disabled" != "1" ] && [ "$serverip" != "1" ]; then
+					case "$type" in
+					libev)
+						if ! pgrep ss-redir >/dev/null && [ "$(uci -q get shadowsocks-libev.${server}.key)" != "" ]; then
+							_log "Can't find shadowsocks, restart it..."
+							/etc/init.d/shadowsocks-libev restart
+							sleep 5
+						fi
+						;;
+					rust)
+						if ! pgrep sslocal >/dev/null && [ "$(uci -q get shadowsocks-rust.${server}.password)$(uci -q get shadowsocks-rust.${server}.key)" != "" ]; then
+							_log "Can't find shadowsocks rust, restart it..."
+							/etc/init.d/shadowsocks-rust restart
+							sleep 5
+						fi
+						;;
+					esac
+				fi
+				sleep $wait_test
+				OMR_TRACKER_STATUS="ERROR"
+			fi
+		}
+	fi
+	_post_tracking
+	OMR_TRACKER_PREV_STATUS="$OMR_TRACKER_STATUS"
+	sleep "${interval}"
+done

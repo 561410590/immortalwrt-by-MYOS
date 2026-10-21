@@ -12,8 +12,6 @@ mediatek_setup_interfaces()
 	cmcc,rax3000m*|\
 	cmcc,rax3000me|\
 	cmcc,xr30*|\
-	nradio,c5800-688|\
-	nradio_c5800-688|\
 	hcmt7981-emmc|\
 	HCMT7981-emmc|\
 	h3c,magic-nx30-pro|\
@@ -26,8 +24,7 @@ mediatek_setup_interfaces()
 	routerich,ax3000-v1|\
 	umi,uax3000e|\
 	zbtlink,zbt-z8103ax)
-		ucidef_set_interface "lan" device "lan1 lan2 lan3" protocol static ipaddr "192.168.66.1" netmask "255.255.255.0"
-		ucidef_set_interface_wan eth1 dhcp
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3" eth1
 		;;
 	acelink,ew-7886cax)
 		ucidef_set_interface_lan "eth0" "dhcp"
@@ -128,6 +125,9 @@ mediatek_setup_interfaces()
 	openwrt,one|\
 	openfi,6c*)
 		ucidef_set_interfaces_lan_wan "eth1" eth0
+		;;
+	nradio,c2000-ultra)
+		ucidef_set_interfaces_lan_wan "eth1 hnat" eth0
 		;;
 	dlink,aquila-pro-ai-m30-a1|\
 	dlink,aquila-pro-ai-m60-a1)

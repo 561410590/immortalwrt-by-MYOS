@@ -1,0 +1,242 @@
+#!/bin/sh
+# Copyright (C) 2024 Tom <fjrcn@outlook.com>
+
+# Scanners also use this helper before a modem-device section exists.
+[ -n "$use_ubus" ] || use_ubus=$(uci -q get qmodem.main.use_ubus)
+[ "$use_ubus" = "1" ] && use_ubus_flag="-u"
+
+at()
+{
+  local at_port=$1
+  local new_str="${2/[$]/$}"
+  local atcmd="${new_str/\"/\"}"
+  [ "$clear_buffer" == "1" ] && options="$options -M"
+  #过滤空行
+  if [ "$use_ubus_flag" != "-u" ] && [ "$(uci get qmodem.main.at_tool 2>/dev/null)" == "1" ]; then
+   sms_tool_q -d $at_port at "$atcmd"
+  else
+   tom_modem $use_ubus_flag  -d $at_port -o a -c "$atcmd" $options
+  fi
+}
+
+fastat()
+{
+  local at_port=$1
+  local new_str="${2/[$]/$}"
+  local atcmd="${new_str/\"/\"}"
+  local timeout=1
+  [ "$use_ubus_flag" = "-u" ] && timeout=5
+  #过滤空行
+  if [ "$use_ubus_flag" != "-u" ] && [ "$(uci get qmodem.main.at_tool 2>/dev/null)" == "1" ]; then
+   sms_tool_q -t 1 -d $at_port at "$atcmd"
+  else
+   tom_modem $use_ubus_flag -d $at_port -o a -c "$atcmd" -t "$timeout"
+  fi
+}
+
+log2file()
+{
+	local subject="$1"
+    local msg="$2"
+	local path="$3"
+
+	#打印日志
+    local update_time=$(date +"%Y-%m-%d %H:%M:%S")
+    echo "[${update_time}] ${subject}:${msg} " >> "${path}"
+}
+
+log2sys()
+{
+    local subject="$1"
+    local msg="$2"
+    logger -t "$subject" "$msg"
+}
+
+m_debug ()
+{
+	[ -z "$debug_subject" ] && subject="modem_util" || subject="$debug_subject"
+	[ -n "$direct_debug" ] && echo "$subject" "$1"
+	if [ -n "$log_file" ];then
+		log2file "$subject" "$1" "$log_file"
+	else
+		log2sys "$subject" "$1"
+	fi
+}
+
+update_sim_slot()
+{
+	. /lib/functions.sh
+	board=$(board_name)
+	case $board in
+		HC,HC-G80*)
+			sim_pin="/sys/class/gpio/sim/value"
+			sim_pin_value=$(cat $sim_pin)
+			[ "$sim_pin_value" == "0" ] && sim_slot="2" || sim_slot="1"
+			#电平高表示SIM卡在卡槽1，电平低表示SIM卡在卡槽2
+			debug "update_sim_slot:sim_slot=$sim_slot"
+			;;
+		ailf,gs2410|\
+		huasifei,ws3006)
+			sim_pin="/sys/class/gpio/dual_sim/value"
+			#电平高则都在卡槽1，电平低则需要使用at查询
+			[ "$(cat $sim_pin)" == "1" ] && sim_slot="1" || at_get_slot
+			;;
+		*)
+			at_get_slot
+			;;
+	esac
+}
+
+huawei_usim_slot()
+{
+	local response
+	response=$(at "$at_port" 'AT^SCICHG?')
+	# MT5700 manual 11.17: first field is Modem0's actual zero-based SIM slot.
+	printf '%s\n' "$response" | sed -n 's/^[[:space:]]*\^SCICHG:[[:space:]]*\([01]\)[[:space:]]*,.*/\1/p' | head -n 1
+}
+
+at_get_slot()
+{
+	case ${vendor:-$manufacturer} in
+		"huawei")
+			# Huawei's RPC setter stores a zero-based USIM, not the three-way GPIO slot.
+			at_res=
+			[ "$platform" != hisilicon ] || at_res=$(huawei_usim_slot)
+			[ -n "$at_res" ] || at_res=$(cat "/tmp/huawei_sim_slot_${modem_config:-$config_section}" 2>/dev/null)
+			case "$at_res" in
+				0) sim_slot="1" ;;
+				1) sim_slot="2" ;;
+				*)
+					sim_slot="1"
+					if [ "$(board_name)" = "nradio,c2000-ultra" ]; then
+						local cur mapping index=1 entry
+						cur=$(uci -q get cpesel.sim.cur)
+						mapping=$(uci -q get cpesel.sim.gval)
+						case "$cur" in
+							1|2|3)
+								while [ "$index" -lt "$cur" ]; do
+									mapping="${mapping#*,}"
+									index=$((index + 1))
+								done
+								entry="${mapping%%,*}"
+								case "${entry#*-}" in 1|2) sim_slot="${entry#*-}" ;; esac
+								;;
+						esac
+					fi
+					;;
+			esac
+			;;
+		"quectel")
+			at_res=$(at $at_port AT+QSIMDET? |grep +QSIMDET: |awk -F: '{print $2}')
+			case "$at_res" in
+				"1")
+					sim_slot="1"
+					;;
+				"2")
+					sim_slot="2"
+					;;
+				*)
+					sim_slot="1"
+					;;
+			*)
+				sim_slot="1"
+				;;
+			esac
+			;;
+		"fibocom")
+			at_res=$(at $at_port AT+GTDUALSIM? |grep +GTDUALSIM: |awk -F: '{print $2}')
+			case $at_res in
+				"0")
+					sim_slot="1"
+					;;
+				"1")
+					sim_slot="2"
+					;;
+				*)
+					sim_slot="1"
+					;;
+			*)
+				sim_slot="1"
+				;;
+			esac
+			;;
+		"simcom")
+			at_res=$(at $at_port AT+SMSIMCFG? | grep "+SMSIMCFG:" | awk -F',' '{print $2}' | sed 's/\r//g')
+			case $at_res in
+				"1")
+					sim_slot="1"
+					;;
+				"2")
+					sim_slot="2"
+					;;
+				*)
+					sim_slot="1"
+					;;
+			*)
+				sim_slot="1"
+				;;
+			esac
+			;;
+		"meig")
+			at_res=$(at $at_port AT^SIMSLOT? | grep "\^SIMSLOT:" | awk -F': ' '{print $2}' | awk -F',' '{print $2}')
+			case $at_res in
+				"1")
+					sim_slot="1"
+					;;
+				"0")
+					sim_slot="2"
+					;;
+				*)
+					sim_slot="1"
+					;;
+			*)
+				sim_slot="1"
+				;;
+			esac
+			;;
+		"neoway")
+			at_res=$(at $at_port 'AT+SIMCROSS?' | grep "+SIMCROSS:" | awk -F'[ ,]' '{print $2}' | sed 's/\r//g')
+			case $at_res in
+				"1")
+					sim_slot="1"
+					;;
+				"2")
+					sim_slot="2"
+					;;
+				*)
+					sim_slot="1"
+					;;
+			*)
+				sim_slot="1"
+				;;
+			esac
+			;;
+		"telit")
+			at_res=$(at $at_port AT#QSS? | grep "#QSS:" | awk -F',' '{print $3}' | sed 's/\r//g')
+			case $at_res in
+				"0")
+					sim_slot="1"
+					;;
+				"1")
+					sim_slot="2"
+					;;
+				*)
+					sim_slot="1"
+					;;
+			*)
+				sim_slot="1"
+				;;
+			esac
+			;;
+		*)
+			at_q_res=$(at $at_port AT+QSIMDET? |grep +QSIMDET: |awk -F: '{print $2}')
+			at_f_res=$(at $at_port AT+GTDUALSIM? |grep +GTDUALSIM: |awk -F: '{print $2}')
+			[ "$at_q_res" == "1" ] && sim_slot="1" && return
+			[ "$at_q_res" == "2" ] && sim_slot="2" && return
+			[ "$at_f_res" == "0" ] && sim_slot="1" && return
+			[ "$at_f_res" == "1" ] && sim_slot="2" && return
+			sim_slot="1"
+		;;
+
+	esac
+}

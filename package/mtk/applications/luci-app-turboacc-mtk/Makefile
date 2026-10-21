@@ -5,16 +5,14 @@
 
 include $(TOPDIR)/rules.mk
 
+LUCI_NAME:=luci-app-turboacc
+PKG_VERSION:=1.4
+PKG_RELEASE:=4
 PKG_LICENSE:=GPL-3.0-only
 
-LUCI_TITLE:=LuCI support for MTK HNAT
+LUCI_TITLE:=LuCI support for Turbo ACC
 LUCI_DEPENDS:= \
-	+kmod-tcp-bbr \
-	+kmod-nft-socket +kmod-nft-tproxy +kmod-nft-nat +kmod-inet-diag \
-	+kmod-ipt-nat6 +kmod-ipt-nat +kmod-netlink-diag \
-	+kmod-ipt-physdev +kmod-nf-ipvs +kmod-veth +kmod-wireguard \
-	+kmod-ipt-fullconenat +kmod-fs-btrfs +luci-app-ttyd +kmod-bonding \
-	@!PACKAGE_luci-app-turboacc
+	+luci-compat +kmod-tcp-bbr +kmod-nft-offload +luci-lua-runtime
 LUCI_PKGARCH:=all
 
 include $(TOPDIR)/feeds/luci/luci.mk

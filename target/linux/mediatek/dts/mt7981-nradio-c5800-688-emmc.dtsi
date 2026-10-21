@@ -74,12 +74,7 @@
 		compatible = "mediatek,eth-mac";
 		reg = <1>;
 		phy-mode = "2500base-x";
-
-		fixed-link {
-			speed = <2500>;
-			full-duplex;
-			pause;
-		};
+		phy-handle = <&phy21>;
 	};
 
 	mdio: mdio-bus {
@@ -164,6 +159,5 @@
 &hnat {
 	mtketh-wan = "eth1";
 	mtketh-lan = "lan";
-	mtketh-max-gmac = <2>;
 	status = "okay";
 };

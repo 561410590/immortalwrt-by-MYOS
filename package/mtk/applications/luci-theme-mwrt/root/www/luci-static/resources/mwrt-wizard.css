@@ -1,0 +1,679 @@
+/* mwrt-wizard.css —— 快速向导的全屏外壳
+ *
+ * 和主题解耦:全部类名带 .qsw- 前缀,一条规则都不依赖 argon 的选择器,
+ * 换主题(bootstrap / bootstrap-dark / istore)也长一个样。
+ * 深浅色走 CSS 变量,不复制一整套深色规则。
+ *
+ * 不引任何 CDN:字体用系统栈,图标用内联 SVG(在 JS 里),没有外部请求。
+ */
+
+/* 配色变量。宿主是一个**选择器列表**而不是单独的 .qsw-root ——
+ * 向导自己的子对话框(跳过向导 / 关闭向导 / 切换启动系统 / 正在应用)走的是
+ * ui.showModal, 节点挂进 #modal_overlay。那是 <body> 的直接子节点, 跟
+ * .qsw-root 是**兄弟**关系, 继承不到定义在 .qsw-root 上的变量。
+ *
+ * 之前就栽在这儿, 而且后果比"颜色不对"严重得多: 含无效 var() 的声明在计算值
+ * 阶段整条失效(CSS Variables 规范的 invalid at computed-value time), 不是只丢
+ * 那一个值 ——
+ *   background: var(--qsw-card)          -> 退回 transparent
+ *   border: 1px solid var(--qsw-line)    -> 简写整条没了, border-style 回到
+ *                                           初始值 none, 算出来 border-width: 0px
+ * 而 .qsw-btn.primary 的 `color: #fff` 是字面值, 照样生效。于是主按钮成了
+ * "白字 + 全透明底 + 零边框", 贴在浅色对话框上 = 肉眼完全看不见。用户看到的
+ * 就是「跳过向导」框里只剩一个「继续设置」, 像是没给关闭的路。
+ * 实测文字对比度 1.23:1(要求 4.5:1), 深浅两色都中。
+ * 「继续设置」反而没事 —— color 是继承属性, var() 失效后它继承了对话框的深色字。
+ *
+ * 布局那几条只能给 .qsw-root, 不能把 #modal_overlay 一起钉成 position:fixed,
+ * 所以这里把变量块和布局块拆成两条规则写。 */
+.qsw-root,
+body.qsw-open #modal_overlay {
+	/* 浅色 */
+	--qsw-primary: #2F6BFF;
+	--qsw-primary-weak: rgba(47, 107, 255, .1);
+	--qsw-primary-hover: #2559db;
+	--qsw-bg: #f5f7fb;
+	--qsw-card: #ffffff;
+	--qsw-fg: #1b2330;
+	--qsw-fg-weak: #5b6676;
+	--qsw-line: #e3e8f0;
+	--qsw-input-bg: #ffffff;
+	--qsw-ok: #16a34a;
+	--qsw-warn: #d97706;
+	--qsw-err: #dc2626;
+	--qsw-radius: 12px;
+	--qsw-shadow: 0 1px 3px rgba(16, 24, 40, .06), 0 8px 24px rgba(16, 24, 40, .06);
+	/* 色罩比纯色罩时代淡(原来 .55): 既然已经上了 backdrop-filter 模糊,
+	 * 罩色再压这么重就糊成一团黑, 反而看不出是毛玻璃。 */
+	--qsw-scrim: rgba(16, 24, 40, .38);
+}
+
+.qsw-root {
+	/* 遮罩层。2000 是刻意远高于页面骨架的: argon 的侧边栏 .main-left 是 100,
+	 * header 800, 内容区 50 —— 比它们都低就会被盖住一角, 弹窗最怕这个。
+	 * 向导自己的子对话框(#modal_overlay)靠文件末尾那段 !important 抬到 2100,
+	 * 所以这里不用给它们留空隙。 */
+	position: fixed;
+	inset: 0;
+	z-index: 2000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+	background: var(--qsw-scrim);
+
+	/* 背景做毛玻璃。只靠半透明色罩的话, 底下的管理界面文字照样读得清,
+	 * 弹窗和背景的层次分不开 —— 模糊掉才是 iOS/Android 系统弹窗那种观感。
+	 *
+	 * 只模糊元素**背后**的东西, 所以 .qsw-window 作为子节点照常清晰。
+	 * 子对话框(#modal_overlay)是 .qsw-root 的**兄弟**而不是子节点, 也不受影响
+	 * —— backdrop-filter 会让本元素成为包含块, 要是子对话框挂在里面就会被圈住。
+	 *
+	 * saturate 往上提一点: 单纯 blur 会让背景发灰显脏, 补一点饱和度更像真玻璃。
+	 * -webkit- 前缀是给 Safari/iOS 和这台固件上的老 webview 留的。
+	 * 浏览器不支持时自动退回只有色罩的老样子, 不会坏。 */
+	backdrop-filter: blur(14px) saturate(130%);
+	-webkit-backdrop-filter: blur(14px) saturate(130%);
+
+	color: var(--qsw-fg);
+	font: 400 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+	      "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+	-webkit-font-smoothing: antialiased;
+	animation: qsw-fade .18s ease-out;
+}
+
+/* 浮起来的那张卡。高度上限用 dvh 打头、vh 兜底: 手机浏览器的地址栏
+ * 会把 100vh 算成比可视区还高, 底部按钮条就被推到屏幕外面去了。 */
+.qsw-window {
+	/* 消息条是 position:absolute 的, 必须有这个定位祖先 —— 少了它就会
+	 * 跑去贴 .qsw-root(铺满视口), 桌面上居中的卡下面会凭空飘出一条。 */
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	max-width: 760px;
+	max-height: calc(100vh - 48px);
+	max-height: calc(100dvh - 48px);
+	overflow: hidden;
+	background: var(--qsw-card);
+	border-radius: 16px;
+	box-shadow: 0 10px 15px -3px rgba(0, 0, 0, .1), 0 24px 48px -12px rgba(0, 0, 0, .25);
+	animation: qsw-pop .22s cubic-bezier(.2, .9, .3, 1);
+	outline: 0;
+}
+
+@keyframes qsw-fade { from { opacity: 0; } }
+@keyframes qsw-pop {
+	from { opacity: 0; transform: translateY(8px) scale(.985); }
+}
+
+/* 开窗前的那一两秒(status/modem/getTimezones 三个 rpc)。
+ * 不显示点什么的话用户会以为菜单点坏了然后连点。 */
+.qsw-loadbox {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 14px 20px;
+	font-size: 14px;
+	color: var(--qsw-fg);
+	background: var(--qsw-card);
+	border-radius: 12px;
+	box-shadow: 0 10px 15px -3px rgba(0, 0, 0, .1), 0 24px 48px -12px rgba(0, 0, 0, .25);
+	animation: qsw-pop .2s cubic-bezier(.2, .9, .3, 1);
+}
+
+/* 标题行: 品牌 + 关闭 */
+.qsw-head {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	flex: none;
+	padding: 16px 20px 0;
+}
+
+.qsw-head .qsw-brand { margin: 0; flex: 1 1 auto; min-width: 0; }
+
+.qsw-close {
+	flex: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	color: var(--qsw-fg-weak);
+	background: transparent;
+	border: 0;
+	border-radius: 8px;
+	cursor: pointer;
+	transition: background .15s, color .15s;
+	-webkit-appearance: none;
+	appearance: none;
+}
+
+.qsw-close svg { width: 18px; height: 18px; }
+.qsw-close:hover { background: var(--qsw-line); color: var(--qsw-fg); }
+.qsw-close:focus-visible { outline: 2px solid var(--qsw-primary); outline-offset: 1px; }
+
+/* 中间这段才是滚动的, 标题/进度/按钮条都钉住不动 */
+.qsw-scroll {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior: contain;
+	padding: 4px 20px 20px;
+}
+
+/* 深色:三个来源任一命中都切 —— aurora 自己的开关、LuCI 的深色主题、
+ * 以及系统偏好。顺序不能颠倒,系统偏好要让显式开关能覆盖掉。
+ *
+ * 每条都要再写一份给 #modal_overlay(理由见文件顶部的变量块)。
+ * 麻烦在 data-qsw-scheme 这个属性是 JS 钉在 .qsw-root **元素自己**身上的,
+ * 而 #modal_overlay 是它的兄弟节点 —— 选择器没法从兄弟身上取属性。
+ * 所以 build() 里的 sync() 把同一个属性**同时**写到 <body> 上(见 wizard.js),
+ * 这里的 body[data-qsw-scheme="dark"] 才有东西可匹配。 */
+@media (prefers-color-scheme: dark) {
+	.qsw-root:not([data-qsw-scheme="light"]),
+	body.qsw-open:not([data-qsw-scheme="light"]) #modal_overlay {
+		--qsw-bg: #0f1419;
+		--qsw-card: #171d26;
+		--qsw-fg: #e6eaf0;
+		--qsw-fg-weak: #94a3b8;
+		--qsw-line: #27303d;
+		--qsw-input-bg: #111721;
+		--qsw-primary-weak: rgba(47, 107, 255, .16);
+		--qsw-shadow: 0 1px 3px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .3);
+		/* 同样为毛玻璃调淡(原 .65)。深色下底本来就暗, 压太重连模糊的纹理都看不见。 */
+		--qsw-scrim: rgba(0, 0, 0, .5);
+	}
+}
+
+html[data-darkmode="true"] .qsw-root,
+body.dark .qsw-root,
+.qsw-root[data-qsw-scheme="dark"],
+html[data-darkmode="true"] body.qsw-open #modal_overlay,
+body.dark.qsw-open #modal_overlay,
+body.qsw-open[data-qsw-scheme="dark"] #modal_overlay {
+	--qsw-bg: #0f1419;
+	--qsw-card: #171d26;
+	--qsw-fg: #e6eaf0;
+	--qsw-fg-weak: #94a3b8;
+	--qsw-line: #27303d;
+	--qsw-input-bg: #111721;
+	--qsw-primary-weak: rgba(47, 107, 255, .16);
+	--qsw-shadow: 0 1px 3px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .3);
+	/* 同上, 跟着毛玻璃调淡(原 .65) */
+	--qsw-scrim: rgba(0, 0, 0, .5);
+}
+
+.qsw-root *, .qsw-root *::before, .qsw-root *::after { box-sizing: border-box; }
+
+/* ---------------------------------------------------------------- 布局 */
+
+.qsw-brand {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	font-size: 15px;
+	font-weight: 600;
+	color: var(--qsw-fg-weak);
+}
+
+.qsw-brand svg { width: 22px; height: 22px; flex: none; color: var(--qsw-primary); }
+
+/* 步骤内容。窗口本身已经是卡了, 这里不要再套一层边框和阴影 ——
+ * 卡里套卡是"网页里嵌网页"的廉价感来源。 */
+.qsw-card {
+	background: transparent;
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+	padding: 4px 0 0;
+}
+
+.qsw-h1 { margin: 0 0 6px; font-size: 22px; font-weight: 650; letter-spacing: -.01em; }
+.qsw-sub { margin: 0 0 24px; color: var(--qsw-fg-weak); font-size: 14px; }
+.qsw-h2 { margin: 24px 0 10px; font-size: 15px; font-weight: 650; }
+.qsw-h2:first-child { margin-top: 0; }
+
+/* ------------------------------------------------------------ 进度条 */
+
+.qsw-progress { flex: none; padding: 14px 20px 0; }
+
+.qsw-bar {
+	height: 4px;
+	border-radius: 999px;
+	background: var(--qsw-line);
+	overflow: hidden;
+}
+
+.qsw-bar > i {
+	display: block;
+	height: 100%;
+	border-radius: 999px;
+	background: var(--qsw-primary);
+	transition: width .32s cubic-bezier(.4, 0, .2, 1);
+}
+
+.qsw-steplabel {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+	margin-top: 8px;
+	font-size: 13px;
+	color: var(--qsw-fg-weak);
+}
+
+/* --------------------------------------------------------------- 表单 */
+
+.qsw-field { margin-bottom: 18px; }
+.qsw-field:last-child { margin-bottom: 0; }
+
+.qsw-label {
+	display: block;
+	margin-bottom: 6px;
+	font-size: 14px;
+	font-weight: 550;
+}
+
+.qsw-hint {
+	margin-top: 6px;
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--qsw-fg-weak);
+}
+
+.qsw-root input[type="text"],
+.qsw-root input[type="password"],
+.qsw-root input[type="number"],
+.qsw-root input[type="time"],
+.qsw-root select,
+.qsw-root textarea {
+	width: 100%;
+	padding: 10px 12px;
+	font: inherit;
+	font-size: 15px;
+	color: var(--qsw-fg);
+	background: var(--qsw-input-bg);
+	border: 1px solid var(--qsw-line);
+	border-radius: 10px;
+	outline: 0;
+	transition: border-color .15s, box-shadow .15s;
+	/* iOS 会把 <16px 的输入框聚焦时整页放大 */
+	-webkit-appearance: none;
+	appearance: none;
+}
+
+.qsw-root select {
+	padding-right: 34px;
+	background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%235b6676' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M4 6.5 8 10.5 12 6.5'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 11px center;
+	background-size: 16px;
+}
+
+.qsw-root input:focus,
+.qsw-root select:focus,
+.qsw-root textarea:focus {
+	border-color: var(--qsw-primary);
+	box-shadow: 0 0 0 3px var(--qsw-primary-weak);
+}
+
+.qsw-root input[aria-invalid="true"] { border-color: var(--qsw-err); }
+
+.qsw-err {
+	margin-top: 6px;
+	font-size: 13px;
+	color: var(--qsw-err);
+}
+
+.qsw-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.qsw-row > * { flex: 1 1 200px; min-width: 0; }
+
+/* 开关 */
+.qsw-switch {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 14px;
+	padding: 14px 0;
+	border-bottom: 1px solid var(--qsw-line);
+}
+
+.qsw-switch:last-child { border-bottom: 0; }
+.qsw-switch-text { min-width: 0; }
+.qsw-switch-text b { display: block; font-weight: 550; font-size: 14px; }
+.qsw-switch-text span { font-size: 13px; color: var(--qsw-fg-weak); }
+
+.qsw-toggle {
+	position: relative;
+	flex: none;
+	width: 46px;
+	height: 26px;
+	padding: 0;
+	border: 0;
+	border-radius: 999px;
+	background: var(--qsw-line);
+	cursor: pointer;
+	transition: background .2s;
+	-webkit-appearance: none;
+	appearance: none;
+}
+
+.qsw-toggle::after {
+	content: "";
+	position: absolute;
+	top: 3px;
+	left: 3px;
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	background: #fff;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, .25);
+	transition: transform .2s cubic-bezier(.4, 0, .2, 1);
+}
+
+.qsw-toggle[aria-checked="true"] { background: var(--qsw-primary); }
+.qsw-toggle[aria-checked="true"]::after { transform: translateX(20px); }
+.qsw-toggle:focus-visible { outline: 2px solid var(--qsw-primary); outline-offset: 2px; }
+
+/* 卡片式单选(上网方式之类) */
+.qsw-choices { display: grid; gap: 10px; }
+
+.qsw-choice {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+	padding: 14px;
+	border: 1px solid var(--qsw-line);
+	border-radius: 10px;
+	cursor: pointer;
+	background: var(--qsw-input-bg);
+	transition: border-color .15s, background .15s;
+}
+
+.qsw-choice:hover { border-color: var(--qsw-primary); }
+
+.qsw-choice[aria-checked="true"] {
+	border-color: var(--qsw-primary);
+	background: var(--qsw-primary-weak);
+}
+
+.qsw-choice input { flex: none; margin: 3px 0 0; width: auto; }
+.qsw-choice-text b { display: block; font-weight: 550; font-size: 14px; }
+.qsw-choice-text span { font-size: 13px; color: var(--qsw-fg-weak); }
+.qsw-choice:focus-within { box-shadow: 0 0 0 3px var(--qsw-primary-weak); }
+
+/* --------------------------------------------------------------- 杂项 */
+
+.qsw-badge {
+	display: inline-block;
+	padding: .14em .62em;
+	border-radius: 999px;
+	font-size: 12.5px;
+	font-weight: 600;
+	color: #fff;
+	white-space: nowrap;
+	background: var(--qsw-fg-weak);
+}
+
+.qsw-badge.ok { background: var(--qsw-ok); }
+.qsw-badge.warn { background: var(--qsw-warn); }
+.qsw-badge.err { background: var(--qsw-err); }
+
+.qsw-note {
+	margin: 14px 0 0;
+	padding: 12px 14px;
+	border-radius: 10px;
+	font-size: 13px;
+	line-height: 1.55;
+	background: var(--qsw-primary-weak);
+	border: 1px solid transparent;
+}
+
+.qsw-note.warn {
+	background: rgba(217, 119, 6, .12);
+	border-color: rgba(217, 119, 6, .3);
+}
+
+.qsw-note.err {
+	background: rgba(220, 38, 38, .1);
+	border-color: rgba(220, 38, 38, .3);
+}
+
+/* 只读信息表(蜂窝状态、确认页) */
+.qsw-kv { display: grid; gap: 0; margin: 0; }
+
+.qsw-kv > div {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+	gap: 16px;
+	padding: 10px 0;
+	border-bottom: 1px solid var(--qsw-line);
+	font-size: 14px;
+}
+
+.qsw-kv > div:last-child { border-bottom: 0; }
+.qsw-kv dt, .qsw-kv-k { color: var(--qsw-fg-weak); flex: none; }
+.qsw-kv dd, .qsw-kv-v {
+	margin: 0;
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+	word-break: break-all;
+}
+
+.qsw-spin {
+	display: inline-block;
+	width: 14px;
+	height: 14px;
+	border: 2px solid var(--qsw-line);
+	border-top-color: var(--qsw-primary);
+	border-radius: 50%;
+	animation: qsw-spin .7s linear infinite;
+	vertical-align: -2px;
+}
+
+@keyframes qsw-spin { to { transform: rotate(360deg); } }
+
+/* ------------------------------------------------------------- 底部栏 */
+
+/* 按钮条钉在窗口底边(不是视口底边 —— 窗口是浮起来的, 用 fixed 会贴到
+ * 屏幕最下沿, 跟卡片分家)。flex:none 保证它永远不被内容挤掉。 */
+.qsw-actions {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 14px 20px calc(14px + env(safe-area-inset-bottom, 0px));
+	background: var(--qsw-card);
+	border-top: 1px solid var(--qsw-line);
+}
+
+.qsw-actions-in {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+}
+
+.qsw-grow { flex: 1 1 auto; }
+
+.qsw-btn {
+	flex: none;
+	padding: 10px 22px;
+	font: inherit;
+	font-size: 15px;
+	font-weight: 550;
+	color: var(--qsw-fg);
+	background: var(--qsw-card);
+	border: 1px solid var(--qsw-line);
+	border-radius: 10px;
+	cursor: pointer;
+	transition: background .15s, border-color .15s, opacity .15s;
+	-webkit-appearance: none;
+	appearance: none;
+}
+
+.qsw-btn:hover:not(:disabled) { border-color: var(--qsw-primary); }
+
+.qsw-btn.primary {
+	color: #fff;
+	background: var(--qsw-primary);
+	border-color: var(--qsw-primary);
+}
+
+.qsw-btn.primary:hover:not(:disabled) {
+	background: var(--qsw-primary-hover);
+	border-color: var(--qsw-primary-hover);
+}
+
+.qsw-btn.ghost { border-color: transparent; background: transparent; color: var(--qsw-fg-weak); }
+.qsw-btn.ghost:hover:not(:disabled) { color: var(--qsw-fg); border-color: var(--qsw-line); }
+.qsw-btn:disabled { opacity: .5; cursor: not-allowed; }
+.qsw-btn:focus-visible { outline: 2px solid var(--qsw-primary); outline-offset: 2px; }
+
+/* ------------------------------------------------- 弹窗里的消息条 */
+
+/* 为什么不用 ui.addNotification: 它插进 #maincontent, argon 给那层的
+ * z-index 是 50, 会被这个 2000 的遮罩整个盖住 —— 「应用失败」之类的话
+ * 用户根本看不见。所以提示挂在窗口自己身上, 钉在按钮条上方。 */
+.qsw-toasts {
+	position: absolute;
+	left: 50%;
+	bottom: 76px;
+	transform: translateX(-50%);
+	z-index: 5;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	width: calc(100% - 40px);
+	max-width: 520px;
+	pointer-events: none;
+}
+
+.qsw-toast {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	padding: 11px 12px 11px 14px;
+	border-radius: 10px;
+	font-size: 13.5px;
+	line-height: 1.5;
+	color: #fff;
+	background: #334155;
+	box-shadow: 0 4px 6px -1px rgba(0, 0, 0, .1), 0 10px 20px -5px rgba(0, 0, 0, .3);
+	pointer-events: auto;
+	animation: qsw-toast-in .2s ease-out;
+}
+
+@keyframes qsw-toast-in { from { opacity: 0; transform: translateY(6px); } }
+
+.qsw-toast.info { background: var(--qsw-primary); }
+.qsw-toast.warning { background: var(--qsw-warn); }
+.qsw-toast.error { background: var(--qsw-err); }
+
+.qsw-toast-msg { flex: 1 1 auto; min-width: 0; word-break: break-word; }
+
+.qsw-toast-x {
+	flex: none;
+	width: 20px;
+	height: 20px;
+	padding: 0;
+	font: inherit;
+	font-size: 17px;
+	line-height: 18px;
+	color: inherit;
+	background: transparent;
+	border: 0;
+	border-radius: 5px;
+	opacity: .75;
+	cursor: pointer;
+	-webkit-appearance: none;
+	appearance: none;
+}
+
+.qsw-toast-x:hover { opacity: 1; background: rgba(255, 255, 255, .18); }
+.qsw-toast-x:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+
+/* -------------------------------------------- 子对话框要压在向导上面 */
+
+/* 向导自己会调 ui.showModal(切换启动系统 / 跳过向导 / 关闭向导 / 正在应用),
+ * 那些框走 #modal_overlay。它的**有效**层级在这台机器上是 100
+ * (mwrt-aurora-full.css 用 `#modal_overlay:not(#mwrt-nope)` 把
+ * bootstrap/cascade.css 的 900 压下来了), 低于本弹窗的 2000 ——
+ * 不抬的话向导会把自己的对话框盖住, 点"确认并应用"之后看不到任何反馈。
+ *
+ * aurora 那两条用的是 :not(#mwrt-nope) 这种提权写法而**不是** !important,
+ * 所以 !important 能干净地盖过去。只在向导开着时生效(body.qsw-open),
+ * 不影响其它页面的模态层级。 */
+body.qsw-open #modal_overlay {
+	z-index: 2100 !important;
+}
+
+/* ------------------------------------------------------------ 窄屏 */
+
+@media (max-width: 560px) {
+	/* 手机上不留边距, 直接做成铺满的一整屏 —— 小屏幕上居中留白的"卡"
+	 * 反而显得局促。圆角也去掉。 */
+	.qsw-root { padding: 0; }
+	.qsw-window {
+		max-width: none;
+		max-height: 100vh;
+		max-height: 100dvh;
+		height: 100vh;
+		height: 100dvh;
+		border-radius: 0;
+	}
+	.qsw-head { padding: 12px 14px 0; }
+	.qsw-progress { padding: 12px 14px 0; }
+	.qsw-scroll { padding: 4px 14px 16px; }
+	.qsw-h1 { font-size: 20px; }
+	.qsw-actions { padding-left: 14px; padding-right: 14px; }
+	.qsw-btn { padding: 10px 16px; }
+	.qsw-toasts { width: calc(100% - 28px); bottom: 72px; }
+	/* 360px 宽也不横向滚动:两列并排的字段改成堆叠 */
+	.qsw-row > * { flex-basis: 100%; }
+	.qsw-kv > div { flex-wrap: wrap; gap: 2px; }
+	.qsw-kv dd, .qsw-kv-v { text-align: left; }
+}
+
+@media (max-width: 380px) {
+	.qsw-steplabel { font-size: 12px; }
+	.qsw-btn { padding: 10px 13px; font-size: 14px; }
+}
+
+/* 矮屏(横过来的手机): 高度不够时别让标题和进度条吃掉半屏 */
+@media (max-height: 460px) {
+	.qsw-head { padding-top: 8px; }
+	.qsw-progress { padding-top: 8px; }
+	.qsw-sub { margin-bottom: 14px; }
+}
+
+/* 动效敏感 / 高对比:尊重系统偏好 */
+@media (prefers-reduced-motion: reduce) {
+	.qsw-root, .qsw-window,
+	.qsw-root *, .qsw-root *::before, .qsw-root *::after {
+		transition-duration: .01ms !important;
+		animation-duration: .01ms !important;
+		animation-iteration-count: 1 !important;
+	}
+}
+
+/* 只给键盘用户的跳转链接 */
+.qsw-skip {
+	position: absolute;
+	left: -9999px;
+	top: 0;
+}
+
+.qsw-skip:focus {
+	left: 12px;
+	top: 12px;
+	z-index: 10;
+	padding: 8px 14px;
+	background: var(--qsw-card);
+	border: 1px solid var(--qsw-primary);
+	border-radius: 8px;
+}

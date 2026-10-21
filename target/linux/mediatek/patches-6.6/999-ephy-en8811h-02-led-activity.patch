@@ -1,0 +1,48 @@
+Subject: [PATCH] net: phy: air_en8811h: allow activity on all LEDs
+
+Use hardware RX/TX blinking without link indication on all LEDs when the board
+sets airoha,led-activity-all. Other boards retain their defaults.
+Allow boards with active-low LED wiring to select airoha,led-active-low.
+
+--- a/drivers/net/phy/air_en8811h.c
++++ b/drivers/net/phy/air_en8811h.c
+@@ -820,7 +820,16 @@
+ static int air_leds_init(struct phy_device *phydev, int num, int dur, int mode)
+ {
+ 	struct en8811h_priv *priv = phydev->priv;
++	u8 pol = device_property_read_bool(&phydev->mdio.dev,
++			"airoha,led-active-low") ? AIR_ACTIVE_LOW : AIR_ACTIVE_HIGH;
+ 	int ret, i;
+ 
++	/* MCU restarts reset the LED GPIO direction. */
++	ret = air_buckpbus_reg_modify(phydev, EN8811H_GPIO_OUTPUT,
++				      EN8811H_GPIO_OUTPUT_345,
++				      EN8811H_GPIO_OUTPUT_345);
++	if (ret < 0)
++		return ret;
++
+ 	ret = phy_write_mmd(phydev, MDIO_MMD_VEND2, AIR_PHY_LED_DUR_BLINK,
+ 			    dur);
+@@ -855,7 +857,7 @@
+ 	}
+ 
+ 	for (i = 0; i < num; ++i) {
+-		ret = air_led_init(phydev, i, AIR_LED_ENABLE, AIR_ACTIVE_HIGH);
++		ret = air_led_init(phydev, i, AIR_LED_ENABLE, pol);
+ 		if (ret < 0) {
+ 			phydev_err(phydev, "LED%d init failed: %d\n", i, ret);
+ 			return ret;
+@@ -1005,6 +1007,13 @@
+	priv->led[0].rules = AIR_DEFAULT_TRIGGER_LED0;
+	priv->led[1].rules = AIR_DEFAULT_TRIGGER_LED1;
+	priv->led[2].rules = AIR_DEFAULT_TRIGGER_LED2;
++	if (device_property_read_bool(&phydev->mdio.dev,
++				      "airoha,led-activity-all")) {
++		priv->led[0].rules = BIT(TRIGGER_NETDEV_RX) |
++				     BIT(TRIGGER_NETDEV_TX);
++		priv->led[1].rules = priv->led[0].rules;
++		priv->led[2].rules = priv->led[0].rules;
++	}
+ 
+	/* MDIO_DEVS1/2 empty, so set mmds_present bits here */
+ 	phydev->c45_ids.mmds_present |= MDIO_DEVS_PMAPMD | MDIO_DEVS_AN;

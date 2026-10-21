@@ -1,0 +1,10 @@
+{
+	"luci-app-mwrt-notice": {
+		"description": "Grant access to the global notice center",
+		"read": {
+			"ubus": {
+				"luci.mwrt-notice": [ "list", "reboot_gate" ]
+			}
+		}
+	}
+}

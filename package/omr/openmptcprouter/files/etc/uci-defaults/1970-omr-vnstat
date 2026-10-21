@@ -1,0 +1,39 @@
+#!/bin/sh
+if [ "$(uci -q get openmptcprouter.latest_versions)" = "" ]; then
+	wanintf="$(uci -q get network.wan1.device)"
+	if [ "$(uci -q get vnstat.@vnstat[-1].interface | grep $wanintf)" = "" ]; then
+		uci -q batch <<-EOF >/dev/null
+			delete vnstat.@vnstat[-1]
+			add vnstat vnstat
+			set vnstat.@vnstat[-1].interface=$wanintf
+		EOF
+		wanintf="$(uci -q get network.wan2.device)"
+		uci -q batch <<-EOF >/dev/null
+			add_list vnstat.@vnstat[-1].interface=$wanintf
+		EOF
+		if [ "$(uci -q get network.wan3)" != "" ]; then
+			wanintf="$(uci -q get network.wan3.device)"
+			uci -q batch <<-EOF >/dev/null
+				add_list vnstat.@vnstat[-1].interface=$wanintf
+			EOF
+		fi
+		if [ "$(uci -q get network.wan4)" != "" ]; then
+			wanintf="$(uci -q get network.wan4.device)"
+			uci -q batch <<-EOF >/dev/null
+				add_list vnstat.@vnstat[-1].interface=$wanintf
+			EOF
+		fi
+		uci -q batch <<-EOF >/dev/null
+			commit vnstat
+		EOF
+	fi
+fi
+rm -f /tmp/luci-indexcache
+if [ ! -f /etc/crontabs/root ] || [ "$(cat /etc/crontabs/root | grep vnstat)" = "" ]; then
+	echo "0 */2 * * * /etc/init.d/vnstat_backup backup" >> /etc/crontabs/root
+fi
+
+# Fix libwebp link
+ln -sf $(find /usr/lib -type f -name "libwebp.so.*" | tail -1) /usr/lib/libwebp.so
+
+exit 0

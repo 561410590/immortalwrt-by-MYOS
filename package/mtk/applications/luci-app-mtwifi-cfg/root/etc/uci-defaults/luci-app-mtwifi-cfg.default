@@ -11,8 +11,35 @@ if [ -d /usr/share/luci/menu.d ]; then
 	cp -f /usr/share/luci-app-mtwifi-cfg/luci-mod-status.json /usr/share/luci/menu.d/luci-mod-status.json
 fi
 
+wireless_needs_c5800_defaults() {
+	local type24 type5 ssid24 ssid5 enc24 enc5 key24 key5
+
+	[ -s /etc/config/wireless ] || return 0
+	uci -q get wireless >/dev/null || return 0
+
+	type24="$(uci -q get wireless.MT7981_1_1.type)"
+	type5="$(uci -q get wireless.MT7981_1_2.type)"
+	[ "$type24" = "mtwifi" ] && [ "$type5" = "mtwifi" ] || return 0
+
+	ssid24="$(uci -q get wireless.default_MT7981_1_1.ssid)"
+	ssid5="$(uci -q get wireless.default_MT7981_1_2.ssid)"
+	enc24="$(uci -q get wireless.default_MT7981_1_1.encryption)"
+	enc5="$(uci -q get wireless.default_MT7981_1_2.encryption)"
+	key24="$(uci -q get wireless.default_MT7981_1_1.key)"
+	key5="$(uci -q get wireless.default_MT7981_1_2.key)"
+
+	if [ "$ssid24" = "NRadio_2.4G" ] && [ "$ssid5" = "NRadio_5G" ] && \
+		[ "$enc24" = "none" ] && [ "$enc5" = "none" ] && \
+		[ -z "$key24$key5" ]; then
+		return 0
+	fi
+
+	return 1
+}
+
 case "$(board_name)" in
 hcmt7981-emmc|HCMT7981-emmc|hcmt7981-688-emmc|HCMT7981-688-emmc)
+if wireless_needs_c5800_defaults; then
 	cat > /etc/config/wireless <<-'EOF'
 
 config wifi-device 'MT7981_1_1'
@@ -42,7 +69,7 @@ config wifi-device 'MT7981_1_2'
 	option hwmode '11a'
 	option band '5g'
 	option dbdc_main '0'
-	option channel '36'
+	option channel 'auto'
 	option txpower '100'
 	option htmode 'HE160'
 	option country 'CN'
@@ -57,18 +84,35 @@ config wifi-iface 'default_MT7981_1_2'
 	option ssid 'NRadio_C5800-688_5G'
 	option encryption 'none'
 EOF
+fi
 	;;
 *)
 
-if [ ! -s /etc/config/wireless ] || ! uci -q get wireless >/dev/null; then
-	wifi detect > /etc/config/wireless
-else
-	total_ifname=$(grep -c "^[[:space:]]*option ifname[[:space:]]" /etc/config/wireless)
-	unique_ifname=$(grep "^[[:space:]]*option ifname[[:space:]]" /etc/config/wireless | awk '{print $3}' | sort -u | wc -l)
-	if [ "$total_ifname" -gt "$unique_ifname" ]; then
-		wifi detect > /etc/config/wireless
-	fi
+wireless_config_ready() {
+	local radio
+
+	[ -s /etc/config/wireless ] && uci -q show wireless >/dev/null || return 1
+	radio="$(uci -q get 'wireless.@wifi-iface[0].device')" || return 1
+	[ -n "$radio" ] && [ "$(uci -q get "wireless.$radio")" = "wifi-device" ] &&
+		[ -n "$(uci -q get "wireless.$radio.type")" ]
+}
+
+# Never discard user settings when the configuration cannot be parsed.
+if [ -s /etc/config/wireless ] && ! uci -q show wireless >/dev/null; then
+	logger -t mtwifi-cfg "Invalid wireless configuration; preserving it for repair"
+	exit 1
 fi
+
+if ! wireless_config_ready; then
+	/sbin/wifi config || exit 1
+	# wifi config may succeed before the wireless driver is available.
+	wireless_config_ready || {
+		logger -t mtwifi-cfg "Wireless configuration is not ready; keeping defaults for retry"
+		exit 1
+	}
+fi
+
+exit 0
 	;;
 esac
 

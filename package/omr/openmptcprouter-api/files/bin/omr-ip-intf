@@ -1,0 +1,63 @@
+#!/bin/sh
+. /lib/functions.sh
+
+intf=$1
+
+timeout=$(uci -q get openmptcprouter.settings.status_getip_timeout)
+[ -z "$timeout" ] && timeout="1"
+
+get_ip_from_server() {
+	[ -n "$ip" ] && return
+	serverport=$(uci -q get openmptcprouter.$1.port)
+	get_ip() {
+		[ -n "$ip" ] && return
+		serverip=$1
+		getip="$(curl -s -k -4 -m ${timeout} --interface $intf https://$serverip:$serverport/clienthost 2>/dev/null)"
+		[ -n "$getip" ] && getip=$(echo $getip | jsonfilter -e '@.client_host' | sed 's/::ffff://')
+		if expr "$getip" : '[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$' >/dev/null; then
+			ip=$getip
+			return
+		fi
+	}
+	config_list_foreach $1 ip get_ip
+}
+
+get_ip_from_website() {
+	check_ipv4_website="$(uci -q get openmptcprouter.settings.check_ipv4_website)"
+	[ -z "$check_ipv4_website" ] && check_ipv4_website="http://ip.openmptcprouter.com"
+	checkip=$(echo $check_ipv4_website | sed -e 's/https:\/\///' -e 's/http:\/\///' | xargs dig +nocmd +noall +answer A | grep -v CNAME | awk '{print $5}' | tr -d "\n")
+	if [ -n "$(ipset list 2>/dev/null | grep ss_rules)" ]; then
+		for _checkip in $checkip; do
+			ipset add ss_rules_dst_bypass_all $_checkip > /dev/null 2>&1
+		done
+	fi
+	if [ -n "$(nft list set inet fw4 omr_dst_bypass_all_4 2>/dev/null)" ]; then
+		for _checkip in $checkip; do
+			nft add element inet fw4 omr_dst_bypass_all_4 { $_checkip } >/dev/null 2>&1
+		done
+	fi
+	getip="$(curl -s -4 -m ${timeout} --interface $intf $check_ipv4_website 2>/dev/null)"
+	if [ -n "$(ipset list 2>/dev/null | grep ss_rules)" ]; then
+		for _checkip in $checkip; do
+			ipset del ss_rules_dst_bypass_all $_checkip
+		done
+	fi
+	if [ -n "$(nft list set inet fw4 omr_dst_bypass_all_4 2>/dev/null)" ]; then
+		for _checkip in $checkip; do
+			nft delete element inet fw4 omr_dst_bypass_all_4 { $_checkip } >/dev/null 2>&1
+		done
+	fi
+	if expr "$getip" : '[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$' >/dev/null; then
+		ip=$getip
+	fi
+	[ "$ip" = "$checkip" ] && ip=""
+}
+
+[ -z "$intf" ] && return
+if [ -n "$(ip -4 a show dev $intf)" ]; then
+	ip=""
+	config_load openmptcprouter
+	config_foreach get_ip_from_server server
+	[ -z "$ip" ] && get_ip_from_website
+	echo $ip
+fi

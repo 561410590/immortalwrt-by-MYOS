@@ -1,0 +1,467 @@
+#!/bin/sh
+# mwrt-fansched -- scheduled fan gear override ("quiet hours").
+#
+# The fan page (admin/status/fancontrol) can only set a gear *now*. At night the
+# smart curve happily runs the fan at 192/255 next to a bed, so this pins a
+# chosen gear for a time window and puts the previous mode back when the window
+# closes.
+#
+# Same shape as mwrt-ledsched, deliberately: plain ash + the uci CLI only (no
+# lua, no jsonc -- this ships to every board in the tree), configuration in uci,
+# a one-minute cron tick to open and close the window, and the pre-window
+# snapshot kept in the config rather than /tmp so a reboot in the middle of a
+# window still restores the mode the user had before it opened.
+#
+# NEVER let the literal string "fancts.sh" appear in this script's argv or in a
+# child's command line other than the daemon itself: every gear handler in
+# fancontrol.lua does `pgrep -f fancts.sh` and kills the first match, so an argv
+# that mentions it can get this script killed in the daemon's place. That is why
+# the pattern below is bracketed.
+#
+# Every function declares its variables `local`. Not style: ash functions share
+# one namespace, and two helpers that both happened to use "d" or "p" are how
+# next_switch() span forever and how a pid got written into a pwm file during
+# bring-up here. busybox ash does implement `local` (verified on-device).
+
+CFG=mwrt_fan
+SEC=main
+
+FANVALL=/etc/fanvall			# mode marker fancontrol.lua reads back
+SPEEDCONF=/usr/bin/fanspeed.conf	# last pwm value; also the page's readout
+DAEMON=/usr/bin/fancts.sh		# temperature-curve daemon = "smart" mode
+DAEMON_PAT='[f]ancts\.sh'
+DAEMON_PID=/var/run/cooling_control.pid
+ZONE=/sys/class/thermal/thermal_zone0/temp
+HOTFLAG=/tmp/mwrt-fansched.hot		# thermal-escape latch, tmpfs on purpose
+
+[ -f "/etc/config/$CFG" ] || exit 0
+
+uget() { uci -q get "$CFG.$SEC.$1"; }
+uset() { uci -q set "$CFG.$SEC.$1=$2"; }
+
+# Resolved by glob every time, never hardcoded: the hwmon index is not stable
+# across boards or boots.
+pwm_path() { ls /sys/devices/platform/pwm-fan/hwmon/hwmon*/pwm1 2>/dev/null | head -1; }
+
+# ------------------------------------------------------------------ primitives
+
+# Strip one leading zero and print the result, or 0 for an empty field.
+#
+# Necessary because busybox ash's $(( )) has no "10#" radix prefix (a bashism)
+# and rejects a leading zero outright -- $(( 08 )) is a syntax error, not 8.
+num() {
+	local v=${1#0}
+	echo "${v:-0}"
+}
+
+int_or() {
+	case "$1" in
+		''|*[!0-9]*) echo "$2" ;;
+		*) echo "$1" ;;
+	esac
+}
+
+# The gear numbers are fancontrol.lua's, not ours: 0/1/2/3 are the fixed gears,
+# 9 is the curve daemon, 999 is the page's free slider (value in .pwm).
+gear_pwm() {
+	case "$1" in
+		0) echo 64 ;;
+		1) echo 128 ;;
+		2) echo 192 ;;
+		3) echo 255 ;;
+		999) int_or "$(uget pwm)" 64 ;;
+		*) echo "" ;;
+	esac
+}
+
+read_file() { cat "$1" 2>/dev/null; }
+
+# Every write in here is conditional. This runs once a minute and both
+# /etc/fanvall and /usr/bin/fanspeed.conf live on the overlay, i.e. flash.
+write_if_changed() {
+	[ "$(read_file "$1")" = "$2" ] && return 0
+	echo "$2" > "$1"
+}
+
+set_pwm() {
+	local pp=$(pwm_path)
+	[ -n "$pp" ] || return 1
+	[ "$(read_file "$pp")" = "$1" ] || { echo "$1" > "$pp"; } 2>/dev/null
+	write_if_changed "$SPEEDCONF" "$1"
+}
+
+temp_c() {
+	local t
+	[ -r "$ZONE" ] || return 0
+	t=$(read_file "$ZONE")
+	case "$t" in ''|*[!0-9]*) return 0 ;; esac
+	echo $(( t / 1000 ))
+}
+
+# The curve the daemon uses, so a thermal escape behaves like smart mode would.
+curve_pwm() {
+	if [ "$1" -gt 85 ]; then echo 255
+	elif [ "$1" -gt 60 ]; then echo 192
+	elif [ "$1" -gt 50 ]; then echo 128
+	else echo 64
+	fi
+}
+
+# --------------------------------------------------------------- daemon control
+
+daemon_alive() { pidof fancontrol >/dev/null 2>&1; }
+daemon_stop() {
+    if [ "$(uci -q get fancontrol.settings.enabled)" != 0 ]; then
+        uci -q set fancontrol.settings.enabled=0
+        uci -q commit fancontrol
+    fi
+    daemon_alive && /etc/init.d/fancontrol stop >/dev/null 2>&1
+    return 0
+}
+daemon_start() {
+    write_if_changed "$FANVALL" 9
+    if [ "$(uci -q get fancontrol.settings.enabled)" != 1 ]; then
+        uci -q set fancontrol.settings.enabled=1
+        uci -q commit fancontrol
+    fi
+    daemon_alive || /etc/init.d/fancontrol restart >/dev/null 2>&1
+}
+
+# ------------------------------------------------------------------- snapshot
+
+# "<fanvall>|<pwm>|<daemon alive 0|1>"
+#
+# All three are needed. fanvall alone is not the mode: the temperature-source
+# buttons (action_fansvm/fansvc) write 9 without ever starting the daemon, so
+# "9" can mean either smart or manual depending on whether the process is there.
+snap_take() {
+	local m p d
+	[ -n "$(uget restore)" ] && return 0
+	m=$(int_or "$(read_file "$FANVALL")" 9)
+	p=$(int_or "$(read_file "$SPEEDCONF")" 192)
+	d=0
+	daemon_alive && d=1
+	uset restore "$m|$p|$d"
+	# Commit the snapshot BEFORE touching the fan. Pinned at a gear with no
+	# record of the previous mode is the one state we cannot recover from.
+	uci -q commit "$CFG"
+}
+
+snap_restore() {
+	local s m r p d
+	s=$(uget restore)
+	[ -n "$s" ] || return 0
+	m=${s%%|*}
+	r=${s#*|}
+	p=${r%%|*}
+	d=${r##*|}
+	rm -f "$HOTFLAG"
+
+	if [ "$d" = 1 ]; then
+		daemon_start
+	else
+		daemon_stop
+		write_if_changed "$FANVALL" "$m"
+		p=$(int_or "$p" "$(gear_pwm "$m")")
+		[ -n "$p" ] && set_pwm "$p"
+	fi
+
+	uci -q delete "$CFG.$SEC.restore"
+	uci -q delete "$CFG.$SEC.bypass"
+	uci -q commit "$CFG"
+}
+
+# --------------------------------------------------------------------- holding
+
+apply_gear() {
+	if [ "$1" = 9 ]; then
+		daemon_start
+		return 0
+	fi
+	daemon_stop
+	write_if_changed "$FANVALL" "$1"
+	local w=$(gear_pwm "$1")
+	[ -n "$w" ] && set_pwm "$w"
+}
+
+# Hold the scheduled gear, with a temperature escape hatch.
+#
+# fancts.sh writes "disabled" to thermal_zone0/mode and never puts it back, so
+# while it is stopped there is no kernel governor and no trip points -- nothing
+# but this tick stands between a pinned quiet gear and a cooking SoC. Above
+# tempmax we hand the fan back to the curve until it has cooled down by 6 C
+# (hysteresis, so it does not flap on and off every minute).
+hold() {
+	if [ "$1" = 9 ]; then
+		rm -f "$HOTFLAG"
+		apply_gear 9
+		return 0
+	fi
+
+	local mx=$(int_or "$(uget tempmax)" 80)
+	local t=$(temp_c)
+	if [ "$mx" -gt 0 ] && [ -n "$t" ]; then
+		if [ -f "$HOTFLAG" ]; then
+			[ "$t" -le $(( mx - 6 )) ] && rm -f "$HOTFLAG"
+		elif [ "$t" -ge "$mx" ]; then
+			: > "$HOTFLAG"
+		fi
+	else
+		rm -f "$HOTFLAG"
+	fi
+
+	if [ -f "$HOTFLAG" ]; then
+		# Keep the marker on the scheduled gear so the page still shows what
+		# the schedule asked for; only the pwm is lifted.
+		daemon_stop
+		write_if_changed "$FANVALL" "$1"
+		set_pwm "$(curve_pwm "$t")"
+		return 0
+	fi
+
+	apply_gear "$1"
+}
+
+# ------------------------------------------------------------------ scheduling
+
+hhmm_to_min() {
+	case "$1" in
+		[0-9]*:[0-9]*)
+			local h=$(num "${1%%:*}")
+			local m=$(num "${1##*:}")
+			echo $(( h * 60 + m ))
+			;;
+		*) echo -1 ;;
+	esac
+}
+
+now_min() {
+	local nh=$(num "$(date +%H)")
+	local nm=$(num "$(date +%M)")
+	echo $(( nh * 60 + nm ))
+}
+
+# Empty weekday list means every day. $1 is 0..6, Sunday = 0, as `date +%w`.
+active_day() {
+	local wd=$(uget weekdays)
+	local x
+	[ -z "$wd" ] && return 0
+	for x in $wd; do
+		[ "$x" = "$1" ] && return 0
+	done
+	return 1
+}
+
+# 1 when the schedule says the fan should be pinned right now.
+#
+# A window that crosses midnight belongs to the weekday it *starts* on, so
+# picking only Monday with 23:00-07:00 means Mon 23:00 through Tue 07:00.
+sched_state() {
+	local s e nowm tw yw
+	[ "$(uget enabled)" = "1" ] || { echo 0; return; }
+
+	s=$(hhmm_to_min "$(uget starttime)")
+	e=$(hhmm_to_min "$(uget endtime)")
+	[ "$s" -ge 0 ] && [ "$e" -ge 0 ] && [ "$s" != "$e" ] || { echo 0; return; }
+
+	nowm=$(now_min)
+	tw=$(date +%w)
+	yw=$(( (tw + 6) % 7 ))
+
+	if [ "$s" -lt "$e" ]; then
+		if active_day "$tw" && [ "$nowm" -ge "$s" ] && [ "$nowm" -lt "$e" ]; then
+			echo 1
+			return
+		fi
+	else
+		if active_day "$tw" && [ "$nowm" -ge "$s" ]; then echo 1; return; fi
+		if active_day "$yw" && [ "$nowm" -lt "$e" ]; then echo 1; return; fi
+	fi
+	echo 0
+}
+
+# Next boundary as "<minutes from today 00:00> <start|end>". Walks the next
+# eight days and takes the earliest boundary still ahead of us.
+next_switch() {
+	local s e nowm tw best beststate d w sa ea c
+	[ "$(uget enabled)" = "1" ] || return 1
+
+	s=$(hhmm_to_min "$(uget starttime)")
+	e=$(hhmm_to_min "$(uget endtime)")
+	[ "$s" -ge 0 ] && [ "$e" -ge 0 ] && [ "$s" != "$e" ] || return 1
+
+	nowm=$(now_min)
+	tw=$(date +%w)
+	best=-1
+	beststate=
+
+	d=0
+	while [ $d -le 7 ]; do
+		w=$(( (tw + d) % 7 ))
+		if active_day "$w"; then
+			sa=$(( d * 1440 + s ))
+			if [ "$s" -lt "$e" ]; then
+				ea=$(( d * 1440 + e ))
+			else
+				ea=$(( d * 1440 + e + 1440 ))
+			fi
+			for c in "$sa start" "$ea end"; do
+				set -- $c
+				if [ "$1" -gt "$nowm" ] && { [ "$best" -lt 0 ] || [ "$1" -lt "$best" ]; }; then
+					best=$1
+					beststate=$2
+				fi
+			done
+		fi
+		d=$(( d + 1 ))
+	done
+
+	[ "$best" -lt 0 ] && return 1
+	echo "$best $beststate"
+}
+
+# -------------------------------------------------------------------- commands
+
+cmd_apply() {
+	local want pinned g
+	want=$(sched_state)
+	pinned=0
+	[ -n "$(uget restore)" ] && pinned=1
+	g=$(int_or "$(uget gear)" 0)
+
+	if [ "$want" = 1 ]; then
+		[ "$pinned" = 1 ] || snap_take
+		# The user picked a gear by hand after the window opened: leave the fan
+		# alone for the rest of the window. The window's *end* still restores
+		# the mode recorded before it opened.
+		[ "$(uget bypass)" = "1" ] && return 0
+		hold "$g"
+	elif [ "$pinned" = 1 ]; then
+		snap_restore
+	fi
+}
+
+cmd_status() {
+	local sup pin byp hot fv cur t s ns
+	sup=false
+	[ -n "$(pwm_path)" ] && sup=true
+	pin=false
+	[ -n "$(uget restore)" ] && pin=true
+	byp=false
+	[ "$(uget bypass)" = "1" ] && byp=true
+	hot=false
+	[ -f "$HOTFLAG" ] && hot=true
+
+	# Current mode, derived exactly the way action_fanst does it.
+	fv=$(int_or "$(read_file "$FANVALL")" 9)
+	if [ "$fv" = 999 ]; then
+		cur=999
+	elif daemon_alive; then
+		cur=9
+	else
+		cur=$fv
+	fi
+
+	printf '{"supported":%s,"enabled":"%s","active":%s,"bypass":%s,"hot":%s' \
+		"$sup" "$(uget enabled)" "$pin" "$byp" "$hot"
+	printf ',"gear":"%s","pwm":"%s","tempmax":"%s"' \
+		"$(int_or "$(uget gear)" 0)" "$(int_or "$(uget pwm)" 64)" "$(int_or "$(uget tempmax)" 80)"
+	printf ',"starttime":"%s","endtime":"%s","weekdays":"%s"' \
+		"$(uget starttime)" "$(uget endtime)" "$(uget weekdays)"
+	printf ',"cur_gear":"%s","cur_pwm":"%s"' \
+		"$cur" "$(int_or "$(read_file "$SPEEDCONF")" 0)"
+
+	t=$(temp_c)
+	[ -n "$t" ] && printf ',"temp":%s' "$t"
+
+	s=$(uget restore)
+	[ -n "$s" ] && printf ',"prev_gear":"%s"' "${s%%|*}"
+
+	ns=$(next_switch)
+	if [ -n "$ns" ]; then
+		set -- $ns
+		printf ',"next_at":"%02d:%02d","next_day":%d,"next_state":"%s"' \
+			$(( ($1 % 1440) / 60 )) $(( $1 % 60 )) $(( $1 / 1440 )) "$2"
+	fi
+	printf '}\n'
+}
+
+# config key=value ... -- validated here as well as in the LuCI action, because
+# this is also the CLI/APP entry point.
+cmd_config() {
+	local changed=0
+	local kv k v
+	for kv in "$@"; do
+		k=${kv%%=*}
+		v=${kv#*=}
+		case "$k" in
+			enabled)
+				case "$v" in 0|1) ;; *) continue ;; esac
+				;;
+			starttime|endtime)
+				case "$v" in [0-9][0-9]:[0-9][0-9]) ;; *) continue ;; esac
+				[ "$(num "${v%%:*}")" -le 23 ] && [ "$(num "${v##*:}")" -le 59 ] || continue
+				;;
+			gear)
+				case "$v" in 0|1|2|3|9|999) ;; *) continue ;; esac
+				;;
+			pwm)
+				case "$v" in ''|*[!0-9]*) continue ;; esac
+				[ "$v" -le 255 ] || continue
+				;;
+			tempmax)
+				case "$v" in ''|*[!0-9]*) continue ;; esac
+				[ "$v" = 0 ] || { [ "$v" -ge 50 ] && [ "$v" -le 95 ]; } || continue
+				;;
+			weekdays)
+				v=$(echo "$v" | tr ',' ' ')
+				case "$v" in *[!0-6\ ]*) continue ;; esac
+				;;
+			*) continue ;;
+		esac
+		uset "$k" "$v"
+		changed=1
+	done
+	[ "$changed" = 1 ] && uci -q commit "$CFG"
+	# A gear or time change mid-window should take effect now, not up to a
+	# minute later.
+	cmd_apply
+}
+
+cmd_manual() {
+    local gear=$1 pwm=$2
+    [ -n "$pwm" ] || pwm=64
+    case "$gear" in 0|1|2|3|9|999) ;; *) exit 1 ;; esac
+    case "$pwm" in ''|*[!0-9]*) exit 1 ;; esac
+    [ "$pwm" -le 255 ] || exit 1
+    if [ -n "$(uget restore)" ]; then
+        uset bypass 1
+        uci -q commit "$CFG"
+    fi
+    if [ "$gear" = 999 ]; then
+        daemon_stop
+        write_if_changed "$FANVALL" 999
+        set_pwm "$pwm"
+    else
+        apply_gear "$gear"
+    fi
+    cmd_status
+}
+case "$1" in
+    manual) shift; cmd_manual "$@" ;;
+	apply)  cmd_apply ;;
+	# Put the previous mode back without touching the configuration -- for the
+	# init script's stop, which must not strand the fan at a pinned gear.
+	restore) snap_restore ;;
+	# Hand the fan to the user for the rest of the current window.
+	bypass)
+		if [ -n "$(uget restore)" ]; then
+			uset bypass 1
+			uci -q commit "$CFG"
+		fi
+		;;
+	resume) uci -q delete "$CFG.$SEC.bypass"; uci -q commit "$CFG"; cmd_apply ;;
+	status) cmd_status ;;
+	config) shift; cmd_config "$@" ;;
+	*)      echo "usage: ${0##*/} {apply|restore|bypass|resume|status|config k=v ...}" >&2; exit 1 ;;
+esac

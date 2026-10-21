@@ -17,6 +17,8 @@ endif
 
 export REVISION
 export SOURCE_DATE_EPOCH
+C2000MAX_BUILD_TIMESTAMP ?= $(shell TZ=Asia/Shanghai date +%Y%m%d%H%M)
+export C2000MAX_BUILD_TIMESTAMP
 export GIT_CONFIG_PARAMETERS='core.autocrlf=false'
 export GIT_ASKPASS:=/bin/true
 export MAKE_JOBSERVER=$(filter --jobserver%,$(MAKEFLAGS))
@@ -269,4 +271,3 @@ ifeq ($(findstring v,$(DEBUG)),)
 endif
 .PHONY: help FORCE
 .NOTPARALLEL:
-

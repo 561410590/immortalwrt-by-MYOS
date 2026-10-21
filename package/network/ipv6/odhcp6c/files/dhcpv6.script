@@ -122,6 +122,7 @@ setup_interface () {
 		local valid="${entry%%,*}"
 		entry="${entry#*,}"
 		local metric="${entry%%,*}"
+		[ -n "$IFACE_METRIC" ] && metric="$IFACE_METRIC"
 
 		for xentry in $RA_ROUTES; do
 			local xprefix="${xentry%%,*}"
@@ -217,7 +218,8 @@ setup_interface () {
 
 teardown_interface() {
 	proto_init_update "*" 0
-	proto_send_update "$INTERFACE"
+	# netifd may already be tearing this protocol down.
+	proto_send_update "$INTERFACE" 2>/dev/null
 }
 
 case "$2" in

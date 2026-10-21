@@ -1,0 +1,965 @@
+#!/usr/bin/env lua
+
+-- Copyright 2018-2023 Ycarus (Yannick Chabanois) <ycarus@zugaina.org>
+-- Licensed to the public under the Apache License 2.0.
+--
+-- rpcd script exposing MPTCP bandwidth and diagnostic data as UBUS/RPC methods,
+-- replacing the legacy Lua HTTP controller handlers.
+
+local jsonc = require "luci.jsonc"
+local uci   = require "luci.model.uci".cursor()
+
+-- -------------------------------------------------------------------------
+-- Helpers
+-- -------------------------------------------------------------------------
+
+local function get_device(interface)
+	if not interface or interface == "" then return "" end
+	local dump = require("luci.util").ubus("network.interface." .. interface, "status", {})
+	if dump and dump["l3_device"] then
+		return dump["l3_device"]
+	end
+	return ""
+end
+
+local function exec_output(cmd)
+	local lines = {}
+	local f = io.popen(cmd)
+	if f then
+		for line in f:lines() do
+			lines[#lines + 1] = line
+		end
+		f:close()
+	end
+	return table.concat(lines, "\n")
+end
+
+-- Returns an array of [ts, rx_bytes, rx_pkts, tx_bytes, tx_pkts] rows from luci-bwc.
+-- luci-bwc outputs one "[ ts, rx, rxp, tx, txp ]," entry per line (no outer brackets).
+-- The trailing comma is determined by file position, not by whether the next entry is
+-- non-zero: when the circular buffer is partially filled the last valid row still gets
+-- a trailing comma.  Strip it before wrapping with "[...]" to produce valid JSON.
+local function bwc_rows(dev)
+	local f = io.popen(string.format("luci-bwc -i %q 2>/dev/null", dev))
+	if not f then return {} end
+	local output = f:read("*all")
+	f:close()
+	if not output or output:match("^%s*$") then return {} end
+	output = output:gsub(",%s*$", "")
+	local ok, rows = pcall(jsonc.parse, "[" .. output .. "]")
+	if ok and type(rows) == "table" then return rows end
+	return {}
+end
+
+local IP_BIN = "/sbin/ip"
+
+local function trim(s)
+	return (tostring(s or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function read_proc(path)
+	local f = io.open(path, "r")
+	if not f then return nil end
+	local v = f:read("*l")
+	f:close()
+	if v == nil then return nil end
+	return trim(v)
+end
+
+-- First field of /proc/uptime (seconds since boot), used to turn raw
+-- cumulative MPTcpExt counters into an "events/hour since boot" rate --
+-- a bare cumulative count (e.g. "7021 resets") doesn't say whether that's
+-- alarming or a trickle, since it doesn't say over what timespan.
+local function uptime_seconds()
+	local raw = read_proc("/proc/uptime")
+	local secs = raw and raw:match("^(%S+)")
+	return secs and tonumber(secs) or nil
+end
+
+-- -------------------------------------------------------------------------
+-- MPTCP Diagnostics: explain *why* MPTCP might not be aggregating WANs
+-- correctly -- kernel-level MPTCP counters (fallback to plain TCP,
+-- blackhole/stale-subflow detection, resets, checksum errors, JOIN
+-- failures, ...), the live endpoint/limits state, and a per-WAN cross-check
+-- of whether each multipath-enabled interface actually has a registered
+-- MPTCP endpoint -- turned into a plain-English issue list.
+--
+-- All the underlying commands (multipath -k/-m/-c, ip mptcp ...) are
+-- read-only/local and near-instant, so none of them are timeout-wrapped.
+-- NOTE: never wrap "ip" in "timeout" here -- on this router's busybox
+-- userland, "timeout N ip ..." has been seen to silently dispatch
+-- busybox's own crippled "ip" applet instead of the real /sbin/ip, which
+-- has no "mptcp" subcommand at all. Always call /sbin/ip directly.
+-- -------------------------------------------------------------------------
+
+-- Kernel MPTCP sysctl snapshot (works across the legacy out-of-tree sysctl
+-- layout AND the current in-kernel net.mptcp.* layout -- whichever files
+-- actually exist on this kernel).
+function kernel_settings()
+	local settings = {}
+	settings.enabled = read_proc("/proc/sys/net/mptcp/mptcp_enabled")
+		or read_proc("/proc/sys/net/mptcp/enabled")
+	settings.checksum = read_proc("/proc/sys/net/mptcp/mptcp_checksum")
+		or read_proc("/proc/sys/net/mptcp/checksum_enabled")
+	settings.path_manager = read_proc("/proc/sys/net/mptcp/mptcp_path_manager")
+		or read_proc("/proc/sys/net/mptcp/pm_type")
+	settings.scheduler = read_proc("/proc/sys/net/mptcp/mptcp_scheduler")
+		or read_proc("/proc/sys/net/mptcp/scheduler")
+	settings.syn_retries = read_proc("/proc/sys/net/mptcp/mptcp_syn_retries")
+	settings.stale_loss_cnt = read_proc("/proc/sys/net/mptcp/stale_loss_cnt")
+	settings.add_addr_timeout = read_proc("/proc/sys/net/mptcp/add_addr_timeout")
+	settings.close_timeout = read_proc("/proc/sys/net/mptcp/close_timeout")
+	settings.blackhole_timeout = read_proc("/proc/sys/net/mptcp/blackhole_timeout")
+	settings.allow_join_initial_addr_port = read_proc("/proc/sys/net/mptcp/allow_join_initial_addr_port")
+	return settings
+end
+
+-- The kernel's MPTcpExt* MIB counters, either as the "nstat -z" layout
+-- (name, value, rate -- one counter per line, what "multipath -m" prints)
+-- or the SNMP-style two-line layout (a header line of field names followed
+-- by a value line, both prefixed "MPTcpExt:", found in /proc/net/netstat
+-- and the legacy /proc/net/mptcp_net/snmp). Parse both.
+function parse_counters(raw)
+	local counters = {}
+	local header
+
+	for line in (raw or ""):gmatch("[^\n]+") do
+		-- The nstat-style counter name always continues with a letter right
+		-- after the "MPTcpExt" prefix (e.g. "MPTcpExtMPCapableSYNTX"); the
+		-- SNMP-style header/value lines start "MPTcpExt:" instead. Requiring
+		-- a letter here keeps the two forms from being confused with each
+		-- other (a bare "MPTcpExt:" line's second "word" can itself be a
+		-- number, which would otherwise wrongly match as a counter).
+		local name, value = line:match("^%s*(MPTcpExt%a%w*)%s+(%-?%d+)")
+		if name and value then
+			counters[name:gsub("^MPTcpExt", "")] = tonumber(value)
+		elseif line:match("^MPTcpExt:") then
+			-- SNMP-style: first "MPTcpExt:" line is field names, the next is values
+			if not header then
+				header = {}
+				for field in line:gmatch("%S+") do header[#header + 1] = field end
+			else
+				local i = 0
+				for field in line:gmatch("%S+") do
+					i = i + 1
+					local key = header[i]
+					if key and key ~= "MPTcpExt:" then
+						counters[key] = tonumber(field)
+					end
+				end
+			end
+		end
+	end
+	return counters
+end
+
+-- Where to read the MPTcpExt* counters from for Diagnostics. Deliberately
+-- NOT "multipath -m" here: that wraps "nstat -z", and nstat (without -a)
+-- reports the delta since the *previous* nstat invocation by anyone on the
+-- box (it keeps a shared per-uid history file) -- confirmed live: two
+-- consecutive calls a couple seconds apart came back ~0, while "nstat -a -z"
+-- (ignore history) matched /proc/net/netstat exactly. A page that polls
+-- every 15s and calls that would show "since last poll" numbers while
+-- labelling them "since boot", and would race with anything else on the
+-- router that also calls nstat. Reading the kernel's own procfs SNMP-style
+-- counters directly sidesteps all of that -- always the true cumulative
+-- count, no shared state with other callers.
+function mptcp_counters_raw()
+	local raw = exec_output("cat /proc/net/mptcp_net/snmp 2>/dev/null")
+	if raw == "" then
+		raw = exec_output("grep '^MPTcpExt:' /proc/net/netstat 2>/dev/null")
+	end
+	return raw
+end
+
+-- "ip mptcp endpoint show": one line per registered endpoint, e.g.
+--   10.0.0.2 id 1 subflow dev eth0
+--   88.1.2.3 id 2 signal dev wwan0
+--   10.0.0.5 id 3 subflow backup fullmesh dev eth1
+function parse_endpoints(raw)
+	local endpoints = {}
+	for line in (raw or ""):gmatch("[^\n]+") do
+		local id = line:match("id%s+(%d+)")
+		local dev = line:match("dev%s+(%S+)")
+		local addr = line:match("^%s*(%S+)")
+		if id and addr and addr ~= "id" then
+			endpoints[#endpoints + 1] = {
+				id      = tonumber(id),
+				address = addr,
+				dev     = dev or "",
+				signal  = line:match("%f[%a]signal%f[%A]") ~= nil,
+				subflow = line:match("%f[%a]subflow%f[%A]") ~= nil,
+				backup  = line:match("%f[%a]backup%f[%A]") ~= nil,
+				fullmesh = line:match("%f[%a]fullmesh%f[%A]") ~= nil,
+			}
+		end
+	end
+	return endpoints
+end
+
+-- "ip mptcp limits show" -> "add_addr_accepted 8 subflows 8"
+function parse_limits(raw)
+	local limits = {}
+	for key, value in (raw or ""):gmatch("(%a[%w_]*)%s+(%d+)") do
+		limits[key] = tonumber(value)
+	end
+	return limits
+end
+
+-- Live per-subflow TCP metrics via "ss -tin" (no per-WAN "src <ip>" filter --
+-- one call for every established connection on the box, then each
+-- connection's local address is looked up against the endpoints list to
+-- attribute it to a WAN and pick up its id/backup/fullmesh flags). This
+-- mirrors the shell/awk field parsing in omr-metrics' 040-metrics
+-- post-tracking hook, reimplemented natively in Lua here so the Diagnostics
+-- page stays self-contained: no dependency on omr-metrics being installed,
+-- and always a live read rather than whatever omr-tracker last cached for a
+-- WAN that may not have cycled recently.
+--
+-- Known limitation: a connection is only attributed to a WAN if its local
+-- address matches a registered MPTCP endpoint. In practice every
+-- multipath-enabled interface gets one (multipath's "on"/"backup" hotplug
+-- path always registers an endpoint for it), so this only misses a WAN that
+-- somehow never got one -- which "wan_endpoint_status" below already flags
+-- as its own issue.
+local function tobps(s)
+	local v = tonumber((s or ""):match("^[%d%.]+")) or 0
+	if s:find("Gbps") then return math.floor(v * 1000000000)
+	elseif s:find("Mbps") then return math.floor(v * 1000000)
+	elseif s:find("[Kk]bps") then return math.floor(v * 1000)
+	end
+	return math.floor(v)
+end
+
+-- ss prints "ip:port", or "[v6addr]:port" for IPv6.
+local function split_hostport(s)
+	local ip, port = (s or ""):match("^(.-):(%d+)$")
+	if not ip then return s, nil end
+	return (ip:gsub("^%[", ""):gsub("%]$", "")), tonumber(port)
+end
+
+function parse_ss_subflows(raw, endpoints)
+	local by_addr = {}
+	for _, ep in ipairs(endpoints) do by_addr[ep.address] = ep end
+
+	local subflows = {}
+	local cur
+	for line in (raw or ""):gmatch("[^\n]+") do
+		local state, lhost, rhost = line:match("^(%S+)%s+%d+%s+%d+%s+(%S+)%s+(%S+)")
+		if state == "ESTAB" then
+			if cur then subflows[#subflows + 1] = cur end
+			cur = nil
+			local lip, lport = split_hostport(lhost)
+			local rip, rport = split_hostport(rhost)
+			local ep = by_addr[lip]
+			if ep then
+				cur = {
+					dev = ep.dev, endpoint_id = ep.id, backup = ep.backup,
+					local_ip = lip, local_port = lport,
+					remote_ip = rip, remote_port = rport,
+				}
+			end
+		elseif cur then
+			for token in line:gmatch("%S+") do
+				if token:match("^cwnd:") then cur.cwnd = tonumber(token:match(":(%d+)"))
+				elseif token:match("^ssthresh:") then cur.ssthresh = tonumber(token:match(":(%d+)"))
+				elseif token:match("^rtt:") then
+					local r, rv = token:match(":([%d%.]+)/([%d%.]+)")
+					cur.rtt = tonumber(r); cur.rttvar = tonumber(rv)
+				elseif token:match("^retrans:") then
+					local c, t = token:match(":(%d+)/(%d+)")
+					cur.retrans = tonumber(c); cur.retrans_total = tonumber(t)
+				elseif token:match("^bytes_sent:") then cur.bytes_sent = tonumber(token:match(":(%d+)"))
+				elseif token:match("^bytes_acked:") then cur.bytes_acked = tonumber(token:match(":(%d+)"))
+				elseif token:match("^bytes_retrans:") then cur.bytes_retrans = tonumber(token:match(":(%d+)"))
+				elseif token:match("^bytes_received:") then cur.bytes_received = tonumber(token:match(":(%d+)"))
+				elseif token:match("^minrtt:") then cur.min_rtt = tonumber(token:match(":([%d%.]+)"))
+				end
+			end
+			-- pacing_rate/delivery_rate are separate space-joined tokens
+			-- ("pacing_rate 6.4Mbps"), not "key:value" -- match on the whole
+			-- line instead of a single token.
+			local pr = line:match("pacing_rate%s+(%S+)")
+			if pr then cur.pacing_rate = tobps(pr) end
+			local dr = line:match("delivery_rate%s+(%S+)")
+			if dr then cur.delivery_rate = tobps(dr) end
+		end
+	end
+	if cur then subflows[#subflows + 1] = cur end
+	return subflows
+end
+
+-- Live per-subflow TCP metrics preferring omr-sockdiag -- a raw
+-- NETLINK_SOCK_DIAG/INET_DIAG query of the kernel's tcp_info straight off
+-- the socket (see the omr-sockdiag package) -- over parsing "ss -tin" text.
+-- Same preference order omr-metrics' 040-metrics post-tracking hook already
+-- uses for its own per-WAN subflow collection. omr-sockdiag already emits
+-- JSON with the field names this table already uses, so there is no text
+-- parsing left to do here at all, only the same WAN attribution
+-- parse_ss_subflows does above (a connection's local_ip matched against the
+-- endpoints list -- omr-sockdiag has no MPTCP awareness of its own, it only
+-- knows sockets).
+--
+-- Returns nil when the output is not usable, so the caller can fall back to
+-- parse_ss_subflows. omr-sockdiag itself prints "[]" both when no sockets
+-- match and when the kernel query cannot be opened; if endpoints exist, let
+-- the ss fallback disambiguate that case instead of hiding live subflows.
+function parse_sockdiag_subflows(raw, endpoints)
+	local ok, rows = pcall(jsonc.parse, raw or "")
+	if not ok or type(rows) ~= "table" then return nil end
+	if #rows == 0 and #endpoints > 0 then return nil end
+
+	local by_addr = {}
+	for _, ep in ipairs(endpoints) do by_addr[ep.address] = ep end
+
+	local subflows = {}
+	for _, row in ipairs(rows) do
+		local ep = by_addr[row.local_ip]
+		if ep then
+			subflows[#subflows + 1] = {
+				dev = ep.dev, endpoint_id = ep.id, backup = ep.backup,
+				local_ip = row.local_ip, local_port = row.local_port,
+				remote_ip = row.remote_ip, remote_port = row.remote_port,
+				cwnd = row.cwnd, ssthresh = row.ssthresh,
+				rtt = row.rtt, rttvar = row.rttvar, min_rtt = row.min_rtt,
+				retrans = row.retrans, retrans_total = row.retrans_total,
+				bytes_sent = row.bytes_sent, bytes_acked = row.bytes_acked,
+				bytes_retrans = row.bytes_retrans, bytes_received = row.bytes_received,
+				pacing_rate = row.pacing_rate, delivery_rate = row.delivery_rate,
+			}
+		end
+	end
+	return subflows
+end
+
+-- Per-WAN endpoint cross-check: for every interface the router considers
+-- multipath-enabled, is its device actually registered as an MPTCP
+-- endpoint? If not, that WAN can never carry an MPTCP subflow no matter
+-- what the schedulers/counters say.
+function wan_endpoint_status(endpoints)
+	local wans = {}
+	uci:foreach("network", "interface", function(s)
+		local name = s[".name"]
+		if name == "loopback" then return end
+
+		local multipath = s["multipath"]
+		if multipath == nil or multipath == "" then
+			multipath = uci:get("openmptcprouter", name, "multipath")
+		end
+		multipath = multipath or "off"
+		if multipath == "off" then return end
+
+		local dev = get_device(name)
+		if dev == "" then dev = s["device"] or s["ifname"] or "" end
+
+		local has_endpoint = false
+		local endpoint_flags = ""
+		for _, ep in ipairs(endpoints) do
+			if dev ~= "" and ep.dev == dev then
+				has_endpoint = true
+				local flags = {}
+				if ep.signal then flags[#flags + 1] = "signal" end
+				if ep.subflow then flags[#flags + 1] = "subflow" end
+				if ep.backup then flags[#flags + 1] = "backup" end
+				if ep.fullmesh then flags[#flags + 1] = "fullmesh" end
+				endpoint_flags = table.concat(flags, ",")
+				break
+			end
+		end
+
+		wans[#wans + 1] = {
+			name           = name,
+			device         = dev,
+			multipath      = multipath,
+			has_endpoint   = has_endpoint,
+			endpoint_flags = endpoint_flags,
+		}
+	end)
+	return wans
+end
+
+-- Turn everything above into a plain-English issue list.
+local function add_issue(issues, severity, code, message, detail)
+	issues[#issues + 1] = {
+		severity = severity,
+		code     = code,
+		message  = message,
+		detail   = detail or "",
+	}
+end
+
+function build_issues(settings, counters, wans)
+	local issues = {}
+
+	if settings.enabled == "0" then
+		add_issue(issues, "error", "mptcp_disabled",
+			"MPTCP is disabled in the kernel.",
+			"No connection can use more than one WAN until MPTCP is re-enabled.")
+	end
+
+	for _, wan in ipairs(wans) do
+		if wan.device == "" then
+			add_issue(issues, "warning", "wan_no_device",
+				string.format("%s: multipath is enabled but the interface has no device yet.", wan.name),
+				"The interface may still be coming up (no IP/link yet).")
+		elseif not wan.has_endpoint then
+			add_issue(issues, "error", "wan_no_endpoint",
+				string.format("%s (%s): no MPTCP endpoint registered for this WAN.", wan.name, wan.device),
+				"This WAN will never be used for an MPTCP subflow, regardless of scheduler/weight settings. " ..
+				"Usually fixed by a hotplug/interface restart (which re-runs 'multipath <dev> on|backup'), " ..
+				"or by checking that the interface actually has a global (non-private-only, non-CGNAT) IP.")
+		end
+	end
+
+	local fallback = (counters.MPCapableFallbackSYNACK or 0) + (counters.MPCapableFallbackACK or 0)
+	if fallback > 0 then
+		add_issue(issues, "warning", "mptcp_fallback",
+			string.format("MPTCP fell back to plain TCP %d time(s).", fallback),
+			"A device on the path (firewall/middlebox/some ISP CGNAT boxes) is stripping the MPTCP TCP option " ..
+			"from the SYN or SYN/ACK, so the kernel gave up and used regular single-path TCP for those " ..
+			"connections. Use the MPTCP Support Check page (tracebox) per-WAN to confirm which WAN(s) strip it.")
+	end
+
+	local stale, recover = counters.SubflowStale or 0, counters.SubflowRecover or 0
+	if stale > 0 then
+		local stuck = stale - recover
+		if stuck > 0 then
+			add_issue(issues, "error", "mptcp_blackhole",
+				string.format("%d subflow(s) currently marked stale (possible blackhole) out of %d total.", stuck, stale),
+				"A path stopped acknowledging data for one or more subflows; the kernel is avoiding it. " ..
+				"If this keeps climbing on one specific WAN, that WAN's path is likely being blackholed.")
+		else
+			add_issue(issues, "warning", "mptcp_blackhole_recovered",
+				string.format("%d subflow(s) were marked stale but all recovered.", stale),
+				"Transient -- a path briefly stopped acking data and the kernel recovered it automatically.")
+		end
+	end
+
+	local hmac_fail = (counters.MPJoinSynAckHMacFailure or 0) + (counters.MPJoinAckHMacFailure or 0)
+	if hmac_fail > 0 then
+		add_issue(issues, "warning", "mptcp_join_hmac_failure",
+			string.format("%d MPTCP JOIN handshake authentication failure(s).", hmac_fail),
+			"A new subflow's JOIN handshake failed HMAC verification -- either packets were altered in " ..
+			"transit or the two ends disagree on the connection's key/token.")
+	end
+
+	if (counters.MPJoinNoTokenFound or 0) > 0 then
+		add_issue(issues, "warning", "mptcp_join_no_token",
+			string.format("%d subflow JOIN attempt(s) referenced an unknown token.", counters.MPJoinNoTokenFound),
+			"The peer (usually the VPS) no longer recognizes the MPTCP connection -- often because its proxy " ..
+			"process restarted and lost state. A new subflow can't attach to a connection the peer forgot.")
+	end
+
+	if (counters.DataCsumErr or 0) > 0 then
+		add_issue(issues, "warning", "mptcp_checksum_error",
+			string.format("%d MPTCP data checksum error(s).", counters.DataCsumErr),
+			"Check that 'mptcp_checksum' matches on both the router and the VPS -- a mismatch (or a path " ..
+			"that corrupts data) triggers this.")
+	end
+
+	-- RcvPruned counts data the kernel already received on an MPTCP subflow
+	-- but then had to drop from the receive queue under socket memory
+	-- pressure -- unlike the other counters here, this points at a local
+	-- resource problem on this router (or the VPS, if it's the one pruning),
+	-- not the network path: the data arrived fine and was thrown away anyway.
+	if (counters.RcvPruned or 0) > 0 then
+		add_issue(issues, "warning", "mptcp_rcv_pruned",
+			string.format("%d segment(s) pruned from an MPTCP receive queue (memory pressure).", counters.RcvPruned),
+			"Data that was already received had to be dropped because the socket ran out of receive buffer " ..
+			"space -- a local resource problem, not a network issue. Usually means something is reading from " ..
+			"the proxied connection too slowly (a slow/blocked application) or overall memory is tight. If " ..
+			"this keeps climbing, check free memory and whether any proxy process is stalled.")
+	end
+
+	-- Split by direction, not just summed: which side is doing the closing
+	-- matters. Confirmed live on the bench (2026-08-16) -- a steady climb
+	-- here traced back to OMR's own per-WAN shadowsocks health-check loop
+	-- (omr-tracker-ss) opening a fresh MPTCP connection through the
+	-- mptcp-enabled sslocal proxy every ~10s and closing it abortively, NOT
+	-- to path interference or the VPS dropping the tunnel -- confirmed by
+	-- MPRstRx staying ~0 while MPRstTx climbed, and by reproducing an
+	-- MPRstTx increment live by firing that exact health-check request.
+	local reset_tx = (counters.MPRstTx or 0) + (counters.MPFastcloseTx or 0)
+	local reset_rx = (counters.MPRstRx or 0) + (counters.MPFastcloseRx or 0)
+	local resets = reset_tx + reset_rx
+	if resets > 0 then
+		local rate_suffix = ""
+		local uptime = uptime_seconds()
+		if uptime and uptime >= 60 then
+			rate_suffix = string.format(" (~%.1f/hour since boot)", resets / (uptime / 3600))
+		end
+		if reset_rx == 0 or reset_tx >= reset_rx * 3 then
+			-- Tx-heavy: this router is doing almost all the closing and the
+			-- peer is barely ever resetting back. That's the signature of a
+			-- local abortive close (e.g. a health-check script tearing down
+			-- its own short-lived proxied connection), not the peer/path
+			-- forcing the connection shut.
+			add_issue(issues, "warning", "mptcp_resets",
+				string.format("%d MPTCP-level reset/fastclose event(s) sent by this router%s.", reset_tx, rate_suffix),
+				"Almost all of these were sent by this router, not the peer (received resets are near zero) -- " ..
+				"that points at something local doing an abortive close of its own MPTCP connections (a common " ..
+				"cause: a health-check/keepalive script that opens a proxied connection, makes one quick request, " ..
+				"then closes it hard) rather than active interference on the path or the VPS dropping the tunnel. " ..
+				"Only worth escalating if it's paired with rising SubflowStale/Blackhole counters above.")
+		else
+			add_issue(issues, "warning", "mptcp_resets",
+				string.format("%d MPTCP-level reset/fastclose event(s)%s.", resets, rate_suffix),
+				"One side force-closed the whole MPTCP connection (all subflows at once) rather than a single " ..
+				"subflow -- can indicate active interference or the proxy/VPN tunnel dropping abruptly.")
+		end
+	end
+
+	local addr_drop = (counters.AddAddrDrop or 0) + (counters.RmAddrDrop or 0)
+	if addr_drop > 0 then
+		-- A handful of drops only matters relative to how much ADD_ADDR/RM_ADDR
+		-- traffic there's actually been -- against a large total it's usually a
+		-- one-off from an interface flap or brief restart, already self-healed
+		-- by the next successful signal, not an ongoing problem. Only surface
+		-- this as an issue once drops are a meaningful share of that traffic
+		-- (>1%); with no successful signals at all to compare against, treat
+		-- it as 100% (nothing has gotten through), which is always worth
+		-- surfacing.
+		local addr_total = (counters.AddAddr or 0) + (counters.AddAddrTx or 0)
+			+ (counters.RmAddr or 0) + (counters.RmAddrTx or 0)
+		local addr_drop_pct = addr_total > 0 and (100 * addr_drop / addr_total) or 100
+		if addr_drop_pct > 1 then
+			local ratio_suffix = ""
+			if addr_total > 0 then
+				ratio_suffix = string.format(" (%d of %d ADD_ADDR/RM_ADDR signals, %.3g%%)",
+					addr_drop, addr_total, addr_drop_pct)
+			end
+			add_issue(issues, "warning", "mptcp_addr_signal_dropped",
+				string.format("%d ADD_ADDR/RM_ADDR signal(s) dropped%s.", addr_drop, ratio_suffix),
+				"A WAN address announcement (or removal) didn't make it to the peer, so the peer may never " ..
+				"attempt a subflow toward that WAN. A handful of drops against a much larger signal volume is " ..
+				"usually a one-off from an interface flap or a brief proxy restart, and self-heals on the next " ..
+				"successful signal -- only worth chasing further if this keeps climbing.")
+		end
+	end
+
+	if (counters.MPFailTx or 0) > 0 or (counters.MPFailRx or 0) > 0 then
+		add_issue(issues, "warning", "mptcp_mapping_failure",
+			"MPTCP data mapping failure signalled (MP_FAIL).",
+			"One side couldn't map received data to the right place in the byte stream on a subflow -- " ..
+			"that subflow gets torn down and traffic continues on the others, if any remain.")
+	end
+
+	if #issues == 0 then
+		add_issue(issues, "ok", "no_issues_detected",
+			"No MPTCP fallback, blackhole, reset or checksum issues detected right now.",
+			"This only reflects counters since boot/last reset -- a healthy snapshot doesn't rule out an " ..
+			"intermittent issue on a specific path; keep this page open while reproducing the problem.")
+	end
+
+	return issues
+end
+
+-- -------------------------------------------------------------------------
+-- RPC methods
+-- -------------------------------------------------------------------------
+
+local methods = {
+
+	-- -----------------------------------------------------------------------
+	-- Settings: global MPTCP (network.globals)
+	-- -----------------------------------------------------------------------
+
+	-- Returns all configurable global MPTCP settings from network.globals.
+	get_settings = {
+		call = function()
+			local result = {}
+			local string_fields = {
+				"multipath", "mptcp_checksum", "mptcp_debug",
+				"mptcp_path_manager", "mptcp_scheduler", "mptcp_syn_retries",
+				"mptcp_version", "congestion", "mptcp_pm_type",
+				"mptcp_disable_initial_config", "mptcp_force_multipath",
+				"mptcpd_enable", "mptcp_subflows", "mptcp_stale_loss_cnt",
+				"mptcp_add_addr_accepted", "mptcp_add_addr_timeout",
+				"mptcp_blackhole_timeout", "mptcp_close_timeout",
+				"mptcp_syn_retrans_before_tcp_fallback",
+				"mptcp_fullmesh_num_subflows", "mptcp_fullmesh_create_on_err",
+				"mptcp_ndiffports_num_subflows", "mptcp_rr_cwnd_limited",
+				"mptcp_rr_num_segments"
+			}
+			local list_fields = {
+				"mptcpd_path_manager", "mptcpd_plugins",
+				"mptcpd_addr_flags", "mptcpd_notify_flags"
+			}
+			for _, field in ipairs(string_fields) do
+				local val = uci:get("network", "globals", field)
+				if val ~= nil then result[field] = val end
+			end
+			for _, field in ipairs(list_fields) do
+				local val = uci:get_list("network", "globals", field)
+				result[field] = val or {}
+			end
+			return result
+		end
+	},
+
+	-- Writes one or more global MPTCP settings to network.globals and commits.
+	-- All parameters are optional; only provided (non-empty) ones are written.
+	-- List fields (mptcpd_path_manager, mptcpd_plugins, mptcpd_addr_flags,
+	-- mptcpd_notify_flags) must be passed as JSON arrays.
+	set_settings = {
+		args = {
+			mptcp_checksum               = "",
+			mptcp_debug                  = "",
+			mptcp_path_manager           = "",
+			mptcp_scheduler              = "",
+			mptcp_syn_retries            = "",
+			mptcp_version                = "",
+			congestion                   = "",
+			mptcp_pm_type                = "",
+			mptcp_disable_initial_config = "",
+			mptcp_force_multipath        = "",
+			mptcpd_enable                = "",
+			mptcpd_path_manager          = {},
+			mptcpd_plugins               = {},
+			mptcpd_addr_flags            = {},
+			mptcpd_notify_flags          = {},
+			mptcp_subflows                       = "",
+			mptcp_stale_loss_cnt                 = "",
+			mptcp_add_addr_accepted              = "",
+			mptcp_add_addr_timeout               = "",
+			mptcp_blackhole_timeout              = "",
+			mptcp_close_timeout                  = "",
+			mptcp_syn_retrans_before_tcp_fallback = "",
+			mptcp_fullmesh_num_subflows  = "",
+			mptcp_fullmesh_create_on_err = "",
+			mptcp_ndiffports_num_subflows = "",
+			mptcp_rr_cwnd_limited        = "",
+			mptcp_rr_num_segments        = ""
+		},
+		call = function(args)
+			local string_fields = {
+				"mptcp_checksum", "mptcp_debug", "mptcp_path_manager",
+				"mptcp_scheduler", "mptcp_syn_retries", "mptcp_version",
+				"congestion", "mptcp_pm_type", "mptcp_disable_initial_config",
+				"mptcp_force_multipath", "mptcpd_enable", "mptcp_subflows",
+				"mptcp_stale_loss_cnt", "mptcp_add_addr_accepted",
+				"mptcp_add_addr_timeout", "mptcp_blackhole_timeout",
+				"mptcp_close_timeout", "mptcp_syn_retrans_before_tcp_fallback",
+				"mptcp_fullmesh_num_subflows", "mptcp_fullmesh_create_on_err",
+				"mptcp_ndiffports_num_subflows", "mptcp_rr_cwnd_limited",
+				"mptcp_rr_num_segments"
+			}
+			local list_fields = {
+				"mptcpd_path_manager", "mptcpd_plugins",
+				"mptcpd_addr_flags", "mptcpd_notify_flags"
+			}
+			for _, field in ipairs(string_fields) do
+				if args[field] ~= nil and args[field] ~= "" then
+					uci:set("network", "globals", field, args[field])
+				end
+			end
+			for _, field in ipairs(list_fields) do
+				if args[field] ~= nil and type(args[field]) == "table" then
+					uci:set_list("network", "globals", field, args[field])
+				end
+			end
+			uci:save("network")
+			uci:commit("network")
+			return { result = "ok" }
+		end
+	},
+
+	-- -----------------------------------------------------------------------
+	-- Settings: per-interface MPTCP (network.interface)
+	-- -----------------------------------------------------------------------
+
+	-- Returns multipath settings for all interfaces (or a single one when
+	-- the optional "iface" argument is provided).
+	get_interface_settings = {
+		args = { iface = "" },
+		call = function(args)
+			local iface = args.iface or ""
+			if iface ~= "" then
+				local section = uci:get_all("network", iface)
+				if not section or section[".type"] ~= "interface" then
+					return { error = "Interface not found" }
+				end
+				return {
+					multipath        = section["multipath"]        or "off",
+					multipath_weight = section["multipath_weight"] or "100"
+				}
+			end
+			local result = {}
+			uci:foreach("network", "interface", function(s)
+				local name = s[".name"]
+				result[name] = {
+					multipath        = s["multipath"]        or "off",
+					multipath_weight = s["multipath_weight"] or "100"
+				}
+			end)
+			return result
+		end
+	},
+
+	-- Sets multipath and/or multipath_weight for the given interface.
+	-- "iface" is required; "multipath" and "multipath_weight" are optional.
+	-- Valid values for multipath: "on", "off", "master", "backup".
+	set_interface_settings = {
+		args = { iface = "", multipath = "", multipath_weight = "" },
+		call = function(args)
+			local iface = args.iface or ""
+			if iface == "" then
+				return { error = "Interface name required" }
+			end
+			local section = uci:get_all("network", iface)
+			if not section or section[".type"] ~= "interface" then
+				return { error = "Interface not found" }
+			end
+			if args.multipath ~= nil and args.multipath ~= "" then
+				uci:set("network", iface, "multipath", args.multipath)
+			end
+			if args.multipath_weight ~= nil and args.multipath_weight ~= "" then
+				uci:set("network", iface, "multipath_weight", args.multipath_weight)
+			end
+			uci:save("network")
+			uci:commit("network")
+			return { result = "ok" }
+		end
+	},
+
+	-- -----------------------------------------------------------------------
+	-- Bandwidth / diagnostics (existing methods below)
+	-- -----------------------------------------------------------------------
+
+	-- Returns per-interface bandwidth arrays plus a "total" entry.
+	-- Each value is an array of [ts, rx_bytes, rx_pkts, tx_bytes, tx_pkts].
+	multipath_bandwidth = {
+		call = function()
+			local result     = {}
+			local iface_rows = {}  -- interface -> rows (only non-empty)
+
+			uci:foreach("network", "interface", function(s)
+				local intname   = s[".name"]
+				local dev       = get_device(intname)
+				if dev == "" then dev = s["device"] or s["ifname"] or "" end
+
+				local multipath = s["multipath"] or ""
+				if dev ~= "lo" and dev ~= "" then
+					if multipath == "" then
+						multipath = uci:get("openmptcprouter", intname, "multipath") or ""
+					end
+					if multipath == "" then multipath = "off" end
+
+					if multipath == "on"  or multipath == "master" or
+					   multipath == "backup" or multipath == "handover" then
+						local rows = bwc_rows(dev)
+						result[intname] = rows
+						if #rows > 0 then
+							iface_rows[intname] = rows
+						end
+					end
+				end
+			end)
+
+			-- Build a correctly aligned cumulative total using last-known-value
+			-- interpolation.  The old approach summed raw cumulative counters at
+			-- each timestamp, but different interfaces record data at different
+			-- (interleaved) timestamps.  When consecutive total entries came from
+			-- different interfaces, rate = (total[i] - total[i-1]) / dt could be
+			-- negative or zero even under real traffic.
+			--
+			-- Fix: for every timestamp in the union of all interface timestamps,
+			-- use the latest known cumulative bytes from EACH interface (carry the
+			-- last seen value forward).  This keeps the total monotonically
+			-- increasing so JS rate computation stays correct.
+			local ts_set = {}
+			local all_ts = {}
+			for _, rows in pairs(iface_rows) do
+				for _, row in ipairs(rows) do
+					local ts = row[1]
+					if not ts_set[ts] then
+						ts_set[ts] = true
+						all_ts[#all_ts + 1] = ts
+					end
+				end
+			end
+			table.sort(all_ts)
+
+			-- One forward-scan pointer per interface
+			local iface_ptrs = {}
+			for itf, rows in pairs(iface_rows) do
+				iface_ptrs[itf] = { idx = 1, rows = rows }
+			end
+
+			local iface_last = {}   -- latest row seen so far per interface
+			local total_rows = {}
+			for _, ts in ipairs(all_ts) do
+				-- Advance each pointer up to (and including) this timestamp
+				for itf, ptr in pairs(iface_ptrs) do
+					while ptr.idx <= #ptr.rows and ptr.rows[ptr.idx][1] <= ts do
+						iface_last[itf] = ptr.rows[ptr.idx]
+						ptr.idx = ptr.idx + 1
+					end
+				end
+				-- Sum latest known cumulative bytes from every interface
+				local total = { ts, 0, 0, 0, 0 }
+				for _, last_row in pairs(iface_last) do
+					for j = 2, 5 do
+						total[j] = total[j] + (last_row[j] or 0)
+					end
+				end
+				total_rows[#total_rows + 1] = total
+			end
+
+			result["total"] = total_rows
+			return result
+		end
+	},
+
+	-- Returns bandwidth rows for a single device as { data: [...] }.
+	interface_bandwidth = {
+		args = { iface = "" },
+		call = function(args)
+			return { data = bwc_rows(args.iface or "") }
+		end
+	},
+
+	-- Runs "multipath -f" and returns its output.
+	mptcp_fullmesh = {
+		call = function()
+			return { output = exec_output("multipath -f 2>/dev/null") }
+		end
+	},
+
+	-- Runs "multipath -m" and returns its output.
+	mptcp_monitor = {
+		call = function()
+			return { output = exec_output("multipath -m 2>/dev/null") }
+		end
+	},
+
+	-- Runs "multipath -c" and returns its output.
+	mptcp_connections = {
+		call = function()
+			return { output = exec_output("multipath -c 2>/dev/null") }
+		end
+	},
+
+	-- Runs tracebox against the configured VPN server via the given interface.
+	mptcp_check_trace = {
+		args = { iface = "" },
+		call = function(args)
+			local iface     = args.iface or ""
+			local interface = get_device(iface)
+			local server    = uci:get("shadowsocks-libev", "sss0", "server") or ""
+			-- Placeholders the shadowsocks config ships until a VPS is set
+			-- (127.0.0.1 now, 192.168.1.3 in older releases): tracing to them
+			-- would report a path that has nothing to do with the proxy.
+			if server == "" or server == "127.0.0.1" or server == "::1"
+			   or server == "192.168.1.3" then
+				return { output = "" }
+			end
+			local cmd
+			if interface == "" then
+				cmd = "tracebox -s /usr/share/tracebox/omr-mptcp-trace.lua " .. server
+			else
+				cmd = "tracebox -s /usr/share/tracebox/omr-mptcp-trace.lua -i " .. interface .. " " .. server
+			end
+			return { output = exec_output(cmd) }
+		end
+	},
+
+	-- Diagnostics: kernel MPTCP counters/endpoints/limits + a per-WAN
+	-- endpoint cross-check, turned into a plain-English issue list. See the
+	-- helpers above ("MPTCP Diagnostics" section) for the actual logic.
+	diagnose = {
+		call = function()
+			local settings   = kernel_settings()
+			local counters   = parse_counters(mptcp_counters_raw())
+			local endpoints  = parse_endpoints(exec_output(IP_BIN .. " mptcp endpoint show 2>/dev/null"))
+			local limits     = parse_limits(exec_output(IP_BIN .. " mptcp limits show 2>/dev/null"))
+			local wans       = wan_endpoint_status(endpoints)
+			local issues     = build_issues(settings, counters, wans)
+
+			local connections_raw = exec_output("multipath -c 2>/dev/null")
+			local established_count = 0
+			for _ in connections_raw:gmatch("[Ee][Ss][Tt][Aa][Bb]") do
+				established_count = established_count + 1
+			end
+
+			-- Attribute each subflow's device to its UCI interface name
+			-- (endpoints only carry the device, e.g. "eth1", not "wan1").
+			local dev_to_name = {}
+			for _, w in ipairs(wans) do
+				if w.device ~= "" then dev_to_name[w.device] = w.name end
+			end
+			local subflows = parse_sockdiag_subflows(exec_output("omr-sockdiag 2>/dev/null"), endpoints)
+			if not subflows then
+				subflows = parse_ss_subflows(exec_output("ss -tin 2>/dev/null"), endpoints)
+			end
+			for _, sf in ipairs(subflows) do
+				sf.wan = dev_to_name[sf.dev] or sf.dev
+			end
+
+			return {
+				settings          = settings,
+				counters          = counters,
+				endpoints         = endpoints,
+				limits            = limits,
+				wans              = wans,
+				issues            = issues,
+				established_count = established_count,
+				subflows          = subflows,
+			}
+		end
+	},
+}
+
+-- -------------------------------------------------------------------------
+-- rpcd dispatch (same boilerplate used by all rpcd Lua scripts in this repo)
+-- -------------------------------------------------------------------------
+
+local function parseInput()
+	local parse = jsonc.new()
+	local done, err
+	while true do
+		local chunk = io.read(4096)
+		if not chunk then break end
+		if not done and not err then
+			done, err = parse:parse(chunk)
+		end
+	end
+	if not done then
+		print(jsonc.stringify({ error = err or "Incomplete input" }))
+		os.exit(1)
+	end
+	return parse:get()
+end
+
+local function validateArgs(func, uargs)
+	local method = methods[func]
+	if not method then
+		print(jsonc.stringify({ error = "Method not found" }))
+		os.exit(1)
+	end
+	if type(uargs) ~= "table" then
+		print(jsonc.stringify({ error = "Invalid arguments" }))
+		os.exit(1)
+	end
+	uargs.ubus_rpc_session = nil
+	local margs = method.args or {}
+	for k, v in pairs(uargs) do
+		if margs[k] == nil or (v ~= nil and type(v) ~= type(margs[k])) then
+			print(jsonc.stringify({ error = "Invalid arguments" }))
+			os.exit(1)
+		end
+	end
+	return method
+end
+
+if arg[1] == "list" then
+	local rv = {}
+	for name, method in pairs(methods) do rv[name] = method.args or {} end
+	print((jsonc.stringify(rv):gsub(":%[%]", ":{}")))
+elseif arg[1] == "call" then
+	local args   = parseInput()
+	local method = validateArgs(arg[2], args)
+	local result, code = method.call(args)
+	print((jsonc.stringify(result):gsub("^%[%]$", "{}")))
+	os.exit(code or 0)
+end

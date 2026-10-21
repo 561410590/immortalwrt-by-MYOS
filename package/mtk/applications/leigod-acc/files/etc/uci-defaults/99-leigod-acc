@@ -1,0 +1,55 @@
+#!/bin/sh
+# 首次开机生成雷神引擎的三份 ini, 内容与官方 plugin_install.sh(lib/setup.sh write_configs)一致。
+# 已存在的不动: accelerator.ini 里有 APP 绑定后写进去的 token, 覆盖掉就得重新绑定。
+
+CFG=/etc/config
+
+if [ ! -f $CFG/accelerator.ini ]; then
+	cat > $CFG/accelerator.ini <<'EOF'
+[base]
+url="https://opapi.xxghh.biz/speed/router/plug/check"
+channel="2"
+appid="nnMobile_d0k3duup"
+heart="https://opapi.xxghh.biz/speed/router/heartbeat"
+base_url="https://opapi.xxghh.biz/speed"
+
+[update]
+domain="https://opapi.xxghh.biz/nn-version/version/plug/upgrade"
+
+[device]
+EOF
+fi
+
+if [ ! -f $CFG/acc_firewall.ini ]; then
+	# 后端: 有 iptables 命令就走 iptables(官方 detect_firewall_backend 同逻辑)
+	if command -v iptables >/dev/null 2>&1; then
+		backend=iptables
+		tproxy_ip=10.20.30.40
+	else
+		backend=nftables
+		tproxy_ip=0.0.0.0
+	fi
+	# 模式: xt_TPROXY 能加载用 tproxy, 否则降级 tun(官方 detect_acc_mode)
+	if [ -d /sys/module/xt_TPROXY ] || modprobe xt_TPROXY >/dev/null 2>&1; then
+		mode=tproxy
+	else
+		mode=tun
+	fi
+	printf '[firewall]\nbackend=%s\nmode=%s\ntproxy_ip=%s\n' \
+		"$backend" "$mode" "$tproxy_ip" > $CFG/acc_firewall.ini
+fi
+
+# 官方安装脚本写的就是这个基线版本, acc_upgrade_monitor 据此在线升级并改写
+[ -f $CFG/acc_version.ini ] || printf '[info]\nversion="1.2.1.40"\n' > $CFG/acc_version.ini
+
+# 默认不开机自启(镜像构建时 rootfs.mk 会把所有 init 脚本都 enable)。
+# 用户在 LuCI 点「启动」才 enable 并记 leigod.base.autostart=1(controller/acc.lua),
+# 点「停止」disable 并记 0。保留配置升级时按这个记录恢复。
+if [ "$(uci -q get leigod.base.autostart 2>/dev/null)" = "1" ]; then
+	/etc/init.d/acc enable >/dev/null 2>&1
+else
+	/etc/init.d/acc disable >/dev/null 2>&1
+	/etc/init.d/acc stop >/dev/null 2>&1
+fi
+
+exit 0

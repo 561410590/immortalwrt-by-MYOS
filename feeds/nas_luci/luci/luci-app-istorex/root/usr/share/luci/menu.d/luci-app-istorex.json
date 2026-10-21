@@ -1,0 +1,9 @@
+{
+    "admin/istorex": {
+        "order": 2,
+        "action": {
+            "type": "template",
+            "path": "istorex/index"
+        }
+    }
+}

@@ -5,13 +5,13 @@ board=$(board_name)
 board_config_update
 
 case $board in
-nradio,c5800-688|\
-nradio_c5800-688|\
 hcmt7981-emmc|\
 HCMT7981-emmc|\
 hcmt7981-688-emmc|\
 HCMT7981-688-emmc)
-	uci -q batch <<-'EOF_INNER'
+	# C5800/C8-688 fixed network topology:
+	# lan1/lan2/lan3 -> br-lan, eth1 -> cellular WAN, BLUE4 -> wired WAN.
+	uci -q batch <<-EOF_INNER
 		set network.lan='interface'
 		set network.lan.device='br-lan'
 		set network.lan.proto='static'
@@ -58,6 +58,19 @@ HCMT7981-688-emmc)
 		    "depends": {
 		      "fs": {
 		        "/usr/lib/lua/luci/controller/modem.lua": "file"
+		      }
+		    }
+		  },
+		  "admin/modem/nets": {
+		    "title": "模组状态",
+		    "order": 96,
+		    "action": {
+		      "type": "template",
+		      "path": "zmode/net_status_MT5700M"
+		    },
+		    "depends": {
+		      "fs": {
+		        "/usr/lib/lua/luci/view/zmode/net_status_MT5700M.htm": "file"
 		      }
 		    }
 		  }

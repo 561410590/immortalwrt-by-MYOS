@@ -6,8 +6,9 @@
 append DRIVERS "mtwifi"
 
 detect_mtwifi() {
-	local idx ifname
+	local idx ifname board
 	local band hwmode htmode htbsscoex ssid dbdc_main channel
+	board="$(board_name)"
 	if [ -d "/sys/module/mt_wifi" ]; then
 		dev_list="$(l1util list)"
 		for dev in $dev_list; do
@@ -30,9 +31,18 @@ detect_mtwifi() {
 					htmode="HE160"
 					htbsscoex="0"
 					ssid="NRadio_5G"
-					channel="36"
+					channel="auto"
 					txpower="100"
 					dbdc_main="0"
+				fi
+				if [ "$board" = "nradio,c2000-ultra" ]; then
+					if [ "$idx" -eq 1 ]; then
+						htmode="EHT40"
+						ssid="C2000-Ultra-2.4G"
+					else
+						htmode="EHT160"
+						ssid="C2000-Ultra-5G"
+					fi
 				fi
 				uci -q batch <<-EOF
 					set wireless.${dev}=wifi-device
@@ -56,6 +66,9 @@ detect_mtwifi() {
 					set wireless.default_${dev}.ssid=${ssid}
 					set wireless.default_${dev}.encryption=none
 EOF
+				if [ "$board" = "nradio,c2000-ultra" ]; then
+					uci -q set wireless.default_${dev}.mlo='0'
+				fi
 				uci -q commit wireless
 			}
 		done

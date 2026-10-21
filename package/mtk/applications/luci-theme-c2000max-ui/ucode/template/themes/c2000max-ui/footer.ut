@@ -1,0 +1,11 @@
+{% if (!blank_page): %}
+</div>
+{% let firmware_description = ubus.call('system', 'board')?.release?.description; %}
+<footer class="main-footer"><span class="firmware-compact">{{ entityencode(firmware_description || (version.distname + ' ' + version.distversion)) }}</span><span class="firmware-version">{{ entityencode(firmware_description || (version.distname + ' ' + version.distversion)) }}{% if (version.luciname): %} · {{ entityencode(version.luciname) }}{% endif %}{% if (version.luciversion): %} {{ entityencode(version.luciversion) }}{% endif %}</span><span class="theme-credit">MYOS UI · C2000MAX UI by inst.</span></footer>
+</main>
+{% include('themes/c2000max-ui/mobile') %}
+<script src="{{ media }}/menu.js?v=1.0.17-r2-ultra"></script>
+<script src="{{ media }}/shell.js?v=1.0.17-r2-ultra"></script>
+{% endif %}
+</body>
+</html>

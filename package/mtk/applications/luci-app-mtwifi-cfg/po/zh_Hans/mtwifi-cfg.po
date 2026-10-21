@@ -4,6 +4,12 @@ msgstr "Content-Type: text/plain; charset=UTF-8\n"
 msgid "Target Wake Time"
 msgstr "目标唤醒时间（TWT）"
 
+msgid "Transmit power (%)"
+msgstr "发射功率（百分比）"
+
+msgid "100 uses the maximum power allowed by the driver, calibration data and regulatory limits. Lower values reduce transmit power."
+msgstr "100 表示不额外降低发射功率，实际功率仍受驱动、校准数据及法规限制；较小值会降低发射功率。"
+
 msgid "MU-MIMO DL"
 msgstr "下行 MU-MIMO"
 

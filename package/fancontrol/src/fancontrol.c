@@ -6,101 +6,87 @@
 #include <signal.h> 
 
 #define MAX_LENGTH 200
-#define MAX_TEMP 120
 
-// 定义全局变量
-char thermal_file[MAX_LENGTH] = "/sys/devices/virtual/thermal/thermal_zone0/temp";      // -T
-char fan_file[MAX_LENGTH] = "/sys/devices/virtual/thermal/cooling_device0/cur_state";   // -F
+char thermal_file[MAX_LENGTH] = "/sys/devices/virtual/thermal/thermal_zone0/temp";
+char fan_file[MAX_LENGTH] = "/sys/devices/virtual/thermal/cooling_device0/cur_state";
 
-int start_speed = 35;   // -s
-int start_temp = 45;    // -t
-int max_speed = 255;    // -m
-int temp_div = 1000;    // -d
-int debug_mode = 0;     // -D
+int start_speed = 128;
+int start_temp = 50;
+int max_temp = 78;
+int max_speed = 255;
+int temp_div = 1000;
+int interval = 5;
+int debug_mode = 0;
+static volatile sig_atomic_t stopping;
 
 /**
  * 底层读文件
  */
-static int read_file(const char* path ,char* result ,size_t size) {
-    FILE* fp;
-    char* line = NULL;
-    size_t len = 0;
-    ssize_t read;
+static int read_value(const char* path, int* value) {
+    FILE* fp = fopen(path, "r");
+    int ret;
 
-    fp = fopen(path ,"r");
     if (fp == NULL)
         return -1;
 
-    if (( read = getline(&line ,&len ,fp) ) != -1) {
-        if (size != 0)
-            memcpy(result ,line ,size);
-        else
-            memcpy(result ,line ,read - 1);
-    }
-
+    ret = fscanf(fp, "%d", value);
     fclose(fp);
-    if (line)
-        free(line);
-    return 0;
+    return ret == 1 ? 0 : -1;
 }
 
 /**
  * 底层写文件
  */
-static size_t write_file(const char* path ,char* buf ,size_t len) {
-    FILE* fp = NULL;
-    size_t size = 0;
-    fp = fopen(path ,"w+");
-    if (fp == NULL) {
-        return 0;
-    }
-    size = fwrite(buf ,len ,1 ,fp);
-    fclose(fp);
-    return size;
+static int write_value(const char* path, int value) {
+    FILE* fp = fopen(path, "w");
+    int ret;
+
+    if (fp == NULL)
+        return -1;
+
+    ret = fprintf(fp, "%d\n", value);
+    if (fclose(fp) != 0)
+        return -1;
+    return ret > 0 ? 0 : -1;
 }
 
 /**
  * 读取温度
  */
 int get_temperature(char* thermal_file ,int div) {
-    char buf[8] = { 0 };
-    if (read_file(thermal_file ,buf ,0) == 0) {
-        return atoi(buf) / div;
-    }
-    return -1;
+    int value;
+
+    if (div <= 0 || read_value(thermal_file, &value) != 0)
+        return -1;
+    return value / div;
 }
 
 /**
  * 读取风扇速度
  */
 int get_fanspeed(char* fan_file) {
-    char buf[8] = { 0 };
-    if (read_file(fan_file ,buf ,0) == 0) {
-        return atoi(buf);
-    }
-    return -1;
+    int value;
+
+    return read_value(fan_file, &value) == 0 ? value : -1;
 }
 
 /**
  * 设置风扇转速
  */
 int set_fanspeed(int fan_speed ,char* fan_file) {
-    char buf[8] = { 0 };
-    sprintf(buf ,"%d\n" ,fan_speed);
-    return write_file(fan_file ,buf ,strlen(buf));
+    return write_value(fan_file, fan_speed);
 }
 
 /**
  * 计算风扇转速
  */
 int calculate_speed(int current_temp ,int max_temp ,int min_temp ,int max_speed ,int min_speed) {
-    if (current_temp < min_temp) {
-        return 0;
-    }
+    if (current_temp <= min_temp)
+        return min_speed;
+    if (current_temp >= max_temp)
+        return max_speed;
+
     int fan_speed = ( current_temp - min_temp ) * ( max_speed - min_speed ) / ( max_temp - min_temp ) + min_speed;
-    if (fan_speed > max_speed) {
-        fan_speed = max_speed;
-    }
     return fan_speed;
 }
 
@@ -116,9 +102,7 @@ static int file_exist(const char* name) {
  *  信号处理函数
  */
 void handle_termination(int signum) {
-    // 设置风扇转速为 0
-    set_fanspeed(0 ,fan_file);
-    exit(EXIT_SUCCESS); // 优雅地退出程序
+    stopping = 1;
 }
 
 /**
@@ -137,9 +121,11 @@ void register_signal_handlers( ) {
  * 主函数
  */
 int main(int argc ,char* argv[ ]) {
-    // 解析命令行选项
     int opt;
-    while (( opt = getopt(argc ,argv ,"T:F:s:t:m:d:D:v:") ) != -1) {
+    int last_speed = -1;
+    int sensor_failed = 0;
+
+    while (( opt = getopt(argc ,argv ,"T:F:s:t:x:m:d:i:D:") ) != -1) {
         switch (opt) {
             case 'T':
                 snprintf(thermal_file ,sizeof(thermal_file) ,"%s" ,optarg);
@@ -153,11 +139,17 @@ int main(int argc ,char* argv[ ]) {
             case 't':
                 start_temp = atoi(optarg);
                 break;
+            case 'x':
+                max_temp = atoi(optarg);
+                break;
             case 'm':
                 max_speed = atoi(optarg);
                 break;
             case 'd':
                 temp_div = atoi(optarg);
+                break;
+            case 'i':
+                interval = atoi(optarg);
                 break;
             case 'D':
                 debug_mode = atoi(optarg);
@@ -167,34 +159,69 @@ int main(int argc ,char* argv[ ]) {
                     "          -T sysfs         # temperature sysfs file, default is '%s'\n"
                     "          -F sysfs         # fan sysfs file, default is '%s'\n"
                     "          -s speed         # initial speed for fan startup, default is %d\n"
-                    "          -t temperature   # fan start temperature, default is %d°C\n"
+                    "          -t temperature   # minimum curve temperature, default is %d°C\n"
+                    "          -x temperature   # maximum curve temperature, default is %d°C\n"
                     "          -m speed         # fan maximum speed, default is %d\n"
                     "          -d div           # temperature divide, default is %d\n"
-                    "          -v               # verbose\n" ,argv[0] ,thermal_file ,fan_file ,start_speed ,start_temp ,max_speed ,temp_div);
+                    "          -i seconds       # polling interval, default is %d\n"
+                    "          -D 0|1           # debug output\n" ,argv[0] ,thermal_file ,fan_file ,start_speed ,start_temp ,max_temp ,max_speed ,temp_div ,interval);
                 exit(EXIT_FAILURE);
         }
     }
-    // 检测虚拟文件是否存在
+
+    if (start_temp <= 0 || max_temp <= start_temp || start_speed <= 0 ||
+        max_speed < start_speed || max_speed > 255 || temp_div <= 0 ||
+        interval <= 0) {
+        fprintf(stderr, "Invalid fan curve parameters\n");
+        exit(EXIT_FAILURE);
+    }
+
     if (file_exist(fan_file) != 0 || file_exist(thermal_file) != 0) {
         fprintf(stderr ,"File: '%s' or '%s' not exist\n" ,fan_file ,thermal_file);
         exit(EXIT_FAILURE);
     }
 
-    // 注册退出信号
     register_signal_handlers( );
 
-    // 监控风扇
-    while (1) {
-        int temperature = get_temperature(thermal_file ,temp_div);
-        // 有效温度时设置风扇速度
-        if (temperature > 0) {
-            int fan_speed = calculate_speed(temperature ,MAX_TEMP ,start_temp ,max_speed ,start_speed);
-            set_fanspeed(fan_speed ,fan_file);
-        }
-        if (debug_mode) {
-            fprintf(stdout ,"Temperature: %d°C, Fan Speed: %d\n" ,get_temperature(thermal_file ,temp_div) ,get_fanspeed(fan_file));
-        }
-        sleep(5);
+    /* Ensure the fan starts reliably before settling on the linear curve. */
+    if (set_fanspeed(max_speed, fan_file) != 0) {
+        fprintf(stderr, "Unable to start fan through '%s'\n", fan_file);
+        exit(EXIT_FAILURE);
     }
+    last_speed = max_speed;
+    usleep(500000);
+
+    while (!stopping) {
+        int temperature = get_temperature(thermal_file ,temp_div);
+        int fan_speed;
+
+        if (temperature < 0) {
+            fan_speed = max_speed;
+            if (!sensor_failed)
+                fprintf(stderr, "Temperature read failed; forcing maximum fan speed\n");
+            sensor_failed = 1;
+        } else {
+            fan_speed = calculate_speed(temperature, max_temp, start_temp,
+                                        max_speed, start_speed);
+            sensor_failed = 0;
+        }
+
+        if (fan_speed != last_speed) {
+            if (set_fanspeed(fan_speed, fan_file) != 0) {
+                fprintf(stderr, "Unable to write fan speed to '%s'\n", fan_file);
+            } else {
+                last_speed = fan_speed;
+            }
+        }
+
+        if (debug_mode) {
+            fprintf(stdout, "Temperature: %d°C, Fan Speed: %d\n",
+                    temperature, get_fanspeed(fan_file));
+            fflush(stdout);
+        }
+        sleep(interval);
+    }
+
+    set_fanspeed(0, fan_file);
     return 0;
 }

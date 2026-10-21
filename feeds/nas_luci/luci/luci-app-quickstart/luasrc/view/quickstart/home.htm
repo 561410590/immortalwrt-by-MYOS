@@ -1,0 +1,6 @@
+<%
+local function vue_lang()
+    return "zh-cn"
+end
+-%>
+<% luci.template.render("quickstart/main", {prefix=luci.dispatcher.build_url("admin", "quickstart"),lang=vue_lang()}) %>

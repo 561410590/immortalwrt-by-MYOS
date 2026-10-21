@@ -1,25 +1,1236 @@
 /dts-v1/;
-/* SPDX-License-Identifier: (GPL-2.0-only OR MIT) */
-
-#include "../mt7987a.dtsi"
-#include "../mt7987-pinctrl.dtsi"
-#include <dt-bindings/input/input.h>
-#include <dt-bindings/interrupt-controller/irq.h>
-#include <dt-bindings/interrupt-controller/arm-gic.h>
-#include <dt-bindings/phy/phy.h>
-#include <dt-bindings/reset/ti-syscon.h>
-#include <dt-bindings/clock/mediatek,mt7987-clk.h>
-#include <dt-bindings/pinctrl/mt65xx.h>
 
 / {
-	model = "HC-WT9303";
-	compatible = "HCMT7987-EMMC", "mediatek,mt7987a", "mediatek,mt7987";
+	compatible = "nradio,c2000-max\0mediatek,mt7987";
+	interrupt-parent = <0x01>;
+	#address-cells = <0x02>;
+	#size-cells = <0x02>;
+	model = "NRadio C2000-MAX";
+
+	oscillator@0 {
+		compatible = "fixed-clock";
+		#clock-cells = <0x00>;
+		clock-frequency = <0x2625a00>;
+		clock-output-names = "clkxtal";
+		phandle = <0x30>;
+	};
+
+	regulator-vproc {
+		compatible = "regulator-fixed";
+		regulator-name = "proc";
+		regulator-min-microvolt = <0x81b320>;
+		regulator-max-microvolt = <0x81b320>;
+		regulator-boot-on;
+		regulator-always-on;
+		phandle = <0x31>;
+	};
+
+	firmware {
+
+		optee {
+			method = "smc";
+			compatible = "linaro,optee-tz";
+			status = "okay";
+		};
+	};
+
+	cpus {
+		#address-cells = <0x01>;
+		#size-cells = <0x00>;
+
+		cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			enable-method = "psci";
+			next-level-cache = <0x02>;
+			reg = <0x00>;
+			clocks = <0x03 0x00 0x04 0x1b 0x05 0x06>;
+			clock-names = "cpu\0intermediate\0armpll";
+			operating-points-v2 = <0x06>;
+			#cooling-cells = <0x02>;
+			phandle = <0x0d>;
+		};
+
+		cpu@1 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			enable-method = "psci";
+			next-level-cache = <0x02>;
+			reg = <0x01>;
+			clocks = <0x03 0x00 0x04 0x1b 0x05 0x06>;
+			clock-names = "cpu\0intermediate\0armpll";
+			operating-points-v2 = <0x06>;
+			#cooling-cells = <0x02>;
+			phandle = <0x0e>;
+		};
+
+		opp_table0 {
+			compatible = "operating-points-v2";
+			opp-shared;
+			phandle = <0x06>;
+
+			opp00 {
+				opp-hz = <0x00 0x77359400>;
+				opp-microvolt = <0xcf850>;
+			};
+
+			opp01 {
+				opp-hz = <0x00 0x77359400>;
+				opp-microvolt = <0xcf850>;
+			};
+
+			opp02 {
+				opp-hz = <0x00 0x77359400>;
+				opp-microvolt = <0xcf850>;
+			};
+
+			opp03 {
+				opp-hz = <0x00 0x77359400>;
+				opp-microvolt = <0xcf850>;
+			};
+		};
+
+		l2-cache {
+			compatible = "cache";
+			cache-level = <0x02>;
+			phandle = <0x02>;
+		};
+	};
+
+	clk40m {
+		compatible = "fixed-clock";
+		#clock-cells = <0x00>;
+		clock-frequency = <0x2625a00>;
+		phandle = <0x32>;
+	};
+
+	clkitg {
+		compatible = "simple-bus";
+		status = "disabled";
+		phandle = <0x33>;
+	};
+
+	soc_clksys {
+		#address-cells = <0x02>;
+		#size-cells = <0x02>;
+		compatible = "simple-bus";
+		ranges;
+		phandle = <0x34>;
+
+		infracfg@10001000 {
+			compatible = "mediatek,mt7987-infracfg\0syscon";
+			reg = <0x00 0x10001000 0x00 0x1000>;
+			#clock-cells = <0x01>;
+			#reset-cells = <0x01>;
+			phandle = <0x15>;
+		};
+
+		topckgen@1001b000 {
+			compatible = "mediatek,mt7987-topckgen\0syscon";
+			reg = <0x00 0x1001b000 0x00 0x1000>;
+			#clock-cells = <0x01>;
+			phandle = <0x04>;
+		};
+
+		apmixedsys@1001e000 {
+			compatible = "mediatek,mt7987-apmixedsys\0syscon";
+			reg = <0x00 0x1001e000 0x00 0x1000>;
+			#clock-cells = <0x01>;
+			phandle = <0x05>;
+		};
+
+		syscon@10060000 {
+			compatible = "mediatek,mt7987-sgmiisys\0mediatek,mt7987-sgmiisys0\0syscon\0simple-mfd";
+			reg = <0x00 0x10060000 0x00 0x1000>;
+			resets = <0x07 0x01>;
+			mediatek,phya_trx_ck;
+			#clock-cells = <0x01>;
+			phandle = <0x08>;
+
+			pcs {
+				compatible = "mediatek,mt7987-sgmii";
+				clocks = <0x04 0x37 0x08 0x00 0x08 0x01>;
+				clock-names = "sgmii_sel\0sgmii_tx\0sgmii_rx";
+				phandle = <0x2b>;
+			};
+		};
+
+		syscon@10070000 {
+			compatible = "mediatek,mt7987-sgmiisys\0mediatek,mt7987-sgmiisys1\0syscon\0simple-mfd";
+			reg = <0x00 0x10070000 0x00 0x1000>;
+			resets = <0x07 0x02>;
+			mediatek,phya_trx_ck;
+			#clock-cells = <0x01>;
+			phandle = <0x09>;
+
+			pcs {
+				compatible = "mediatek,mt7987-sgmii";
+				clocks = <0x04 0x39 0x09 0x00 0x09 0x01>;
+				clock-names = "sgmii_sel\0sgmii_tx\0sgmii_rx";
+				phandle = <0x35>;
+			};
+		};
+
+		mcusys@10400000 {
+			compatible = "mediatek,mt7987-mcusys\0syscon";
+			reg = <0x00 0x10400000 0x00 0x1000>;
+			#clock-cells = <0x01>;
+			phandle = <0x03>;
+		};
+
+		syscon@15000000 {
+			#address-cells = <0x01>;
+			#size-cells = <0x01>;
+			compatible = "mediatek,mt7987-ethdma\0mediatek,mt7987-ethsys\0syscon";
+			reg = <0x00 0x15000000 0x00 0x1000>;
+			#clock-cells = <0x01>;
+			#reset-cells = <0x01>;
+			phandle = <0x29>;
+
+			reset-controller {
+				compatible = "ti,syscon-reset";
+				#reset-cells = <0x01>;
+				ti,reset-bits = <0x34 0x04 0x34 0x04 0x34 0x04 0x28>;
+				phandle = <0x36>;
+			};
+		};
+	};
+
+	pwm-fan {
+		compatible = "pwm-fan";
+		cooling-levels = <0x00 0x80 0xff>;
+		#cooling-cells = <0x02>;
+		#thermal-sensor-cells = <0x01>;
+		status = "okay";
+		pinctrl-names = "default";
+		pinctrl-0 = <0x0a>;
+		pwms = <0x0b 0x01 0xc350 0x00>;
+		phandle = <0x10>;
+	};
+
+	pmu {
+		compatible = "arm,cortex-a53-pmu";
+		interrupt-parent = <0x01>;
+		interrupts = <0x01 0x07 0x08>;
+		phandle = <0x37>;
+	};
+
+	psci {
+		compatible = "arm,psci-0.2";
+		method = "smc";
+	};
+
+	reserved-memory {
+		#address-cells = <0x02>;
+		#size-cells = <0x02>;
+		ranges;
+
+		wmcpu-reserved@50000000 {
+			compatible = "mediatek,wmcpu-reserved";
+			no-map;
+			reg = <0x00 0x50000000 0x00 0x100000>;
+			phandle = <0x38>;
+		};
+	};
+
+	thermal-zones {
+
+		cpu-thermal {
+			polling-delay-passive = <0x3e8>;
+			polling-delay = <0x3e8>;
+			thermal-sensors = <0x0c 0x00>;
+			phandle = <0x39>;
+
+			trips {
+
+				crit {
+					temperature = <0x1e848>;
+					hysteresis = <0x7d0>;
+					type = "critical";
+					phandle = <0x3a>;
+				};
+
+				hot {
+					temperature = <0x1d4c0>;
+					hysteresis = <0x7d0>;
+					type = "hot";
+					phandle = <0x3b>;
+				};
+
+				active-hot {
+					temperature = <0x1c908>;
+					hysteresis = <0x7d0>;
+					type = "active";
+					phandle = <0x0f>;
+				};
+
+				active-high {
+					temperature = <0x1c138>;
+					hysteresis = <0x7d0>;
+					type = "active";
+					phandle = <0x11>;
+				};
+
+				active-med {
+					temperature = <0x14c08>;
+					hysteresis = <0x7d0>;
+					type = "active";
+					phandle = <0x12>;
+				};
+
+				active-low {
+					temperature = <0x9c40>;
+					hysteresis = <0x7d0>;
+					type = "active";
+					phandle = <0x13>;
+				};
+			};
+
+			cooling-maps {
+
+				cpu-active-hot {
+					cooling-device = <0x0d 0xffffffff 0xffffffff 0x0e 0xffffffff 0xffffffff>;
+					trip = <0x0f>;
+				};
+
+				cpu-active-high {
+					cooling-device = <0x10 0x02 0x02>;
+					trip = <0x11>;
+				};
+
+				cpu-active-low {
+					cooling-device = <0x10 0x02 0x02>;
+					trip = <0x12>;
+				};
+
+				cpu-passive {
+					cooling-device = <0x10 0x01 0x01>;
+					trip = <0x13>;
+				};
+			};
+		};
+	};
+
+	timer {
+		compatible = "arm,armv8-timer";
+		interrupt-parent = <0x01>;
+		interrupts = <0x01 0x0d 0x08 0x01 0x0e 0x08 0x01 0x0b 0x08 0x01 0x0a 0x08>;
+	};
+
+	soc {
+		#address-cells = <0x02>;
+		#size-cells = <0x02>;
+		compatible = "simple-bus";
+		ranges;
+		phandle = <0x3c>;
+
+		hwver@8000000 {
+			compatible = "mediatek,hwver\0syscon";
+			reg = <0x00 0x8000000 0x00 0x1000>;
+			phandle = <0x3d>;
+		};
+
+		interrupt-controller@c000000 {
+			compatible = "arm,gic-v3";
+			#interrupt-cells = <0x03>;
+			interrupt-parent = <0x01>;
+			interrupt-controller;
+			reg = <0x00 0xc000000 0x00 0x40000 0x00 0xc080000 0x00 0x200000 0x00 0xc400000 0x00 0x2000 0x00 0xc410000 0x00 0x1000 0x00 0xc420000 0x00 0x2000>;
+			interrupts = <0x01 0x09 0x04>;
+			phandle = <0x01>;
+		};
+
+		infra_bus_prot@1000310c {
+			compatible = "mediatek,infracfg_ao_bus_hang_prot";
+			reg = <0x00 0x1000310c 0x00 0x14>;
+			status = "okay";
+			phandle = <0x3e>;
+		};
+
+		watchdog@1001c000 {
+			compatible = "mediatek,mt7987-wdt\0mediatek,mt7988-wdt\0mediatek,mt6589-wdt\0syscon";
+			reg = <0x00 0x1001c000 0x00 0x1000>;
+			interrupts = <0x00 0x4a 0x04>;
+			#reset-cells = <0x01>;
+			status = "okay";
+			phandle = <0x07>;
+		};
+
+		pinctrl@1001f000 {
+			compatible = "mediatek,mt7987-pinctrl";
+			reg = <0x00 0x1001f000 0x00 0x1000 0x00 0x11d00000 0x00 0x1000 0x00 0x11e00000 0x00 0x1000 0x00 0x11f00000 0x00 0x1000 0x00 0x11f40000 0x00 0x1000 0x00 0x11f60000 0x00 0x1000 0x00 0x1000b000 0x00 0x1000>;
+			reg-names = "gpio\0iocfg_rb\0iocfg_lb\0iocfg_rt1\0iocfg_rt2\0iocfg_tl\0eint";
+			gpio-controller;
+			#gpio-cells = <0x02>;
+			gpio-ranges = <0x14 0x00 0x00 0x32>;
+			interrupt-controller;
+			interrupts = <0x00 0xe1 0x04>;
+			interrupt-parent = <0x01>;
+			#interrupt-cells = <0x02>;
+			phandle = <0x14>;
+
+			mmc-pins-default {
+				phandle = <0x3f>;
+
+				mux {
+					function = "flash";
+					groups = "emmc_45";
+				};
+
+				conf-cmd-dat {
+					pins = "SPI0_CLK\0SPI0_MOSI\0SPI0_MISO\0SPI0_CS\0SPI0_HOLD\0SPI0_WP\0SPI1_CLK\0SPI1_MOSI\0SPI1_MISO";
+					input-enable;
+					drive-strength = <0x04>;
+					mediatek,pull-up-adv = <0x01>;
+				};
+
+				conf-clk {
+					pins = "SPI1_CS";
+					drive-strength = <0x06>;
+					mediatek,pull-down-adv = <0x02>;
+				};
+
+				conf-rst {
+					pins = "USB_VBUS";
+					drive-strength = <0x04>;
+					mediatek,pull-up-adv = <0x01>;
+				};
+			};
+
+			mmc-pins-uhs {
+				phandle = <0x40>;
+
+				mux {
+					function = "flash";
+					groups = "emmc_45";
+				};
+
+				conf-cmd-dat {
+					pins = "SPI0_CLK\0SPI0_MOSI\0SPI0_MISO\0SPI0_CS\0SPI0_HOLD\0SPI0_WP\0SPI1_CLK\0SPI1_MOSI\0SPI1_MISO";
+					input-enable;
+					drive-strength = <0x04>;
+					mediatek,pull-up-adv = <0x01>;
+				};
+
+				conf-clk {
+					pins = "SPI1_CS";
+					drive-strength = <0x06>;
+					mediatek,pull-down-adv = <0x02>;
+				};
+
+				conf-rst {
+					pins = "USB_VBUS";
+					drive-strength = <0x04>;
+					mediatek,pull-up-adv = <0x01>;
+				};
+			};
+
+			sd-pins-default {
+				phandle = <0x22>;
+
+				mux {
+					function = "flash";
+					groups = "sd";
+				};
+
+				conf-cmd-dat {
+					pins = "SPI0_CLK\0SPI0_MOSI\0SPI0_MISO\0SPI0_CS\0SPI1_MISO";
+					input-enable;
+					drive-strength = <0x04>;
+					mediatek,pull-up-adv = <0x01>;
+				};
+
+				conf-clk {
+					pins = "SPI1_CS";
+					drive-strength = <0x06>;
+					mediatek,pull-down-adv = <0x02>;
+				};
+			};
+
+			sd-pins-uhs {
+				phandle = <0x23>;
+
+				mux {
+					function = "flash";
+					groups = "sd";
+				};
+
+				conf-cmd-dat {
+					pins = "SPI0_CLK\0SPI0_MOSI\0SPI0_MISO\0SPI0_CS\0SPI1_MISO";
+					input-enable;
+					drive-strength = <0x04>;
+					mediatek,pull-up-adv = <0x01>;
+				};
+
+				conf-clk {
+					pins = "SPI1_CS";
+					drive-strength = <0x06>;
+					mediatek,pull-down-adv = <0x02>;
+				};
+			};
+
+			mdio0-pins {
+				phandle = <0x2a>;
+
+				mux {
+					function = "eth";
+					groups = "mdc_mdio";
+				};
+
+				conf {
+					groups = "mdc_mdio";
+					drive-strength = <0x06>;
+				};
+			};
+
+			i2p5gbe0-pins {
+				phandle = <0x2e>;
+
+				mux {
+					function = "led";
+					groups = "2p5gbe_led0";
+				};
+			};
+
+			i2p5gbe1-pins {
+				phandle = <0x41>;
+
+				mux {
+					function = "led";
+					groups = "2p5gbe_led1_0";
+				};
+			};
+
+			i2p5gbe2-pins {
+				phandle = <0x42>;
+
+				mux {
+					function = "led";
+					groups = "2p5gbe_led1_1";
+				};
+			};
+
+			i2c0-pins-g2 {
+				phandle = <0x17>;
+
+				mux {
+					function = "i2c";
+					groups = "i2c0_2";
+				};
+			};
+
+			pcie0-pins {
+				phandle = <0x26>;
+
+				mux {
+					function = "pcie";
+					groups = "pcie0_pereset\0pcie0_clkreq";
+				};
+			};
+
+			pcie1-pins {
+				phandle = <0x28>;
+
+				mux {
+					function = "pcie";
+					groups = "pcie1_pereset\0pcie1_clkreq\0pcie1_wake";
+				};
+			};
+
+			spi0-pins {
+				phandle = <0x43>;
+
+				mux {
+					function = "spi";
+					groups = "spi0\0spi0_wp_hold";
+				};
+
+				conf-pu {
+					pins = "SPI0_CS\0SPI0_HOLD\0SPI0_WP";
+					drive-strength = <0x04>;
+					bias-pull-up = <0x67>;
+				};
+
+				conf-pd {
+					pins = "SPI0_CLK\0SPI0_MOSI\0SPI0_MISO";
+					drive-strength = <0x04>;
+					bias-pull-down = <0x67>;
+				};
+			};
+
+			spi1-pins {
+				phandle = <0x44>;
+
+				mux {
+					function = "spi";
+					groups = "spi1";
+				};
+			};
+
+			spi2-pins {
+				phandle = <0x45>;
+
+				mux {
+					function = "spi";
+					groups = "spi2\0spi2_wp_hold";
+				};
+			};
+
+			i2c1-pins {
+				phandle = <0x46>;
+
+				mux {
+					function = "i2c";
+					groups = "i2c0_2";
+				};
+			};
+
+			i2s-pins {
+				phandle = <0x47>;
+
+				mux {
+					function = "i2s";
+					groups = "pcm0_1";
+				};
+			};
+
+			pcm-pins {
+				phandle = <0x48>;
+
+				mux {
+					function = "pcm";
+					groups = "pcm0_1";
+				};
+			};
+
+			pwm-pins {
+				phandle = <0x49>;
+
+				mux {
+					function = "pwm";
+					groups = "pwm0";
+				};
+			};
+
+			pwm-rgb-pins {
+				phandle = <0x4a>;
+
+				mux {
+					function = "pwm";
+					groups = "pwm0\0pwm1_0\0pwm2_0";
+				};
+			};
+
+			pwm-fan-pins {
+				phandle = <0x0a>;
+
+				mux {
+					function = "pwm";
+					groups = "pwm1_0";
+				};
+			};
+
+			uart0-pins {
+				phandle = <0x16>;
+
+				mux {
+					function = "uart";
+					groups = "uart0";
+				};
+			};
+
+			uart1-pins {
+				phandle = <0x4b>;
+
+				mux {
+					function = "uart";
+					groups = "uart1_2";
+				};
+			};
+		};
+
+		boottrap@1001f6f0 {
+			compatible = "mediatek,boottrap";
+			reg = <0x00 0x1001f6f0 0x00 0x20>;
+			status = "okay";
+			phandle = <0x4c>;
+		};
+
+		trng@1020f000 {
+			compatible = "mediatek,mt7987-rng";
+			status = "okay";
+			phandle = <0x4d>;
+		};
+
+		pwm@10048000 {
+			compatible = "mediatek,mt7987-pwm";
+			reg = <0x00 0x10048000 0x00 0x1000>;
+			#pwm-cells = <0x02>;
+			clocks = <0x15 0x0b 0x15 0x0a 0x15 0x0a 0x15 0x0a 0x15 0x0a>;
+			clock-names = "top\0main\0pwm1\0pwm2\0pwm3";
+			status = "okay";
+			phandle = <0x0b>;
+		};
+
+		serial@11000000 {
+			compatible = "mediatek,mt7986-uart\0mediatek,mt6577-uart";
+			reg = <0x00 0x11000000 0x00 0x100>;
+			interrupts = <0x00 0x7b 0x04>;
+			clocks = <0x15 0x1e 0x15 0x1b>;
+			clock-names = "baud\0bus";
+			assigned-clocks = <0x04 0x25 0x15 0x00>;
+			assigned-clock-parents = <0x04 0x1b 0x04 0x25>;
+			status = "okay";
+			pinctrl-names = "default";
+			pinctrl-0 = <0x16>;
+			phandle = <0x4e>;
+		};
+
+		serial@11000100 {
+			compatible = "mediatek,mt7986-uart\0mediatek,mt6577-uart";
+			reg = <0x00 0x11000100 0x00 0x100>;
+			interrupts = <0x00 0x7c 0x04>;
+			clocks = <0x15 0x1f 0x15 0x1c>;
+			clock-names = "baud\0bus";
+			assigned-clocks = <0x04 0x25 0x15 0x01>;
+			assigned-clock-parents = <0x04 0x1b 0x04 0x25>;
+			status = "disabled";
+			phandle = <0x4f>;
+		};
+
+		serial@11000200 {
+			compatible = "mediatek,mt7986-uart\0mediatek,mt6577-uart";
+			reg = <0x00 0x11000200 0x00 0x100>;
+			interrupts = <0x00 0x7d 0x04>;
+			clocks = <0x15 0x20 0x15 0x1d>;
+			clock-names = "baud\0bus";
+			assigned-clocks = <0x04 0x25 0x15 0x02>;
+			assigned-clock-parents = <0x04 0x1b 0x04 0x25>;
+			status = "disabled";
+			phandle = <0x50>;
+		};
+
+		i2c@11003000 {
+			compatible = "mediatek,mt7988-i2c\0mediatek,mt7981-i2c";
+			reg = <0x00 0x11003000 0x00 0x1000 0x00 0x10217080 0x00 0x80>;
+			interrupts = <0x00 0x88 0x04>;
+			clock-div = <0x01>;
+			clocks = <0x15 0x1a 0x15 0x14>;
+			clock-names = "main\0dma";
+			#address-cells = <0x01>;
+			#size-cells = <0x00>;
+			status = "okay";
+			pinctrl-names = "default";
+			pinctrl-0 = <0x17>;
+			phandle = <0x51>;
+		};
+
+		spi@11007800 {
+			compatible = "mediatek,ipm-spi-quad\0mediatek,spi-ipm";
+			reg = <0x00 0x11007800 0x00 0x100>;
+			interrupts = <0x00 0x8c 0x04>;
+			clocks = <0x04 0x00 0x04 0x28 0x15 0x23 0x15 0x26>;
+			assigned-clocks = <0x04 0x28 0x15 0x03>;
+			assigned-clock-parents = <0x04 0x00 0x04 0x28>;
+			clock-names = "parent-clk\0sel-clk\0spi-clk\0hclk";
+			status = "disabled";
+			phandle = <0x52>;
+		};
+
+		spi@11008800 {
+			compatible = "mediatek,ipm-spi-single\0mediatek,spi-ipm";
+			reg = <0x00 0x11008800 0x00 0x100>;
+			interrupts = <0x00 0x8d 0x04>;
+			clocks = <0x04 0x00 0x04 0x28 0x15 0x24 0x15 0x27>;
+			assigned-clocks = <0x04 0x29 0x15 0x04>;
+			assigned-clock-parents = <0x04 0x00 0x04 0x29>;
+			clock-names = "parent-clk\0sel-clk\0spi-clk\0hclk";
+			status = "disabled";
+			phandle = <0x53>;
+		};
+
+		spi@11009800 {
+			compatible = "mediatek,ipm-spi-quad\0mediatek,spi-ipm";
+			reg = <0x00 0x11009800 0x00 0x100>;
+			interrupts = <0x00 0x8e 0x04>;
+			clocks = <0x04 0x00 0x04 0x28 0x15 0x25 0x15 0x28>;
+			assigned-clocks = <0x04 0x28 0x15 0x05>;
+			assigned-clock-parents = <0x04 0x00 0x04 0x28>;
+			clock-names = "parent-clk\0sel-clk\0spi-clk\0hclk";
+			status = "disabled";
+			phandle = <0x54>;
+		};
+
+		lvts@1100a000 {
+			compatible = "mediatek,mt7987-lvts-ap";
+			reg = <0x00 0x1100a000 0x00 0x1000>;
+			clocks = <0x15 0x19>;
+			clock-names = "lvts_clk";
+			resets = <0x15 0x01>;
+			nvmem-cells = <0x18>;
+			nvmem-cell-names = "lvts-calib-data-1";
+			#thermal-sensor-cells = <0x01>;
+			status = "okay";
+			phandle = <0x0c>;
+		};
+
+		usb-phy@11c50000 {
+			compatible = "mediatek,mt7987\0mediatek,generic-tphy-v2";
+			#address-cells = <0x02>;
+			#size-cells = <0x02>;
+			ranges;
+			phandle = <0x55>;
+
+			usb-phy@11c50000 {
+				reg = <0x00 0x11c50000 0x00 0x700>;
+				clocks = <0x15 0x3d>;
+				clock-names = "ref";
+				#phy-cells = <0x01>;
+				auto_load_valid;
+				nvmem-cells = <0x19 0x1a>;
+				nvmem-cell-names = "intr\0auto_load_valid";
+				phandle = <0x20>;
+			};
+
+			usb-phy@11c50700 {
+				reg = <0x00 0x11c50700 0x00 0x900>;
+				clocks = <0x15 0x3c>;
+				clock-names = "ref";
+				#phy-cells = <0x01>;
+				auto_load_valid;
+				nvmem-cells = <0x1b 0x1c 0x1d 0x1e>;
+				nvmem-cell-names = "intr\0rx_imp\0tx_imp\0auto_load_valid";
+				mediatek,syscon-type = <0x1f 0x218 0x00>;
+				status = "okay";
+				phandle = <0x21>;
+			};
+		};
+
+		usb@11200000 {
+			compatible = "mediatek,mt7987-xhci\0mediatek,mtk-xhci";
+			reg = <0x00 0x11200000 0x00 0x2e00 0x00 0x11203e00 0x00 0x100>;
+			reg-names = "mac\0ippc";
+			interrupts = <0x00 0xac 0x04>;
+			clocks = <0x15 0x39 0x15 0x3e 0x15 0x3a 0x15 0x38 0x15 0x36>;
+			clock-names = "sys_ck\0xhci_ck\0ref_ck\0mcu_ck\0dma_ck";
+			#address-cells = <0x02>;
+			#size-cells = <0x02>;
+			phys = <0x20 0x03 0x21 0x04>;
+			usb2-lpm-disable;
+			mediatek,u3p-dis-msk = <0x00>;
+			status = "okay";
+			phandle = <0x56>;
+		};
+
+		audio-controller@11210000 {
+			compatible = "mediatek,mt7987-afe\0mediatek,mt7986-afe";
+			reg = <0x00 0x11210000 0x00 0x9000>;
+			interrupts = <0x00 0x6a 0x04>;
+			clocks = <0x15 0x0d 0x15 0x0e 0x15 0x0f 0x15 0x10 0x15 0x11 0x04 0x32 0x04 0x4d>;
+			clock-names = "aud_bus_ck\0aud_26m_ck\0aud_l_ck\0aud_aud_ck\0aud_eg2_ck\0aud_sel\0aud_i2s_m";
+			assigned-clocks = <0x04 0x32 0x04 0x33 0x04 0x34 0x04 0x35>;
+			assigned-clock-parents = <0x05 0x01 0x04 0x06 0x05 0x01 0x04 0x06>;
+			status = "disabled";
+			phandle = <0x57>;
+		};
+
+		mmc@11230000 {
+			#address-cells = <0x01>;
+			#size-cells = <0x00>;
+			compatible = "mediatek,mt7986-mmc";
+			reg = <0x00 0x11230000 0x00 0x1000 0x00 0x11f50000 0x00 0x1000>;
+			interrupts = <0x00 0x8f 0x04>;
+			clocks = <0x04 0x4c 0x15 0x2d 0x15 0x2f 0x15 0x2e 0x15 0x15 0x15 0x30>;
+			clock-names = "source\0bus_clk\0axi_cg\0hclk\0source_cg\0ahb_cg";
+			status = "okay";
+			pinctrl-names = "default\0state_uhs";
+			pinctrl-0 = <0x22>;
+			pinctrl-1 = <0x23>;
+			bus-width = <0x04>;
+			max-frequency = <0x2dc6c00>;
+			cap-sd-highspeed;
+			vmmc-supply = <0x24>;
+			vqmmc-supply = <0x24>;
+			no-mmc;
+			no-sdio;
+			phandle = <0x58>;
+
+			card@0 {
+				compatible = "mmc-card";
+				reg = <0x00>;
+
+				block {
+					compatible = "block-device";
+
+					partitions {
+
+						block-partition-factory {
+							partname = "factory";
+
+							nvmem-layout {
+								compatible = "fixed-layout";
+								#address-cells = <0x01>;
+								#size-cells = <0x01>;
+
+								eeprom@0 {
+									reg = <0x00 0x1000>;
+									phandle = <0x59>;
+								};
+							};
+						};
+					};
+				};
+			};
+		};
+
+		wed {
+			compatible = "mediatek,wed";
+			wed_num = <0x01>;
+			phandle = <0x5a>;
+		};
+
+		wed0@15010000 {
+			compatible = "mediatek,wed0";
+			pci_slot_map = <0x00>;
+			reg = <0x00 0x15010000 0x00 0x2000>;
+			interrupt-parent = <0x01>;
+			interrupts = <0x00 0xcd 0x04>;
+			phandle = <0x5b>;
+		};
+
+		wdma@15104800 {
+			compatible = "mediatek,wed-wdma";
+			reg = <0x00 0x15104800 0x00 0x400>;
+			phandle = <0x5c>;
+		};
+
+		pcie@11280000 {
+			compatible = "mediatek,mt7987-pcie\0mediatek,mt8192-pcie";
+			device_type = "pci";
+			#address-cells = <0x03>;
+			#size-cells = <0x02>;
+			reg = <0x00 0x11280000 0x00 0x2000>;
+			reg-names = "pcie-mac";
+			linux,pci-domain = <0x00>;
+			interrupts = <0x00 0xa8 0x04>;
+			bus-range = <0x00 0xff>;
+			ranges = <0x81000000 0x00 0x20000000 0x00 0x20000000 0x00 0x200000 0x82000000 0x00 0x20200000 0x00 0x20200000 0x00 0xfe00000>;
+			clocks = <0x15 0x41 0x15 0x3f 0x15 0x45 0x15 0x43>;
+			clock-names = "pl_250m\0tl_26m\0peri_26m\0top_133m";
+			status = "okay";
+			#interrupt-cells = <0x01>;
+			interrupt-map-mask = <0x00 0x00 0x00 0x07>;
+			interrupt-map = <0x00 0x00 0x00 0x01 0x25 0x00 0x00 0x00 0x00 0x02 0x25 0x01 0x00 0x00 0x00 0x03 0x25 0x02 0x00 0x00 0x00 0x04 0x25 0x03>;
+			pinctrl-names = "default";
+			pinctrl-0 = <0x26>;
+			wifi-reset-gpios = <0x14 0x26 0x00>;
+			wifi-reset-msleep = <0x3e8>;
+			phandle = <0x5d>;
+
+			interrupt-controller {
+				#address-cells = <0x00>;
+				#interrupt-cells = <0x01>;
+				interrupt-controller;
+				phandle = <0x25>;
+			};
+		};
+
+		pcie@11290000 {
+			compatible = "mediatek,mt7988-pcie\0mediatek,mt7988-pcie\0mediatek,mt7986-pcie\0mediatek,mt8192-pcie";
+			device_type = "pci";
+			#address-cells = <0x03>;
+			#size-cells = <0x02>;
+			reg = <0x00 0x11290000 0x00 0x2000>;
+			reg-names = "pcie-mac";
+			linux,pci-domain = <0x01>;
+			interrupts = <0x00 0xa9 0x04>;
+			bus-range = <0x00 0xff>;
+			ranges = <0x81000000 0x00 0x30000000 0x00 0x30000000 0x00 0x200000 0x82000000 0x00 0x30200000 0x00 0x30200000 0x00 0xfe00000>;
+			clocks = <0x15 0x42 0x15 0x40 0x15 0x46 0x15 0x44>;
+			clock-names = "pl_250m\0tl_26m\0peri_26m\0top_133m";
+			status = "disabled";
+			#interrupt-cells = <0x01>;
+			interrupt-map-mask = <0x00 0x00 0x00 0x07>;
+			interrupt-map = <0x00 0x00 0x00 0x01 0x27 0x00 0x00 0x00 0x00 0x02 0x27 0x01 0x00 0x00 0x00 0x03 0x27 0x02 0x00 0x00 0x00 0x04 0x27 0x03>;
+			pinctrl-names = "default";
+			pinctrl-0 = <0x28>;
+			phandle = <0x5e>;
+
+			interrupt-controller {
+				#address-cells = <0x00>;
+				#interrupt-cells = <0x01>;
+				interrupt-controller;
+				phandle = <0x27>;
+			};
+
+			pcie@0,0 {
+				reg = <0x00 0x00 0x00 0x00 0x00>;
+				phandle = <0x5f>;
+			};
+		};
+
+		topmisc@10021000 {
+			compatible = "mediatek,mt7987-topmisc\0syscon\0mediatek,mt7987-power-controller";
+			reg = <0x00 0x10021000 0x00 0x10000>;
+			#clock-cells = <0x01>;
+			#power-domain-cells = <0x01>;
+			#address-cells = <0x01>;
+			#size-cells = <0x00>;
+			phandle = <0x1f>;
+		};
+
+		efuse@11d30000 {
+			compatible = "mediatek,efuse";
+			reg = <0x00 0x11d30000 0x00 0x1000>;
+			#address-cells = <0x01>;
+			#size-cells = <0x01>;
+			phandle = <0x60>;
+
+			calib@918 {
+				reg = <0x918 0x10>;
+				phandle = <0x18>;
+			};
+
+			usb3-alv-imp@8ee {
+				reg = <0x8ee 0x01>;
+				bits = <0x00 0x01>;
+				phandle = <0x1e>;
+			};
+
+			usb3-rx-imp@8ec,1 {
+				reg = <0x8ec 0x01>;
+				bits = <0x00 0x05>;
+				phandle = <0x1c>;
+			};
+
+			usb3-tx-imp@8ec,2 {
+				reg = <0x8ec 0x02>;
+				bits = <0x05 0x05>;
+				phandle = <0x1d>;
+			};
+
+			usb3-intr@8ec,3 {
+				reg = <0x8ed 0x01>;
+				bits = <0x02 0x06>;
+				phandle = <0x1b>;
+			};
+
+			usb2-alv-p0@8cc,1 {
+				reg = <0x8cc 0x01>;
+				bits = <0x00 0x01>;
+				phandle = <0x1a>;
+			};
+
+			usb2-intr-p0@8cc,2 {
+				reg = <0x8cc 0x01>;
+				bits = <0x01 0x05>;
+				phandle = <0x19>;
+			};
+		};
+
+		devapc@1a110000 {
+			compatible = "mediatek,mt7987-devapc";
+			reg = <0x00 0x1a110000 0x00 0x1000>;
+			interrupts = <0x00 0xae 0x04>;
+			phandle = <0x61>;
+		};
+	};
+
+	soc_netsys {
+		#address-cells = <0x02>;
+		#size-cells = <0x02>;
+		compatible = "simple-bus";
+		ranges;
+		phandle = <0x62>;
+
+		syscon@15031000 {
+			compatible = "mediatek,mt7988-ethwarp\0syscon";
+			reg = <0x00 0x15031000 0x00 0x1000>;
+			#clock-cells = <0x01>;
+			phandle = <0x63>;
+		};
+
+		ethernet@15100000 {
+			compatible = "mediatek,mt7987-eth";
+			reg = <0x00 0x15100000 0x00 0x80000 0x00 0x15400000 0x00 0x20000>;
+			interrupts = <0x00 0xbd 0x04 0x00 0xbe 0x04 0x00 0xbf 0x04 0x00 0xc0 0x04 0x00 0xc4 0x04 0x00 0xc5 0x04 0x00 0xc6 0x04 0x00 0xc7 0x04>;
+			clocks = <0x29 0x00 0x29 0x01 0x29 0x02 0x29 0x03 0x04 0x22 0x04 0x3d 0x04 0x3e 0x04 0x3f 0x04 0x40 0x04 0x4b 0x04 0x1f 0x04 0x20 0x04 0x21>;
+			clock-names = "fe\0gp2\0gp1\0gp3\0top_eth_gmii_sel\0top_eth_refck_50m_sel\0top_eth_sys_200m_sel\0top_eth_sys_sel\0top_eth_xgmii_sel\0top_eth_mii_sel\0top_netsys_sel\0top_netsys_500m_sel\0top_netsys_pao_2x_sel";
+			assigned-clocks = <0x04 0x21 0x04 0x37 0x04 0x39>;
+			assigned-clock-parents = <0x05 0x03 0x05 0x05 0x05 0x05>;
+			mediatek,ethsys = <0x29>;
+			mediatek,infracfg = <0x1f>;
+			pinctrl-names = "default";
+			pinctrl-0 = <0x2a>;
+			#reset-cells = <0x01>;
+			#address-cells = <0x01>;
+			#size-cells = <0x00>;
+			status = "okay";
+			phandle = <0x2f>;
+
+			mac@0 {
+				compatible = "mediatek,eth-mac";
+				reg = <0x00>;
+				pcs-handle = <0x2b>;
+				phy-mode = "2500base-x";
+				phy-handle = <0x2c>;
+				status = "okay";
+				phandle = <0x64>;
+			};
+
+			mac@1 {
+				compatible = "mediatek,eth-mac";
+				reg = <0x01>;
+				mac-type = "xgdm";
+				phy-mode = "internal";
+				phy-handle = <0x2d>;
+				status = "okay";
+				phandle = <0x65>;
+			};
+
+			mac@2 {
+				compatible = "mediatek,eth-mac";
+				reg = <0x02>;
+				phy-mode = "internal";
+				label = "hnat";
+				phandle = <0x66>;
+
+				fixed-link {
+					speed = <0x9c4>;
+					full-duplex;
+					pause;
+				};
+			};
+
+			mdio-bus {
+				phandle = <0x67>;
+
+				phy@1 {
+					compatible = "ethernet-phy-ieee802.3-c45";
+					reg = <0x01>;
+					reset-assert-us = <0x186a0>;
+					reset-deassert-us = <0x186a0>;
+					reset-gpios = <0x14 0x2a 0x01>;
+					interrupts = <0x29 0x08>;
+					interrupt-parent = <0x14>;
+					realtek,aldps-enable;
+					phandle = <0x2c>;
+				};
+
+				phy@15 {
+					pinctrl-names = "i2p5gbe-led";
+					pinctrl-0 = <0x2e>;
+					compatible = "ethernet-phy-ieee802.3-c45";
+					reg = <0x0f>;
+					phy-mode = "internal";
+					phandle = <0x2d>;
+				};
+			};
+		};
+
+		hnat@15000000 {
+			compatible = "mediatek,mtk-hnat_v5";
+			reg = <0x00 0x15100000 0x00 0x80000>;
+			interrupts = <0x00 0xc6 0x04>;
+			resets = <0x29 0x00>;
+			reset-names = "mtketh";
+			mtketh-wan = "eth0";
+			mtketh-lan = "eth1";
+			mtketh-lan2 = "hnat";
+			mtketh-ppd = "hnat";
+			mtketh-max-gmac = <0x03>;
+			mtketh-ppe-num = <0x02>;
+			ext-devices-prefix = "usb\0wwan\0rmnet\0eth2\0eth3";
+			status = "okay";
+			phandle = <0x68>;
+		};
+
+		crypto@15600000 {
+			compatible = "inside-secure,safexcel-eip197b\0security-ip-197-srv";
+			reg = <0x00 0x15600000 0x00 0x180000>;
+			interrupts = <0x00 0xd6 0x04 0x00 0xd7 0x04 0x00 0xd8 0x04 0x00 0xd9 0x04>;
+			interrupt-names = "ring0\0ring1\0ring2\0ring3";
+			eth = <0x2f>;
+			status = "okay";
+			phandle = <0x69>;
+		};
+	};
+
+	memory {
+		reg = <0x00 0x40000000 0x00 0x10000000>;
+	};
+
+	regulator-3p3v {
+		compatible = "regulator-fixed";
+		regulator-name = "fixed-3.3V";
+		regulator-min-microvolt = <0x325aa0>;
+		regulator-max-microvolt = <0x325aa0>;
+		regulator-boot-on;
+		regulator-always-on;
+		phandle = <0x24>;
+	};
+
+	aliases {
+		led-boot = "/gpio-leds/status";
+		led-failsafe = "/gpio-leds/error";
+		led-running = "/gpio-leds/status";
+		led-upgrade = "/gpio-leds/status";
+	};
 
 	chosen {
-		bootargs = "console=ttyS0,115200n1 loglevel=8  \
-			    earlycon=uart8250,mmio32,0x11000000 \
-			    root=PARTLABEL=rootfs rootwait \
-			    rootfstype=squashfs,f2fs pci=pcie_bus_perf";
+		bootargs = "console=ttyS0,115200n1 loglevel=8                              earlycon=uart8250,mmio32,0x11000000                             pci=pcie_bus_perf \t\t\t    root=PARTLABEL=rootfs rootwait \t\t\t    rootfstype=squashfs,f2fs";
+	};
+
+	gpio_export {
+		compatible = "gpio-export";
+		#size-cells = <0x00>;
+
+		cpepower {
+			gpio-export,name = "cpe-pwr";
+			gpio-export,output = <0x00>;
+			gpios = <0x14 0x31 0x01>;
+		};
+
+		cpesel0 {
+			gpio-export,name = "cpe-sel0";
+			gpio-export,output = <0x01>;
+			gpios = <0x14 0x30 0x00>;
+		};
+
+		fanpower {
+			gpio-export,name = "fan-hw";
+			gpio-export,output = <0x00>;
+			gpios = <0x14 0x05 0x01>;
+		};
+	};
+
+	gpio-leds {
+		compatible = "gpio-leds";
+
+		status {
+			label = "hc:blue:status";
+			gpios = <0x14 0x09 0x01>;
+		};
+
+		sig1 {
+			label = "hc:blue:sig1";
+			gpios = <0x14 0x08 0x01>;
+		};
+
+		sig2 {
+			label = "hc:blue:sig2";
+			gpios = <0x14 0x0b 0x01>;
+		};
+
+		sig3 {
+			label = "hc:blue:sig3";
+			gpios = <0x14 0x0a 0x01>;
+		};
+
+		error {
+			label = "hc:red:error";
+			gpios = <0x14 0x0c 0x01>;
+		};
 	};
 
 	gpio-keys {
@@ -27,306 +1238,124 @@
 
 		reset {
 			label = "reset";
-			linux,code = <KEY_RESTART>;
-			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
+			linux,code = <0x198>;
+			gpios = <0x14 0x01 0x01>;
+			debounce-interval = <0x0a>;
 		};
 
 		wps {
 			label = "wps";
-			linux,code = <KEY_WPS_BUTTON>;
-			gpios = <&pio 0 GPIO_ACTIVE_LOW>;
+			linux,code = <0x211>;
+			gpios = <0x14 0x00 0x01>;
+			debounce-interval = <0x0a>;
 		};
 	};
 
-	reg_3p3v: regulator-3p3v {
-		compatible = "regulator-fixed";
-		regulator-name = "fixed-3.3V";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		regulator-boot-on;
-		regulator-always-on;
-	};
-
-	aliases {
-		led-boot = &led_status;
-		led-failsafe = &led_status;
-		led-running = &led_status;
-		led-upgrade = &led_status;
-	};
-
-	gpio_export {
-		compatible = "gpio-export";
-		#size-cells = <0>;
-
-		cpepower {
-			gpio-export,name = "cpe-pwr";
-			gpio-export,output = <0>;
-			gpios = <&pio 49 GPIO_ACTIVE_LOW>;
-		};
-
-		cpesel0 {
-			gpio-export,name = "cpe-sel0";
-			gpio-export,output = <1>;
-			gpios = <&pio 48 GPIO_ACTIVE_HIGH>;
-		};
-
-#if 0
-		fanpwm {
-			gpio-export,name = "fan-pwm";
-			gpio-export,output = <1>;
-			gpios = <&pio 7 GPIO_ACTIVE_HIGH>;
-		};
-#endif
-		fanpower {
-			gpio-export,name = "fan-hw";
-			gpio-export,output = <0>;
-			gpios = <&pio 5 GPIO_ACTIVE_LOW>;
-		};
-	};
-
-	gpio-leds {
-		compatible = "gpio-leds";
-
-		led_status: status {
-			label = "hc:blue:status";
-			gpios = <&pio 9 GPIO_ACTIVE_LOW>;
-		};
-
-		cmode5 {
-			label = "hc:blue:cmode5";
-			gpios = <&pio 8 GPIO_ACTIVE_LOW>;
-		};
-
-		cmode4 {
-			label = "hc:blue:cmode4";
-			gpios = <&pio 11 GPIO_ACTIVE_LOW>;
-		};
-
-		int_error {
-			label = "hc:red:int";
-			gpios = <&pio 10 GPIO_ACTIVE_LOW>;
-		};
-
-		led_error: error {
-			label = "hc:red:error";
-			gpios = <&pio 12 GPIO_ACTIVE_LOW>;
-		};
-	};
-};
-
-&netsys {
-	ethwarp: syscon@15031000 {
-		compatible = "mediatek,mt7988-ethwarp", "syscon";
-		reg = <0 0x15031000 0 0x1000>;
-		#clock-cells = <1>;
-	};
-
-	eth: ethernet@15100000 {
-		compatible = "mediatek,mt7987-eth";
-		reg = <0 0x15100000 0 0x80000>,
-		      <0 0x15400000 0 0x20000>;
-		interrupts = <GIC_SPI 189 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI 190 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI 191 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI 192 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI 197 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI 198 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI 199 IRQ_TYPE_LEVEL_HIGH>;
-		clocks = <&ethsys CK_ETHDMA_FE_EN>,
-			 <&ethsys CK_ETHDMA_GP2_EN>,
-			 <&ethsys CK_ETHDMA_GP1_EN>,
-			 <&ethsys CK_ETHDMA_GP3_EN>,
-			 <&sgmiisys0 CK_SGM0_TX_EN>,
-			 <&sgmiisys0 CK_SGM0_RX_EN>,
-			 <&sgmiisys1 CK_SGM1_TX_EN>,
-			 <&sgmiisys1 CK_SGM1_RX_EN>,
-			 <&topckgen CK_TOP_SGM_0_SEL>,
-			 <&topckgen CK_TOP_SGM_1_SEL>,
-			 <&topckgen CK_TOP_ETH_GMII_SEL>,
-			 <&topckgen CK_TOP_ETH_REFCK_50M_SEL>,
-			 <&topckgen CK_TOP_ETH_SYS_200M_SEL>,
-			 <&topckgen CK_TOP_ETH_SYS_SEL>,
-			 <&topckgen CK_TOP_ETH_XGMII_SEL>,
-			 <&topckgen CK_TOP_ETH_MII_SEL>,
-			 <&topckgen CK_TOP_NETSYS_SEL>,
-			 <&topckgen CK_TOP_NETSYS_500M_SEL>,
-			 <&topckgen CK_TOP_NETSYS_2X_SEL>;
-		clock-names = "fe", "gp2", "gp1", "gp3", "sgmii_tx250m",
-			      "sgmii_rx250m", "sgmii2_tx250m", "sgmii2_rx250m",
-			      "top_sgm0_sel", "top_sgm1_sel", "top_eth_gmii_sel",
-			      "top_eth_refck_50m_sel", "top_eth_sys_200m_sel",
-			      "top_eth_sys_sel", "top_eth_xgmii_sel",
-			      "top_eth_mii_sel", "top_netsys_sel",
-			      "top_netsys_500m_sel", "top_netsys_pao_2x_sel";
-		assigned-clocks = <&topckgen CK_TOP_NETSYS_2X_SEL>,
-				  <&topckgen CK_TOP_SGM_0_SEL>,
-				  <&topckgen CK_TOP_SGM_1_SEL>;
-		assigned-clock-parents = <&apmixedsys CK_APMIXED_NET2PLL>,
-					 <&apmixedsys CK_APMIXED_SGMPLL>,
-					 <&apmixedsys CK_APMIXED_SGMPLL>;
-		mediatek,ethsys = <&ethsys>;
-		mediatek,sgmiisys = <&sgmiisys0>, <&sgmiisys1>;
-		mediatek,infracfg = <&topmisc>;
-		mediatek,toprgu = <&watchdog>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&mdio0_pins>;
-		#reset-cells = <1>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-		status = "disabled";
-
-		gmac0: mac@1 {
-			compatible = "mediatek,eth-mac";
-			reg = <1>;
-			mac-type = "xgdm";
-			phy-mode = "internal";
-			phy-handle = <&phy15>;
-		};
-
-		mdio: mdio-bus {
-			#address-cells = <1>;
-			#size-cells = <0>;
-			// reset-gpios = <&pio 48 1>;
-			reset-delay-us = <10000>;
-
-			phy15: phy@15 {
-				pinctrl-names = "i2p5gbe-led";
-				pinctrl-0 = <&i2p5gbe_led0_pins>;
-				compatible = "ethernet-phy-ieee802.3-c45";
-				reg = <15>;
-				phy-mode = "internal";
-			};
-		};
-	};
-
-	hnat: hnat@15000000 {
-		compatible = "mediatek,mtk-hnat_v5";
-		reg = <0 0x15100000 0 0x80000>;
-		interrupts = <GIC_SPI 198 IRQ_TYPE_LEVEL_HIGH>;
-		resets = <&ethsys 0>;
-		reset-names = "mtketh";
-		status = "disabled";
-	};
-
-	crypto: crypto@15600000 {
-		compatible = "inside-secure,safexcel-eip197b",
-			     "security-ip-197-srv";
-		reg = <0 0x15600000 0 0x180000>;
-		interrupts = <GIC_SPI 214 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI 215 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI 216 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI 217 IRQ_TYPE_LEVEL_HIGH>;
-		interrupt-names = "ring0", "ring1", "ring2", "ring3";
-		eth = <&eth>;
-		status = "disabled";
+	__symbols__ {
+		clkxtal = "/oscillator@0";
+		vproc = "/regulator-vproc";
+		cpu0 = "/cpus/cpu@0";
+		cpu1 = "/cpus/cpu@1";
+		cluster0_opp = "/cpus/opp_table0";
+		l2_cache = "/cpus/l2-cache";
+		clk40m = "/clk40m";
+		clkitg = "/clkitg";
+		clksys = "/soc_clksys";
+		infracfg = "/soc_clksys/infracfg@10001000";
+		topckgen = "/soc_clksys/topckgen@1001b000";
+		apmixedsys = "/soc_clksys/apmixedsys@1001e000";
+		sgmiisys0 = "/soc_clksys/syscon@10060000";
+		sgmiipcs0 = "/soc_clksys/syscon@10060000/pcs";
+		sgmiisys1 = "/soc_clksys/syscon@10070000";
+		sgmiipcs1 = "/soc_clksys/syscon@10070000/pcs";
+		mcusys = "/soc_clksys/mcusys@10400000";
+		ethsys = "/soc_clksys/syscon@15000000";
+		ethsysrst = "/soc_clksys/syscon@15000000/reset-controller";
+		fan = "/pwm-fan";
+		pmu = "/pmu";
+		wmcpu_emi = "/reserved-memory/wmcpu-reserved@50000000";
+		cpu_thermal = "/thermal-zones/cpu-thermal";
+		cpu_trip_crit = "/thermal-zones/cpu-thermal/trips/crit";
+		cpu_trip_hot = "/thermal-zones/cpu-thermal/trips/hot";
+		cpu_trip_active_hot = "/thermal-zones/cpu-thermal/trips/active-hot";
+		cpu_trip_active_high = "/thermal-zones/cpu-thermal/trips/active-high";
+		cpu_trip_active_med = "/thermal-zones/cpu-thermal/trips/active-med";
+		cpu_trip_active_low = "/thermal-zones/cpu-thermal/trips/active-low";
+		soc = "/soc";
+		hwver = "/soc/hwver@8000000";
+		gic = "/soc/interrupt-controller@c000000";
+		infra_bus_prot = "/soc/infra_bus_prot@1000310c";
+		watchdog = "/soc/watchdog@1001c000";
+		pio = "/soc/pinctrl@1001f000";
+		mmc_pins_default = "/soc/pinctrl@1001f000/mmc-pins-default";
+		mmc_pins_uhs = "/soc/pinctrl@1001f000/mmc-pins-uhs";
+		sd_pins_default = "/soc/pinctrl@1001f000/sd-pins-default";
+		sd_pins_uhs = "/soc/pinctrl@1001f000/sd-pins-uhs";
+		mdio0_pins = "/soc/pinctrl@1001f000/mdio0-pins";
+		i2p5gbe_led0_pins = "/soc/pinctrl@1001f000/i2p5gbe0-pins";
+		i2p5gbe_led1_0_pins = "/soc/pinctrl@1001f000/i2p5gbe1-pins";
+		i2p5gbe_led1_1_pins = "/soc/pinctrl@1001f000/i2p5gbe2-pins";
+		i2c0_pins = "/soc/pinctrl@1001f000/i2c0-pins-g2";
+		pcie0_pins = "/soc/pinctrl@1001f000/pcie0-pins";
+		pcie1_pins = "/soc/pinctrl@1001f000/pcie1-pins";
+		spi0_flash_pins = "/soc/pinctrl@1001f000/spi0-pins";
+		spic_pins = "/soc/pinctrl@1001f000/spi1-pins";
+		spi2_flash_pins = "/soc/pinctrl@1001f000/spi2-pins";
+		i2c1_pins = "/soc/pinctrl@1001f000/i2c1-pins";
+		i2s_pins = "/soc/pinctrl@1001f000/i2s-pins";
+		pcm_pins = "/soc/pinctrl@1001f000/pcm-pins";
+		pwm_pins = "/soc/pinctrl@1001f000/pwm-pins";
+		pwm_rgb_pins = "/soc/pinctrl@1001f000/pwm-rgb-pins";
+		pwm_fan_pins = "/soc/pinctrl@1001f000/pwm-fan-pins";
+		uart0_pins = "/soc/pinctrl@1001f000/uart0-pins";
+		uart1_pins = "/soc/pinctrl@1001f000/uart1-pins";
+		boottrap = "/soc/boottrap@1001f6f0";
+		trng = "/soc/trng@1020f000";
+		pwm = "/soc/pwm@10048000";
+		uart0 = "/soc/serial@11000000";
+		uart1 = "/soc/serial@11000100";
+		uart2 = "/soc/serial@11000200";
+		i2c0 = "/soc/i2c@11003000";
+		spi0 = "/soc/spi@11007800";
+		spi1 = "/soc/spi@11008800";
+		spi2 = "/soc/spi@11009800";
+		lvts = "/soc/lvts@1100a000";
+		usbtphy = "/soc/usb-phy@11c50000";
+		tphyu2port0 = "/soc/usb-phy@11c50000/usb-phy@11c50000";
+		tphyu3port0 = "/soc/usb-phy@11c50000/usb-phy@11c50700";
+		ssusb = "/soc/usb@11200000";
+		afe = "/soc/audio-controller@11210000";
+		mmc0 = "/soc/mmc@11230000";
+		eeprom_factory_0 = "/soc/mmc@11230000/card@0/block/partitions/block-partition-factory/nvmem-layout/eeprom@0";
+		wed = "/soc/wed";
+		wed0 = "/soc/wed0@15010000";
+		wdma = "/soc/wdma@15104800";
+		pcie0 = "/soc/pcie@11280000";
+		pcie_intc2 = "/soc/pcie@11280000/interrupt-controller";
+		pcie1 = "/soc/pcie@11290000";
+		pcie_intc1 = "/soc/pcie@11290000/interrupt-controller";
+		slot1 = "/soc/pcie@11290000/pcie@0,0";
+		topmisc = "/soc/topmisc@10021000";
+		efuse = "/soc/efuse@11d30000";
+		lvts_calibration = "/soc/efuse@11d30000/calib@918";
+		comb_auto_load_valid = "/soc/efuse@11d30000/usb3-alv-imp@8ee";
+		comb_rx_imp_p0 = "/soc/efuse@11d30000/usb3-rx-imp@8ec,1";
+		comb_tx_imp_p0 = "/soc/efuse@11d30000/usb3-tx-imp@8ec,2";
+		comb_intr_p0 = "/soc/efuse@11d30000/usb3-intr@8ec,3";
+		u2_auto_load_valid_p0 = "/soc/efuse@11d30000/usb2-alv-p0@8cc,1";
+		u2_intr_p0 = "/soc/efuse@11d30000/usb2-intr-p0@8cc,2";
+		devapc = "/soc/devapc@1a110000";
+		netsys = "/soc_netsys";
+		ethwarp = "/soc_netsys/syscon@15031000";
+		eth = "/soc_netsys/ethernet@15100000";
+		gmac0 = "/soc_netsys/ethernet@15100000/mac@0";
+		gmac1 = "/soc_netsys/ethernet@15100000/mac@1";
+		gmac2 = "/soc_netsys/ethernet@15100000/mac@2";
+		mdio = "/soc_netsys/ethernet@15100000/mdio-bus";
+		phy1 = "/soc_netsys/ethernet@15100000/mdio-bus/phy@1";
+		phy15 = "/soc_netsys/ethernet@15100000/mdio-bus/phy@15";
+		hnat = "/soc_netsys/hnat@15000000";
+		crypto = "/soc_netsys/crypto@15600000";
+		reg_3p3v = "/regulator-3p3v";
 	};
 };
-
-&crypto {
-	status = "okay";
-};
-
-&eth {
-	status = "okay";
-};
-
-&hnat {
-	mtketh-wan = "eth1";
-	mtketh-lan = "eth";
-	mtketh-lan2 = "eth2";
-	mtketh-max-gmac = <3>;
-	mtketh-ppe-num = <1>;
-	status = "okay";
-};
-
-/* Disable spi1 node since MSDC and spi1 share pins on MT7987. */
-&spi1 {
-	status = "disabled";
-};
-
-&mmc0 {
-	pinctrl-names = "default", "state_uhs";
-	pinctrl-0 = <&sd_pins_default>;
-	pinctrl-1 = <&sd_pins_uhs>;
-	bus-width = <4>;
-	max-frequency = <50000000>;
-	cap-sd-highspeed;
-	vmmc-supply = <&reg_3p3v>;
-	vqmmc-supply = <&reg_3p3v>;
-	no-mmc;
-	no-sdio;
-	broken-cd;
-	status = "okay";
-};
-
-&spi2 {
-	pinctrl-names = "default";
-	pinctrl-0 = <&spi2_flash_pins>;
-	status = "okay";
-	#address-cells = <1>;
-	#size-cells = <0>;
-
-	spi_nor@0 {
-		#address-cells = <1>;
-		#size-cells = <1>;
-		compatible = "jedec,spi-nor";
-		spi-cal-enable;
-		spi-cal-mode = "read-data";
-		spi-cal-datalen = <7>;
-		spi-cal-data = /bits/ 8 <
-			0x53 0x46 0x5F 0x42 0x4F 0x4F 0x54>; /* SF_BOOT */
-		spi-cal-addrlen = <1>;
-		spi-cal-addr = /bits/ 32 <0x0>;
-		reg = <0>;
-		spi-max-frequency = <52000000>;
-		spi-tx-bus-width = <4>;
-		spi-rx-bus-width = <4>;
-
-		partition@40000 {
-			label = "u-boot-env";
-			reg = <0x40000 0x0010000>;
-		};
-		factory: partition@50000 {
-			label = "Factory";
-			reg = <0x50000 0x0100000>;
-		};
-		partition@150000 {
-			label = "bdinfo";
-			reg = <0x150000 0x0080000>;
-		};
-	};
-};
-
-&fan {
-	pinctrl-names = "default";
-	pwms = <&pwm 1 40000 0>;
-	status = "okay";
-};
-
-&pio {
-	pwm1_pin: pwm1-pin {
-		mux {
-			function = "pwm";
-			groups = "pwm1_0";
-		};
-	};
-};
-
-&pwm {
-	pinctrl-names = "default";
-	pinctrl-0 = <&pwm1_pin>;
-	status = "okay";
-};
-
-&tphyu3port0 {
-	status = "okay";
-};
-
-&xhci {
-	mediatek,u3p-dis-msk=<0>;
-
-	phys = <&tphyu2port0 PHY_TYPE_USB2>,
-	       <&tphyu3port0 PHY_TYPE_USB3>;
-};
-

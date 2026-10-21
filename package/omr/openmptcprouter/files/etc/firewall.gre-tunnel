@@ -1,0 +1,85 @@
+#!/bin/sh
+. /lib/functions.sh
+
+#if [ -f /usr/sbin/iptables-legacy ]; then
+#	IPTABLESSAVE="/usr/sbin/iptables-legacy-save"
+#	IPTABLESRESTORE="/usr/sbin/iptables-legacy-restore"
+#else
+#	IPTABLESSAVE="/usr/sbin/iptables-save"
+#	IPTABLESRESTORE="/usr/sbin/iptables-restore --noflush"
+#fi
+
+_setup_rules() {
+	config_get lookup $1 lookup
+	[ -n "$lookup" ] && [ -z "$(ip rule list fwmark 0x${lookup})" ] && {
+		ip rule add fwmark 0x${lookup} table ${lookup} pref 2
+	}
+}
+
+_setup_routes() {
+	config_get lookup $1 lookup
+	config_get gateway $1 gateway
+	intf=$(ifstatus $1 | jsonfilter -e '@.l3_device' | tr -d "\n")
+	[ -n "$intf" ] && intf=$(ifstatus "$1" | jsonfilter -q -e '@["device"]' | tr -d "\n")
+	if [ -n "$lookup" ] && [ -n "$intf" ] && [ -n "$gateway" ]; then
+		ip route replace default via $gateway dev $intf table $lookup
+	fi
+}
+config_load network
+config_foreach _setup_rules interface
+config_foreach _setup_routes interface
+
+_setup_fw() {
+	config_get src_ips_forward $1 src_ips_forward
+	config_get redir_tcp $1 redir_tcp
+	config_get ifnames $1 ifnames
+	lookup="$(uci -q get network.${redir_tcp}.lookup)"
+	uci -q batch <<-EOF >/dev/null
+		set firewall.gre_${1}=rule
+		set firewall.gre_${1}.src='lan'
+		set firewall.gre_${1}.target='MARK'
+		set firewall.gre_${1}.dest='*'
+		set firewall.gre_${1}.set_mark="0x${lookup}"
+	EOF
+	if [ -n "$src_ips_forward" ]; then
+		for src_ip_forward in $src_ips_forward; do
+			uci -q add_list firewall.gre_${1}.src_ip="${src_ip_forward}"
+		done
+	fi
+	if [ -n "$ifnames" ]; then
+		uci -q set firewall.gre_${1}.direction='in'
+		for ifname in ${ifnames}; do
+			uci -q add_list firewall.gre_${1}.device="${ifname}"
+		done
+	fi
+	if [ -n "$(uci changes firewall)" ]; then
+		uci -q commit firewall
+		#/etc/init.d/firewall reload
+	fi
+#	rule=""
+#	[ -n "$src_ips_forward" ] && rule="$rule -s $(echo "${src_ips_forward}" | sed 's/ /,/g')"
+#	[ -n "$ifnames" ] && rule="$rule -i $(echo "${ifnames}" | sed 's/ /-i /g')"
+#	if [ -n "$rule" ] && [ -n "$lookup" ]; then
+#		$IPTABLESAVE --counters | grep -v "0x${lookup}" | $IPTABLERESTORE -w --counters
+#		$IPTABLERESTORE <<-EOF
+#			*mangle
+#			-A omr-gre-tunnel ${rule} -j MARK --set-mark 0x${lookup}
+#			COMMIT
+#		EOF
+#	fi
+}
+
+#if [ -z "$($IPTABLESAVE | grep omr-gre-tunnel)" ]; then
+#	$IPTABLERESTORE <<-EOF
+#		*mangle
+#		:omr-gre-tunnel -
+#		-I PREROUTING 1 -m addrtype ! --dst-type LOCAL -j omr-gre-tunnel
+#		COMMIT
+#	EOF
+#fi
+if [ -n "$(uci -q get shadowsocks-libev)" ]; then
+	config_load shadowsocks-libev
+elif [ -n "$(uci -q get shadowsocks-rust)" ]; then
+	config_load shadowsocks-rust
+fi
+config_foreach _setup_fw ss_rules

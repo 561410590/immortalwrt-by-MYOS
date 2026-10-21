@@ -1,0 +1,13 @@
+#!/bin/sh
+# 定时暂停的配置(uci leigod.base)。不随包带 /etc/config/leigod, 免得升级包时覆盖已填的账号。
+[ -f /etc/config/leigod ] || touch /etc/config/leigod
+uci -q get leigod.base >/dev/null || {
+	uci set leigod.base=base
+	uci set leigod.base.schedule_enabled='0'
+	uci set leigod.base.pause_time='01:00'
+	uci commit leigod
+}
+rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache
+# 菜单标题走前端静态字典 window.TR, 新 lmo 要重新汇一次才生效
+[ -x /usr/bin/mwrt-gen-translations ] && /usr/bin/mwrt-gen-translations >/dev/null 2>&1
+exit 0

@@ -1,0 +1,220 @@
+#!/bin/sh
+# mwrt-cellinfo -- structured cell/CA/neighbour snapshot for the MT5700 module.
+#
+# Why this exists instead of extending /usr/share/modem/zinfo_mt5700.sh: that
+# script feeds admin/modem/nets through a 40-line positional text file that
+# luci/controller/modem.lua reads with one file:read("*line") per field. Adding
+# fields there means renumbering every read in both, and its parsing has bugs we
+# must not inherit (see below). This writes JSON, so the page reads it by name.
+#
+# Bugs in the old path that this script deliberately does NOT reproduce:
+#   * neighbor() does `for file in $list` -- word splitting on whitespace, but
+#     "^MONNC: NR,504990,9,..." contains a space after the colon, so every reply
+#     line becomes TWO words and the fields land one column off. That is why the
+#     nets page shows PCI/RSRP pairs that do not match the raw AT output.
+#   * its awk has four %s placeholders but passes six arguments, so RSRQ and
+#     SINR are read off the module and then silently dropped.
+#   * modem.lua only reads cell1..cell5, so four of this site's nine neighbours
+#     never reach the browser at all.
+#
+# Runs off cron, not off the page request. modem.lua's MT5700() shells out to
+# zinfo_mt5700.sh synchronously on every poll (~10 sendat round trips) while the
+# page polls every 4 s; ttyUSB1 is a single contended AT port and that is already
+# the top source of contention on it. This writes a cache; the page only reads.
+
+CACHE=/tmp/mwrt_cellinfo.json
+LOCKFILE=/tmp/mwrt_cellinfo.lock
+ATPORT=1
+
+# Serialise against ourselves. -n, not a wait: if the previous tick is still
+# talking to the module, this tick has nothing to add by queueing behind it.
+exec 9>"$LOCKFILE"
+flock -n 9 || exit 0
+
+# Only the MT5700 has these vendor commands. Everything below would come back
+# ERROR on an FM350 and we would cache a file full of nulls.
+{ cat /tmp/modconf.conf 2>/dev/null; uci -q show qmodem; } | grep -q 5700 || exit 0
+
+at() { sendat "$ATPORT" "$1" 2>/dev/null | tr -d '\r'; }
+
+# JSON string escaping. Module replies are quoted vendor strings ("cmnet") and
+# occasionally contain a stray backslash, both of which break a naive printf.
+jstr() {
+	printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/ /g'
+}
+
+# Print a JSON number, or null when the field is absent or not numeric. Keeps
+# the consumer from having to distinguish "" from 0 -- -0 dBm is a real value.
+jnum() {
+	case "$1" in
+		''|*[!0-9-]*) printf 'null' ;;
+		*) printf '%s' "$1" ;;
+	esac
+}
+
+# ------------------------------------------------------------------ collection
+
+MONSC=$(at 'AT^MONSC' | grep '\^MONSC:' | head -1 | sed 's/^\^MONSC:[[:space:]]*//')
+HFREQ=$(at 'AT^HFREQINFO?' | grep '\^HFREQINFO:' | head -1 | sed 's/^\^HFREQINFO:[[:space:]]*//')
+DSAMBR=$(at 'AT^DSAMBR=1' | grep '\^DSAMBR:' | head -1 | sed 's/^\^DSAMBR:[[:space:]]*//')
+QOS=$(at 'AT+CGEQOSRDP' | grep '+CGEQOSRDP:' | sed 's/^+CGEQOSRDP:[[:space:]]*//')
+MONNC=$(at 'AT^MONNC' | grep '\^MONNC:' | sed 's/^\^MONNC:[[:space:]]*//')
+
+f() { echo "$1" | cut -d, -f"$2"; }
+
+# ---------------------------------------------------------------- serving cell
+#
+# NR:  RAT,MCC,MNC,ARFCN,?,CELLID_HEX,BAND_HEX,TAC,RSRP,RSRQ,SINR   (11 fields)
+# LTE: RAT,MCC,MNC,ARFCN,CELLID,PCI_HEX,TAC,RSRP,RSRQ,...           (fewer)
+# The column layout differs between the two, which is why the old script has a
+# separate DTAT_5G/DTAT_4G pair. Same split here.
+RAT=$(f "$MONSC" 1)
+case "$RAT" in
+	NR*)
+		s_mcc=$(f "$MONSC" 2); s_mnc=$(f "$MONSC" 3)
+		s_arfcn=$(f "$MONSC" 4); s_cid=$(f "$MONSC" 6)
+		s_tac=$(f "$MONSC" 8)
+		s_rsrp=$(f "$MONSC" 9); s_rsrq=$(f "$MONSC" 10); s_sinr=$(f "$MONSC" 11)
+		;;
+	*)
+		s_mcc=$(f "$MONSC" 2); s_mnc=$(f "$MONSC" 3)
+		s_arfcn=$(f "$MONSC" 4); s_cid=$(f "$MONSC" 5)
+		s_tac=$(f "$MONSC" 7)
+		s_rsrp=$(f "$MONSC" 8); s_rsrq=$(f "$MONSC" 9); s_sinr=$(f "$MONSC" 10)
+		;;
+esac
+
+# ------------------------------------------------------------ carrier aggregation
+#
+# ^HFREQINFO: <state>,<sysmode>,then 7 fields per component carrier:
+#   BAND, DL_EARFCN, DL_FREQ(kHz), DL_BW(kHz), UL_EARFCN, UL_FREQ(kHz), UL_BW(kHz)
+# Trailing all-zero groups are padding, not carriers: this site reports
+# "...,28,154600,773000,30000,0,0,1400" -- N28 is real (30 MHz DL) with its
+# uplink unused, so a carrier counts when it has a band AND a downlink bandwidth.
+CA_JSON=""
+CA_N=0
+if [ -n "$HFREQ" ]; then
+	i=3
+	while :; do
+		band=$(f "$HFREQ" $i)
+		[ -n "$band" ] || break
+		dl_fcn=$(f "$HFREQ" $((i+1)))
+		dl_frq=$(f "$HFREQ" $((i+2)))
+		dl_bw=$(f "$HFREQ" $((i+3)))
+		ul_fcn=$(f "$HFREQ" $((i+4)))
+		ul_frq=$(f "$HFREQ" $((i+5)))
+		ul_bw=$(f "$HFREQ" $((i+6)))
+		i=$((i+7))
+		[ "$band" = 0 ] && continue
+		case "$dl_bw" in ''|*[!0-9]*) continue ;; esac
+		[ "$dl_bw" -gt 0 ] || continue
+
+		CA_N=$((CA_N+1))
+		# Bandwidth and frequency come in kHz; MHz is what a human reads.
+		dl_bw_m=$((dl_bw / 1000))
+		# A carrier with no uplink EARFCN and no uplink frequency is downlink
+		# only, and its UL_BANDWIDTH field is padding rather than a measurement:
+		# this site's N28 SCC reports "...,0,0,1400", which taken at face value
+		# renders as a 1 MHz uplink that does not exist. Report 0 and let the
+		# page label it as downlink-only.
+		ul_bw_m=0
+		if [ "$ul_fcn" != 0 ] || [ "$ul_frq" != 0 ]; then
+			case "$ul_bw" in ''|*[!0-9]*) ul_bw_m=0 ;; *) ul_bw_m=$((ul_bw / 1000)) ;; esac
+		fi
+		[ -n "$CA_JSON" ] && CA_JSON="$CA_JSON,"
+		CA_JSON="$CA_JSON{\"idx\":$CA_N,\"role\":\"$([ $CA_N = 1 ] && echo PCC || echo SCC)\""
+		CA_JSON="$CA_JSON,\"rat\":\"$(jstr "$RAT")\",\"band\":$(jnum "$band")"
+		CA_JSON="$CA_JSON,\"dl_earfcn\":$(jnum "$dl_fcn"),\"dl_freq\":$(jnum "$dl_frq")"
+		CA_JSON="$CA_JSON,\"dl_bw\":$dl_bw_m,\"ul_earfcn\":$(jnum "$ul_fcn")"
+		CA_JSON="$CA_JSON,\"ul_freq\":$(jnum "$ul_frq"),\"ul_bw\":$ul_bw_m}"
+	done
+fi
+
+# ------------------------------------------------------------------- neighbours
+#
+# ^MONNC: RAT,ARFCN,PCI_HEX,RSRP,RSRQ,SINR -- PCI is hex, everything else is
+# decimal. Parsed line-by-line over a here-string so the space after the colon
+# cannot split a record (the old script's actual defect).
+NB_JSON=""
+NB_N=0
+if [ -n "$MONNC" ]; then
+	echo "$MONNC" > /tmp/.mwrt_monnc.$$
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		n_rat=$(f "$line" 1)
+		case "$n_rat" in NR*|LTE*) ;; *) continue ;; esac
+		n_fcn=$(f "$line" 2)
+		n_pci=$(f "$line" 3)
+		n_rsrp=$(f "$line" 4)
+		n_rsrq=$(f "$line" 5)
+		n_sinr=$(f "$line" 6)
+		# Hex PCI -> decimal. Guard the conversion: a malformed field would make
+		# $(( )) abort the whole script mid-write and leave a truncated cache.
+		case "$n_pci" in
+			''|*[!0-9A-Fa-f]*) n_pci_d="" ;;
+			*) n_pci_d=$((0x$n_pci)) ;;
+		esac
+		NB_N=$((NB_N+1))
+		[ -n "$NB_JSON" ] && NB_JSON="$NB_JSON,"
+		NB_JSON="$NB_JSON{\"rat\":\"$(jstr "$n_rat")\",\"earfcn\":$(jnum "$n_fcn")"
+		NB_JSON="$NB_JSON,\"pci\":$(jnum "$n_pci_d"),\"pci_hex\":\"$(jstr "$n_pci")\""
+		NB_JSON="$NB_JSON,\"rsrp\":$(jnum "$n_rsrp"),\"rsrq\":$(jnum "$n_rsrq")"
+		NB_JSON="$NB_JSON,\"sinr\":$(jnum "$n_sinr")}"
+	done < /tmp/.mwrt_monnc.$$
+	rm -f /tmp/.mwrt_monnc.$$
+fi
+
+# ---------------------------------------------------------------- QCI + AMBR
+#
+# +CGEQOSRDP repeats once per bearer: "<cid>,<qci>". The default bearer (the one
+# carrying user traffic) is cid 1; the rest are signalling. Report cid 1's QCI as
+# the headline and keep the full list.
+QCI=""
+QCI_LIST=""
+if [ -n "$QOS" ]; then
+	echo "$QOS" > /tmp/.mwrt_qos.$$
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		q_cid=$(f "$line" 1)
+		q_val=$(f "$line" 2)
+		case "$q_val" in ''|*[!0-9]*) continue ;; esac
+		[ "$q_cid" = 1 ] && QCI="$q_val"
+		[ -n "$QCI_LIST" ] && QCI_LIST="$QCI_LIST,"
+		QCI_LIST="$QCI_LIST{\"cid\":$(jnum "$q_cid"),\"qci\":$(jnum "$q_val")}"
+	done < /tmp/.mwrt_qos.$$
+	rm -f /tmp/.mwrt_qos.$$
+	# No cid 1 in the reply: fall back to the first bearer rather than showing
+	# nothing, since some firmwares number the default bearer differently.
+	[ -z "$QCI" ] && QCI=$(echo "$QOS" | head -1 | cut -d, -f2)
+fi
+
+# ^DSAMBR: <cid>,<dl_kbps>,<ul_kbps>,"<apn>",<?>
+AMBR_DL=""
+AMBR_UL=""
+APN=""
+if [ -n "$DSAMBR" ]; then
+	AMBR_DL=$(f "$DSAMBR" 2)
+	AMBR_UL=$(f "$DSAMBR" 3)
+	APN=$(f "$DSAMBR" 4 | tr -d '"')
+fi
+
+# ------------------------------------------------------------------- emit
+#
+# Written to a temp file and renamed: the page can read this at any moment and a
+# partially written cache would be a JSON parse error in the browser.
+TMP="$CACHE.$$"
+{
+	printf '{"ts":%s,"rat":"%s"' "$(date +%s)" "$(jstr "$RAT")"
+	printf ',"serving":{"mcc":"%s","mnc":"%s","arfcn":%s,"cid":"%s","tac":"%s"' \
+		"$(jstr "$s_mcc")" "$(jstr "$s_mnc")" "$(jnum "$s_arfcn")" \
+		"$(jstr "$s_cid")" "$(jstr "$s_tac")"
+	printf ',"rsrp":%s,"rsrq":%s,"sinr":%s}' \
+		"$(jnum "$s_rsrp")" "$(jnum "$s_rsrq")" "$(jnum "$s_sinr")"
+	printf ',"ca_count":%s,"ca":[%s]' "$CA_N" "$CA_JSON"
+	printf ',"nb_count":%s,"neighbours":[%s]' "$NB_N" "$NB_JSON"
+	printf ',"qci":%s,"bearers":[%s]' "$(jnum "$QCI")" "$QCI_LIST"
+	printf ',"ambr_dl":%s,"ambr_ul":%s,"apn":"%s"' \
+		"$(jnum "$AMBR_DL")" "$(jnum "$AMBR_UL")" "$(jstr "$APN")"
+	printf '}\n'
+} > "$TMP" && mv "$TMP" "$CACHE"
+rm -f "$TMP"

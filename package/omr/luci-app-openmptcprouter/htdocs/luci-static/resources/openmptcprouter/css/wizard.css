@@ -1,0 +1,84 @@
+.omr-steps {
+	display: flex;
+	gap: 0;
+	margin: 0 0 1.5em;
+	padding: 0;
+	list-style: none;
+	border-bottom: 2px solid #e5e5e5;
+}
+
+.omr-steps li {
+	flex: 1;
+	text-align: center;
+	padding: .75em .5em;
+	font-size: .85em;
+	font-weight: 600;
+	color: #888;
+	cursor: pointer;
+	border-bottom: 3px solid transparent;
+	margin-bottom: -2px;
+	transition: all .2s;
+}
+
+.omr-steps li:hover {
+	color: #444;
+}
+
+.omr-steps li.active {
+	color: #0069d9;
+	border-bottom-color: #0069d9;
+}
+
+.omr-steps li.done {
+	color: #28a745;
+}
+
+.omr-steps .step-num {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	border-radius: 50%;
+	background: #eee;
+	font-size: .75em;
+	margin-right: .3em;
+	transition: all .2s;
+}
+
+.omr-steps li.active .step-num {
+	background: #0069d9;
+	color: #fff;
+}
+
+.omr-steps li.done .step-num {
+	background: #28a745;
+	color: #fff;
+}
+
+@media (max-width: 600px) {
+	.omr-steps .step-label {
+		display: none;
+	}
+
+	.omr-steps .step-num {
+		margin: 0;
+	}
+}
+
+.omr-panel {
+	display: none;
+}
+
+.omr-panel.active {
+	display: block;
+}
+
+.omr-nav {
+	display: flex;
+	justify-content: flex-end;
+}
+
+.omr-nav button {
+	min-width: 110px;
+}

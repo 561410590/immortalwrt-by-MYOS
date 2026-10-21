@@ -17,10 +17,18 @@
  
  	if (unlikely(!ring))
  		goto rx_done;
-@@ -2483,8 +2486,11 @@
+@@ -2483,8 +2486,18 @@
  		}
  
- 		if ( (mac == 4) || ((FIELD_GET(MTK_RXD4_PPE_CPU_REASON, trxd.rxd4)) == HIT_BIND_FORCE_TO_CPU))
++		sent_ppd = 0;
+-		if ( (mac == 4) || ((FIELD_GET(MTK_RXD4_PPE_CPU_REASON, trxd.rxd4)) == HIT_BIND_FORCE_TO_CPU))
++		if ((mtk_is_netsys_v3_or_greater(eth) &&
++		     RX_DMA_GET_SPORT_V2(trxd.rxd5) == PSE_QDMA_TX_PORT) ||
++		    mac == 4 ||
++		    (mtk_is_netsys_v3_or_greater(eth) ?
++		     FIELD_GET(MTK_RXD5_PPE_CPU_REASON, trxd.rxd5) :
++		     FIELD_GET(MTK_RXD4_PPE_CPU_REASON, trxd.rxd4)) ==
++		    HIT_BIND_FORCE_TO_CPU)
 +		{
 +		
  		mac = atomic_read(&eth1_in_br);
@@ -30,7 +38,7 @@
  		if (unlikely(mac < 0 || mac >= MTK_MAX_DEVS ||
  			     !eth->netdev[mac]))
  			goto release_desc;
-@@ -2643,6 +2649,10 @@
+@@ -2643,6 +2656,10 @@
  			hw_lro_flush_stats_update(ring->ring_no, &trxd);
  		}
  

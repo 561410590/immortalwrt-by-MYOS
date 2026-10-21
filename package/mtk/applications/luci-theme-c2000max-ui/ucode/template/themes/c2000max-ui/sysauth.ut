@@ -1,0 +1,73 @@
+{%
+ import { readfile } from 'fs';
+ let wallpaper = {};
+ let myos_board=ubus.call('system','board') || {};
+ let login_action = http.getenv('REQUEST_URI') || dispatcher.build_url();
+ if (replace(split(login_action, '?')[0], /\/+$/, '') == replace(dispatcher.build_url(), /\/+$/, '')) {
+  if (myos_board.board_name == 'nradio,c2000-ultra')
+   login_action = dispatcher.build_url('admin/status/c2000ultra');
+  else if (myos_board.board_name == 'nradio,c2000-max')
+   login_action = dispatcher.build_url('admin/status/c2000max');
+ }
+ try { wallpaper = json(readfile('/www/luci-static/c2000max-ui/wallpaper/default.json')); } catch (e) {}
+ http.prepare_content('text/html; charset=UTF-8');
+-%}
+<!doctype html>
+<html lang="{{ dispatcher.lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#111111">
+<title>MYOS · 登录</title>
+<script src="{{ media }}/theme.js?v=1.0.17-r2-ultra"></script>
+<link rel="stylesheet" href="{{ media }}/tokens.css?v=1.0.17-r2-ultra">
+<link rel="stylesheet" href="{{ media }}/components.css?v=1.0.17-r2-ultra">
+<link rel="stylesheet" href="{{ media }}/login.css?v=1.0.17-r2-ultra">
+<script src="{{ media }}/login.js?v=1.0.17-r2-ultra" defer></script>
+</head>
+<body class="login-page">
+<img class="login-wallpaper" src="{{ media }}/wallpaper/default.jpg" data-fallback="{{ media }}/wallpaper/default.jpg" data-date="{{ entityencode(wallpaper.date ?? '', true) }}" alt="" aria-hidden="true">
+<div class="login-shade" aria-hidden="true"></div>
+<header class="login-top"><a class="login-brand" href="{{ dispatcher.build_url() }}"><strong>MYOS</strong><span>{{ entityencode(myos_board.model || 'NRadio C2000') }}</span></a>
+{% include('themes/c2000max-ui/appearance') %}
+</header>
+<main class="login-center">
+<section class="login-card" aria-labelledby="login-title">
+<div class="login-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M12 20h.01" />
+  <path d="M2 8.82a15 15 0 0 1 20 0" />
+  <path d="M5 12.859a10 10 0 0 1 14 0" />
+  <path d="M8.5 16.429a5 5 0 0 1 7 0" /></svg></div>
+<p class="login-eyebrow">{{ entityencode(myos_board.release?.description || 'MYOS by ImmortalWrt') }}</p>
+<h1 id="login-title">欢迎回来</h1>
+<p class="login-description">登录以管理你的网络与设备</p>
+{% if (fuser): %}<p class="login-error" role="alert">{{ _('Invalid username and/or password! Please try again.') }}</p>{% endif %}
+{% if (auth_message): %}<p class="login-error">{{ entityencode(auth_message) }}</p>{% endif %}
+<form method="post" action="{{ entityencode(login_action, true) }}" autocomplete="on">
+<label class="login-field" for="luci_username">用户名<input id="luci_username" name="luci_username" type="text" value="{{ entityencode(duser ?? 'root', true) }}" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+<label class="login-field" for="luci_password">密码<span class="login-password"><input id="luci_password" name="luci_password" type="password" autocomplete="current-password" autofocus><button type="button" id="password-toggle" aria-label="显示密码" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
+  <circle cx="12" cy="12" r="3" /></svg></button></span></label>
+<button class="ui-button login-submit" type="submit">登录<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" />
+  <path d="m12 5 7 7-7 7" /></svg></button>
+</form>
+<p class="login-footer">MYOS UI · C2000MAX UI by inst.</p>
+</section>
+</main>
+<footer class="wallpaper-credit"><a href="https://www.bing.com" target="_blank" rel="noopener noreferrer" title="{{ entityencode(wallpaper.copyright ?? '', true) }}">Bing 每日壁纸 · {{ entityencode(wallpaper.copyright ?? wallpaper.date ?? '') }}</a></footer>
+{%
+ let https_ports = uci.get('uhttpd', 'main', 'listen_https') ?? [];
+ https_ports = uniq(filter(map(type(https_ports) == 'string' ? split(https_ports, /\s+/) : https_ports, e => +match(e, /\d+$/)?.[0]), p => p > 0 && p <= 65535));
+%}
+<script>
+// Preserve LuCI's HTTPS auto-detection when a TLS listener is available.
+if (location.protocol !== 'https:') {
+ {{ https_ports }}.forEach(function(port) {
+  var base = 'https://' + location.hostname + ':' + port, probe = new Image();
+  probe.onload = function() { location.replace(base + location.pathname + location.search + location.hash); };
+  probe.src = base + '{{ resource }}/icons/loading.svg?' + Date.now();
+  setTimeout(function() { probe.src = ''; }, 5000);
+ });
+}
+</script>
+</body>
+</html>

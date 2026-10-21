@@ -1,0 +1,60 @@
+/* Shared semantic tokens. Override these to create another theme. */
+:root {
+  color-scheme: light;
+  --font-sans: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  --font-mono: Consolas, "SFMono-Regular", monospace;
+  --control-height: 32px; --control-padding-y: 5px; --control-padding-x: 10px;
+  --checkbox-size: 16px; --form-row-padding: 8px; --section-padding: 16px;
+  --toolbar-height: 40px; --table-cell-padding: 8px 10px;
+  --field-max: 36rem; --motion-fast: 160ms;
+  --text-xs: .75rem; --text-sm: .875rem; --text-md: 1rem; --text-lg: 1.125rem;
+  --text-xl: 1.5rem; --text-2xl: 2rem; --text-3xl: 2.5rem;
+  --leading: 1.5; --leading-tight: 1.25;
+  --space-1: .25rem; --space-2: .5rem; --space-3: .75rem; --space-4: 1rem;
+  --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem; --space-10: 2.5rem;
+  --radius-sm: .375rem; --radius-md: .625rem; --radius-lg: 1rem; --radius-pill: 999px;
+  --page: #eef3f8; --surface: #fff; --surface-soft: #f6f8fc; --surface-raised: #fff;
+  --sidebar: #f8fafd; --hover: #eaf0f9; --text: #1d2b40; --text-secondary: #53657d; --text-muted: #5d6e84;
+  --border: #dce5ef; --border-soft: #e8eef5;
+  --accent: #2563eb; --accent-hover: #1d4ed8; --accent-soft: #e9f0ff; --on-accent: #fff;
+  --success: #087a5c; --success-soft: #e5f5ee; --warning: #a15c08; --warning-soft: #fff3dd;
+  --danger: #c43b40; --danger-soft: #feeeee;
+  --info: #245ec0; --info-soft: #eaf1ff;
+  --control-border: #7b8b9f; --disabled-surface: #edf0f4;
+  --icon-network: #356bd1; --icon-network-soft: #eaf1ff;
+  --icon-signal: #168577; --icon-signal-soft: #e5f5f0;
+  --icon-device: #8460c5; --icon-device-soft: #f1ecfb;
+  --icon-system: #a77422; --icon-system-soft: #fbf2e3;
+  --ram-active: #3182f6; --ram-cache: #28a9b9; --ram-free: #d9e3f0; --flash: #e9a12c; --swap: #8d7ee5; --track: #e6ecf4;
+  --shadow: 0 8px 32px #233d6506; --shadow-raised: 0 16px 48px #18335624;
+  --overlay: #11263e66; --focus: #2563eb; --ring: #afccfc80; --story-text: #183354; --story-muted: #405b79;
+  --blue: var(--accent); --muted: var(--text-muted); --ink: var(--text-secondary);
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #111111; --surface: #1c1c1c; --surface-soft: #252525; --surface-raised: #2b2b2b;
+  --sidebar: #171717; --hover: #303030; --text: #f0f0f0; --text-secondary: #c4c4c4; --text-muted: #a0a0a0;
+  --border: #3a3a3a; --border-soft: #303030;
+  --accent: #e3e3e3; --accent-hover: #ffffff; --accent-soft: #333333; --on-accent: #171717;
+  --success: #6ddcb3; --success-soft: #193e36; --warning: #f4c16b; --warning-soft: #483921;
+  --danger: #ff9b9e; --danger-soft: #4a2932;
+  --info: #8aaff5; --info-soft: #202c40;
+  --control-border: #797979; --disabled-surface: #292929;
+  --icon-network: #8aaff5; --icon-network-soft: #8aaff514;
+  --icon-signal: #6bcbb5; --icon-signal-soft: #6bcbb514;
+  --icon-device: #b39ae6; --icon-device-soft: #b39ae614;
+  --icon-system: #dfb66f; --icon-system-soft: #dfb66f14;
+  --ram-active: #649cfb; --ram-cache: #45bdca; --ram-free: #4b4b4b; --flash: #edb457; --swap: #aa9df6; --track: #343434;
+  --shadow: 0 8px 32px #00000010; --shadow-raised: 0 16px 48px #00000050;
+  --overlay: #000000aa; --focus: #dedede; --ring: #ffffff20; --story-text: #f5f5f5; --story-muted: #c4c4c4;
+}
+
+/* Skin palettes are independent of light/dark appearance. */
+:root[data-skin="mid-autumn"] { --page:#f6f3e9; --sidebar:#fbf9f0; --surface-soft:#f5f1e6; --hover:#eee8d4; --accent:#866016; --accent-hover:#6a4910; --accent-soft:#f2e9cc; --focus:#866016; --border:#e3dcc8; --border-soft:#eee8dc; --icon-network:#8f6821; --icon-system:#997025; --ring:#c9b06b66; --mascot:url('assets/mascot-rabbit.png'); }
+:root[data-skin="national-day"] { --page:#faf0eb; --sidebar:#fff7f1; --surface-soft:#fcf1e9; --hover:#f7e4dc; --accent:#b93b35; --accent-hover:#942c27; --accent-soft:#fbe3db; --focus:#b93b35; --border:#e9d6cc; --border-soft:#f1e2da; --icon-network:#b64337; --icon-system:#a67322; --ring:#d58d6566; --mascot:url('assets/mascot-lion.png'); }
+:root[data-theme="dark"][data-skin="mid-autumn"] { --page:#101c20; --sidebar:#142327; --surface:#1a2c30; --surface-raised:#243a3d; --surface-soft:#213438; --hover:#304244; --text:#f4f0df; --text-secondary:#d0d5c9; --text-muted:#afc0b9; --border:#3c504e; --border-soft:#304342; --accent:#e4c577; --accent-hover:#f4d994; --accent-soft:#394236; --on-accent:#172b2d; --focus:#e4c577; --icon-network:#e4c577; --ring:#cbb66c44; }
+:root[data-theme="dark"][data-skin="national-day"] { --page:#211617; --sidebar:#291b1c; --surface:#322225; --surface-raised:#402d2d; --surface-soft:#3a2829; --hover:#503234; --text:#fff1e5; --text-secondary:#e4cbbf; --text-muted:#c8afa4; --border:#624244; --border-soft:#4c3337; --accent:#f3ad86; --accent-hover:#ffd1b0; --accent-soft:#563637; --on-accent:#30191c; --focus:#f3ad86; --icon-network:#f3ad86; --ring:#e49b7144; }
+
+/* Year of the Horse: golden parchment and chestnut, distinct from National Day red. */
+:root[data-skin="788"] { --page:#faf4e5; --sidebar:#fff9ec; --surface:#fffdf6; --surface-raised:#fff9ed; --surface-soft:#f6ecd6; --hover:#efdfbb; --accent:#8a5a19; --accent-hover:#704411; --accent-soft:#f1dfb6; --focus:#8a5a19; --border:#dfcca6; --border-soft:#eadfc6; --icon-network:#9a681f; --icon-system:#9a681f; --ring:#bd8c3b44; --mascot:url('assets/mascot-horse-flat.png'); }
+:root[data-theme="dark"][data-skin="788"] { --page:#211d16; --sidebar:#292319; --surface:#322b20; --surface-raised:#403626; --surface-soft:#3b3224; --hover:#51412b; --text:#fff2d8; --text-secondary:#e0cfaa; --text-muted:#c4b393; --border:#605039; --border-soft:#4c3f2d; --accent:#eac078; --accent-hover:#ffdaa0; --accent-soft:#51412c; --on-accent:#2d2113; --focus:#eac078; --icon-network:#eac078; --ring:#eac07833; }

@@ -1,0 +1,8 @@
+Source: C2000-Ultra HC-WT9500, HCMT7987-SNSD, FC:83:C6:18:43:0C
+Firmware: official OpenWrt 21.02-SNAPSHOT 2.3.5.n0.c1 / Linux 5.4.281
+Original path: /usr/bin/ubenv
+Acquired by SCP on 2026-10-19; no binary modifications.
+Size: 12283 bytes
+SHA256: ef9f60e448158ea81fc245b34e7d47b33b55f4de39cf34e2ad5f5e6998981601
+Installed path: /usr/libexec/myos-ultra-ubenv
+Uses the local SPI u-boot-env partition and boot_from_sd flag.

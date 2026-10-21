@@ -5,6 +5,7 @@ LUCI_DEPENDS:=+wget-ssl +tc +kmod-sched-core +kmod-ifb +ebtables-legacy-utils +e
 
 PKG_MAINTAINER:=Jianhui Zhao <jianhuizhao329@gmail.com>
 PKG_NAME:=luci-app-eqos-mtk
+PKG_RELEASE:=202610151000
 
 include $(TOPDIR)/feeds/luci/luci.mk
 

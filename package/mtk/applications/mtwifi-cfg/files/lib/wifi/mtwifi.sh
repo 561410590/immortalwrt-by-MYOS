@@ -30,7 +30,7 @@ detect_mtwifi() {
 					htmode="HE160"
 					htbsscoex="0"
 					ssid="NRadio_5G"
-					channel="36"
+					channel="auto"
 					txpower="100"
 					dbdc_main="0"
 				fi

@@ -1,0 +1,158 @@
+#!/bin/sh
+uci -q batch <<-EOF >/dev/null
+	set system.@system[-1].ttylogin=1
+	set system.ntp=timeserver
+	set system.ntp.use_dhcp='0'
+	set system.ntp.enable_server='1'
+	set system.ntp.enabled='1'
+	del system.ntp.server
+	set system.@system[-1].cronloglevel=9
+	set system.@system[-1].conloglevel=7
+	add_list system.ntp.server='0.pool.ntp.org'
+	add_list system.ntp.server='1.pool.ntp.org'
+	add_list system.ntp.server='2.pool.ntp.org'
+	add_list system.ntp.server='3.pool.ntp.org'
+	commit system
+	set rpcd.@rpcd[0].timeout=120
+	commit rpcd
+	set luci.apply.timeout='20'
+	commit luci
+EOF
+
+if [ "$(uci -q get rpcd.@rpcd[0].socket)" != "/var/run/ubus/ubus.sock" ]; then
+	uci -q batch <<-EOF >/dev/null
+		set rpcd.@rpcd[0].socket='/var/run/ubus/ubus.sock'
+		commit rpcd
+	EOF
+fi
+
+[ -n "$(ubus call system board | jsonfilter -e '@.board_name' | grep raspberry)" ] && [ "$(uci -q get openmptcprouter.settings.scaling_governor)" != "performance" ] && {
+	# force CPU speed for RPI
+	uci -q set openmptcprouter.settings.scaling_min_freq=$(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq | tr -d "\n")
+	uci -q set openmptcprouter.settings.scaling_max_freq=$(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq | tr -d "\n")
+	uci -q set openmptcprouter.settings.scaling_governor='performance'
+	uci -q commit openmptcprouter
+}
+[ -n "$(ubus call system board | jsonfilter -e '@.board_name' | grep wrt)" ] && [ "$(uci -q get system.@system[0].compat_version)" == "" ] && {
+	uci -q batch <<-EOF >/dev/null
+		set system.@system[-1].compat_version='1.1'
+		commit system
+	EOF
+}
+
+if [ -n "$(ubus call system board | jsonfilter -e '@.board_name' | grep rutx50)" ] && [ -z "$(uci show system | grep WAN_ETH)" ]; then
+	uci -q batch <<-EOF >/dev/null
+		add system led
+		set system.@led[-1].sysfs='green:eth'
+		set system.@led[-1].name='WAN_ETH'
+		set system.@led[-1].trigger='netdev'
+		set system.@led[-1].dev='eth0'
+		add_list system.@led[-1].mode='tx'
+		add_list system.@led[-1].mode='rx'
+		add system led
+		set system.@led[-1].sysfs='green:wifi'
+		set system.@led[-1].name='WAN_WIFI'
+		set system.@led[-1].trigger='netdev'
+		add_list system.@led[-1].mode='tx'
+		add_list system.@led[-1].mode='rx'
+		add system led
+		set system.@led[-1].sysfs='green:sim1'
+		set system.@led[-1].name='WAN_MODEM1'
+		set system.@led[-1].trigger='netdev'
+		set system.@led[-1].dev='wwan0'
+		set system.@led[-1].mode='rx'
+		add system led
+		set system.@led[-1].name='WAN_MODEM2'
+		set system.@led[-1].sysfs='green:sim2'
+		set system.@led[-1].trigger='netdev'
+		set system.@led[-1].dev='wwan1'
+		set system.@led[-1].mode='rx'
+		add system led
+		set system.@led[-1].name='WIFI24'
+		set system.@led[-1].sysfs='green:wifi2g'
+		set system.@led[-1].trigger='netdev'
+		set system.@led[-1].dev='radio0.network1'
+		add_list system.@led[-1].mode='tx'
+		add_list system.@led[-1].mode='rx'
+		add system led
+		set system.@led[-1].name='WIFI5'
+		set system.@led[-1].sysfs='green:wifi5g'
+		set system.@led[-1].trigger='netdev'
+		set system.@led[-1].dev='radio1.network1'
+		add_list system.@led[-1].mode='tx'
+		add_list system.@led[-1].mode='rx'
+		commit system
+	EOF
+elif [ -n "$(ubus call system board | jsonfilter -e '@.board_name' | grep rutx)" ] && [ -z "$(uci show system | grep WAN_ETH)" ]; then
+	uci -q batch <<-EOF >/dev/null
+		add system led
+		set system.@led[-1].sysfs='wan_wifi_4'
+		set system.@led[-1].name='WAN_ETH'
+		set system.@led[-1].trigger='netdev'
+		set system.@led[-1].dev='eth0'
+		add_list system.@led[-1].mode='tx'
+		add_list system.@led[-1].mode='rx'
+		add system led
+		set system.@led[-1].sysfs='wan_eth_3'
+		set system.@led[-1].name='WAN_WIFI'
+		set system.@led[-1].trigger='netdev'
+		add_list system.@led[-1].mode='tx'
+		add_list system.@led[-1].mode='rx'
+		add system led
+		set system.@led[-1].sysfs='wan_sim_1'
+		set system.@led[-1].name='WAN_MODEM1'
+		set system.@led[-1].trigger='netdev'
+		set system.@led[-1].dev='wwan0'
+		set system.@led[-1].mode='rx'
+		add system led
+		set system.@led[-1].name='WAN_MODEM2'
+		set system.@led[-1].sysfs='wan_sim_2'
+		set system.@led[-1].trigger='netdev'
+		set system.@led[-1].dev='wwan1'
+		set system.@led[-1].mode='rx'
+		add system led
+		set system.@led[-1].name='WIFI24'
+		set system.@led[-1].sysfs='wifi_gen_2'
+		set system.@led[-1].trigger='netdev'
+		set system.@led[-1].dev='radio0.network1'
+		add_list system.@led[-1].mode='tx'
+		add_list system.@led[-1].mode='rx'
+		add system led
+		set system.@led[-1].name='WIFI5'
+		set system.@led[-1].sysfs='wifi_gen_5'
+		set system.@led[-1].trigger='netdev'
+		set system.@led[-1].dev='radio1.network1'
+		add_list system.@led[-1].mode='tx'
+		add_list system.@led[-1].mode='rx'
+		commit system
+	EOF
+fi
+
+#if [ -n "$(ubus call system board | jsonfilter -e '@.board_name' | grep z8102ax)" ] && [ -z "$(uci show system | grep modem1)" ]; then
+#	uci -q batch <<-EOF >/dev/null
+#		add system led
+#		set system.@led[-1].name='modem1'
+#		set system.@led[-1].sysfs='modem1:status'
+#		set system.@led[-1].trigger='netdev'
+#		set system.@led[-1].dev='wwan0'
+#		add_list system.@led[-1].mode='link'
+#		add_list system.@led[-1].mode='tx'
+#		add_list system.@led[-1].mode='rx'
+#		add system led
+#		set system.@led[-1].name='modem2'
+#		set system.@led[-1].sysfs='modem2:status'
+#		set system.@led[-1].trigger='netdev'
+#		set system.@led[-1].dev='wwan1'
+#		add_list system.@led[-1].mode='link'
+#		add_list system.@led[-1].mode='tx'
+#		add_list system.@led[-1].mode='rx'
+#		commit system
+#	EOF
+#fi
+
+#sed -i 's/^\tlogger -t/\t[ "$(uci -q get openmptcprouter.settings.debug)" = "true" ] \&\& logger -t/g' /usr/share/ModemManager/modemmanager.common
+
+#service keepalived stop 2>&1 >/dev/null
+#service keepalived disabled 2>&1 >/dev/null
+
+exit 0

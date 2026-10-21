@@ -1,0 +1,1632 @@
+msgid ""
+msgstr ""
+"PO-Revision-Date: 2024-01-01 00:00+0000\n"
+"Last-Translator: \n"
+"Language-Team: Russian\n"
+"Language: ru\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2;\n"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:315
+msgid "A Dead Simple VPN is a TCP VPN that can replace Glorytun TCP"
+msgstr "Dead Simple VPN — это TCP VPN, который может заменить Glorytun TCP"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:310
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:312
+msgid "A Dead Simple VPN key"
+msgstr "Ключ Dead Simple VPN"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:108
+msgid ""
+"A second server's IP can be set for dual IPv4/IPv6 server if WAN IPv6 are set"
+msgstr ""
+"Можно задать IP второго сервера для двойного IPv4/IPv6 сервера, если заданы WAN IPv6"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:119
+msgid "API username to retrieve personnalized settings from the server."
+msgstr "Имя пользователя API для получения персонализированных настроек с сервера."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:814
+msgid "APN"
+msgstr "APN"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:742
+msgid "Accept IPv6 RA"
+msgstr "Принимать IPv6 RA"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:164
+msgid "Add a new server"
+msgstr "Добавить новый сервер"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:1044
+msgid "Add an interface"
+msgstr "Добавить интерфейс"
+
+#: luci-app-openmptcprouter/luasrc/controller/openmptcprouter.lua:18
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:41
+msgid "Advanced Settings"
+msgstr "Расширенные настройки"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:169
+msgid "Advanced settings"
+msgstr "Расширенные настройки"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:392
+msgid ""
+"All VPN available here can do aggregation over MPTCP or using own internal "
+"method."
+msgstr ""
+"Все доступные VPN могут агрегировать трафик через MPTCP или с помощью собственного метода."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/debug.htm:5
+msgid "All router settings"
+msgstr "Все настройки маршрутизатора"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:284
+msgid ""
+"An Advanced Encryption Standard (AES) instruction set is integrated in the "
+"processor."
+msgstr ""
+"В процессор встроен набор инструкций Advanced Encryption Standard (AES)."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:840
+msgid "Authentication Type"
+msgstr "Тип аутентификации"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:878
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:894
+msgid "Backup"
+msgstr "Резервный"
+
+#: luci-app-openmptcprouter/luasrc/controller/openmptcprouter.lua:21
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/backup.htm:10
+msgid "Backup on server"
+msgstr "Резервная копия на сервере"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:383
+msgid "Balancing"
+msgstr "Балансировка"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:22
+msgid "Beta"
+msgstr "Бета"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:312
+msgid "Big time difference between the server and the router"
+msgstr "Большое расхождение времени между сервером и маршрутизатором"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:572
+msgid "Bridge"
+msgstr "Мост"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:620
+msgid "Bridge can't have multipath enabled"
+msgstr "На мосту нельзя включить многопутевую маршрутизацию"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:295
+msgid "By default VPN is used for any traffic that is not TCP."
+msgstr "По умолчанию VPN используется для любого трафика, не являющегося TCP."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:229
+msgid ""
+"By default proxy is used for any traffic that is TCP (and UDP for V2Ray)."
+msgstr ""
+"По умолчанию прокси используется для TCP-трафика (и UDP для V2Ray)."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:845
+msgid "CHAP"
+msgstr "CHAP"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:961
+msgid ""
+"Cake queue discipline is not set, autorate will only work after a reboot if "
+"enabled here."
+msgstr ""
+"Дисциплина очереди Cake не настроена; автоматическая регулировка скорости будет работать только после перезагрузки, если включена здесь."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:271
+msgid "Can\\'t access and use server part"
+msgstr "Нет доступа к серверной части"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:297
+msgid "Can\\'t contact Server Admin Script"
+msgstr "Нет связи со скриптом администрирования сервера"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:287
+msgid "Can\\'t get public IP address from ShadowSocks"
+msgstr "Не удаётся получить публичный IP-адрес от ShadowSocks"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:290
+msgid "Can\\'t get public IP address from V2Ray"
+msgstr "Не удаётся получить публичный IP-адрес от V2Ray"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:284
+msgid "Can\\'t ping server"
+msgstr "Не удаётся пинговать сервер"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:423
+msgid "China"
+msgstr "Китай"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:576
+msgid ""
+"Choose MacVLAN if you want to create a virtual interface based on a physical "
+"interface."
+msgstr ""
+"Выберите MacVLAN, если хотите создать виртуальный интерфейс на основе физического."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:510
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:596
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:655
+msgid "Choose physical interface."
+msgstr "Выберите физический интерфейс."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:135
+msgid "Core temp:"
+msgstr "Температура ядра:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:418
+msgid "Country"
+msgstr "Страна"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:415
+msgid "Country settings"
+msgstr "Настройки страны"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:462
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:607
+msgid "DHCP"
+msgstr "DHCP"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:608
+msgid "DHCPv6"
+msgstr "DHCPv6"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:188
+msgid "DNS issue: can\\'t resolve hostname"
+msgstr "Проблема DNS: не удаётся разрешить имя хоста"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:367
+msgid "Debug"
+msgstr "Отладка"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:231
+msgid "Default Proxy"
+msgstr "Прокси по умолчанию"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:345
+msgid "Default VPN"
+msgstr "VPN по умолчанию"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:85
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:551
+msgid "Delete"
+msgstr "Удалить"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:749
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:774
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:794
+msgid "Device"
+msgstr "Устройство"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:259
+msgid "Disable HTTP test on Server API"
+msgstr "Отключить HTTP-тест на API сервера"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:357
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:362
+msgid "Disable ModemManager"
+msgstr "Отключить ModemManager"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:203
+msgid "Disable TCP Fast Open"
+msgstr "Отключить TCP Fast Open"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:208
+msgid "Disable TCP Fast Open on Linux and Shadowsocks configuration"
+msgstr "Отключить TCP Fast Open в настройках Linux и Shadowsocks"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:307
+msgid "Disable default gateway"
+msgstr "Отключить шлюз по умолчанию"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:312
+msgid "Disable default gateway, no internet if VPS are down"
+msgstr "Отключить шлюз по умолчанию; без интернета при недоступности VPS"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:193
+msgid "Disable external check"
+msgstr "Отключить внешнюю проверку"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:244
+msgid "Disable gateway ping"
+msgstr "Отключить пинг шлюза"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:249
+msgid "Disable gateway ping check in status page"
+msgstr "Отключить проверку пинга шлюза на странице состояния"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:285
+msgid "Disable interfaces auto rename"
+msgstr "Отключить автопереименование интерфейсов"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:342
+msgid "Disable multipath test using tracebox"
+msgstr "Отключить тест многопутевой маршрутизации через tracebox"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:347
+msgid "Disable nDPI"
+msgstr "Отключить nDPI"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:352
+msgid "Disable nDPI, used for protocols in OMR-ByPass"
+msgstr "Отключить nDPI, используемый для протоколов в OMR-ByPass"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:63
+msgid ""
+"Disable ports redirection defined in firewall from server to this router"
+msgstr ""
+"Отключить перенаправление портов, определённых в брандмауэре, с сервера на этот маршрутизатор"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:290
+msgid "Disable renaming interfaces"
+msgstr "Отключить переименование интерфейсов"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:327
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:332
+msgid "Disable route loop detection"
+msgstr "Отключить обнаружение петли маршрутов"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:152
+msgid "Disable server"
+msgstr "Отключить сервер"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:254
+msgid "Disable server http test"
+msgstr "Отключить HTTP-тест сервера"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:317
+msgid "Disable server ping"
+msgstr "Отключить пинг сервера"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:322
+msgid "Disable server ping status check"
+msgstr "Отключить проверку статуса пинга сервера"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:337
+msgid "Disable tracebox test"
+msgstr "Отключить тест tracebox"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:197
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:876
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:892
+msgid "Disabled"
+msgstr "Отключено"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:988
+msgid "Download speed (Kb/s)"
+msgstr "Скорость загрузки (Кбит/с)"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:381
+msgid "Dynamic change"
+msgstr "Динамическое изменение"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:402
+msgid "Enable Bridge Acceleration"
+msgstr "Включить ускорение моста"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:217
+msgid "Enable DNS64"
+msgstr "Включить DNS64"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:396
+msgid "Enable Fast Patch offloading for connections"
+msgstr "Включить быструю разгрузку для соединений"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:187
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:194
+msgid "Enable IPv6"
+msgstr "Включить IPv6"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:975
+msgid "Enable QoS"
+msgstr "Включить QoS"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:223
+msgid "Enable SIP ALG"
+msgstr "Включить SIP ALG"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:942
+msgid "Enable SQM"
+msgstr "Включить SQM"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:952
+msgid "Enable SQM autorate"
+msgstr "Включить автоматическую скорость SQM"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:79
+msgid "Enable ShadowSocks Obfuscating"
+msgstr "Включить обфускацию ShadowSocks"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:213
+msgid "Enable TCP Low Latency"
+msgstr "Включить TCP с низкой задержкой"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:372
+msgid "Enable debug logs"
+msgstr "Включить журналы отладки"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:198
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:875
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:891
+msgid "Enabled"
+msgstr "Включено"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:267
+msgid "Encryption"
+msgstr "Шифрование"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:288
+msgid "Encryption method is used for Shadowsocks, V2Ray, Glorytun and OpenVPN."
+msgstr "Метод шифрования используется для Shadowsocks, V2Ray, Glorytun и OpenVPN."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:176
+msgid "Filesystem is readonly"
+msgstr "Файловая система доступна только для чтения"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:427
+msgid "For China, set an accessible DNS and disable DNSSEC."
+msgstr "Для Китая задайте доступный DNS и отключите DNSSEC."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:902
+msgid "Force TTL"
+msgstr "Принудительный TTL"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:186
+msgid "Force retrieve all keys from server."
+msgstr "Принудительно получить все ключи с сервера."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:181
+msgid "Force retrieve settings"
+msgstr "Принудительно получить настройки"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:834
+msgid "GPRS only"
+msgstr "Только GPRS"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:563
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:766
+msgid "Gateway DOWN"
+msgstr "Шлюз недоступен"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:566
+msgid "Gateway IPv6 DOWN"
+msgstr "Шлюз IPv6 недоступен"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:303
+msgid "Glorytun TCP is used by default for UDP and ICMP"
+msgstr "Glorytun TCP используется по умолчанию для UDP и ICMP"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:298
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:300
+msgid "Glorytun key"
+msgstr "Ключ Glorytun"
+
+#: luci-app-openmptcprouter/root/usr/share/rpcd/acl.d/luci-app-openmptcprouter.json:3
+msgid "Grant UCI access for luci-app-openmptcprouter"
+msgstr "Предоставить доступ UCI для luci-app-openmptcprouter"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:130
+msgid "How often TCP sends out keepalive messages when keepalive is enabled."
+msgstr "Как часто TCP отправляет keepalive-сообщения при включённом keepalive."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:181
+msgid "IPv4 IP default TTL"
+msgstr "TTL по умолчанию для IPv4"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:135
+msgid "IPv4 TCP FIN timeout"
+msgstr "Таймаут TCP FIN для IPv4"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:175
+msgid "IPv4 TCP Fast Open"
+msgstr "TCP Fast Open для IPv4"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:125
+msgid "IPv4 TCP Keepalive time"
+msgstr "Время keepalive TCP для IPv4"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:145
+msgid "IPv4 TCP SYN retries"
+msgstr "Количество повторных попыток TCP SYN для IPv4"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:155
+msgid "IPv4 TCP SYN retries1"
+msgstr "Повторные попытки TCP SYN1 для IPv4"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:165
+msgid "IPv4 TCP SYN retries2"
+msgstr "Повторные попытки TCP SYN2 для IPv4"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:518
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:661
+msgid "IPv4 address"
+msgstr "IPv4-адрес"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:677
+msgid "IPv4 gateway"
+msgstr "Шлюз IPv4"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:524
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:671
+msgid "IPv4 netmask"
+msgstr "Маска подсети IPv4"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:207
+msgid "IPv6 Prefix"
+msgstr "Префикс IPv6"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:691
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:718
+msgid "IPv6 address"
+msgstr "IPv6-адрес"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:705
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:728
+msgid "IPv6 gateway"
+msgstr "Шлюз IPv6"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:634
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:806
+msgid "IPv6 route received"
+msgstr "Маршрут IPv6 получен"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:192
+msgid "IPv6 settings"
+msgstr "Настройки IPv6"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:209
+msgid "IPv6 tunnel DOWN"
+msgstr "Туннель IPv6 недоступен"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:352
+msgid "IPv6:"
+msgstr "IPv6:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:222
+msgid "If host support NAT64, you can enable DNS64 support."
+msgstr "Если хост поддерживает NAT64, можно включить поддержку DNS64."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:537
+msgid "Interfaces settings"
+msgstr "Настройки интерфейсов"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:252
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:262
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:303
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:315
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:327
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:339
+msgid "Key is retrieved from server API by default."
+msgstr "Ключ по умолчанию получается с API сервера."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:129
+msgid ""
+"Key to configure and retrieve others keys from Server and to set server "
+"settings from OpenMPTCProuter."
+msgstr ""
+"Ключ для настройки и получения других ключей с сервера, а также для задания серверных настроек из OpenMPTCProuter."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:435
+msgid "LAN interfaces settings"
+msgstr "Настройки LAN-интерфейсов"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:832
+msgid "LTE"
+msgstr "LTE"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:446
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:557
+msgid "Label"
+msgstr "Метка"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:452
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:562
+msgid "Label for the interface"
+msgstr "Метка интерфейса"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/backup.htm:22
+msgid "Last available backup on server:"
+msgstr "Последняя доступная резервная копия на сервере:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:124
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:329
+msgid "Latest available version"
+msgstr "Последняя доступная версия"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:130
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:335
+msgid "Load:"
+msgstr "Нагрузка:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:630
+msgid "Looping route detected"
+msgstr "Обнаружена петля маршрута"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:327
+msgid "MLVPN can replace Glorytun with connections with same latency"
+msgstr "MLVPN может заменить Glorytun для соединений с одинаковой задержкой"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:322
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:324
+msgid "MLVPN password"
+msgstr "Пароль MLVPN"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:306
+msgid "MPTCP is not enabled on the server"
+msgstr "MPTCP не включён на сервере"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:346
+msgid "MPTCP may not be enabled on the server"
+msgstr "MPTCP возможно не включён на сервере"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:401
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:929
+msgid "MPTCP over VPN"
+msgstr "MPTCP поверх VPN"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:398
+msgid "MPTCP over VPN settings"
+msgstr "Настройки MPTCP поверх VPN"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:399
+msgid ""
+"MPTCP over VPN should be used only when Multipath TCP is blocked on a "
+"connection."
+msgstr ""
+"MPTCP поверх VPN следует использовать только когда Multipath TCP заблокирован на соединении."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:571
+msgid "MacVLAN"
+msgstr "MacVLAN"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:877
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:893
+msgid "Master"
+msgstr "Основной"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:377
+msgid "Master interface selection"
+msgstr "Выбор основного интерфейса"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:421
+msgid "Maximum scaling CPU frequency"
+msgstr "Максимальная масштабируемая частота ЦП"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:415
+msgid "Minimum scaling CPU frequency"
+msgstr "Минимальная масштабируемая частота ЦП"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:829
+msgid "Modem default"
+msgstr "Модем по умолчанию"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:863
+msgid "Modem init timeout"
+msgstr "Таймаут инициализации модема"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:609
+msgid "ModemManager"
+msgstr "ModemManager"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:180
+msgid "More than one default VPN is enabled"
+msgstr "Включено более одного VPN по умолчанию"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:872
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:888
+msgid "Multipath TCP"
+msgstr "Многопутевой TCP"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:603
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:609
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:789
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:795
+msgid "Multipath current state is"
+msgstr "Текущее состояние многопутевой маршрутизации:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:598
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:784
+msgid "Multipath master already defined"
+msgstr "Основной интерфейс многопутевой маршрутизации уже задан"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:569
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:769
+msgid "Multipath seems to be blocked on the connection"
+msgstr "Многопутевая маршрутизация похоже заблокирована на соединении"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:610
+msgid "NCM"
+msgstr "NCM"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:843
+msgid "NONE"
+msgstr "НЕТ"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:625
+msgid "Network interface MAC address duplicated"
+msgstr "MAC-адрес сетевого интерфейса дублируется"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:615
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:801
+msgid "Network interface duplicated"
+msgstr "Сетевой интерфейс продублирован"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:581
+msgid "Network interface not in WAN firewall zone"
+msgstr "Сетевой интерфейс не находится в зоне брандмауэра WAN"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:901
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:903
+msgid "Network overview"
+msgstr "Обзор сети"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:122
+msgid "Networks settings"
+msgstr "Настройки сети"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:556
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:759
+msgid "No IP defined"
+msgstr "IP-адрес не задан"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:212
+msgid "No IPv6 access"
+msgstr "Нет доступа IPv6"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:577
+msgid "No Server http response after 1 second"
+msgstr "Нет HTTP-ответа от сервера в течение 1 секунды"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:573
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:773
+msgid "No Server ping response after 1 second"
+msgstr "Нет ответа на пинг сервера в течение 1 секунды"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:658
+msgid "No WAN with multipath enabled:"
+msgstr "Нет WAN с включённой многопутевой маршрутизацией:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/backup.htm:26
+msgid "No available backup on server."
+msgstr "На сервере нет доступных резервных копий."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:382
+msgid "No change"
+msgstr "Без изменений"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:821
+msgid "No data"
+msgstr "Нет данных"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:560
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:763
+msgid "No gateway defined"
+msgstr "Шлюз не задан"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:262
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:263
+msgid "No output"
+msgstr "Нет вывода"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:293
+msgid "No public IP address detected in less than 1 second"
+msgstr "Публичный IP-адрес не обнаружен менее чем за 1 секунду"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:267
+msgid "No server IP address, No public IP address"
+msgstr "Нет IP-адреса сервера, нет публичного IP-адреса"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:280
+msgid "No server defined"
+msgstr "Сервер не задан"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:273
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:421
+msgid "None"
+msgstr "Нет"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:570
+msgid "Normal"
+msgstr "Обычный"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:150
+msgid ""
+"Number of times initial SYNs for an active TCP connection attempt will be "
+"retransmitted."
+msgstr ""
+"Количество повторных передач начальных SYN-пакетов при попытке активного TCP-соединения."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:89
+msgid "Obfuscating plugin"
+msgstr "Плагин обфускации"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:108
+msgid "Obfuscating type"
+msgstr "Тип обфускации"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:84
+msgid "Obfuscating will be enabled on both side"
+msgstr "Обфускация будет включена на обеих сторонах"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:380
+msgid "On wizard change"
+msgstr "При изменении мастера настройки"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:241
+msgid "Only ShadowSocks is supported with server multiple IPs for now."
+msgstr "На данный момент для нескольких IP сервера поддерживается только ShadowSocks."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:882
+msgid ""
+"Only one interface must be set as \"Master\", this should be the most stable "
+"interface."
+msgstr ""
+"Только один интерфейс должен быть установлен как «Основной» — это должен быть наиболее стабильный интерфейс."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:143
+msgid "Only one server can be master, else all servers are set as backup."
+msgstr "Только один сервер может быть основным, иначе все серверы устанавливаются как резервные."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:399
+msgid "Only work with Shadowsocks as proxy."
+msgstr "Работает только с Shadowsocks в качестве прокси."
+
+#: luci-app-openmptcprouter/root/usr/share/luci/menu.d/luci-app-openmptcprouter.json:3
+msgid "OpenMPTCProuter"
+msgstr "OpenMPTCProuter"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:392
+msgid "OpenVPN can't be used in multi VPS configuration."
+msgstr "OpenVPN нельзя использовать в конфигурации с несколькими VPS."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:218
+msgid "Optimize for latency instead of bandwidth"
+msgstr "Оптимизировать по задержке вместо пропускной способности"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:463
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:613
+msgid "Other"
+msgstr "Другое"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:231
+msgid "Other settings"
+msgstr "Другие настройки"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:844
+msgid "PAP"
+msgstr "PAP"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:846
+msgid "PAP/CHAP"
+msgstr "PAP/CHAP"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:857
+msgid "PAP/CHAP password"
+msgstr "Пароль PAP/CHAP"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:851
+msgid "PAP/CHAP username"
+msgstr "Имя пользователя PAP/CHAP"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:820
+msgid "PIN code"
+msgstr "PIN-код"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:611
+msgid "PPPoE"
+msgstr "PPPoE"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:475
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:581
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:622
+msgid "Physical interface"
+msgstr "Физический интерфейс"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:830
+msgid "Prefer LTE"
+msgstr "Предпочитать LTE"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:831
+msgid "Prefer UMTS"
+msgstr "Предпочитать UMTS"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:102
+msgid "Primary server IP"
+msgstr "IP основного сервера"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:457
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:602
+msgid "Protocol"
+msgstr "Протокол"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:199
+msgid "Proxy is DISABLED"
+msgstr "Прокси ОТКЛЮЧЁН"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:228
+msgid "Proxy settings"
+msgstr "Настройки прокси"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:357
+msgid "Proxy traffic:"
+msgstr "Трафик прокси:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:612
+msgid "QMI"
+msgstr "QMI"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:980
+msgid "QoS permit to prioritize any upload traffic."
+msgstr "QoS позволяет устанавливать приоритет для исходящего трафика."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:393
+msgid "Qualcomm Shortcut FE driver"
+msgstr "Драйвер Qualcomm Shortcut FE"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:52
+msgid "Redirects all ports from server to this router"
+msgstr "Перенаправляет все порты с сервера на этот маршрутизатор"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:1054
+msgid "Reset"
+msgstr "Сброс"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/backup.htm:32
+msgid "Restore backup"
+msgstr "Восстановить резервную копию"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:179
+msgid "Retrieve settings from server"
+msgstr "Получить настройки с сервера"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:957
+msgid "SQM autorate is for LTE and connection without a stable speed."
+msgstr "Автоматическая скорость SQM предназначена для LTE и соединений без стабильной скорости."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:947
+msgid ""
+"SQM control bufferloat: the undesirable latency that arises when the router "
+"buffers too much data."
+msgstr ""
+"SQM управляет буферизацией: нежелательной задержкой, возникающей при избыточной буферизации данных маршрутизатором."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:447
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:1053
+msgid "Save & Apply"
+msgstr "Сохранить и применить"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:239
+msgid "Save vnstats statistics on disk"
+msgstr "Сохранять статистику vnstats на диск"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:234
+msgid "Save vnstats stats"
+msgstr "Сохранять статистику vnstats"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:427
+msgid "Scaling governor"
+msgstr "Регулятор масштабирования"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:103
+msgid "Secondary server IP"
+msgstr "IP вторичного сервера"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:1047
+msgid "Select the device you want to base the interface on."
+msgstr "Выберите устройство, на основе которого будет создан интерфейс."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/backup.htm:33
+msgid "Send backup"
+msgstr "Отправить резервную копию"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:91
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:93
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:100
+msgid "Server IP"
+msgstr "IP сервера"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:95
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:105
+msgid "Server IP will be set for proxy and VPN"
+msgstr "IP сервера будет задан для прокси и VPN"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:124
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:126
+msgid "Server key"
+msgstr "Ключ сервера"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:43
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:75
+msgid "Server settings"
+msgstr "Настройки сервера"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:114
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:116
+msgid "Server username"
+msgstr "Имя пользователя сервера"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:826
+msgid "Service Type"
+msgstr "Тип сервиса"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:409
+msgid "Set VPN to use for MPTCP over VPN."
+msgstr "Задайте VPN для использования с MPTCP поверх VPN."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:666
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:696
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:723
+msgid "Set an IP in the same network as the modem"
+msgstr "Задайте IP в той же сети, что и модем"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:416
+msgid "Set configuration for countries with some specificities."
+msgstr "Задайте конфигурацию для стран с особыми требованиями."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:682
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:710
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:733
+msgid "Set here IP of the modem"
+msgstr "Укажите здесь IP-адрес модема"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:138
+msgid "Set server as master"
+msgstr "Установить сервер как основной"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:240
+msgid ""
+"Set the default Proxy used for TCP when ShadowSocks is enabled, for TCP and "
+"UDP when V2Ray is enabled."
+msgstr ""
+"Задайте прокси по умолчанию для TCP при включённом ShadowSocks, для TCP и UDP при включённом V2Ray."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:392
+msgid ""
+"Set the default VPN used for ICMP (and UDP if proxy used is shadowsocks), "
+"for all traffic if proxy is disabled."
+msgstr ""
+"Задайте VPN по умолчанию для ICMP (и UDP, если прокси — Shadowsocks), для всего трафика при отключённом прокси."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:998
+msgid ""
+"Set value between 80-95% of max download speed link. 0 to disable SQM/QoS."
+msgstr ""
+"Задайте значение 80–95% от максимальной скорости загрузки. 0 — для отключения SQM/QoS."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:1014
+msgid ""
+"Set value between 80-95% of max upload speed link. 0 to disable SQM/QoS."
+msgstr ""
+"Задайте значение 80–95% от максимальной скорости отдачи. 0 — для отключения SQM/QoS."
+
+#: luci-app-openmptcprouter/luasrc/controller/openmptcprouter.lua:14
+msgid "Settings Wizard"
+msgstr "Мастер настройки"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:158
+msgid "ShadowSocks is not running"
+msgstr "ShadowSocks не запущен"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:252
+msgid "ShadowSocks is used for TCP."
+msgstr "ShadowSocks используется для TCP."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:247
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:249
+msgid "ShadowSocks key"
+msgstr "Ключ ShadowSocks"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:171
+msgid "Show advanced settings"
+msgstr "Показать расширенные настройки"
+
+#: luci-app-openmptcprouter/luasrc/controller/openmptcprouter.lua:23
+msgid "Show all settings"
+msgstr "Показать все настройки"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:461
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:606
+msgid "Static address"
+msgstr "Статический адрес"
+
+#: luci-app-openmptcprouter/luasrc/controller/openmptcprouter.lua:16
+msgid "Status"
+msgstr "Состояние"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:412
+msgid "Systems settings"
+msgstr "Системные настройки"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:140
+msgid ""
+"The length of time an orphaned (no longer referenced by any application) "
+"connection will remain in the FIN_WAIT_2 state before it is aborted at the "
+"local end."
+msgstr ""
+"Время, в течение которого осиротевшее (больше не используемое ни одним приложением) соединение остаётся в состоянии FIN_WAIT_2 до его прерывания с локальной стороны."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:286
+msgid ""
+"There is no Advanced Encryption Standard (AES) instruction set integrated in "
+"the processor, you should use chacha20."
+msgstr ""
+"В процессор не встроен набор инструкций AES; рекомендуется использовать chacha20."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:160
+msgid ""
+"This value influences the time, after which TCP decides, that something is "
+"wrong due to unacknowledged RTO retransmissions, and reports this suspicion "
+"to the network layer."
+msgstr ""
+"Это значение влияет на время, после которого TCP решает, что что-то пошло не так из-за неподтверждённых повторных передач RTO, и сообщает об этом сетевому уровню."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:170
+msgid ""
+"This value influences the timeout of an alive TCP connection, when RTO "
+"retransmissions remain unacknowledged."
+msgstr ""
+"Это значение влияет на таймаут активного TCP-соединения, когда повторные передачи RTO остаются неподтверждёнными."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:269
+msgid "Timeout for VPS checks on status pages"
+msgstr "Таймаут проверок VPS на страницах состояния"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:279
+msgid "Timeout for retrieving WANs IP on status pages"
+msgstr "Таймаут получения IP WAN на страницах состояния"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:367
+msgid "Total traffic:"
+msgstr "Общий трафик:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:567
+msgid "Type"
+msgstr "Тип"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:339
+msgid "UBOND can replace Glorytun with connections with same latency"
+msgstr "UBOND может заменить Glorytun для соединений с одинаковой задержкой"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:334
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:336
+msgid "UBOND password"
+msgstr "Пароль UBOND"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:833
+msgid "UMTS/GPRS"
+msgstr "UMTS/GPRS"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:29
+msgid "Update"
+msgstr "Обновить"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:22
+msgid "Update remotly servers to latest version and reboot them."
+msgstr "Удалённо обновить серверы до последней версии и перезагрузить их."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:20
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:24
+msgid "Update server"
+msgstr "Обновить сервер"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:1004
+msgid "Upload speed (Kb/s)"
+msgstr "Скорость отдачи (Кбит/с)"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:141
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:341
+msgid "Uptime:"
+msgstr "Время работы:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:993
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:1009
+msgid "Used by Glorytun UDP and SQM/QoS if enabled. 0 to use default value."
+msgstr "Используется Glorytun UDP и SQM/QoS при включении. 0 — для использования значения по умолчанию."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:170
+msgid "V2Ray is not running"
+msgstr "V2Ray не запущен"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:262
+msgid "V2Ray is used for TCP and UDP."
+msgstr "V2Ray используется для TCP и UDP."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:259
+msgid "V2Ray user"
+msgstr "Пользователь V2Ray"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:257
+msgid "V2Ray user id"
+msgstr "ID пользователя V2Ray"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:651
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:652
+msgid "VLAN"
+msgstr "VLAN"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:184
+msgid "VPN is not running"
+msgstr "VPN не запущен"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:294
+msgid "VPN settings"
+msgstr "Настройки VPN"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:362
+msgid "VPN traffic:"
+msgstr "Трафик VPN:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:203
+msgid "VPN tunnel DOWN"
+msgstr "Туннель VPN недоступен"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:264
+msgid "VPS checks timeout"
+msgstr "Таймаут проверок VPS"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:322
+msgid "Version"
+msgstr "Версия"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:274
+msgid "WAN IPs retrieve timeout"
+msgstr "Таймаут получения IP WAN"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:586
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:591
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:777
+msgid "Wan IP and gateway are identical"
+msgstr "IP WAN и шлюз совпадают"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:198
+msgid ""
+"When enable check are done on external sites to get each WAN IP and the IP "
+"used to go outside."
+msgstr ""
+"При включении выполняются проверки на внешних сайтах для получения IP каждого WAN и IP, используемого для выхода в интернет."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:301
+msgid "When proxy V2Ray is used, use it for UDP"
+msgstr "При использовании прокси V2Ray использовать его для UDP"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:295
+msgid "When proxy shadowsocks is used, use it for UDP if VPN down"
+msgstr "При использовании прокси Shadowsocks использовать его для UDP при недоступности VPN"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:73
+msgid "Wizard"
+msgstr "Мастер настройки"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:422
+msgid "World"
+msgstr "Весь мир"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:80
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:85
+msgid "You"
+msgstr "Вы"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:934
+msgid "You can enable MPTCP over VPN if your provider filter Multipath TCP."
+msgstr "Можно включить MPTCP поверх VPN, если ваш провайдер фильтрует Multipath TCP."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:907
+msgid ""
+"You can force a TTL. Some LTE provider detect tethering by inpecting packet "
+"TTL value, setting it to 65 often solve the issue."
+msgstr ""
+"Можно принудительно задать TTL. Некоторые LTE-провайдеры обнаруживают раздачу интернета по значению TTL пакетов; установка значения 65 часто решает эту проблему."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:467
+msgid "You can use DHCP if you have multiple real ethernet ports."
+msgstr "Можно использовать DHCP при наличии нескольких реальных портов Ethernet."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:617
+msgid ""
+"You can use DHCP if you have multiple real ethernet ports. Select other if "
+"you want to use another protocol available in Network Interfaces page."
+msgstr ""
+"Можно использовать DHCP при наличии нескольких реальных портов Ethernet. Выберите «Другое», чтобы использовать другой протокол, доступный на странице сетевых интерфейсов."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:212
+msgid "You can use a public IPv6 prefix only if you set only one server."
+msgstr "Публичный IPv6-префикс можно использовать только при настройке единственного сервера."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:538
+msgid "You must disable DHCP on your modems and set IP in different networks."
+msgstr "Необходимо отключить DHCP на модемах и задать IP в разных сетях."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:202
+msgid "You should disable IPv6 here if server doesn't provide IPv6."
+msgstr "Следует отключить IPv6, если сервер не предоставляет IPv6."
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/settings.htm:58
+msgid "You shouldn't do that and you should redirect only needed ports"
+msgstr "Не рекомендуется делать это; следует перенаправлять только необходимые порты"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:83
+msgid "Your IP was not leased by this router"
+msgstr "Ваш IP не был выдан этим маршрутизатором"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:149
+msgid "address:"
+msgstr "адрес:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:835
+msgid "auto"
+msgstr "авто"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:161
+msgid "empty key"
+msgstr "пустой ключ"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:506
+msgid "interface:"
+msgstr "интерфейс:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:490
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:739
+msgid "ip address:"
+msgstr "IP-адрес:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:494
+msgid "ipv6 address:"
+msgstr "IPv6-адрес:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:518
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:751
+msgid "latency:"
+msgstr "задержка:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:522
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:755
+msgid "mtu:"
+msgstr "mtu:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:646
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:808
+msgid "multipath:"
+msgstr "многопутевая маршрутизация:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:526
+msgid "operator:"
+msgstr "оператор:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wizard.htm:277
+msgid "other"
+msgstr "другое"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:530
+msgid "phone number:"
+msgstr "номер телефона:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:150
+msgid "range:"
+msgstr "диапазон:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:534
+msgid "state:"
+msgstr "состояние:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:649
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:811
+msgid "traffic control:"
+msgstr "управление трафиком:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:498
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:743
+msgid "wan address:"
+msgstr "адрес WAN:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:502
+msgid "wan ipv6 address:"
+msgstr "IPv6-адрес WAN:"
+
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:510
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:514
+#: luci-app-openmptcprouter/luasrc/view/openmptcprouter/wanstatus.htm:747
+msgid "whois:"
+msgstr "whois:"
+
+msgid "65 often solves LTE tethering detection."
+msgstr "Значение 65 часто решает проблему определения раздачи LTE."
+
+msgid "AES instruction set detected."
+msgstr "Обнаружен набор инструкций AES."
+
+msgid "Anonymize public IPs"
+msgstr "Анонимизировать публичные IP"
+
+msgid "API returned unexpected status: %s"
+msgstr "API вернул неожиданный статус: %s"
+
+msgid "Authorize access to proxy only from LAN firewall zone"
+msgstr "Разрешить доступ к прокси только из зоны брандмауэра LAN"
+
+msgid "Backup available on server"
+msgstr "Резервная копия доступна на сервере"
+
+msgid "Backup restored successfully."
+msgstr "Резервная копия успешно восстановлена."
+
+msgid "Backup sent successfully."
+msgstr "Резервная копия успешно отправлена."
+
+msgid "Calculate speed"
+msgstr "Вычислить скорость"
+
+msgid "Can't ping server"
+msgstr "Не удаётся пинговать сервер"
+
+msgid "Clients"
+msgstr "Клиенты"
+
+msgid "Configuration saved successfully through OpenMPTCProuter API."
+msgstr "Конфигурация успешно сохранена через API OpenMPTCProuter."
+
+msgid "Custom"
+msgstr "Настраиваемый"
+
+msgid "Direct Output"
+msgstr "Прямой вывод"
+
+msgid "Disable 6in4"
+msgstr "Отключить 6in4"
+
+msgid "Disable if server doesn't provide IPv6."
+msgstr "Отключить, если сервер не поддерживает IPv6."
+
+msgid "Disable multipath test"
+msgstr "Отключить тест многопутевой маршрутизации"
+
+msgid "Disable multipath test display in status page"
+msgstr "Отключить отображение теста многопутевой маршрутизации на странице состояния"
+
+msgid "Disable OpenVPN multi clients"
+msgstr "Отключить множественных клиентов OpenVPN"
+
+msgid ""
+"Disable OpenVPN multi clients to distribute connections and use more CPU "
+"cores"
+msgstr ""
+"Отключить множественных клиентов OpenVPN для распределения соединений и использования большего числа ядер ЦП"
+
+msgid "DNS issue: can't resolve hostname"
+msgstr "Проблема DNS: не удаётся разрешить имя хоста"
+
+msgid "Enable Fast Path offloading for connections"
+msgstr "Включить разгрузку Fast Path для соединений"
+
+msgid "Enable if host supports NAT64."
+msgstr "Включить, если хост поддерживает NAT64."
+
+msgid "Error: "
+msgstr "Ошибка: "
+
+msgid "Europe"
+msgstr "Европа"
+
+msgid "Failed to restore backup: "
+msgstr "Не удалось восстановить резервную копию: "
+
+msgid "Failed to save settings: "
+msgstr "Не удалось сохранить настройки: "
+
+msgid "Failed to send backup: "
+msgstr "Не удалось отправить резервную копию: "
+
+msgid "Force TCP failback in compatible applications"
+msgstr "Принудительный откат TCP в совместимых приложениях"
+
+msgid "Force TCP failback in Zoom, Microsoft Teams and Google Net"
+msgstr "Принудительный откат TCP в Zoom, Microsoft Teams и Google Net"
+
+msgid "For China: accessible DNS and disable DNSSEC."
+msgstr "Для Китая: доступный DNS и отключение DNSSEC."
+
+msgid "gateway:"
+msgstr "шлюз:"
+
+msgid "General"
+msgstr "Основные"
+
+msgid "IPv4 TCP retries1"
+msgstr "Повторные попытки TCP1 для IPv4"
+
+msgid "IPv4 TCP retries2"
+msgstr "Повторные попытки TCP2 для IPv4"
+
+msgid "IPv6"
+msgstr "IPv6"
+
+msgid "Kernel:"
+msgstr "Ядро:"
+
+msgid "Key to configure and retrieve others keys from Server."
+msgstr "Ключ для настройки и получения других ключей с сервера."
+
+msgid "LAN"
+msgstr "LAN"
+
+msgid "LAN interfaces"
+msgstr "LAN-интерфейсы"
+
+msgid "Last available backup on server"
+msgstr "Последняя доступная резервная копия на сервере"
+
+msgid "MacVLAN master"
+msgstr "Основной MacVLAN"
+
+msgid "Minimum RTT"
+msgstr "Минимальный RTT"
+
+msgid "MQVPN key"
+msgstr "Ключ MQVPN"
+
+msgid "MQVPN scheduler"
+msgstr "Планировщик MQVPN"
+
+msgid "Network"
+msgstr "Сеть"
+
+msgid "Next"
+msgstr "Далее"
+
+msgid "No AES instruction set, you should use chacha20."
+msgstr "Нет набора инструкций AES; рекомендуется использовать chacha20."
+
+msgid "No WAN with multipath enabled"
+msgstr "Нет WAN с включённой многопутевой маршрутизацией"
+
+msgid "number:"
+msgstr "номер:"
+
+msgid "Obfuscation"
+msgstr "Обфускация"
+
+msgid "Only one server can be master."
+msgstr "Только один сервер может быть основным."
+
+msgid "OpenMPTCProuter Wizard"
+msgstr "Мастер настройки OpenMPTCProuter"
+
+msgid "Optional"
+msgstr "Необязательно"
+
+msgid "Previous"
+msgstr "Назад"
+
+msgid "Proxy"
+msgstr "Прокси"
+
+msgid "Proxy:"
+msgstr "Прокси:"
+
+msgid "Proxy for TCP (and UDP for V2Ray/XRay)."
+msgstr "Прокси для TCP (и UDP для V2Ray/XRay)."
+
+msgid "Public IPv6 prefix only with one server."
+msgstr "Публичный IPv6-префикс только с одним сервером."
+
+msgid "Qualcomm SFE"
+msgstr "Qualcomm SFE"
+
+msgid "Restrict proxy to LAN zone"
+msgstr "Ограничить прокси зоной LAN"
+
+msgid "Reveal proxy, VPN, IPv6 and country settings."
+msgstr "Показать настройки прокси, VPN, IPv6 и страны."
+
+msgid "Run an automatic speedtest."
+msgstr "Запустить автоматический тест скорости."
+
+msgid "Saved through openmptcprouter ubus API (%s)."
+msgstr "Сохранено через API ubus openmptcprouter (%s)."
+
+msgid "Save error: "
+msgstr "Ошибка сохранения: "
+
+msgid "Server"
+msgstr "Сервер"
+
+msgid "Settings saved and applied successfully."
+msgstr "Настройки успешно сохранены и применены."
+
+msgid "ShadowSocks 2022 key"
+msgstr "Ключ ShadowSocks 2022"
+
+msgid "Shadowsocks UDP"
+msgstr "Shadowsocks UDP"
+
+msgid "SoftEther VPN password"
+msgstr "Пароль SoftEther VPN"
+
+msgid "System"
+msgstr "Система"
+
+msgid "System is restarting services. This may take a few moments..."
+msgstr "Система перезапускает службы. Это может занять несколько секунд..."
+
+msgid ""
+"The length of time an orphaned connection will remain in the FIN_WAIT_2 "
+"state before it is aborted at the local end."
+msgstr ""
+"Время, в течение которого осиротевшее соединение остаётся в состоянии FIN_WAIT_2 до его прерывания с локальной стороны."
+
+msgid "Timeout for retrieving Whois WANs IP on status pages"
+msgstr "Таймаут получения Whois IP WAN на страницах состояния"
+
+msgid "Trigger update"
+msgstr "Запустить обновление"
+
+msgid "Update remotely to latest version and reboot. (Beta)"
+msgstr "Удалённо обновить до последней версии и перезагрузить. (Бета)"
+
+msgid "Update started."
+msgstr "Обновление запущено."
+
+msgid "USA"
+msgstr "США"
+
+msgid "Used for Shadowsocks, V2Ray/XRay, Glorytun and OpenVPN."
+msgstr "Используется для Shadowsocks, V2Ray/XRay, Glorytun и OpenVPN."
+
+msgid "Use V2Ray/XRay for UDP too"
+msgstr "Использовать V2Ray/XRay и для UDP"
+
+msgid "Use when MPTCP is blocked by your ISP."
+msgstr "Использовать, когда MPTCP заблокирован вашим провайдером."
+
+msgid "V2Ray/XRay UDP"
+msgstr "V2Ray/XRay UDP"
+
+msgid "Validation errors exist in the form. Please check all fields."
+msgstr "В форме есть ошибки проверки. Пожалуйста, проверьте все поля."
+
+msgid "VPN"
+msgstr "VPN"
+
+msgid "VPN:"
+msgstr "VPN:"
+
+msgid "VPN for ICMP (and UDP with Shadowsocks proxy)."
+msgstr "VPN для ICMP (и UDP с прокси Shadowsocks)."
+
+msgid "WAN"
+msgstr "WAN"
+
+msgid "WAN interfaces"
+msgstr "WAN-интерфейсы"
+
+msgid "Weighted Load Balancing"
+msgstr "Взвешенная балансировка нагрузки"
+
+msgid ""
+"When enabled, checks are done on external sites to get each WAN IP and the "
+"IP used to go outside."
+msgstr ""
+"При включении выполняются проверки на внешних сайтах для получения IP каждого WAN и IP, используемого для выхода в интернет."
+
+msgid "When proxy V2Ray/XRay VLESS, VMESS or Trojan is used, use it for UDP"
+msgstr "При использовании прокси V2Ray/XRay VLESS, VMESS или Trojan использовать его для UDP"
+
+msgid "Whois WAN IPs retrieve timeout"
+msgstr "Таймаут получения Whois IP WAN"
+
+msgid "XRay Transport"
+msgstr "Транспорт XRay"
+
+msgid "XRay user id"
+msgstr "ID пользователя XRay"

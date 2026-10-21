@@ -838,7 +838,7 @@ disable_gro_fraglist()
 {
 	for iface in /sys/class/net/*; do
 		iface=$(basename "$iface")
-		if ethtool -k "$iface" | grep -q "rx-gro-list"; then
+		if ethtool -k "$iface" 2>/dev/null | grep -q "rx-gro-list"; then
 			ethtool -K "$iface" rx-gro-list off
 		fi
 	done

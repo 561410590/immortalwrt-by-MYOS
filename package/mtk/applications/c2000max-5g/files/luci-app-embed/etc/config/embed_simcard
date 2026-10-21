@@ -1,0 +1,8 @@
+config general 'general'
+	option slot 'simcard1'
+	option apn 'internet'
+	option roaming '0'
+	option at_port '/dev/ttyUSB1'
+
+config webui 'webui'
+	option url ''

@@ -1,0 +1,75 @@
+#!/bin/sh
+# Configure RPS and XPS for all network interfaces based on available CPUs.
+# RPS: distributes incoming packet processing across CPUs.
+# XPS: maps TX queues to CPU groups for balanced transmission.
+
+[ "$ACTION" = "add" ] || exit 0
+
+cpu_count=$(grep -c '^processor' /proc/cpuinfo)
+[ "$cpu_count" -gt 0 ] || cpu_count=1
+
+# Compute hex bitmask for CPUs [start, start+count-1]
+# Outputs comma-separated 32-bit chunks for >32 CPU systems
+_cpu_mask() {
+	local start="$1" count="$2"
+	awk -v s="$start" -v c="$count" 'BEGIN {
+		val = 0
+		for (i = s; i < s + c; i++) val += 2 ^ i
+		hi = int(val / 4294967296)
+		lo = val % 4294967296
+		if (hi > 0) printf "%x,%08x\n", hi, lo
+		else printf "%x\n", lo
+	}'
+}
+
+configure_rps_xps() {
+	local iface="$1"
+	[ "$iface" = "lo" ] && return
+	local base="/sys/class/net/${iface}/queues"
+	[ -d "$base" ] || return
+
+	local all_mask
+	all_mask=$(_cpu_mask 0 "$cpu_count")
+
+	# RPS: assign all CPUs to every RX queue
+	for f in "${base}"/rx-*/rps_cpus; do
+		[ -f "$f" ] && echo "$all_mask" > "$f" 2>/dev/null
+	done
+
+	# Count TX queues
+	local tx_count=0
+	for q in "${base}"/tx-*; do
+		[ -d "$q" ] && tx_count=$((tx_count + 1))
+	done
+	[ "$tx_count" -eq 0 ] && return
+
+	# XPS: distribute CPUs evenly across TX queues
+	local qi=0
+	for f in "${base}"/tx-*/xps_cpus; do
+		[ -f "$f" ] || continue
+		local mask
+		if [ "$tx_count" -ge "$cpu_count" ]; then
+			# More TX queues than CPUs: one CPU per queue, round-robin
+			mask=$(_cpu_mask "$((qi % cpu_count))" 1)
+		else
+			# More CPUs than TX queues: distribute CPU groups
+			local cpus_per_q=$(( cpu_count / tx_count ))
+			local remainder=$(( cpu_count % tx_count ))
+			local start grp_size
+			if [ "$qi" -lt "$remainder" ]; then
+				grp_size=$(( cpus_per_q + 1 ))
+				start=$(( qi * grp_size ))
+			else
+				grp_size=$cpus_per_q
+				start=$(( remainder * (cpus_per_q + 1) + (qi - remainder) * cpus_per_q ))
+			fi
+			mask=$(_cpu_mask "$start" "$grp_size")
+		fi
+		echo "$mask" > "$f" 2>/dev/null
+		qi=$(( qi + 1 ))
+	done
+
+	logger -t "RPS/XPS" "iface=$iface tx_queues=$tx_count cpus=$cpu_count rps_mask=$all_mask"
+}
+
+configure_rps_xps "$INTERFACE"

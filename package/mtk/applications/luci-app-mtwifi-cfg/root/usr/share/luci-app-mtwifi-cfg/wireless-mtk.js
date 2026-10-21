@@ -10,6 +10,7 @@
 'require network';
 'require firewall';
 'require tools.widgets as widgets';
+'require tools.myos-wifi as simplewifi';
 
 var isReadonlyView = !L.hasViewPermission();
 
@@ -122,6 +123,11 @@ function render_radio_status(radioDev, wifiNets) {
 	var name = radioDev.getI18n().replace(/ Wireless Controller .+$/, ''),
 	    node = E('div', [ E('big', {}, E('strong', {}, name)), E('div') ]),
 	    channel, frequency, bitrate;
+
+	if (uci.get('wireless', radioDev.getName(), 'type') == 'mtwifi')
+		name = name.replace(/ unknown$/, '');
+
+	dom.content(node.firstElementChild, E('strong', {}, name));
 
 	for (var i = 0; i < wifiNets.length; i++) {
 		channel   = channel   || wifiNets[i].getChannel();
@@ -321,6 +327,12 @@ var CBIWifiFrequencyValue = form.Value.extend({
 	}),
 
 	load: function(section_id) {
+		var hwtype = uci.get('wireless', section_id, 'type'),
+		    bandval = uci.get('wireless', section_id, 'band'),
+		    htval = uci.get('wireless', section_id, 'htmode'),
+		    is_mtwifi = (hwtype == 'mtwifi'),
+		    is_eht = is_mtwifi && (/^EHT/.test(htval) || /^MT799[23]_/.test(section_id));
+
 		return Promise.all([
 			network.getWifiDevice(section_id),
 			this.callFrequencyList(section_id)
@@ -331,6 +343,21 @@ var CBIWifiFrequencyValue = form.Value.extend({
 				'6g': [],
 				'60g': []
 			};
+
+			if (is_mtwifi && data[1].length == 0) {
+				var fallback = (bandval == '2g')
+					? [ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 ]
+					: (bandval == '5g')
+						? [ 36, 40, 44, 48, 52, 56, 60, 64, 149, 153, 157, 161, 165 ]
+						: [];
+
+				for (var i = 0; i < fallback.length; i++)
+					data[1].push({
+						channel: fallback[i],
+						mhz: (bandval == '2g') ? 2407 + fallback[i] * 5 : 5000 + fallback[i] * 5,
+						restricted: false
+					});
+			}
 
 			for (var i = 0; i < data[1].length; i++) {
 				var band;
@@ -356,15 +383,24 @@ var CBIWifiFrequencyValue = form.Value.extend({
 			var hwmodelist = L.toArray(data[0] ? data[0].getHWModes() : null)
 				.reduce(function(o, v) { o[v] = true; return o }, {});
 
+			if (is_eht)
+				hwmodelist.be = true;
+
 			this.modes = [
 				'', 'Legacy', hwmodelist.a || hwmodelist.b || hwmodelist.g,
 				'n', 'N', hwmodelist.n,
 				'ac', 'AC', hwmodelist.ac,
-				'ax', 'AX', hwmodelist.ax
+				'ax', 'AX', hwmodelist.ax,
+				'be', 'BE', hwmodelist.be
 			];
 
 			var htmodelist = L.toArray(data[0] ? data[0].getHTModes() : null)
 				.reduce(function(o, v) { o[v] = true; return o }, {});
+
+			if (is_eht && bandval == '2g')
+				htmodelist.EHT20 = htmodelist.EHT40 = true;
+			else if (is_eht && bandval == '5g')
+				htmodelist.EHT20 = htmodelist.EHT40 = htmodelist.EHT80 = htmodelist.EHT160 = true;
 
 			this.htmodes = {
 				'': [ '', '-', true ],
@@ -383,6 +419,13 @@ var CBIWifiFrequencyValue = form.Value.extend({
 					'HE80', '80 MHz', htmodelist.HE80,
 					'HE40', '40 MHz', htmodelist.HE40,
 					'HE20', '20 MHz', htmodelist.HE20
+				],
+				'be': [
+					'EHT320', '320 MHz', htmodelist.EHT320,
+					'EHT160', '160 MHz', htmodelist.EHT160,
+					'EHT80', '80 MHz', htmodelist.EHT80,
+					'EHT40', '40 MHz', htmodelist.EHT40,
+					'EHT20', '20 MHz', htmodelist.EHT20
 				]
 			};
 
@@ -402,6 +445,11 @@ var CBIWifiFrequencyValue = form.Value.extend({
 				'ax': [
 					'2g', '2.4 GHz', this.channels['2g'].length > 3,
 					'5g', '5 GHz', this.channels['5g'].length > 3
+				],
+				'be': [
+					'2g', '2.4 GHz', this.channels['2g'].length > 3,
+					'5g', '5 GHz', this.channels['5g'].length > 3,
+					'6g', '6 GHz', this.channels['6g'].length > 3
 				]
 			};
 		}, this));
@@ -466,7 +514,9 @@ var CBIWifiFrequencyValue = form.Value.extend({
 
 		this.setValues(mode, this.modes);
 
-		if (/HE20|HE40|HE80|HE160/.test(htval))
+		if (/EHT20|EHT40|EHT80|EHT160|EHT320/.test(htval))
+			mode.value = 'be';
+		else if (/HE20|HE40|HE80|HE160/.test(htval))
 			mode.value = 'ax';
 		else if (/VHT20|VHT40|VHT80|VHT160/.test(htval))
 			mode.value = 'ac';
@@ -564,14 +614,18 @@ var CBIWifiFrequencyValue = form.Value.extend({
 	},
 
 	write: function(section_id, value) {
-		uci.set('wireless', section_id, 'htmode', value[0] || null);
+		var is_mtwifi = (uci.get('wireless', section_id, 'type') == 'mtwifi');
 
-		if (this.useBandOption)
+		if (value[0] || !is_mtwifi)
+			uci.set('wireless', section_id, 'htmode', value[0] || null);
+
+		if (this.useBandOption && (value[1] || !is_mtwifi))
 			uci.set('wireless', section_id, 'band', value[1]);
-		else
+		else if (!this.useBandOption && (value[1] || !is_mtwifi))
 			uci.set('wireless', section_id, 'hwmode', (value[1] == '2g') ? '11g' : '11a');
 
-		uci.set('wireless', section_id, 'channel', value[2]);
+		if (value[2] || !is_mtwifi)
+			uci.set('wireless', section_id, 'channel', value[2]);
 	}
 });
 
@@ -784,6 +838,13 @@ return view.extend({
 	}),
 
 	render: function() {
+		if (new URLSearchParams(window.location.search).get('expert') !== '1') {
+			this.handleSave = null;
+			this.handleSaveApply = null;
+			this.handleReset = null;
+			return simplewifi.render();
+		}
+
 		if (this.checkAnonymousSections())
 			return this.renderMigration();
 		else
@@ -1043,12 +1104,13 @@ return view.extend({
 					o.value('1', _('Enable'));
 					o.value('2', _('Force'));
 
-					o = ss.taboption('advanced', form.Value, 'txpower', _('Maximum transmit power'));
-					o.datatype = 'range(1,100)';
-					o.placeholder = 100;
+					o = ss.taboption('advanced', form.Value, 'txpower', _('Transmit power (%)'), _('100 uses the maximum power allowed by the driver, calibration data and regulatory limits. Lower values reduce transmit power.'));
+					o.datatype = 'and(uinteger,range(1,100))';
+					o.default = '100';
+					o.rmempty = false;
 				}
 
-				o = s.option(form.SectionValue, '_device', form.NamedSection, radioNet.getName(), 'wifi-iface', _('Interface Configuration'));
+				o = s.option(form.SectionValue, '_iface', form.NamedSection, radioNet.getName(), 'wifi-iface', _('Interface Configuration'));
 				o.modalonly = true;
 
 				ss = o.subsection;
@@ -1585,7 +1647,6 @@ return view.extend({
 				}
 				else if (hwtype == 'mtwifi') {
 					crypto_modes.push(['psk2',      'WPA2-PSK',                    35]);
-					crypto_modes.push(['psk',       'WPA-PSK',                     12]);
 					crypto_modes.push(['sae',       'WPA3-SAE',                     31]);
 					crypto_modes.push(['owe', 'OWE', 1]);
 					if (ifmode == 'ap') {
@@ -1661,7 +1722,7 @@ return view.extend({
 				o.depends('encryption', 'sae');
 				o.depends('encryption', 'sae-mixed');
 				o.datatype = 'wpakey';
-				o.rmempty = true;
+				o.rmempty = false;
 				o.password = true;
 
 				o.cfgvalue = function(section_id) {

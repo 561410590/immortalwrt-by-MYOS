@@ -16,6 +16,7 @@ PKG_FLAGS:=nonshared
 PKG_RELEASE:=1860
 
 PKG_FILE_DEPENDS:=$(PLATFORM_DIR)/ $(GENERIC_PLATFORM_DIR)/base-files/
+PKG_FILE_DEPENDS+=$(INCLUDE_DIR)/version.mk
 PKG_BUILD_DEPENDS:=usign/host ucert/host
 PKG_LICENSE:=GPL-2.0
 
@@ -165,6 +166,16 @@ ifeq ($(CONFIG_LEGACY_SDCARD_SUPPORT),)
   endef
 endif
 
+ifneq ($(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_c2000-ultra),)
+  define Package/base-files/c2000-ultra-phy-firmware
+	$(INSTALL_DIR) $(1)/lib/firmware/mediatek/mt7987
+	$(INSTALL_DATA) $(TOPDIR)/package/mtk/drivers/c2000max-wifi7/files/firmware/mediatek/mt7987/i2p5ge-phy-pmb.bin \
+		$(1)/lib/firmware/mediatek/mt7987/i2p5ge-phy-pmb.bin
+	$(INSTALL_DATA) $(TOPDIR)/package/mtk/drivers/c2000max-wifi7/files/firmware/mediatek/mt7987/i2p5ge-phy-DSPBitTb.bin \
+		$(1)/lib/firmware/mediatek/mt7987/i2p5ge-phy-DSPBitTb.bin
+  endef
+endif
+
 
 define Package/base-files/install
 	$(CP) ./files/* $(1)/
@@ -172,6 +183,7 @@ define Package/base-files/install
 	$(Package/base-files/nand-support)
 	$(Package/base-files/legacy-sdcard-support)
 	$(Package/base-files/emmc-support)
+	$(Package/base-files/c2000-ultra-phy-firmware)
 	if [ -d $(GENERIC_PLATFORM_DIR)/base-files/. ]; then \
 		$(CP) $(GENERIC_PLATFORM_DIR)/base-files/* $(1)/; \
 	fi

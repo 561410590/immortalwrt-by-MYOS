@@ -1,0 +1,11 @@
+#!/bin/sh
+
+# Set the default Proxy
+if [ "$(uci -q get openmptcprouter.settings.proxy)" = "" ]; then
+	uci -q batch <<-EOF >/dev/null
+		set openmptcprouter.settings.proxy='shadowsocks-rust'
+		commit openmptcprouter
+	EOF
+fi
+
+exit 0

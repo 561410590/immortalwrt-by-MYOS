@@ -1,0 +1,68 @@
+#!/bin/sh
+#
+# Copyright (C) 2026 Ycarus (Yannick Chabanois) <ycarus@zugaina.org> for OpenMPTCProuter
+#
+# This is free software, licensed under the GNU General Public License v2.
+# See /LICENSE for more information.
+#
+# This script manages mqvpn paths when an interface goes up or down
+
+if [ "$(uci -q get mqvpn.settings.enable)" != "1" ]; then
+	exit 0
+fi
+
+if [ -z "$OMR_TRACKER_DEVICE" ] || [ -z "$OMR_TRACKER_INTERFACE" ]; then
+	exit 0
+fi
+
+# Don't manage VPN interfaces
+if [ "$(uci -q get openmptcprouter.$OMR_TRACKER_INTERFACE.vpn)" = "1" ]; then
+	exit 0
+fi
+
+if [ "$(pgrep -f mqvpn)" = "" ]; then
+	exit 0
+fi
+
+mqvpn_path_exists() {
+	mqvpn-path list 2>/dev/null | grep -q "\"$OMR_TRACKER_DEVICE\""
+}
+if [ "$(uci -q get mqvpn.interface.route_via_server)" = "1" ]; then
+	if ip route show 0.0.0.0/1 dev tun0 2>/dev/null | grep -q .; then
+		ip route del 0.0.0.0/1 dev tun0 2>/dev/null
+	fi
+fi
+if [ "$OMR_TRACKER_STATUS" = "ERROR" ]; then
+	[ "$OMR_TRACKER_PREV_STATUS" = "$OMR_TRACKER_STATUS" ] && exit 0
+	if mqvpn_path_exists; then
+		_log "mqvpn: remove path $OMR_TRACKER_DEVICE ($OMR_TRACKER_INTERFACE)"
+		mqvpn-path remove "$OMR_TRACKER_DEVICE" >/dev/null
+		# Force 006-mqvpn-weight to re-apply the weight next time this
+		# path comes back up, since mqvpn drops any per-path state on remove.
+		uci -q del "network.$OMR_TRACKER_INTERFACE.weight"
+		[ -n "$(uci -q changes network)" ] && uci -q commit network
+	fi
+	exit 0
+fi
+
+# Only act on status transitions to avoid spamming the API on every poll
+[ "$OMR_TRACKER_PREV_STATUS" = "$OMR_TRACKER_STATUS" ] && exit 0
+
+multipath_config=$(uci -q get "openmptcprouter.$OMR_TRACKER_INTERFACE.multipath")
+[ -z "$multipath_config" ] && multipath_config=$(uci -q get "network.$OMR_TRACKER_INTERFACE.multipath" || echo "off")
+
+if [ "$multipath_config" != "on" ] && [ "$multipath_config" != "master" ] && [ "$multipath_config" != "backup" ]; then
+	exit 0
+fi
+
+if ! mqvpn_path_exists; then
+	if [ "$multipath_config" = "backup" ]; then
+		_log "mqvpn: add backup path $OMR_TRACKER_DEVICE ($OMR_TRACKER_INTERFACE)"
+		mqvpn-path add "$OMR_TRACKER_DEVICE" backup >/dev/null
+	else
+		_log "mqvpn: add path $OMR_TRACKER_DEVICE ($OMR_TRACKER_INTERFACE)"
+		mqvpn-path add "$OMR_TRACKER_DEVICE" >/dev/null
+	fi
+fi
+
+exit 0

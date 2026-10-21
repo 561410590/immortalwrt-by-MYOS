@@ -1,0 +1,32 @@
+#!/bin/sh
+#
+# 99j-mwrt-wizard —— 装好菜单里「向导」的点击入口
+#
+# 注意:这里**不**安排任何自动弹出。向导只在用户点菜单时以弹窗形式出现,
+# 首次启动也不弹。install-wizard.sh 注入的是一个点击拦截器,不是跳转。
+#
+# 为什么不在源码里直接改 footer.ut:
+#   注入点是 luci-base 的全局模板 /usr/share/ucode/luci/template/footer.ut。
+#   在 feeds/luci/modules/luci-base/ 里改会影响用这棵树编的所有板子,
+#   所以改成运行期注入 —— 只有装了本脚本的固件才有这个入口。
+#
+# 幂等,重复执行无副作用;install-wizard.sh 自己会判断是否已注入,
+# 也会把老版本那个"首次登录自动跳转"的注入块迁移掉。
+
+[ -x /usr/bin/install-wizard.sh ] || exit 0
+
+/usr/bin/install-wizard.sh >/dev/null 2>&1
+
+# luci-base 升级会把 footer.ut 覆盖回去,挂个每小时的自愈。
+# 分钟数避开已经被占的 17(disclaimer)/23(aurora)/41(luci-perf)/43(translations),
+# 也别用整点 —— 不然一堆任务挤在同一分钟。
+if ! grep -q 'install-wizard.sh' /etc/crontabs/root 2>/dev/null; then
+	echo '29 * * * * /usr/bin/install-wizard.sh >/dev/null 2>&1' >> /etc/crontabs/root
+	/etc/init.d/cron reload >/dev/null 2>&1
+fi
+
+# 新页面要立刻出现在菜单里,别等重启
+rm -f /tmp/luci-indexcache* 2>/dev/null
+rm -rf /tmp/luci-modulecache 2>/dev/null
+
+exit 0

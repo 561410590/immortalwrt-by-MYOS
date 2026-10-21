@@ -1,0 +1,11 @@
+--- a/dist/bin/hb-service.js
++++ b/dist/bin/hb-service.js
+@@ -18,7 +18,7 @@ import { extract } from 'tar';
+ import { check as tcpCheck } from 'tcp-port-used';
+ import { DarwinInstaller } from './platforms/darwin.js';
+ import { FreeBSDInstaller } from './platforms/freebsd.js';
+-import { LinuxInstaller } from './platforms/linux.js';
++import { LinuxInstaller } from './platforms/openwrt.js';
+ import { Win32Installer } from './platforms/win32.js';
+ process.title = 'hb-service';
+ const __filename = fileURLToPath(import.meta.url);

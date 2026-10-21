@@ -1,0 +1,6 @@
+#!/bin/sh
+
+grep -q "wed_enable=Y" /etc/modules.d/mt7915e 2>/dev/null || \
+	echo "options mt7915e wed_enable=Y" >> /etc/modules.d/mt7915e
+
+exit 0

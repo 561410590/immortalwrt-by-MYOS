@@ -1,3 +1,9 @@
+# MYOS 源码公开快照
+
+机型、公开范围、冻结 feeds、外部原厂输入及构建边界见 [源码说明](README-OPEN-SOURCE.md)。官方 APP 联动实现保留，作者私有服务与真实凭据不包含。此快照未完成全部机型的干净重编或刷机验收。
+
+---
+
 <img src="https://avatars.githubusercontent.com/u/53193414?s=200&v=4" alt="logo" width="200" height="200" align="right">
 
 # Project ImmortalWrt

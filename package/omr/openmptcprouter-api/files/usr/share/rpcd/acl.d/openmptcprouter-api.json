@@ -1,0 +1,15 @@
+{
+	"openmptcprouter-api": {
+		"description": "OpenMPTCProuter API",
+		"read": {
+			"ubus": {
+				"openmptcprouter": [ "*" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"openmptcprouter": [ "*" ]
+			}
+		}
+	}
+}

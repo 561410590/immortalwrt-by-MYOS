@@ -1,0 +1,28 @@
+#!/bin/sh
+# 5700 一插上/重新枚举就回收孪生配置。
+#
+# 命名 40- 是为了排在 qmodem 自己的 20-modem-usb 之后 —— 同一个 hotplug 目录里的
+# 脚本按文件名顺序串行跑,等 20-modem-usb 那边的 modem_scan.sh add 返回、段已经建好
+# 之后再轮到这里,才有得可判。
+
+[ "$ACTION" = "add" ] || [ "$ACTION" = "bind" ] || exit 0
+
+# 只认 MT5700M(3466:3301)。DEVPATH 在 usb 子系统事件里指向设备目录,接口级事件
+# (2-1:2.0 这种)自己没有 idVendor,所以顺着父目录取。
+D="/sys$DEVPATH"
+[ -d "$D" ] || exit 0
+[ -f "$D/idVendor" ] || D="$(dirname "$D")"
+[ -f "$D/idVendor" ] || exit 0
+
+[ "$(cat "$D/idVendor" 2>/dev/null):$(cat "$D/idProduct" 2>/dev/null)" = "3466:3301" ] || exit 0
+
+# 串行,不能并行: usb3 那一步会复位模组(AT+CFUN=1,1),模组会离开总线三十来秒,
+# dedup 这时候插进来只会看见"没有活段"然后空转一趟。先把总线拉对,再回收孪生段。
+# 落在 USB3 上时 usb3 是个空操作,直接就走到 dedup;usb3 自己成功后也会叫一次
+# dedup,多叫一次无害(已验证幂等)。
+(
+	[ -x /usr/bin/mwrt-qmodem-usb3 ] && /usr/bin/mwrt-qmodem-usb3
+	[ -x /usr/bin/mwrt-qmodem-dedup ] && /usr/bin/mwrt-qmodem-dedup
+) >/dev/null 2>&1 &
+
+exit 0

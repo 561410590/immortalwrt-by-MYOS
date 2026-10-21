@@ -1,0 +1,287 @@
+#!/bin/sh
+
+C2000MAX_SD_DISK="/dev/mmcblk0"
+C2000MAX_SD_PART="/dev/mmcblk0p7"
+C2000MAX_SD_MOUNT="/tmp/c2000max-extroot"
+C2000MAX_SD_TABLE="/tmp/c2000max-fdisk"
+C2000MAX_SD_FSTAB="/tmp/c2000max-fstab"
+C2000MAX_SD_SYSDEV="/sys/class/block/mmcblk0p7/dev"
+C2000MAX_SD_MIN_FREE_SECTORS=524288
+C2000MAX_SD_PART_WAIT=20
+C2000MAX_SD_ROOTFS_ID="/etc/c2000max-rootfs-id"
+C2000MAX_SD_OVERLAY_ID=".c2000max-overlay-id"
+C2000MAX_SD_RESET_REQUEST=".c2000max-reset-on-boot"
+
+c2000max_sd_log() {
+	echo "c2000max-extroot: $*" > /dev/kmsg 2>/dev/null || true
+}
+
+c2000max_sd_board() {
+	[ -r /proc/device-tree/compatible ] || return 1
+	tr '\000' '\n' < /proc/device-tree/compatible 2>/dev/null |
+		grep -qx 'nradio,c2000-max'
+}
+
+c2000max_sd_make_partition_node() {
+	local dev major minor
+
+	[ -b "$C2000MAX_SD_PART" ] && return 0
+	[ -r "$C2000MAX_SD_SYSDEV" ] || return 1
+	read -r dev < "$C2000MAX_SD_SYSDEV"
+	case "$dev" in
+		*:*) ;;
+		*) return 1 ;;
+	esac
+	major="${dev%%:*}"
+	minor="${dev#*:}"
+	case "$major$minor" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	[ ! -e "$C2000MAX_SD_PART" ] || return 1
+	mknod "$C2000MAX_SD_PART" b "$major" "$minor" 2>/dev/null || return 1
+	c2000max_sd_log "created p7 node from sysfs ${major}:${minor}"
+}
+
+c2000max_sd_wait_partition() {
+	local count=0
+	while [ "$count" -lt "$C2000MAX_SD_PART_WAIT" ]; do
+		c2000max_sd_make_partition_node && return 0
+		sleep 1
+		count=$((count + 1))
+	done
+	c2000max_sd_make_partition_node
+}
+
+c2000max_sd_bind_extroot() {
+	[ -f /etc/config/fstab ] || return 1
+	cp /etc/config/fstab "$C2000MAX_SD_FSTAB" || return 1
+	if ! grep -q "option target '/overlay'" "$C2000MAX_SD_FSTAB"; then
+		cat >> "$C2000MAX_SD_FSTAB" <<-EOF
+
+		config mount 'c2000max_extroot'
+			option target '/overlay'
+			option device '$C2000MAX_SD_PART'
+			option fstype 'ext4'
+			option options 'rw,noatime'
+			option enabled '1'
+		EOF
+	fi
+	mount -o bind "$C2000MAX_SD_FSTAB" /etc/config/fstab
+}
+
+c2000max_sd_prepare_extroot() {
+	local disk_sectors p6_end p7_start start free_sectors backup_sig
+	local fstype created=0 recovering=0 new_fs=0 owned=0 reset_requested=0
+	local cleanup_requested=0 rootfs_id applied_overlay_id cleanup_reason
+
+	c2000max_sd_board || return 0
+	[ -b "$C2000MAX_SD_DISK" ] || return 0
+	[ -r "$C2000MAX_SD_ROOTFS_ID" ] || {
+		c2000max_sd_log "missing ROM rootfs ID; preserve p7 and skip"
+		return 0
+	}
+	IFS= read -r rootfs_id < "$C2000MAX_SD_ROOTFS_ID"
+	case "$rootfs_id" in
+		''|*[!A-Za-z0-9._-]*)
+			c2000max_sd_log "invalid ROM rootfs ID; preserve p7 and skip"
+			return 0
+			;;
+	esac
+	for command in fdisk partprobe blkid mkfs.ext4 mount umount mknod awk grep tr \
+		dd cp rm rmdir mkdir mv sync sleep; do
+		command -v "$command" >/dev/null 2>&1 || {
+			c2000max_sd_log "missing command: $command"
+			return 0
+		}
+	done
+
+	disk_sectors="$(cat /sys/class/block/mmcblk0/size 2>/dev/null)"
+	case "$disk_sectors" in
+		''|*[!0-9]*) return 0 ;;
+	esac
+	fdisk -l "$C2000MAX_SD_DISK" > "$C2000MAX_SD_TABLE" 2>/dev/null || {
+		c2000max_sd_log "cannot read GPT"
+		return 0
+	}
+	awk -v d="$C2000MAX_SD_DISK" '
+		$1 == "Disk" && $2 == "identifier:" && $3 == "2BD17853-102B-4500-AA1A-8A21D4D7984D" { guid=1 }
+		$1 == d "p1" && $2 == 1024 && $3 == 8191 { p1=1 }
+		$1 == d "p2" && $2 == 8192 && $3 == 9215 { p2=1 }
+		$1 == d "p3" && $2 == 9216 && $3 == 17407 { p3=1 }
+		$1 == d "p4" && $2 == 17408 && $3 == 21503 { p4=1 }
+		$1 == d "p5" && $2 == 21504 && $3 == 87039 { p5=1 }
+		$1 == d "p6" && $2 == 87040 && $3 == 496639 { p6=1 }
+		END { exit !(guid && p1 && p2 && p3 && p4 && p5 && p6) }
+	' "$C2000MAX_SD_TABLE" || {
+		c2000max_sd_log "unexpected GPT identity or p1-p6 layout"
+		return 0
+	}
+	p6_end=496639
+
+	p7_start="$(awk -v p="$C2000MAX_SD_PART" '$1 == p { print $2; exit }' "$C2000MAX_SD_TABLE")"
+	if [ -z "$p7_start" ] && [ -r /sys/class/block/mmcblk0p7/start ]; then
+		p7_start="$(cat /sys/class/block/mmcblk0p7/start 2>/dev/null)"
+	fi
+	backup_sig="$(dd if="$C2000MAX_SD_DISK" bs=512 skip=$((disk_sectors - 1)) count=1 2>/dev/null |
+		dd bs=1 count=8 2>/dev/null)"
+	[ "$backup_sig" = "EFI PART" ] && recovering=1
+
+	if [ -n "$p7_start" ]; then
+		[ "$p7_start" -gt "$p6_end" ] 2>/dev/null || {
+			c2000max_sd_log "p7 overlaps p6; skip"
+			return 0
+		}
+		if [ ! -b "$C2000MAX_SD_PART" ]; then
+			printf 'w\n' | fdisk "$C2000MAX_SD_DISK" >/dev/null 2>&1 || return 0
+			partprobe "$C2000MAX_SD_DISK" >/dev/null 2>&1 || true
+		fi
+	else
+		start=$(( (p6_end + 2048) / 2048 * 2048 ))
+		free_sectors=$((disk_sectors - start - 34))
+		[ "$free_sectors" -ge "$C2000MAX_SD_MIN_FREE_SECTORS" ] || {
+			c2000max_sd_log "less than 256 MiB free; keep p6 overlay"
+			return 0
+		}
+		printf 'n\n7\n%s\n\nw\n' "$start" | fdisk "$C2000MAX_SD_DISK" >/dev/null 2>&1 || {
+			c2000max_sd_log "cannot create p7"
+			return 0
+		}
+		created=1
+		partprobe "$C2000MAX_SD_DISK" >/dev/null 2>&1 || true
+	fi
+
+	c2000max_sd_wait_partition || {
+		c2000max_sd_log "p7 node did not appear"
+		return 0
+	}
+	fstype="$(blkid -s TYPE -o value "$C2000MAX_SD_PART" 2>/dev/null)"
+	if [ -z "$fstype" ] && [ "$created" = 1 ] && [ "$recovering" = 0 ]; then
+		mkfs.ext4 -F -L data "$C2000MAX_SD_PART" >/dev/null 2>&1 || {
+			c2000max_sd_log "cannot format new p7"
+			return 0
+		}
+		fstype=ext4
+		new_fs=1
+	fi
+	[ "$fstype" = ext4 ] || {
+		c2000max_sd_log "p7 is ${fstype:-unformatted}; preserve and skip"
+		return 0
+	}
+
+	umount "$C2000MAX_SD_MOUNT" >/dev/null 2>&1 || true
+	rmdir "$C2000MAX_SD_MOUNT" >/dev/null 2>&1 || true
+	mkdir -p "$C2000MAX_SD_MOUNT" || return 0
+	if [ "$new_fs" = 1 ]; then
+		owned=1
+	else
+		mount -t ext4 -o ro,noload "$C2000MAX_SD_PART" "$C2000MAX_SD_MOUNT" || {
+			c2000max_sd_log "cannot inspect existing p7"
+			return 0
+		}
+		if [ -f "$C2000MAX_SD_MOUNT/$C2000MAX_SD_RESET_REQUEST" ]; then
+			reset_requested=1
+			owned=1
+		fi
+		if [ -f "$C2000MAX_SD_MOUNT/.myos-extroot" ] || \
+			[ -f "$C2000MAX_SD_MOUNT/$C2000MAX_SD_OVERLAY_ID" ] || \
+			[ -f "$C2000MAX_SD_MOUNT/.c2000max-reset-rootfs-id" ] || \
+			{ [ -d "$C2000MAX_SD_MOUNT/upper" ] && [ -d "$C2000MAX_SD_MOUNT/work" ]; }; then
+			owned=1
+		fi
+		if [ "$owned" = 1 ]; then
+			applied_overlay_id=
+			[ ! -f "$C2000MAX_SD_MOUNT/$C2000MAX_SD_OVERLAY_ID" ] || \
+				IFS= read -r applied_overlay_id < \
+					"$C2000MAX_SD_MOUNT/$C2000MAX_SD_OVERLAY_ID"
+			if [ "$reset_requested" = 1 ]; then
+				cleanup_requested=1
+				cleanup_reason="firstboot reset requested"
+			elif [ "$applied_overlay_id" != "$rootfs_id" ]; then
+				cleanup_requested=1
+				cleanup_reason="firmware changed"
+			fi
+		fi
+		umount "$C2000MAX_SD_MOUNT" >/dev/null 2>&1 || return 0
+	fi
+	[ "$owned" = 1 ] || {
+		rmdir "$C2000MAX_SD_MOUNT" >/dev/null 2>&1 || true
+		c2000max_sd_log "existing p7 is not a MYOS extroot; preserve and skip"
+		return 0
+	}
+	mount -t ext4 -o rw,noatime "$C2000MAX_SD_PART" "$C2000MAX_SD_MOUNT" || {
+		c2000max_sd_log "cannot mount p7 read-write"
+		return 0
+	}
+	if [ "$cleanup_requested" = 1 ]; then
+		c2000max_sd_log "$cleanup_reason; resetting system overlay without formatting p7"
+		# A missing ID makes an interrupted reset repeat on the next boot.
+		rm -f "$C2000MAX_SD_MOUNT/$C2000MAX_SD_OVERLAY_ID" \
+			"$C2000MAX_SD_MOUNT/$C2000MAX_SD_OVERLAY_ID.new" || {
+			c2000max_sd_log "cannot invalidate old p7 overlay ID"
+			umount "$C2000MAX_SD_MOUNT" >/dev/null 2>&1 || true
+			return 0
+		}
+		sync
+		rm -rf "$C2000MAX_SD_MOUNT/upper" \
+			"$C2000MAX_SD_MOUNT/work" \
+			"$C2000MAX_SD_MOUNT/etc" || {
+			c2000max_sd_log "cannot remove old system overlay"
+			umount "$C2000MAX_SD_MOUNT" >/dev/null 2>&1 || true
+			return 0
+		}
+	fi
+	mkdir -p "$C2000MAX_SD_MOUNT/upper" "$C2000MAX_SD_MOUNT/work" \
+		"$C2000MAX_SD_MOUNT/etc" || {
+		c2000max_sd_log "cannot create clean system overlay"
+		umount "$C2000MAX_SD_MOUNT" >/dev/null 2>&1 || true
+		return 0
+	}
+	[ -f "$C2000MAX_SD_MOUNT/.myos-extroot" ] || \
+		printf '%s\n' 'format=1' 'board=nradio,c2000-max' > \
+			"$C2000MAX_SD_MOUNT/.myos-extroot" || {
+			c2000max_sd_log "cannot write p7 ownership marker"
+			umount "$C2000MAX_SD_MOUNT" >/dev/null 2>&1 || true
+			return 0
+		}
+	if [ "$new_fs" = 1 ] || [ "$cleanup_requested" = 1 ]; then
+		rm -f "$C2000MAX_SD_MOUNT/$C2000MAX_SD_RESET_REQUEST" \
+			"$C2000MAX_SD_MOUNT/.c2000max-reset-generation" \
+			"$C2000MAX_SD_MOUNT/.c2000max-reset-rootfs-id" \
+			"$C2000MAX_SD_MOUNT/$C2000MAX_SD_OVERLAY_ID.new" || {
+			c2000max_sd_log "cannot remove old p7 reset markers"
+			umount "$C2000MAX_SD_MOUNT" >/dev/null 2>&1 || true
+			return 0
+		}
+		# Commit the new ID only after the clean overlay is durable.
+		sync
+		printf '%s\n' "$rootfs_id" > \
+			"$C2000MAX_SD_MOUNT/$C2000MAX_SD_OVERLAY_ID.new" || {
+			c2000max_sd_log "cannot stage p7 overlay ID"
+			umount "$C2000MAX_SD_MOUNT" >/dev/null 2>&1 || true
+			return 0
+		}
+		sync
+		mv -f "$C2000MAX_SD_MOUNT/$C2000MAX_SD_OVERLAY_ID.new" \
+			"$C2000MAX_SD_MOUNT/$C2000MAX_SD_OVERLAY_ID" || {
+			c2000max_sd_log "cannot commit p7 overlay ID"
+			umount "$C2000MAX_SD_MOUNT" >/dev/null 2>&1 || true
+			return 0
+		}
+		sync
+	fi
+	# Managed p7 must survive the new squashfs UUID generated by each reflash.
+	rm -f "$C2000MAX_SD_MOUNT/etc/.extroot-default" "$C2000MAX_SD_MOUNT/etc/.extroot-uuid"
+	umount "$C2000MAX_SD_MOUNT" >/dev/null 2>&1 || {
+		c2000max_sd_log "cannot unmount p7 preparation mount"
+		return 0
+	}
+	rmdir "$C2000MAX_SD_MOUNT" >/dev/null 2>&1 || true
+
+	c2000max_sd_bind_extroot || {
+		c2000max_sd_log "cannot expose temporary extroot fstab"
+		return 0
+	}
+	c2000max_sd_log "p7 ready; mount_root will switch to extroot"
+}
+
+boot_hook_add preinit_main c2000max_sd_prepare_extroot
