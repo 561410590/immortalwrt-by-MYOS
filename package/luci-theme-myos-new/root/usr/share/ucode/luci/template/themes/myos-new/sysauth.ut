@@ -1,0 +1,13 @@
+{% include('header', { blank_page: true }) %}
+<main class="m-login">
+ <div class="m-login-brand"><img class="m-brand-mark" src="{{ media }}/brand.png" alt="MYOS"><span>MYOS-NEW</span></div>
+ <h1>欢迎回来。</h1><p>登录你的设备控制台</p>
+ <form method="post">
+ <label for="luci_username">用户名</label><input name="luci_username" id="luci_username" autocomplete="username" value="{{ entityencode(duser || 'root', true) }}" required>
+ <label for="luci_password">密码</label><input name="luci_password" id="luci_password" type="password" autocomplete="current-password" autofocus required>
+ {% if (fuser): %}<p class="m-error" role="alert">用户名或密码不正确，请重试。</p>{% endif %}
+ <button class="cbi-button cbi-button-positive" type="submit">登录</button>
+ </form>
+ <small>{{ entityencode(ubus.call('system', 'board')?.model ?? 'OpenWrt') }}</small>
+</main>
+{% include('footer', { blank_page: true }) %}

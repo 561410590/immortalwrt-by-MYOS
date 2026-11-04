@@ -22,7 +22,7 @@
 <script src="{{ media }}/theme.js?v=1.0.17-r2-max"></script>
 <link rel="stylesheet" href="/luci-static/bootstrap/cascade.css">
 {% for (let file in ['tokens','components','styles','c2000max','luci-adapter']): %}
-<link rel="stylesheet" href="{{ media }}/{{ file }}.css?v=1.0.17-r2-max">
+<link rel="stylesheet" href="{{ media }}/{{ file }}.css?v=20261101-footer-max">
 {% endfor %}
 {% if (node?.css): %}<link rel="stylesheet" href="{{ resource }}/{{ node.css }}">{% endif %}
 {% if (css): %}<style>{{ css }}</style>{% endif %}
@@ -30,7 +30,7 @@
 <script src="{{ dispatcher.build_url('admin/translations', dispatcher.lang) }}"></script>
 <script src="{{ resource }}/cbi.js"></script>
 <script src="{{ media }}/data.js?v=20261019-sim"></script>
-<script src="{{ media }}/dashboard.js?v=20261019-sim"></script>
+<script src="{{ media }}/dashboard.js?v=202610221000-devices"></script>
 </head>
 <body class="c2000-ui lang_{{ dispatcher.lang }}" data-page="{{ entityencode(join('-', ctx.request_path), true) }}" data-home-url="{{ entityencode(homeurl, true) }}" data-device-model="{{ entityencode(boardinfo.model ?? 'NRadio C2000', true) }}">
 {% if (!blank_page): %}

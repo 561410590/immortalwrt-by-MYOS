@@ -28,7 +28,7 @@ FOOTER=/usr/share/ucode/luci/template/footer.ut
 RES=/www/luci-static/resources
 MARK_BEGIN="{# mwrt-global:begin #}"
 MARK_END="{# mwrt-global:end #}"
-VER=4
+VER=20261101-1154-max
 PV='{{ pkgs_update_time }}'
 
 strip_block() {
@@ -54,7 +54,7 @@ case "${1:-}" in
 esac
 
 [ -f "$FOOTER" ] || { echo "错误: 找不到 $FOOTER"; exit 1; }
-for f in mwrt-unlock.js mwrt-notice.js; do
+for f in mwrt-unlock.js mwrt-notice.js mwrt-portsw.js; do
 	[ -f "$RES/$f" ] || { echo "错误: 请先部署 $RES/$f"; exit 1; }
 done
 
@@ -65,6 +65,7 @@ fi
 
 if grep -q 'mwrt-global:begin' "$FOOTER"; then
 	echo "footer.ut 已注入,跳过"
+	exit 0
 else
 	ANCHOR='{% include(`themes/${theme}/footer`) %}'
 	grep -qF "$ANCHOR" "$FOOTER" || { echo "错误: footer.ut 里找不到主题 include 锚点"; exit 1; }
@@ -80,9 +81,12 @@ else
 		print "%}"
 		print "{% if (_mg_show): %}"
 		print "{% if (theme == " q "argon" q "): %}"
-		print "\t<script src=\"{{ resource }}/mwrt-unlock.js?v=" ver "\" data-url=\"{{ dispatcher.build_url(" q "admin/Outofnetwork" q ") }}\"></script>"
+		print "\t<script src=\"{{ resource }}/mwrt-unlock.js?v=" ver "\" data-url=\"{{ dispatcher.build_url(" q "admin/modem/cat_adopt" q ") }}\"></script>"
+		print "\t<script defer src=\"{{ resource }}/mwrt-cat-art.js?v=" ver "\"></script>"
+		print "\t<script defer src=\"{{ resource }}/mwrt-catcage.js?v=" ver "\" data-state=\"{{ dispatcher.build_url(" q "admin/modem/unlock_state" q ") }}\"></script>"
 		print "{% endif %}"
 		print "\t<script src=\"{{ resource }}/mwrt-notice.js?v=" ver "\" data-ota=\"{{ dispatcher.build_url(" q "admin/system/myos_update" q ") }}\"></script>"
+		print "\t<script src=\"{{ resource }}/mwrt-portsw.js?v=" ver "\" data-base=\"{{ dispatcher.build_url(" q "admin/modem" q ") }}\" data-fo=\"{{ dispatcher.build_url(" q "admin/network/mwrt_assurance" q ") }}\" data-lan=\"{{ dispatcher.build_url(" q "admin/network/network" q ") }}\" data-home=\"{{ dispatcher.build_url(" q "admin/modeminfo" q ") }}\"></script>"
 		print "{% endif %}"
 		print e
 		done = 1

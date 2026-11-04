@@ -8,6 +8,7 @@ extra_command "swapfile" "Prepare the C2000MAX SD swap file"
 
 MAX_SWAP_DIR=/overlay/myos-swap
 MAX_SWAP_PID=/var/run/myos-swapfile.pid
+MAX_SWAP_BUSY=/tmp/myos-swapfile.busy
 
 max_board()
 {
@@ -24,7 +25,12 @@ swapfile()
 	flock -n 9 || return 0
 	grep -q "^$MAX_SWAP_DIR/swapfile " /proc/swaps && return 0
 	# The first allocation runs after normal boot; subsequent boots reuse the file.
-	[ -f "$MAX_SWAP_DIR/swapfile" ] || sleep 60
+	if [ ! -f "$MAX_SWAP_DIR/swapfile" ]; then
+		# Notification only; this marker never controls swap creation or networking.
+		trap 'rm -f "$MAX_SWAP_BUSY"' EXIT
+		printf '%s\n' "$$" > "$MAX_SWAP_BUSY"
+		sleep 60
+	fi
 	dev="$(awk '$2 == "/overlay" {print $1; exit}' /proc/mounts)"
 	fstype="$(awk '$2 == "/overlay" {print $3; exit}' /proc/mounts)"
 	case "$fstype" in f2fs|ext4) ;; *) logger -t myos-swap 'SD overlay is unavailable'; return 1 ;; esac

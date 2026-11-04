@@ -163,6 +163,7 @@ C2000MAX_SD_KERNEL := $(KDIR)/nradio_c2000-max-sd-kernel.bin
 C2000MAX_EXTRA_IPK_TMP := $(KDIR)/root-c2000max-ipk-payload
 C2000MAX_ROOTFS_ID := $(VERSION_NUMBER)-$(REVISION)
 C2000MAX_EXTRA_IPK_PACKAGES := \
+	flock ip6tables-nft iptables-mod-socket kmod-ipt-socket kmod-ipt-nat-extra iptables-mod-nat-extra python3-ctypes luci-app-uugamebooster mt5700-web-go luci-app-mt5700-web \
 	luci-theme-c2000max-ui luci-theme-mwrt cgi-io bc jq libreadline8 libncurses6 terminfo \
 	resize2fs fstools block-mount losetup libsmartcols1 libblkid1 libuuid1 f2fsck mkf2fs libf2fs6 \
 	luci-app-store taskd luci-lib-taskd luci-lib-xterm \
@@ -180,10 +181,18 @@ C2000MAX_EXTRA_IPK_PACKAGES := \
 	coreutils-base64 coreutils-nohup coreutils-timeout lyaml \
 	libyaml libudns resolveip libev \
 	libsodium ip-full libuci-lua libbpf1 \
-	libelf1 iptables-mod-tproxy libpcap1 ipset \
+	libelf1 iptables-mod-tproxy iptables-mod-extra kmod-ipt-extra libpcap1 ipset \
 	libipset13 tc-full conntrack conntrackd \
 	libnetfilter-cthelper0 libnetfilter-cttimeout1 libnetfilter-queue1 libltdl7 \
-	liblua5.3-5.3
+	liblua5.3-5.3 \
+	kmod-fuse kmod-sound-core kmod-input-core \
+	kmod-ipt-conntrack-extra kmod-nf-conncount kmod-ipt-ipopt kmod-ipt-filter \
+	kmod-fs-cifs kmod-fs-smbfs-common kmod-fs-netfs kmod-nls-ucs2-utils kmod-oid-registry kmod-dnsresolver \
+	kmod-md-mod kmod-md-raid0 kmod-md-raid1 kmod-md-raid10 \
+	qemu-x86_64-softmmu qemu-aarch64-softmmu qemu-img qemu-bridge-helper \
+	qemu-firmware-pxe qemu-firmware-seabios qemu-firmware-seavgabios qemu-firmware-efi qemu-keymaps \
+	glib2 libffi libattr libpcre2 libstdcpp6 libusb-1.0-0 libudev-zero libevdev \
+	libpng libseccomp libfdt libslirp pixman lua-md5
 
 C2000MAX_REMOVE_IPK_PACKAGES := \
 	luci-app-quickstart luci-i18n-quickstart-zh-cn quickstart \
@@ -411,7 +420,7 @@ define Build/prepare-c2000max-rootfs
 	for pkg in $(C2000MAX_EXTRA_IPK_PACKAGES); do \
 		status="$(C2000MAX_MYOS_ROOTFS_DIR)/usr/lib/opkg/status"; \
 		refresh=0; \
-		case "$$pkg" in luci-theme-c2000max-ui|luci-theme-mwrt|cgi-io|fstools|block-mount|losetup|libsmartcols1|libblkid1|libuuid1|f2fsck|mkf2fs|libf2fs6|iwinfo|libiwinfo20230701|libiwinfo-data|fancontrol) refresh=1 ;; esac; \
+		case "$$pkg" in luci-theme-c2000max-ui|luci-theme-mwrt|cgi-io|fstools|block-mount|losetup|libsmartcols1|libblkid1|libuuid1|f2fsck|mkf2fs|libf2fs6|iwinfo|libiwinfo20230701|libiwinfo-data|fancontrol|mt5700-web-go|luci-app-mt5700-web) refresh=1 ;; esac; \
 		if [ "$$refresh" = 0 ] && [ -f "$$status" ] && grep -q "^Package: $${pkg}$$" "$$status"; then continue; fi; \
 		ipk=""; \
 		for cand in $(TOPDIR)/bin/packages/aarch64_cortex-a53/*/$${pkg}_*.ipk \
@@ -515,7 +524,7 @@ define Build/prepare-c2000max-rootfs
 	mkdir -p $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d
 	ln -sf ../init.d/miniupnpd $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/K15miniupnpd
 	ln -sf ../init.d/miniupnpd $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S94miniupnpd
-	for pkg in kmod-conninfra kmod-mt_wifi_cmn mdadm kmod-md-mod kmod-md-raid0 kmod-md-raid1 kmod-md-raid10; do \
+	for pkg in kmod-conninfra kmod-mt_wifi_cmn mdadm; do \
 		list="$(C2000MAX_MYOS_ROOTFS_DIR)/usr/lib/opkg/info/$${pkg}.list"; \
 		if [ -f "$$list" ]; then \
 			while IFS= read -r path; do \
@@ -529,20 +538,12 @@ define Build/prepare-c2000max-rootfs
 		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/mdadm \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/init.d/mdadm \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/*mdadm* \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/modules.d/27-md-mod \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/modules.d/28-md-raid0 \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/modules.d/28-md-raid1 \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/modules.d/28-md-raid10 \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/lib/modules/*/md-mod.ko \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/lib/modules/*/raid0.ko \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/lib/modules/*/raid1.ko \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/lib/modules/*/raid10.ko \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/modules.d/*mt_wifi_cmn* \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/modules-boot.d/*mt_wifi_cmn* \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/lib/modules/*/mt_wifi_cmn.ko
 	status="$(C2000MAX_MYOS_ROOTFS_DIR)/usr/lib/opkg/status"; \
 	if [ -f "$$status" ]; then \
-		awk 'BEGIN{split("kmod-conninfra kmod-mt_wifi_cmn mdadm kmod-md-mod kmod-md-raid0 kmod-md-raid1 kmod-md-raid10", pkgs); for (i in pkgs) del[pkgs[i]]=1; skip=0} /^Package: /{skip=($$2 in del)} skip && /^$$/{skip=0; next} !skip{print}' "$$status" > "$$status.tmp"; \
+		awk 'BEGIN{split("kmod-conninfra kmod-mt_wifi_cmn mdadm", pkgs); for (i in pkgs) del[pkgs[i]]=1; skip=0} /^Package: /{skip=($$2 in del)} skip && /^$$/{skip=0; next} !skip{print}' "$$status" > "$$status.tmp"; \
 		mv "$$status.tmp" "$$status"; \
 	fi
 	# OSAL supersedes the legacy common module and exports the same wrapper symbols.
@@ -841,40 +842,23 @@ define Build/prepare-c2000max-rootfs
 	rm -f $(C2000MAX_MYOS_ROOTFS_DIR)/etc/uci-defaults/31-c2000max-mtwifi-wpa3
 	install -m 0755 -D $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/c2000max-mtwifi-security.uci-default \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/uci-defaults/32-c2000max-mtwifi-security
-	install -m 0755 -D $(TOPDIR)/package/mtk/applications/5g-modem/luci-app-5700webui/root/etc/uci-defaults/99-at-webserver-enable \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/uci-defaults/99-at-webserver-enable
+	rm -f $(C2000MAX_MYOS_ROOTFS_DIR)/etc/uci-defaults/99-at-webserver-enable
+	rm -f $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S??at-webserver
+	install -m 0644 -D $(TOPDIR)/package/mtk/applications/5g-modem/luci-app-5700webui/root/etc/config/at-webserver \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/at-webserver
 	install -m 0755 -D $(TOPDIR)/package/mtk/applications/5g-modem/luci-app-5700webui/root/etc/init.d/at-webserver \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/init.d/at-webserver
 	install -m 0755 -D $(TOPDIR)/package/mtk/applications/5g-modem/luci-app-5700webui/root/etc/init.d/ubus-at-daemon \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/init.d/ubus-at-daemon
 	install -m 0644 -D $(TOPDIR)/package/mtk/applications/5g-modem/luci-app-5700webui/root/www/luci-static/resources/view/embed/htmlview.js \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/www/luci-static/resources/view/embed/htmlview.js
-	install -m 0644 -D $(TOPDIR)/package/mtk/applications/5g-modem/luci-app-5700webui/root/www/5700/t__plugin-layout__Layout.e0c9df77.async.js \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/www/5700/t__plugin-layout__Layout.e0c9df77.async.js
-	install -m 0644 -D $(TOPDIR)/package/mtk/applications/5g-modem/luci-app-5700webui/root/www/5700/index.html \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/www/5700/index.html
-	install -m 0644 -D $(TOPDIR)/package/mtk/applications/5g-modem/luci-app-5700webui/root/www/5700/myos-entry.js \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/www/5700/myos-entry.js
+	rm -rf $(C2000MAX_MYOS_ROOTFS_DIR)/www/5700
+	rm -f $(C2000MAX_MYOS_ROOTFS_DIR)/www/scripts/loading.js
+	ln -sf ../init.d/mt5700-web $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S97mt5700-web
 	install -m 0755 -D $(TOPDIR)/package/mtk/applications/5g-modem/luci-app-5700webui/root/www/cgi-bin/at-ws-info \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/www/cgi-bin/at-ws-info
-	install -m 0644 -D $(TOPDIR)/package/mtk/applications/5g-modem/luci-app-5700webui/root/www/5700/config.json \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/www/5700/config.json
-	install -m 0644 -D $(TOPDIR)/package/mtk/applications/5g-modem/luci-app-5700webui/root/www/5700/scripts/loading.js \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/www/scripts/loading.js
-	sed -i 's/"192\.168\.1\.1"/"192.168.66.1"/g' \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/www/5700/umi.ec9b4b52.js \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/www/5700/p__CPE__System__Info__index.a04926af.async.js
 	[ -x $(C2000MAX_MYOS_ROOTFS_DIR)/etc/init.d/at-webserver ] || { echo "C2000MAX missing at-webserver init script"; exit 1; }
 	[ -x $(C2000MAX_MYOS_ROOTFS_DIR)/www/cgi-bin/at-ws-info ] || { echo "C2000MAX missing at-webserver CGI"; exit 1; }
-	grep -q '"host": "192.168.66.1"' $(C2000MAX_MYOS_ROOTFS_DIR)/www/5700/config.json
-	grep -q '"192.168.66.1"' $(C2000MAX_MYOS_ROOTFS_DIR)/www/5700/umi.ec9b4b52.js
-	! grep -q '"192.168.1.1"' \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/www/5700/umi.ec9b4b52.js \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/www/5700/p__CPE__System__Info__index.a04926af.async.js
-	sed -i "s/^[[:space:]]*option[[:space:]]*enabled[[:space:]]*'0'/\toption enabled '1'/" $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/at-webserver
-	sed -i "s/^[[:space:]]*option[[:space:]]*connection_type[[:space:]].*/\toption connection_type 'SERIAL'/" $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/at-webserver
-	grep -q "^[[:space:]]*option enabled '1'" $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/at-webserver
-	grep -q "^[[:space:]]*option connection_type 'SERIAL'" $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/at-webserver
 	python3 $(TOPDIR)/target/linux/mediatek/image/finalize-dual-theme.py \
 		$(C2000MAX_MYOS_ROOTFS_DIR) $(TOPDIR)
 	cmp -s $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/luci-app-mtwifi-cfg/wireless-mtk.js \
@@ -890,27 +874,35 @@ define Build/prepare-c2000max-rootfs
 	grep -A 10 "else if (hwtype == 'mtwifi')" $(C2000MAX_MYOS_ROOTFS_DIR)/www/luci-static/resources/view/network/wireless.js | grep -q "\['sae-mixed',[[:space:]]*'WPA2-PSK/WPA3-SAE Mixed Mode'"
 	grep -q "uci.set('wireless', section_id, 'key', value)" $(C2000MAX_MYOS_ROOTFS_DIR)/www/luci-static/resources/view/network/wireless.js
 	grep -q 'config_foreach migrate_legacy_ap_psk wifi-iface' $(C2000MAX_MYOS_ROOTFS_DIR)/etc/uci-defaults/32-c2000max-mtwifi-security
-	sed -i 's/gLanPorts=$$(get_ports '\''L'\'')/gLanPorts=$$(get_ports "$$SWITCH_VALID_LAN_PORT_TYPES")/' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh
-	awk 'BEGIN{done=0} /^get_sig_info\(\)\{/ && !done { print "find_qmodem_wan_iface() {"; print "\tlocal _section=\"$$1\""; print "\tlocal _modem="; print "\tlocal _up="; print "\t[ -n \"$$gQmodemWan\" ] && return"; print "\tconfig_get _modem \"$$_section\" modem_config"; print "\t[ -n \"$$_modem\" ] || return"; print "\t_up=$$(ifstatus \"$$_section\" 2>/dev/null | jsonfilter -e \"@.up\" 2>/dev/null)"; print "\t[ \"$$_up\" = \"true\" ] || return"; print "\tgQmodemWan=\"$$_section\""; print "\tgQmodemCfg=\"$$_modem\""; print "}"; print ""; print "find_qmodem_wan() {"; print "\tgQmodemWan="; print "\tgQmodemCfg="; print "\tconfig_load network"; print "\tconfig_foreach find_qmodem_wan_iface interface"; print "\t[ -n \"$$gQmodemWan\" ]"; print "}"; print ""; print "get_qmodem_rsrp() {"; print "\tlocal _rsrp="; print "\tfind_qmodem_wan || return 1"; print "\tfor _rsrp in $$(/usr/share/qmodem/modem_ctrl.sh cell_info \"$$gQmodemCfg\" 2>/dev/null | jq -r \".modem_info[]? | select(.key==\\\"RSRP\\\") | .value\" 2>/dev/null); do"; print "\t\tcase \"$$_rsrp\" in"; print "\t\t-[0-9]*|[0-9]*)"; print "\t\t\techo \"$${_rsrp%.*}\""; print "\t\t\treturn 0"; print "\t\t\t;;"; print "\t\tesac"; print "\tdone"; print "\treturn 1"; print "}"; print ""; done=1 } { print }' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh > $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp
-	mv $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh
-	awk 'BEGIN{skip=0} /^get_sig_info\(\)\{/ { print "get_sig_info(){"; print "\tlocal _rsrp="; print "\tif [ -n \"$$1\" ]; then"; print "\t\t_rsrp=$$(ubus call infocd cpestatus 2>/dev/null | jsonfilter -e \"@.*[@.status.name=\\\"$${1}\\\"]\" 2>/dev/null | jsonfilter -e \"@.status\" 2>/dev/null | jsonfilter -e \"@.rsrp\" 2>/dev/null)"; print "\tfi"; print "\t[ -n \"$$_rsrp\" ] && { echo \"$$_rsrp\"; return; }"; print "\tget_qmodem_rsrp"; print "}"; skip=1; next } skip && /^}/ { skip=0; next } !skip { print }' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh > $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp
-	mv $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh
-	awk 'BEGIN{skip=0} /^get_qmodem_rsrp\(\) \{/ { print "get_qmodem_rsrp() {"; print "\tlocal _rsrp="; print "\t_rsrp=$$(jsonfilter -i /tmp/myos-nradio-data/base.json -e @.value.rsrp 2>/dev/null)"; print "\tcase \"$$_rsrp\" in"; print "\t\t-[0-9]*|[0-9]*) echo \"$${_rsrp%.*}\"; return 0 ;;"; print "\tesac"; print "\treturn 1"; print "}"; skip=1; next } skip && /^}/ {skip=0; next} !skip {print}' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh > $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp
-	mv $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh
-	awk 'BEGIN{done=0} /^check_cell_stat\(\) \{/ && !done { print "find_qmodem_config_iface() {"; print "\tlocal _section=\"$$1\""; print "\tlocal _modem="; print "\t[ -n \"$$gQmodemConfigWan\" ] && return"; print "\tconfig_get _modem \"$$_section\" modem_config"; print "\t[ -n \"$$_modem\" ] || return"; print "\tgQmodemConfigWan=\"$$_section\""; print "}"; print ""; print "find_qmodem_config() {"; print "\tgQmodemConfigWan="; print "\tconfig_load network"; print "\tconfig_foreach find_qmodem_config_iface interface"; print "\t[ -n \"$$gQmodemConfigWan\" ]"; print "}"; print ""; print "set_cell_sig_blink() {"; print "\t/sbin/setled timer blue sig1 500 500"; print "\t/sbin/setled timer blue sig2 500 500"; print "\t/sbin/setled timer blue sig3 500 500"; print "}"; print ""; print "stop_cell_sig_blink() {"; print "\t/sbin/setled off blue sig1"; print "\t/sbin/setled off blue sig2"; print "\t/sbin/setled off blue sig3"; print "}"; print ""; done=1 } { print } END{if (!done) exit 1}' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh > $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp
-	mv $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh
-	awk 'BEGIN{in_func=0; done=0} /^check_wan\(\) \{/ { in_func=1 } in_func && /^[[:space:]]*if \[ -n "\$$_dev" \]; then/ && !done { print "\tif find_qmodem_wan; then"; print "\t\t[ -n \"$$_dev\" ] && onoff_led \"$$_dev\" 1"; print "\t\tgOnlineType=\"cpe\""; print "\t\treturn 0"; print "\tfi"; print ""; done=1 } { print } in_func && /^}/ { in_func=0 }' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh > $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp
-	mv $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh
-	awk 'BEGIN{in_func=0; done=0} /^check_cell_stat\(\) \{/ { in_func=1 } in_func && /^[[:space:]]*\[ -z "\$$gLedSig" \]/ && !done { print "\tif [ -z \"$$STAT$$MODE$$SIM$$name\" ]; then"; print "\t\tif find_qmodem_wan; then"; print "\t\t\tstop_cell_sig_blink"; print "\t\t\tgCpeStat=\"register\""; print "\t\t\tcheck_cell_sig \"\""; print "\t\t\treturn 0"; print "\t\telif find_qmodem_config; then"; print "\t\t\tset_cell_sig_blink"; print "\t\t\treturn 0"; print "\t\tfi"; print "\tfi"; print ""; done=1 } { print } in_func && /^}/ { in_func=0 } END{if (!done) exit 1}' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh > $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp
-	mv $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh
-	grep -q '^set_cell_sig_blink()' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh
-	grep -q '/sbin/setled timer blue sig1 500 500' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh
-	grep -q 'elif find_qmodem_config; then' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh
-	awk -f $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/patch-c2000max-switch-eth1-wan.awk $(C2000MAX_MYOS_ROOTFS_DIR)/lib/network/switch.sh > $(C2000MAX_MYOS_ROOTFS_DIR)/lib/network/switch.sh.tmp
-	mv $(C2000MAX_MYOS_ROOTFS_DIR)/lib/network/switch.sh.tmp $(C2000MAX_MYOS_ROOTFS_DIR)/lib/network/switch.sh
+	if ! grep -q '^find_qmodem_wan_iface()' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh; then \
+		sed -i 's/gLanPorts=$$(get_ports '\''L'\'')/gLanPorts=$$(get_ports "$$SWITCH_VALID_LAN_PORT_TYPES")/' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh && \
+		awk 'BEGIN{done=0} /^get_sig_info\(\)\{/ && !done { print "find_qmodem_wan_iface() {"; print "\tlocal _section=\"$$1\""; print "\tlocal _modem="; print "\tlocal _up="; print "\t[ -n \"$$gQmodemWan\" ] && return"; print "\tconfig_get _modem \"$$_section\" modem_config"; print "\t[ -n \"$$_modem\" ] || return"; print "\t_up=$$(ifstatus \"$$_section\" 2>/dev/null | jsonfilter -e \"@.up\" 2>/dev/null)"; print "\t[ \"$$_up\" = \"true\" ] || return"; print "\tgQmodemWan=\"$$_section\""; print "\tgQmodemCfg=\"$$_modem\""; print "}"; print ""; print "find_qmodem_wan() {"; print "\tgQmodemWan="; print "\tgQmodemCfg="; print "\tconfig_load network"; print "\tconfig_foreach find_qmodem_wan_iface interface"; print "\t[ -n \"$$gQmodemWan\" ]"; print "}"; print ""; print "get_qmodem_rsrp() {"; print "\tlocal _rsrp="; print "\tfind_qmodem_wan || return 1"; print "\tfor _rsrp in $$(/usr/share/qmodem/modem_ctrl.sh cell_info \"$$gQmodemCfg\" 2>/dev/null | jq -r \".modem_info[]? | select(.key==\\\"RSRP\\\") | .value\" 2>/dev/null); do"; print "\t\tcase \"$$_rsrp\" in"; print "\t\t-[0-9]*|[0-9]*)"; print "\t\t\techo \"$${_rsrp%.*}\""; print "\t\t\treturn 0"; print "\t\t\t;;"; print "\t\tesac"; print "\tdone"; print "\treturn 1"; print "}"; print ""; done=1 } { print }' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh > $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp && \
+		mv $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh && \
+		awk 'BEGIN{skip=0} /^get_sig_info\(\)\{/ { print "get_sig_info(){"; print "\tlocal _rsrp="; print "\tif [ -n \"$$1\" ]; then"; print "\t\t_rsrp=$$(ubus call infocd cpestatus 2>/dev/null | jsonfilter -e \"@.*[@.status.name=\\\"$${1}\\\"]\" 2>/dev/null | jsonfilter -e \"@.status\" 2>/dev/null | jsonfilter -e \"@.rsrp\" 2>/dev/null)"; print "\tfi"; print "\t[ -n \"$$_rsrp\" ] && { echo \"$$_rsrp\"; return; }"; print "\tget_qmodem_rsrp"; print "}"; skip=1; next } skip && /^}/ { skip=0; next } !skip { print }' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh > $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp && \
+		mv $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh && \
+		awk 'BEGIN{skip=0} /^get_qmodem_rsrp\(\) \{/ { print "get_qmodem_rsrp() {"; print "\tlocal _rsrp="; print "\t_rsrp=$$(jsonfilter -i /tmp/myos-nradio-data/base.json -e @.value.rsrp 2>/dev/null)"; print "\tcase \"$$_rsrp\" in"; print "\t\t-[0-9]*|[0-9]*) echo \"$${_rsrp%.*}\"; return 0 ;;"; print "\tesac"; print "\treturn 1"; print "}"; skip=1; next } skip && /^}/ {skip=0; next} !skip {print}' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh > $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp && \
+		mv $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh && \
+		awk 'BEGIN{done=0} /^check_cell_stat\(\) \{/ && !done { print "find_qmodem_config_iface() {"; print "\tlocal _section=\"$$1\""; print "\tlocal _modem="; print "\t[ -n \"$$gQmodemConfigWan\" ] && return"; print "\tconfig_get _modem \"$$_section\" modem_config"; print "\t[ -n \"$$_modem\" ] || return"; print "\tgQmodemConfigWan=\"$$_section\""; print "}"; print ""; print "find_qmodem_config() {"; print "\tgQmodemConfigWan="; print "\tconfig_load network"; print "\tconfig_foreach find_qmodem_config_iface interface"; print "\t[ -n \"$$gQmodemConfigWan\" ]"; print "}"; print ""; print "set_cell_sig_blink() {"; print "\t/sbin/setled timer blue sig1 500 500"; print "\t/sbin/setled timer blue sig2 500 500"; print "\t/sbin/setled timer blue sig3 500 500"; print "}"; print ""; print "stop_cell_sig_blink() {"; print "\t/sbin/setled off blue sig1"; print "\t/sbin/setled off blue sig2"; print "\t/sbin/setled off blue sig3"; print "}"; print ""; done=1 } { print } END{if (!done) exit 1}' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh > $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp && \
+		mv $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh && \
+		awk 'BEGIN{in_func=0; done=0} /^check_wan\(\) \{/ { in_func=1 } in_func && /^[[:space:]]*if \[ -n "\$$_dev" \]; then/ && !done { print "\tif find_qmodem_wan; then"; print "\t\t[ -n \"$$_dev\" ] && onoff_led \"$$_dev\" 1"; print "\t\tgOnlineType=\"cpe\""; print "\t\treturn 0"; print "\tfi"; print ""; done=1 } { print } in_func && /^}/ { in_func=0 }' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh > $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp && \
+		mv $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh && \
+		awk 'BEGIN{in_func=0; done=0} /^check_cell_stat\(\) \{/ { in_func=1 } in_func && /^[[:space:]]*\[ -z "\$$gLedSig" \]/ && !done { print "\tif [ -z \"$$STAT$$MODE$$SIM$$name\" ]; then"; print "\t\tif find_qmodem_wan; then"; print "\t\t\tstop_cell_sig_blink"; print "\t\t\tgCpeStat=\"register\""; print "\t\t\tcheck_cell_sig \"\""; print "\t\t\treturn 0"; print "\t\telif find_qmodem_config; then"; print "\t\t\tset_cell_sig_blink"; print "\t\t\treturn 0"; print "\t\tfi"; print "\tfi"; print ""; done=1 } { print } in_func && /^}/ { in_func=0 } END{if (!done) exit 1}' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh > $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp && \
+		mv $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh.tmp $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh && \
+		grep -q '^set_cell_sig_blink()' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh && \
+		grep -q '/sbin/setled timer blue sig1 500 500' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh && \
+		grep -q 'elif find_qmodem_config; then' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ledctrl.sh; \
+	fi
+	if ! grep -q '^c2000max_eth1_wan_enabled()' $(C2000MAX_MYOS_ROOTFS_DIR)/lib/network/switch.sh; then \
+		awk -f $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/patch-c2000max-switch-eth1-wan.awk $(C2000MAX_MYOS_ROOTFS_DIR)/lib/network/switch.sh > $(C2000MAX_MYOS_ROOTFS_DIR)/lib/network/switch.sh.tmp && \
+		mv $(C2000MAX_MYOS_ROOTFS_DIR)/lib/network/switch.sh.tmp $(C2000MAX_MYOS_ROOTFS_DIR)/lib/network/switch.sh; \
+	fi
 	mkdir -p $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config $(C2000MAX_MYOS_ROOTFS_DIR)/etc/init.d $(C2000MAX_MYOS_ROOTFS_DIR)/etc/uci-defaults $(C2000MAX_MYOS_ROOTFS_DIR)/usr/libexec $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share
 	cp -fpR $(TOPDIR)/package/mtk/applications/c2000max-5g/files/rootfs/usr/share/qmodem $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/
 	cp -fpR $(TOPDIR)/package/mtk/applications/c2000max-5g/files/rootfs/usr/share/rpcd $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/
+	install -m 0755 -D $(TOPDIR)/package/mtk/applications/c2000max-5g/files/luci-app-qmodem-next/usr/share/rpcd/ucode/qmodem_sms \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/rpcd/ucode/qmodem_sms
+	install -m 0644 -D $(TOPDIR)/package/mtk/applications/c2000max-5g/files/luci-app-qmodem-next/www/luci-static/resources/qmodem/sms.js \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/www/luci-static/resources/qmodem/sms.js
 	cp -fpR $(TOPDIR)/package/mtk/applications/c2000max-5g/files/rootfs/usr/libexec/rpcd $(C2000MAX_MYOS_ROOTFS_DIR)/usr/libexec/
 	cp -fp $(TOPDIR)/package/mtk/applications/c2000max-5g/files/rootfs/etc/config/qmodem $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/qmodem
 	cp -fp $(TOPDIR)/package/mtk/applications/c2000max-5g/files/rootfs/etc/init.d/pcie_mhi $(C2000MAX_MYOS_ROOTFS_DIR)/etc/init.d/pcie_mhi
@@ -926,6 +918,13 @@ define Build/prepare-c2000max-rootfs
 	cp -fp $(TOPDIR)/package/mtk/applications/c2000max-5g/files/rootfs/usr/share/qmodem/modem_ctrl.sh $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/qmodem/modem_ctrl.sh
 	cp -fp $(TOPDIR)/package/mtk/applications/c2000max-5g/files/rootfs/usr/share/qmodem/modem_dial.sh $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/qmodem/modem_dial.sh
 	cp -fp $(TOPDIR)/package/mtk/applications/c2000max-5g/files/rootfs/usr/share/qmodem/vendor/huawei.sh $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/qmodem/vendor/huawei.sh
+	find $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/qmodem $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/rpcd $(C2000MAX_MYOS_ROOTFS_DIR)/usr/libexec/rpcd -type d -exec chmod 0755 {} +
+	chmod 0755 $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/qmodem/*.sh \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/usr/libexec/rpcd/qmodem \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/usr/libexec/rpcd/modem_ctrl \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/init.d/qmodem_init \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/init.d/qmodem_network \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/init.d/c2000max-sim-select
 	sh $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/MYOS-nros-app-patch.sh \
 		$(C2000MAX_MYOS_ROOTFS_DIR) $(C2000MAX_FACTORY_LED_ROOTFS)
 	# Match MWRT's bounded first-boot scan instead of reading the whole SD data partition.
@@ -991,7 +990,6 @@ define Build/prepare-c2000max-rootfs
 	[ -x $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ubus-at-daemon ] && [ -x $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/tom_modem ]
 	grep -q "option use_ubus '1'" $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/qmodem
 	grep -q 'parse_pdp_addresses' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/qmodem/modem_dial.sh
-	grep -q "window.location.origin + '/5700/'" $(C2000MAX_MYOS_ROOTFS_DIR)/www/luci-static/resources/view/embed/htmlview.js
 	ln -sf ../init.d/wanchk $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/K10wanchk
 	rm -f $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S90wanchk
 	[ ! -f $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/wanchk ] || sed -i "s/option 'enable' '1'/option 'enable' '0'/" $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/wanchk
@@ -1031,6 +1029,12 @@ define Build/prepare-c2000max-rootfs
 	for service in openclash passwall; do \
 		ln -sf ../init.d/$${service} $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/K15$${service}; \
 	done
+	rm -f $(C2000MAX_MYOS_ROOTFS_DIR)/etc/uci-defaults/30_luci-theme-argon
+	rm -f $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S92quickstart \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S60etherwake \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S99ddns-go \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S99homeproxy \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/K10homeproxy
 	python3 $(TOPDIR)/scripts/prepare-public-rootfs.py $(C2000MAX_MYOS_ROOTFS_DIR)
 	$(STAGING_DIR_HOST)/bin/mksquashfs4 $(C2000MAX_MYOS_ROOTFS_DIR) $(C2000MAX_MYOS_ROOTFS) \
 		-nopad -noappend -root-owned -comp xz -Xpreset 9 -Xe -Xlc 0 -Xlp 2 -Xpb 2 \
@@ -3521,7 +3525,7 @@ define Device/nradio_c2000-max
   BOARD_NAME := HCMT7987-EMMC
   SUPPORTED_DEVICES += nradio,c2000-max HCMT7987-EMMC HCMT7987-SNSD
   DEVICE_PACKAGES := \
-	luci-theme-c2000max-ui luci-theme-mwrt \
+	luci-theme-c2000max-ui luci-theme-mwrt flock ip6tables-nft iptables-mod-socket kmod-ipt-socket kmod-ipt-nat-extra iptables-mod-nat-extra python3-ctypes luci-app-uugamebooster mt5700-web-go luci-app-mt5700-web \
 	kmod-mediatek_hnat \
 	kmod-oaf appfilter luci-app-oaf luci-i18n-oaf-zh-cn \
 	kmod-hwmon-pwmfan \

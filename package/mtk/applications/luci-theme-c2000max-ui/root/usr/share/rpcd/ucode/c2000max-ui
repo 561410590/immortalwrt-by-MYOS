@@ -1,4 +1,4 @@
-// Modem data, including the SIM name, comes from the existing QModem cache.
+// Read SIM identity through QModem and the existing physical-slot status API.
 'use strict';
 import { readfile, stat, popen } from 'fs';
 import { connect } from 'ubus';
@@ -95,24 +95,36 @@ return {
     let section=req.args.section;
     if(type(section)!='string' || !match(section,/^[A-Za-z0-9_]{1,64}$/))
      return { sim_label:null };
-    let result={sim_label:null, cache_only:true};
-    let path='/tmp/huawei_sim_slot_'+section, info=stat(path);
-    if(info && info.size<=16) {
-     let slot=trim(readfile(path) || '');
-     if(match(slot,/^[0-9]$/)) result.sim_label='SIM '+slot;
+    let result={sim_label:null, sim_name:null, current_slot:null};
+    // This existing command only reads GPIO, the modem channel and live status.
+    // Saved selection and the volatile Huawei channel cache are not actual slots.
+    let pipe=popen('/etc/init.d/c2000max-sim-select status_json 2>/dev/null','r');
+    if(pipe) {
+     let output=pipe.read('all'); pipe.close();
+     try {
+      let status=json(output || '{}');
+      let slots={ '1':'external1', '2':'external2', '3':'internal' };
+      let labels={ '1':'SIM卡1', '2':'SIM卡2', '3':'内置卡1' };
+      if(status.modem==section) {
+       result.current_slot=slots[status.actual] || null;
+       result.sim_label=labels[status.actual] || null;
+       result.sim_status=status.cpin || null;
+      }
+     } catch(e) {}
     }
-    path='/tmp/cache_sim_info_'+section; info=stat(path);
-    if(info && info.size<=262144 && time()-info.mtime<=120) try {
-     let data=json(readfile(path));
-     for(let entry in data.modem_info || []) {
-      if(match(lc(''+entry.key),/^sim[ _-]?slot$/) && match(''+entry.value,/^[0-9]$/))
-       result.sim_label='SIM '+entry.value;
-      if(entry.key=='SIM Name' && type(entry.value)=='string' && length(entry.value)<=384)
-       result.sim_name=entry.value;
-     }
-    } catch(e) {}
-    if(result.sim_name)
-     result.sim_label=result.sim_label?result.sim_label+' · '+result.sim_name:result.sim_name;
+    // Reuse the normal read/cache path so this card also works immediately
+    // after boot, before another page has populated the SIM information cache.
+    pipe=popen('/usr/share/qmodem/modem_ctrl.sh sim_info '+section+' 2>/dev/null','r');
+    if(pipe) {
+     let output=pipe.read('all'); pipe.close();
+     try {
+      let data=json(output || '{}');
+      for(let entry in data.modem_info || []) {
+       if(entry.key=='SIM Name' && type(entry.value)=='string' && length(entry.value)<=384)
+        result.sim_name=entry.value;
+      }
+     } catch(e) {}
+    }
     return result;
    }
   },

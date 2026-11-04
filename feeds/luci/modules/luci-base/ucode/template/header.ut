@@ -7,6 +7,12 @@
 	include(`themes/${theme}/header`);
 -%}
 
+{% if (theme == 'argon'): %}
+<script src="{{ resource }}/mwrt-aurora-boot.js?v=202610271700-{{ pkgs_update_time }}"></script>
+<link rel="stylesheet" href="{{ resource }}/mwrt-aurora-full.css?v=202610271700-{{ pkgs_update_time }}">
+<link rel="stylesheet" href="{{ resource }}/mwrt-aurora-chrome.css?v=202610271700-{{ pkgs_update_time }}">
+{% endif %}
+
 <script src="{{ resource }}/luci.js?v={# PKG_VERSION #}-{{ pkgs_update_time }}"></script>
 <script>
 	L = new LuCI({{ replace(`${ {
@@ -29,8 +35,3 @@
 		rollback_token : rollback_token
 	} }`, '/', '\\/') }});
 </script>
-{% if (media == '/luci-static/argon'): %}
-<script src="{{ resource }}/mwrt-aurora-boot.js?v=19"></script>
-<link rel="stylesheet" href="{{ resource }}/mwrt-aurora-full.css?v=19">
-<link rel="stylesheet" href="{{ resource }}/mwrt-aurora-chrome.css?v=19">
-{% endif %}

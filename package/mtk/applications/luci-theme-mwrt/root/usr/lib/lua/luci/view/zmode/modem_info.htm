@@ -24,6 +24,10 @@ local dev_model, dev_img
 if _idstr:find("h5000m", 1, true) then
 	dev_model = "H5000M"
 	dev_img = "/luci-static/router3d/h5000m.png"
+elseif _idstr:find("n5000", 1, true) then
+	-- N5000 与 Ultra 同款四核主板(model="NRadio-N5000"),不先拦下会落到"≥4核=Ultra"
+	dev_model = "N5000"
+	dev_img = "/luci-static/router3d/n5000.png"
 elseif _idstr:find("e87n", 1, true) or _idstr:find("edgepi", 1, true) then
 	dev_model = "E87N"
 	dev_img = "/luci-static/router3d/e87n.png"
@@ -59,8 +63,10 @@ local _dev_names = {
 	MAX    = "NRadio C2000 MAX",
 	E87N   = "EdgePi E87N",
 	H5000M = "Hiveton H5000M",
+	N5000  = "NRadio N5000",
 }
 local dev_name = _dev_names[dev_model] or dev_model
+local dev_cache_key = (_rd("/sys/class/net/br-lan/address"):gsub("%s+", ""))
 %>
 <%+header%>
 <link rel="stylesheet" href="/fontawesome/all.min.css">
@@ -150,7 +156,7 @@ html,body{background:#0b0d14 !important}
 .P .ga-v,.P .ga-s{position:relative;z-index:1}
 .P .ga-v{font-size:20px;font-weight:800;color:var(--t1);line-height:1.1}
 .P .ga-s{font-size:9px;color:var(--t2);margin-top:1px}
-.P .ga-n{display:inline-flex;align-items:center;gap:5px;margin-top:12px;padding:3px 10px;border-radius:999px;background:var(--tb);color:var(--tc);font-size:11px;font-weight:600;white-space:nowrap}
+.P .ga-n{display:inline-flex;align-items:center;gap:5px;margin-top:12px;padding:3px 10px;border-radius:999px;background:rgba(127,127,140,0.12);color:var(--t2);font-size:11px;font-weight:500;white-space:nowrap}
 .P .ga-n i{font-size:10px}
 .P .ga.mr{--tn:rgba(248,113,113,0.20);--tb:rgba(248,113,113,0.17);--tc:#f87171}
 .P.L .ga-bg{opacity:0.22}
@@ -227,6 +233,22 @@ html,body{background:#0b0d14 !important}
 .P .gp-dt span{font-size:10.5px;color:var(--t2);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .P .gp-tag{flex:none;padding:1px 7px;border:1px solid transparent;border-radius:999px;font-size:10px;font-weight:600;background:var(--tb);color:var(--tc)}
 .P .gp-tag.wd{background:transparent;color:var(--t2);border-color:var(--gpl)}
+/* s74 产品图网口 / USB 浮层: 顶部一行大号速率(主色) + 状态标签, 下面键值表; USB 每台一块: 类型图标块 + 名称/厂商 + 一排小标签 */
+.P .gp-sp{display:flex;align-items:baseline;gap:8px;margin:-2px 0 10px;min-width:0}
+.P .gp-sp b{font-size:22px;font-weight:700;line-height:1.1;color:var(--tc);font-variant-numeric:tabular-nums;letter-spacing:0.2px;white-space:nowrap}
+.P .gp-sp b.off{font-size:15px;color:var(--t2)}
+.P .gp-sp small{font-size:11px;color:var(--t2);white-space:nowrap}
+.P .gp-sp .gp-tag{margin-left:auto;align-self:center}
+.P .gp-io{display:inline-flex;align-items:center;gap:4px;font-variant-numeric:tabular-nums}
+.P .gp-io+.gp-io{margin-left:10px}
+.P .gp-io i{font-size:9px;color:var(--tc)}
+.P .gp-mono{font-family:'SF Mono','JetBrains Mono','Consolas',monospace;font-size:11px;font-weight:500}
+.P .gp-ud{display:flex;align-items:center;gap:10px;margin-bottom:9px;min-width:0}
+.P .gp-ud>i{width:34px;height:34px;border-radius:10px;flex:none;display:flex;align-items:center;justify-content:center;font-size:14px;background:var(--tb);color:var(--tc)}
+.P .gp-chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:9px}
+.P .gp-chip{padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;background:var(--tb);color:var(--tc);white-space:nowrap}
+.P .gp-chip.n{background:transparent;border:1px solid var(--gpl);color:var(--t2);padding:1px 7px}
+.P .gp-sep{height:1px;margin:10px 0;background:var(--gpl)}
 
 /* === 固件版本横幅 + 规格卡片(按用户要求还原原版设计) ===
    我先后试过两版替代设计, 用户都不满意, 现在恢复成改动前的样子:
@@ -301,6 +323,8 @@ html,body{background:#0b0d14 !important}
 .P .wz-btn{height:26px;padding:0 11px;border-radius:13px;border:0;background:var(--c2);color:var(--t2);font-size:11px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:6px;transition:color 0.3s,background 0.3s}
 .P .wz-btn:hover{color:var(--ac);background:rgba(124,92,252,0.12)}
 .P .wz-btn:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.P .topo-btn{cursor:pointer;font-family:inherit}
+.P .topo-btn:disabled{opacity:.6;cursor:wait}
 
 /* Feature cards */
 .P .feat{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
@@ -478,15 +502,18 @@ html,body{background:#0b0d14 !important}
 .P .wlb-done-x>b{font-size:15px;font-weight:600}
 .P .wlb-done-x>small{font-size:11px;color:var(--t3)}
 .P .wlb-done-p{color:var(--ac)!important;display:flex;align-items:center;gap:5px;margin-top:2px}
-/* s63: 可点击的 hero 指标卡(频段/卡槽), 右下角一个淡角标提示"可点开", 悬停微亮。 */
+/* s63: 可点击的 hero 指标卡(频段/卡槽), 悬停微亮。(s75 用户要求去掉右下角的淡角标, 别加回) */
 .P .h-m-tap{cursor:pointer;position:relative;transition:background 0.18s,border-color 0.18s}
 .P .h-m-tap:hover{border-color:var(--ac);background:rgba(124,92,252,0.08)}
 .P .h-m-tap:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
-.P .h-m-tapic{position:absolute;right:9px;bottom:8px;font-size:10px;color:var(--t2);opacity:0.45;pointer-events:none;transition:opacity 0.18s,color 0.18s}
-.P .h-m-tap:hover .h-m-tapic{opacity:0.9;color:var(--ac)}
 /* s63 第3项: 内存圆环可双击释放。平时鼠标给个 pointer 暗示; 清理进行中(mem-cleaning)
    中心数字轻微呼吸 + 圆环描边加一层流光, 读作"正在处理"。 */
 .P .ga-dbl{cursor:pointer}
+/* s75 内存卡左上角一行淡字「双击清理」, 不抢眼: 次级字色 + 半透明, 悬停才稍微提亮; 清理进行中先藏起来 */
+.P .ga-tip{position:absolute;top:10px;left:12px;z-index:1;font-size:10px;line-height:1;color:var(--t2);opacity:0.55;pointer-events:none;white-space:nowrap;transition:opacity 0.2s}
+.P .ga-dbl:hover .ga-tip{opacity:0.85}
+.P .ga-dbl.mem-cleaning .ga-tip{opacity:0}
+@media(max-width:600px){.P .ga-tip{top:7px;left:8px;font-size:9px}}
 .P .ga-dbl.mem-cleaning .ga-c .ga-v{animation:mempulse 0.9s ease-in-out infinite}
 .P .ga-dbl.mem-cleaning .ga-fg{filter:drop-shadow(0 0 4px rgba(52,211,153,0.6));transition:stroke-dashoffset 0.28s ease,stroke 0.3s}
 @keyframes mempulse{0%,100%{opacity:1}50%{opacity:0.45}}
@@ -534,24 +561,26 @@ html,body{background:#0b0d14 !important}
    和设备总览卡一样不画线(没有外框, 也去掉了左侧 3px 渐变竖条): 卡片是 c1 + 两团紫/青
    径向光, 格子和信号舱是 c2 实底, 界线靠亮度差; 浅色下 c2 跟白太近, 补极淡投影。
    信号舱的光晕颜色跟着信号档位走(--lvr 由 heroUp 写), 一眼就能看出好坏。 */
+/* s67: hero 顶部扁平化 —— 去紫青光斑/同心波纹, 底色改设计稿(pc.svg)的蓝青线性渐变 #29365c->#1b3444, 信号舱去档位光晕 */
 .P .hero{margin-bottom:14px}
-.P .hero-sig{--lvr:124,92,252;position:relative;overflow:hidden;border-radius:var(--r);padding:20px 22px;display:grid;grid-template-columns:minmax(0,1fr) minmax(250px,290px);grid-template-areas:"id sig" "mx sig";column-gap:20px;row-gap:16px;align-items:center;background:radial-gradient(120% 160% at 0% 0%,rgba(124,92,252,0.16),transparent 52%),radial-gradient(80% 140% at 100% 100%,rgba(34,211,238,0.09),transparent 60%),var(--c1)}
+.P .hero-sig{--lvr:124,92,252;position:relative;overflow:hidden;border-radius:var(--r);padding:14px 18px;display:grid;grid-template-columns:minmax(0,1fr) minmax(250px,290px);grid-template-areas:"id sig" "mx sig";column-gap:20px;row-gap:11px;align-items:center;background:var(--c1);border:1px solid var(--bd)}
+/* s74: 夜间 hero 和下面所有 .cd 卡片同一张深底(var(--c1) + 1px var(--bd)), 不再用白天那条蓝青渐变 */
 /* 信号舱后面一圈圈很淡的同心波纹, 往外渐隐 —— 只是"无线电"的暗示, 不是线框 */
-.P .hero-sig::before{content:'';position:absolute;inset:0;pointer-events:none;background:repeating-radial-gradient(circle at calc(100% - 246px) 50%,rgba(255,255,255,0.035) 0 1px,transparent 1px 26px);-webkit-mask-image:radial-gradient(circle 420px at calc(100% - 246px) 50%,#000 0,transparent 100%);mask-image:radial-gradient(circle 420px at calc(100% - 246px) 50%,#000 0,transparent 100%)}
+.P .hero-sig::before{display:none}
 /* s41 白天模式: 用户要求 hero 和夜间一样是深色卡, 但比夜间浅一档 ——
    底色从夜间的 c1(≈#12151f) 抬到石板靛(#2b3150→#232838), 紫/青两团光也加浓一点,
    落在浅灰页面上再补一条靛色投影把它托起来。
    卡片变深之后, 里面的文字/格子必须换回深色那套变量, 否则 .P.L 的深字(#1a1d2e)
    会印在深底上看不见: 这里就地把 --t1/--t2/--t3/--c2 重定义回深色值(c2 用半透明白,
    在更浅的底上仍比卡片亮一档)。原先专为白底压深的绿/黄/红(#059669 等)和白底投影也一并撤掉。 */
-.P.L .hero-sig{--t1:#f1f2f8;--t2:#a7aec2;--t3:#535b72;--c2:rgba(255,255,255,0.065);background:radial-gradient(120% 160% at 0% 0%,rgba(124,92,252,0.30),transparent 52%),radial-gradient(80% 140% at 100% 100%,rgba(34,211,238,0.16),transparent 60%),linear-gradient(135deg,#2b3150 0%,#252a40 55%,#21263a 100%);box-shadow:none}
-.P.L .hero-sig::before{background:repeating-radial-gradient(circle at calc(100% - 246px) 50%,rgba(255,255,255,0.05) 0 1px,transparent 1px 26px)}
+.P.L .hero-sig{--t1:#f1f2f8;--t2:#a7aec2;--t3:#535b72;--c2:rgba(255,255,255,0.065);background:linear-gradient(135deg,#29365c 0%,#223a52 55%,#1b3444 100%);border-color:transparent;box-shadow:none}
+.P.L .hero-sig::before{display:none}
 .P .h-id{grid-area:id;display:flex;align-items:center;gap:14px;min-width:0;position:relative;z-index:1}
-/* 品牌块: 没 logo 时是紫青渐变 + 基站图标; 有 logo 时透明无底, logo 由 showLogo() 裁出图形部分 */
-.P .h-brand{position:relative;width:54px;height:54px;border-radius:16px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#7c5cfc,#22d3ee);color:#fff;font-size:21px;box-shadow:none}
+/* 品牌块: 没 logo 时是中性浅色块 + 基站图标(图标与卡片标题同色, s74 用户嫌紫青渐变太花); 有 logo 时透明无底, logo 由 showLogo() 裁出图形部分 */
+.P .h-brand{position:relative;width:38px;height:38px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.07);color:var(--t1);font-size:15px;box-shadow:none}
 /* 有 logo 时不垫底色: logo 本身是透明 PNG, 直接站在卡片上(用户要求去掉白底) */
 .P .h-brand.has-logo{background:transparent;box-shadow:none}
-.P .h-brand-clip{position:relative;overflow:hidden;display:none;width:36px;height:36px}
+.P .h-brand-clip{position:relative;overflow:hidden;display:none;width:28px;height:28px}
 .P .h-brand.has-logo .h-brand-clip{display:block}
 .P .h-brand.has-logo .h-brand-ph{display:none}
 .P .h-brand-clip img{position:absolute;max-width:none;display:block}
@@ -565,8 +594,9 @@ html,body{background:#0b0d14 !important}
 .P .hero-sig.is-down .h-dot{background:var(--rd)}
 .P .hero-sig.is-up #h-op-status{color:var(--gn);font-weight:600}
 .P .hero-sig.is-down #h-op-status{color:var(--rd);font-weight:600}
-.P .h-sep{opacity:0.5}
-.P .h-mode{font-family:'SF Mono','JetBrains Mono','Consolas',monospace;font-size:10px;letter-spacing:0.4px;overflow:hidden;text-overflow:ellipsis}
+/* s75 蜂窝版身份区压成一行: [logo] 运营商名 [5G SA] ● 已拨号。原先第二行的制式原文(NR5G-SA)和徽章重复, 已删;
+   品牌块跟着从 54px 缩到 38px, 整张 hero 矮一截。系统版(.hero-sys)仍是两行, 不受影响。 */
+.P .h-op-st{display:flex;align-items:center;gap:6px;flex-shrink:0;font-size:11px;color:var(--t2);white-space:nowrap}
 .P .h-bdg{display:flex;gap:6px;flex-shrink:0}
 .P .bdg{height:22px;padding:0 10px;border-radius:11px;font-size:10px;font-weight:800;letter-spacing:0.5px;color:#fff;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
 .P .bdg i{font-size:9px}
@@ -580,9 +610,9 @@ html,body{background:#0b0d14 !important}
    它有真正的 600 半粗; Win11 的 Segoe UI Variable 连 500 都有。中文仍回落到苹方/雅黑。
    于是 值 600 = 数字半粗; 标签和单位 500 = 雅黑常规, 中文不再发粗。 */
 .P .h-m,.P .dv-cell{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}
-.P .h-m{background:var(--c2);border-radius:12px;padding:10px 12px 11px;min-width:0;display:flex;flex-direction:column;gap:5px}
+.P .h-m{background:var(--c2);border-radius:12px;padding:8px 11px 9px;min-width:0;display:flex;flex-direction:column;gap:4px}
 .P .h-mk{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:10px;font-weight:500;letter-spacing:0.4px;text-transform:uppercase;color:var(--t2);white-space:nowrap;min-height:16px}
-.P .h-mk i{font-size:10px;margin-right:5px;color:var(--ac)}
+.P .h-mk i{font-size:10px;margin-right:5px;color:inherit}
 .P .h-mk b{font-size:9px;font-weight:600;letter-spacing:0;padding:2px 6px;border-radius:6px;background:rgba(127,127,140,0.14)}
 .P .h-mv{font-size:18px;font-weight:600;color:var(--t1);line-height:1.15;font-variant-numeric:tabular-nums;letter-spacing:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .P .h-mv small{font-size:10px;font-weight:500;color:var(--t2);margin-left:3px;letter-spacing:0}
@@ -599,7 +629,7 @@ html,body{background:#0b0d14 !important}
 .P .h-mk b.h-ca{background:rgba(124,92,252,0.18);color:#c4b5fd}
 .P .h-mk b.h-ca.on{background:linear-gradient(135deg,rgba(124,92,252,0.55),rgba(34,211,238,0.45));color:#fff}
 /* s41 卡槽格右上角的切卡小图标 → 蜂窝 › 卡槽/UI。.h-mk i 的 margin/紫色是给标签图标的, 这里要撤掉 */
-.P .h-swap{width:18px;height:18px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:rgba(124,92,252,0.18);color:#c4b5fd;text-decoration:none;transition:background 0.2s,color 0.2s,transform 0.15s}
+.P .h-swap{width:18px;height:18px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:rgba(127,127,140,0.14);color:var(--t2);text-decoration:none;transition:background 0.2s,color 0.2s,transform 0.15s}
 .P .h-mk .h-swap i{margin:0;font-size:9px;color:inherit}
 .P .h-swap:hover{background:var(--ac);color:#fff}
 .P .h-swap:active{transform:scale(0.9)}
@@ -610,9 +640,9 @@ html,body{background:#0b0d14 !important}
 .P .h-sim.bad::before{background:var(--rd)}
 .P .h-sim.busy::before{background:var(--og);animation:mp-blink 1s infinite}
 /* 信号舱 */
-.P .h-sig{grid-area:sig;align-self:stretch;position:relative;z-index:1;display:flex;align-items:center;gap:16px;padding:16px 18px;border-radius:16px;background:radial-gradient(circle at 70px 50%,rgba(var(--lvr),0.20),transparent 70%),var(--c2);transition:background 0.6s}
+.P .h-sig{grid-area:sig;align-self:stretch;position:relative;z-index:1;display:flex;align-items:center;gap:16px;padding:13px 16px;border-radius:16px;background:var(--c2);transition:background 0.6s}
 /* 环的半径必须是 38: rng() 按 C=2π·38 算 dasharray */
-.P .sig-rg{position:relative;width:96px;height:96px;flex-shrink:0}
+.P .sig-rg{position:relative;width:86px;height:86px;flex-shrink:0}
 .P .sig-rg svg{width:100%;height:100%;transform:rotate(-90deg);display:block}
 .P .sr-tk{fill:none;stroke:var(--t2);stroke-width:1.4;stroke-dasharray:0.8 4.02;opacity:0.35}
 .P .sr-bg{fill:none;stroke:rgba(127,127,140,0.16);stroke-width:7}
@@ -632,7 +662,7 @@ html,body{background:#0b0d14 !important}
 /* 861~1040px: 视口还没到上面的单列断点, 但左侧菜单栏占掉了宽度, hero 实际只有 ~650-800px, 右边信号舱又固定 290px,
    四个磁贴被挤到每个 ~100px(文字全是省略号)→ 改 2×2。(蜂窝版/系统版共用 .h-mx) */
 @media(min-width:861px) and (max-width:1040px){.P .h-mx{grid-template-columns:repeat(2,minmax(0,1fr))}.P .hero-sys .h-sep{display:none}}
-@media(max-width:480px){.P .hero-sig{padding:16px 14px;row-gap:14px}.P .h-id{gap:12px}.P .h-brand{width:46px;height:46px;border-radius:14px;font-size:18px}.P .h-brand-clip{width:30px;height:30px}.P .h-op-name{font-size:17px}.P .h-mx{gap:8px}.P .h-m{padding:9px 10px 10px}.P .h-mv{font-size:16px}.P .h-mv.h-mv-t{font-size:15px;line-height:18.4px}.P .h-sig{padding:14px}.P .sig-rg{width:84px;height:84px}.P .sig-rg .ct .v{font-size:21px}.P .sig-lv{font-size:19px}}
+@media(max-width:480px){.P .hero-sig{padding:16px 14px;row-gap:14px}.P .h-id{gap:10px}.P .h-brand{width:32px;height:32px;border-radius:10px;font-size:13px}.P .h-brand-clip{width:24px;height:24px}.P .h-op-name{font-size:17px}.P .h-mx{gap:8px}.P .h-m{padding:9px 10px 10px}.P .h-mv{font-size:16px}.P .h-mv.h-mv-t{font-size:15px;line-height:18.4px}.P .h-sig{padding:14px}.P .sig-rg{width:84px;height:84px}.P .sig-rg .ct .v{font-size:21px}.P .sig-lv{font-size:19px}}
 /* s64: 移动端 hero 卡片太高(约 389px 一大坨), 这里专门压扁。不删任何数据, 重排 + 缩尺寸:
    · 关键重排: 运营商身份(id)和信号舱(sig)挤到**同一行**(左身份右信号), 省掉整块独占的信号舱;
    · 信号舱 .h-sig 收成紧凑竖条(小圆环 56px + RSRP + 档位), 隐藏五根装饰信号柱(和圆环重复);
@@ -640,9 +670,12 @@ html,body{background:#0b0d14 !important}
    断点 600px(手机), 平板(601-860)仍走上面那套竖排。 */
 @media(max-width:600px){
  .P .hero-sig{padding:12px;column-gap:12px;row-gap:11px;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"id sig" "mx mx";align-items:center}
- .P .h-brand{width:40px;height:40px;border-radius:12px;font-size:15px}
- .P .h-brand-clip{width:26px;height:26px}
- .P .h-id{gap:11px}
+ .P .h-brand{width:32px;height:32px;border-radius:10px;font-size:13px}
+ .P .h-brand-clip{width:24px;height:24px}
+ .P .h-id{gap:10px}
+ /* 手机上右边还挤着信号舱, 一行放不下时状态换到下一行(名字和徽章仍同行) */
+ .P #hero-sig .h-op-row{flex-wrap:wrap;row-gap:3px;column-gap:8px}
+ .P .h-op-st{font-size:10px}
  .P .h-op-name{font-size:15px}
  .P .h-op-sub{font-size:10px}
  /* 信号舱做成右上角一枚紧凑胶囊: 小圆环 + 右侧两行(档位大字 + 读数小字), 横向并排、垂直居中,
@@ -679,17 +712,48 @@ html,body{background:#0b0d14 !important}
 .P .hero-sys .h-op-row{flex-wrap:wrap;row-gap:4px}
 .P .hero-sys .h-op-sub{flex-wrap:wrap;white-space:normal;row-gap:3px}
 .P .hero-sys .h-op-name{overflow:visible;text-overflow:clip}
-.P .hero-sys .h-fw{font-family:'SF Mono','JetBrains Mono','Consolas',monospace;font-size:10px;letter-spacing:0.3px;min-width:0;overflow-wrap:anywhere}
-.P .bdg-off{background:rgba(127,127,140,0.22);color:var(--t2);box-shadow:none}
-.P .bdg-wait{background:linear-gradient(135deg,#d97706,#fbbf24);box-shadow:none}
-.P .hero-sys .h-m{--tn:rgba(124,92,252,0.22);--tc:#a78bfa;position:relative;overflow:hidden;background:radial-gradient(95% 150% at 0% 0%,var(--tn),transparent 72%),var(--c2)}
-.P .hero-sys .h-m.t-g{--tn:rgba(52,211,153,0.17);--tc:#34d399}
-.P .hero-sys .h-m.t-o{--tn:rgba(251,191,36,0.16);--tc:#fbbf24}
-.P .hero-sys .h-m.t-c{--tn:rgba(34,211,238,0.17);--tc:#22d3ee}
-.P .hero-sys .h-mk i{color:var(--tc)}
-.P .hero-sys .h-m .h-mb>span{background:linear-gradient(90deg,var(--tc),var(--tc))}
-.P .hero-sys .h-m.lv-good .h-mb>span{background:linear-gradient(90deg,#10b981,#34d399)}.P .hero-sys .h-m.lv-fair .h-mb>span{background:linear-gradient(90deg,#f59e0b,#fbbf24)}.P .hero-sys .h-m.lv-poor .h-mb>span{background:linear-gradient(90deg,#ef4444,#f87171)}
-.P .hero-sys .h-sig{background:radial-gradient(circle at 70px 50%,rgba(var(--lvr),0.20),transparent 70%),var(--c2)}
+/* s71 扁平化(用户: 无模组时 hero 不够扁平、不够专业; 去掉"蜂窝读取中"徽章和左边的服务器图标):
+   · 整卡改纯色深底, 不要渐变; 四格和右侧舱是同一种纯色块 + 1px 细边, 不要径向光斑;
+   · 颜色只留在小方块图标、状态胶囊和进度条上, 大面积都是中性色;
+   · 机型名拆成 品牌(细) + 型号(粗), 和下面设备总览的 dv-name 同一写法;
+   · 状态点 + 文字合成一枚胶囊(已联网=绿 / 未联网=红), 固件串跟在后面用等宽小字。 */
+.P .hero-sig.hero-sys,.P.L .hero-sig.hero-sys{background:var(--c1);padding:16px 18px;row-gap:14px}
+.P.L .hero-sig.hero-sys{background:#253049}
+.P .hero-sys .h-id{gap:0}
+.P .hero-sys .h-op-name{font-size:20px;font-weight:700;letter-spacing:0.2px}
+.P .hero-sys .h-op-name .b{font-weight:400;color:var(--t2);margin-right:7px}
+.P .hero-sys .h-op-sub{margin-top:8px;gap:10px}
+.P .hero-sys .hs-pill{display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 9px 0 8px;border-radius:10px;background:rgba(148,158,184,0.16);color:var(--t2);font-size:11px;flex-shrink:0}
+.P .hero-sys.is-up .hs-pill{background:rgba(52,211,153,0.14)}
+.P .hero-sys.is-down .hs-pill{background:rgba(248,113,113,0.14)}
+.P .hero-sys.is-down .h-dot{background:var(--rd)}
+/* s72 固件串(原来是一行等宽小字「Mwrt @Manper-5.1.1151-24 · Linux 6.6.94」)拆成两枚分段徽章 + 作者:
+   [▤ Mwrt | 5.1.1151-24]  [🐧 Linux | 6.6.94]  @Manper —— 左半段中性底写名称, 右半段着色底写版本号(等宽)。
+   和状态胶囊同高(20px)、同圆角, 只用半透明色块 + 1px 内描边, 不加阴影。拆不开(格式不认识)就整串放进一枚徽章。 */
+.P .hero-sys .h-fw{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0;font-size:11px;color:var(--t2)}
+.P .hero-sys .fw-b{display:inline-flex;align-items:stretch;height:20px;border-radius:10px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.08);font-size:10.5px;line-height:20px;white-space:nowrap}
+.P .hero-sys .fw-b>span{display:inline-flex;align-items:center}
+.P .hero-sys .fw-b .k{gap:5px;padding:0 7px 0 9px;background:rgba(255,255,255,0.06);color:#dfe5f1;font-weight:600;letter-spacing:0.3px}
+.P .hero-sys .fw-b .k i{font-size:10px;color:#9aa8ff}
+.P .hero-sys .fw-b .v{padding:0 9px 0 7px;background:rgba(124,141,255,0.2);color:#c3cbff;font-family:'SF Mono','JetBrains Mono','Consolas',monospace;font-variant-numeric:tabular-nums;letter-spacing:0.2px}
+.P .hero-sys .fw-k .k i{color:#7fe3d2}
+.P .hero-sys .fw-k .v{background:rgba(45,212,191,0.17);color:#8ff0df}
+.P .hero-sys .fw-a{font-size:11px;color:var(--t2);letter-spacing:0.2px;opacity:0.85}
+.P .hero-sys .h-m{--tn:rgba(167,139,250,0.16);--tc:#b4a2fb;background:rgba(255,255,255,0.045);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.06);border-radius:10px;padding:10px 12px 11px;gap:5px}
+.P .hero-sys .h-m.t-g{--tn:rgba(52,211,153,0.15);--tc:#4ade9f}
+.P .hero-sys .h-m.t-o{--tn:rgba(251,191,36,0.15);--tc:#fbc84a}
+.P .hero-sys .h-m.t-c{--tn:rgba(56,189,248,0.15);--tc:#5cc8f5}
+.P .hero-sys .h-mk{text-transform:none;letter-spacing:0.2px;font-size:11px}
+.P .hero-sys .h-mk>span{display:inline-flex;align-items:center}
+.P .hero-sys .h-mk i{width:20px;height:20px;border-radius:6px;margin-right:8px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:inherit;background:rgba(255,255,255,0.06)}
+.P .hero-sys .h-mv{font-size:19px}
+.P .hero-sys .h-m .h-mb{background:rgba(255,255,255,0.08)}
+.P .hero-sys .h-m .h-mb>span{background:var(--tc)}
+.P .hero-sys .h-m.lv-good .h-mb>span{background:#34d399}.P .hero-sys .h-m.lv-fair .h-mb>span{background:#fbbf24}.P .hero-sys .h-m.lv-poor .h-mb>span{background:#f87171}
+.P .hero-sys .h-sig{background:rgba(255,255,255,0.045);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.06);border-radius:12px}
+.P .hero-sys .sr-tk{display:none}
+.P .hero-sys .sr-bg{stroke:rgba(255,255,255,0.08)}
+@media(max-width:600px){.P .hero-sig.hero-sys{padding:13px 12px}.P .hero-sys .h-op-name{font-size:16px}.P .hero-sys .h-op-sub{margin-top:6px;gap:8px}.P .hero-sys .h-mv{font-size:15px}.P .hero-sys .h-m{padding:8px 9px}.P .hero-sys .h-sig{background:none;box-shadow:none}}
 
 /* .hero-qs / .qs-* 的样式已删 —— 那排快捷统计(运行时间/在线设备/存储占用/系统负载)
    和设备总览的 dv-stats 磁贴讲的是同一组数, 而且当时它嵌在 #hero-w 里, 无模组时会连带整块隐藏。
@@ -726,6 +790,9 @@ html,body{background:#0b0d14 !important}
 /* s41 PC 下产品图和右栏五五开(用户要求占 dv-body 一半), E87N 同样; ≤820px 仍由下方媒体查询叠成单列。
    minmax(0,1fr) 而不是 1fr: 右栏里有长 IPv4/流量值, 1fr 的最小值是内容宽, 会把左栏挤窄。 */
 .P .dv-body,.P .dv-body.dv-body-e87n{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:stretch}
+/* s76 PC 下展台占 65%(用户要求), 右栏 35%。只在 ≥1241px 生效: 821~1240px 带侧栏时 dv-body 才 ~800px,
+   35% 只剩 260px, 网口格和六格放不下, 那一段仍五五开。展台变宽后产品图封顶也抬一点, 免得两边空太多。 */
+@media(min-width:1241px){.P .dv-body,.P .dv-body.dv-body-e87n{grid-template-columns:minmax(0,65%) minmax(0,1fr)}.P .dv-shot img{max-height:340px}}
 /* s41 产品舞台: 做成"产品发布页"的展台 ——
    顶部一束很淡的顶光(::after 梯形光柱) + 紫色主光斑, 底部青色地面反光;
    背景一层点阵(::before)按椭圆渐隐, 只在设备周围隐约可见;
@@ -806,7 +873,7 @@ html,body{background:#0b0d14 !important}
 .P .dv-port.down .pic{opacity:0.7}
 .P .dv-port.down .prole,.P .dv-port.down .pname{color:var(--t3)}
 .P .dv-port .pm{min-width:0;flex:1}
-.P .dv-port .prole{display:block;font-size:13px;font-weight:800;color:var(--t1);line-height:1.2;letter-spacing:0.2px}
+.P .dv-port .prole{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800;color:var(--t1);line-height:1.2;letter-spacing:0.2px}
 .P .dv-port .pname{display:block;font-size:10px;color:var(--t2);font-family:'SF Mono','JetBrains Mono','Consolas',monospace;line-height:1.1;margin-top:3px}
 .P .dv-port .ps{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0}
 .P .dv-port .pspeed{font-size:13px;font-weight:800;line-height:1;padding:5px 10px;border-radius:8px;letter-spacing:0.2px;background:rgba(52,211,153,0.16);color:var(--gn)}
@@ -1045,11 +1112,12 @@ html,body{background:#0b0d14 !important}
    右栏宽度取决于 argon 侧栏, 用容器查询按 .dv-meta 自身宽度判断, 窄了就收起合计角标(合计仍可由下方两栏数字看出)。 */
 .P .dv-meta{container-type:inline-size}
 @container (max-width:430px){.P .dv-cell .ck .dl.dl-tot{display:none}}
-/* s44 再窄(900px 上下, 右栏 ~300px)三列每格不到 95px: WAN IP 换行、标签被省略成 "WAN…"、上行数值折行。
+/* s76: 门槛 470px —— PC 65/35 后右栏常在 380~460px, 三列每格 <150px 一样挤。
+   s44 再窄(900px 上下, 右栏 ~300px)三列每格不到 95px: WAN IP 换行、标签被省略成 "WAN…"、上行数值折行。
    这里按 .dv-side 的宽度退成两列(不能用 .dv-meta 自己当容器 —— 容器查询改不了容器本身), 3 行 × 2 列,
    总高度变高由左边展台同步拉伸吸收; 奇数格时末格横跨两列, 不留空位。 */
 .P .dv-side{container-type:inline-size}
-@container (max-width:380px){.P .dv-meta{grid-template-columns:1fr 1fr}.P .dv-meta>.dv-cell:last-child:nth-child(odd){grid-column:1/-1}}
+@container (max-width:470px){.P .dv-meta{grid-template-columns:1fr 1fr}.P .dv-meta>.dv-cell:last-child:nth-child(odd){grid-column:1/-1}}
 /* 不支持容器查询的老内核(Chromium<105/Safari<16)按视口兜底: 821~1240px 双栏时右栏都偏窄 */
 @supports not (container-type:inline-size){@media(min-width:821px) and (max-width:1240px){.P .dv-cell .ck .dl.dl-tot{display:none}}}
 @media(max-width:600px){.P .dv-meta{grid-template-columns:1fr 1fr}.P .dv-meta>.dv-cell:last-child:nth-child(odd){grid-column:1/-1}.P .dv-cell .cv2{font-size:14px}.P .dv-cell .cv-split{grid-template-columns:1fr;gap:5px}.P .dv-cell .cvp+.cvp{padding-left:0;padding-top:6px}}
@@ -1077,23 +1145,92 @@ html,body{background:#0b0d14 !important}
 .P .dv-imgtools button:active{transform:scale(0.9)}
 .P .dv-edit.busy{opacity:0.7;pointer-events:none}
 .P .dv-edit.busy i{animation:mp-blink 0.9s infinite}
-/* s63 无线网桥标识(产品图左上角): 玻璃胶囊 + 无线电波脉冲动画 + 桥接 WiFi 名 */
-.P .dv-wlb{position:absolute;top:12px;left:12px;z-index:3;display:flex;align-items:center;gap:9px;padding:7px 12px 7px 9px;border-radius:12px;background:rgba(8,12,20,0.52);border:1px solid rgba(34,211,238,0.35);box-shadow:0 6px 20px -8px rgba(0,0,0,0.6);backdrop-filter:saturate(160%) blur(10px);-webkit-backdrop-filter:saturate(160%) blur(10px);cursor:pointer;transition:border-color 0.2s,transform 0.15s;animation:dvwlb-in 0.45s cubic-bezier(.2,.8,.2,1)}
-.P .dv-wlb:hover{border-color:rgba(34,211,238,0.7)}
-.P .dv-wlb:active{transform:scale(0.97)}
-.P .dv-wlb:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
-.P .dv-wlb-ic{position:relative;width:26px;height:26px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:8px;background:linear-gradient(135deg,#22d3ee,#0891b2);color:#fff;font-size:12px}
-.P .dv-wlb-ic i{position:relative;z-index:2}
-/* 三圈向外扩散的电波脉冲 */
-.P .dv-wlb-wave{position:absolute;left:50%;top:50%;width:26px;height:26px;border-radius:8px;border:1.5px solid rgba(34,211,238,0.55);transform:translate(-50%,-50%) scale(0.6);opacity:0;animation:dvwlb-wave 2.4s cubic-bezier(.2,.6,.3,1) infinite}
-.P .dv-wlb-wave:nth-child(2){animation-delay:0.8s}
-.P .dv-wlb-wave:nth-child(3){animation-delay:1.6s}
-.P .dv-wlb-tx{display:flex;flex-direction:column;line-height:1.2;min-width:0;max-width:150px}
-.P .dv-wlb-tx small{font-size:8px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#67e8f9}
-.P .dv-wlb-tx b{font-size:12px;font-weight:600;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-@keyframes dvwlb-wave{0%{transform:translate(-50%,-50%) scale(0.6);opacity:0.7}100%{transform:translate(-50%,-50%) scale(2.1);opacity:0}}
-@keyframes dvwlb-in{0%{opacity:0;transform:translateY(-6px) scale(0.96)}100%{opacity:1;transform:translateY(0) scale(1)}}
-@media (prefers-reduced-motion:reduce){.P .dv-wlb-wave{animation:none;opacity:0}.P .dv-wlb{animation:none}}
+/* s63 无线网桥标识 → s74 「当前上网方式」标识(产品图左上角), 按实际出口(router3d-data 的 egress)分三态:
+   WiFi 桥接 / 有线 WAN / 蜂窝, 没有默认路由时「未联网」。WiFi 态可点, 打开无线网桥窗口。
+   用户要求极简: 只有 图标 + 类型名, 不要边框、不要底色块、不要分态彩色和扩散/扫光动画,
+   图标和文字同一个中性色(未联网退成次级灰); 不显示 SSID / 速率 / 运营商 / 制式。别加回。 */
+.P .dv-wlb{--tc:var(--t1);--tb:rgba(127,127,140,0.14);position:absolute;top:14px;left:16px;z-index:3;display:flex;align-items:center;gap:6px;color:var(--t1);font-size:12px;font-weight:500;line-height:1;white-space:nowrap;cursor:default;transition:opacity 0.2s;animation:dvwlb-in 0.45s cubic-bezier(.2,.8,.2,1)}
+.P .dv-wlb.k-none{color:var(--t2)}
+.P .dv-wlb:focus-visible{outline:2px solid var(--ac);outline-offset:3px;border-radius:4px}
+.P .dv-wlb-ic{font-size:12px;width:14px;text-align:center;flex-shrink:0}
+@keyframes dvwlb-in{0%{opacity:0;transform:translateY(-4px)}100%{opacity:1;transform:translateY(0)}}
+@media (prefers-reduced-motion:reduce){.P .dv-wlb{animation:none}}
+/* s71/s72 产品图接口联动(目前只有 N5000 有坐标表 PORTMAP)。
+   · 接上的口: 画一个插在里面的插头(网口 = 透明水晶头 + 绿色护套 + 绿色网线, USB = 白色插头壳 + 青色线),
+     线从尾端出来往下垂、渐变淡出; 右侧一枚信息胶囊, 细引线连到插头。没接的口什么都不画(就是产品图本身的开口)。
+   · 刚插上(.in, 约 1.3 秒, 只放一次): 插头带着模糊从右下方顺插入轴滑过来 → 停一下往回收(蓄力) →
+     猛地插到底、略过冲再回弹; 后面跟一层更糊、慢半拍的拖影当运动模糊; 到位那一下接口处炸开一圈冲击波 +
+     放射短线(动画片里"咔哒"的感觉), 然后引线画出去、胶囊滑进来。
+   · 刚拔掉(.out): 先往里按一下(按卡扣) → 弹出来一点停住 → 加速顺插入轴飞走, 越飞越糊直到消失;
+     胶囊往右模糊淡出、引线收回, 接口处一圈灰色波纹。
+   · 插入方向由 --mx/--my(插入轴 × 52 原图像素 × 缩放)给出, 关键帧里按比例走, 所以哪个口、多大的图都对得上。
+   · 覆盖层和图片同一个悬停上浮(translateY -6px)、同一条过渡曲线。扁平: 不加投影。 */
+.P .dv-pts{position:absolute;inset:0;z-index:2;pointer-events:none;transition:transform 0.6s cubic-bezier(.2,.8,.2,1)}
+.P .dv-stage:hover .dv-pts{transform:translateY(-6px)}
+.P .dv-pts svg{position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible}
+.P .pt-pl{pointer-events:none}
+.P .pt-pl.in{animation:pt-plugin 0.95s both}
+.P .pt-pl.gh{animation:pt-trail 0.95s 0.05s both}
+.P .pt-pl.out{animation:pt-unplug 0.9s both}
+.P .pt-fx{position:absolute;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;pointer-events:none;opacity:0}
+.P .pt-fx::before{content:'';position:absolute;inset:0;border-radius:50%;border:1.5px solid var(--pc);background:radial-gradient(circle,var(--pc) 0,rgba(255,255,255,0) 62%)}
+.P .pt-fx svg path{fill:none;stroke:var(--pc);stroke-width:2.2;stroke-linecap:round}
+.P .pt-fx.in{animation:pt-flash 0.7s cubic-bezier(.2,.8,.3,1) 0.64s both}
+.P .pt-fx.in svg{animation:pt-rays 0.55s cubic-bezier(.2,.8,.3,1) 0.64s both}
+.P .pt-fx.out{--pc:#94a3b8;animation:pt-flash 0.6s ease-out 0.1s both}
+.P .pt-ln{fill:none;stroke:var(--pc);stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round;opacity:0.85}
+.P .pt-ln.in{stroke-dasharray:1;stroke-dashoffset:1;animation:pt-draw 0.5s ease-out 0.66s forwards}
+.P .pt-ln.out{stroke-dasharray:1;animation:pt-undraw 0.35s ease-in forwards}
+.P .pt-ld.in{animation:pt-fade 0.3s ease-out 0.66s both}
+.P .pt-ld.out{animation:pt-fade 0.3s ease-in reverse forwards}
+.P .pt-c{--pc:#34d399;--pi:#10b981;position:absolute;height:24px;margin-top:-12px;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding:0 9px 0 3px;border-radius:12px;white-space:nowrap;font-size:11px;line-height:1;color:#e8ecf4;background:rgba(14,19,31,0.74);border:1px solid rgba(52,211,153,0.5);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);pointer-events:auto}
+.P .pt-c.f0{animation:pt-fade 0.35s ease-out both}
+.P .pt-c.u{--pc:#22d3ee;--pi:#0891b2;border-color:rgba(34,211,238,0.5);cursor:default}
+/* s74 悬停浮层: 胶囊和插头热区(.pt-hs, 透明圆, 盖在插头上)都打 data-pop, 浮层抄这里的 --tc/--tb 当主色 */
+.P .pt-c,.P .pt-hs{--tc:#34d399;--tb:rgba(52,211,153,0.15)}
+.P .pt-c.u,.P .pt-hs.u{--tc:#22d3ee;--tb:rgba(34,211,238,0.15)}
+.P.L .pt-c,.P.L .pt-hs{--tc:#059669;--tb:rgba(16,185,129,0.12)}
+.P.L .pt-c.u,.P.L .pt-hs.u{--tc:#0891b2;--tb:rgba(8,145,178,0.12)}
+.P .pt-hs{position:absolute;border-radius:50%;pointer-events:auto;cursor:default}
+.P .pt-c[data-pop]{cursor:default}
+.P .pt-c .ic{width:18px;height:18px;border-radius:9px;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;background:var(--pi);color:#fff;font-size:9px}
+.P .pt-c b{font-weight:600;letter-spacing:0.3px;max-width:118px;overflow:hidden;text-overflow:ellipsis}
+.P .pt-c small{font-size:10px;color:#9ba6bb;font-variant-numeric:tabular-nums}
+.P .pt-c em{font-style:normal;font-size:9px;font-weight:600;padding:2px 5px;border-radius:6px;background:rgba(34,211,238,0.2);color:var(--pc)}
+.P .pt-c.in{animation:pt-in 0.55s cubic-bezier(.2,.8,.2,1) 0.72s both}
+.P .pt-c.in .ic{animation:pt-pop 0.5s cubic-bezier(.3,1.6,.5,1) 1s both}
+.P .pt-c.out{pointer-events:none;animation:pt-cout 0.45s cubic-bezier(.4,0,1,1) both}
+.P.L .pt-c{color:#1f2937;background:rgba(255,255,255,0.86)}
+.P.L .pt-c small{color:#64748b}
+@keyframes pt-plugin{
+ 0%{transform:translate(var(--mx),var(--my));opacity:0;filter:blur(8px);animation-timing-function:cubic-bezier(.2,.7,.3,1)}
+ 40%{transform:translate(calc(var(--mx)*.3),calc(var(--my)*.3));opacity:1;filter:blur(1.4px);animation-timing-function:cubic-bezier(.45,0,.55,1)}
+ 55%{transform:translate(calc(var(--mx)*.42),calc(var(--my)*.42));filter:blur(0);animation-timing-function:cubic-bezier(.6,0,.9,.4)}
+ 69%{transform:translate(calc(var(--mx)*-.05),calc(var(--my)*-.05));filter:blur(.9px);animation-timing-function:cubic-bezier(.2,.6,.4,1)}
+ 81%{transform:translate(calc(var(--mx)*.025),calc(var(--my)*.025));filter:blur(0);animation-timing-function:ease-in-out}
+ 100%{transform:none;opacity:1;filter:blur(0)}}
+@keyframes pt-trail{
+ 0%{transform:translate(var(--mx),var(--my));opacity:0;filter:blur(10px)}
+ 28%{opacity:.42}
+ 45%{transform:translate(calc(var(--mx)*.5),calc(var(--my)*.5));filter:blur(5px)}
+ 70%{transform:translate(calc(var(--mx)*.06),calc(var(--my)*.06));opacity:0;filter:blur(4px)}
+ 100%{transform:none;opacity:0;filter:blur(4px)}}
+@keyframes pt-unplug{
+ 0%{transform:none;opacity:1;filter:blur(0);animation-timing-function:cubic-bezier(.4,0,.6,1)}
+ 14%{transform:translate(calc(var(--mx)*-.04),calc(var(--my)*-.04));animation-timing-function:cubic-bezier(.2,.8,.3,1)}
+ 32%{transform:translate(calc(var(--mx)*.2),calc(var(--my)*.2));filter:blur(.6px);animation-timing-function:cubic-bezier(.45,0,.55,1)}
+ 46%{transform:translate(calc(var(--mx)*.16),calc(var(--my)*.16));opacity:1;filter:blur(0);animation-timing-function:cubic-bezier(.55,0,.9,.5)}
+ 100%{transform:translate(calc(var(--mx)*1.5),calc(var(--my)*1.5));opacity:0;filter:blur(9px)}}
+@keyframes pt-flash{0%{opacity:.95;transform:scale(.3)}100%{opacity:0;transform:scale(1.9)}}
+@keyframes pt-rays{0%{opacity:1;transform:scale(.55)}100%{opacity:0;transform:scale(1.3)}}
+@keyframes pt-draw{to{stroke-dashoffset:0}}
+@keyframes pt-undraw{from{stroke-dashoffset:0}to{stroke-dashoffset:-1;opacity:0}}
+@keyframes pt-fade{from{opacity:0}to{opacity:1}}
+@keyframes pt-in{0%{opacity:0;transform:translateX(18px);filter:blur(4px)}100%{opacity:1;transform:none;filter:blur(0)}}
+@keyframes pt-cout{to{opacity:0;transform:translateX(16px);filter:blur(4px)}}
+@keyframes pt-pop{0%{transform:scale(0.6)}100%{transform:scale(1)}}
+@media(max-width:600px){.P .pt-c{height:22px;margin-top:-11px;font-size:10px;padding-right:7px}.P .pt-c b{max-width:84px}.P .pt-c .ic{width:16px;height:16px}}
+@media (prefers-reduced-motion:reduce){.P .pt-pl.in,.P .pt-c.f0,.P .pt-c.in,.P .pt-c.in .ic,.P .pt-ld.in{animation:none}.P .pt-ln.in{animation:none;stroke-dashoffset:0}.P .pt-pl.gh,.P .pt-pl.out,.P .pt-fx,.P .pt-c.out,.P .pt-ln.out,.P .pt-ld.out{display:none}}
 .P .mp-cap{font-size:10px;color:var(--t2);display:flex;align-items:center;justify-content:center;gap:5px;letter-spacing:0.5px;margin-top:6px}
 .P .mp-dot{width:7px;height:7px;border-radius:50%;background:#34d399;box-shadow:0 0 6px #34d399;animation:mp-blink 2s infinite;flex-shrink:0}
 @keyframes mp-blink{0%,100%{opacity:1}50%{opacity:0.35}}
@@ -1505,6 +1642,20 @@ html,body{background:#0b0d14 !important}
 .P .scr-slider input[type=range]{width:100%;height:5px;-webkit-appearance:none;appearance:none;background:linear-gradient(90deg,rgba(124,92,252,0.12),rgba(124,92,252,0.25));border-radius:3px;outline:none;cursor:pointer}
 .P .scr-slider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:linear-gradient(135deg,#7c5cfc,#6d28d9);cursor:pointer;box-shadow:0 0 6px rgba(124,92,252,0.35);border:2px solid rgba(255,255,255,0.15)}
 .P .scr-slider .fs-val{font-size:13px;font-weight:700;color:#7c5cfc;min-width:32px;text-align:center}
+/* 实时流量并入整机展台，保留原数值与曲线，缩小重绘面积。 */
+.P .dv-tf{position:absolute;left:22px;bottom:18px;z-index:2;width:176px;display:flex;flex-direction:column;gap:5px;pointer-events:none}
+.P .dv-tf .tf-v{display:flex;align-items:baseline;gap:14px;white-space:nowrap}
+.P .dv-tf .tf-p{display:inline-flex;align-items:baseline;gap:4px;min-width:0}
+.P .dv-tf .tf-a{align-self:center;flex:none;width:9px;height:9px;display:block}
+.P .dv-tf .tf-a path{fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.P .dv-tf .tf-dn .tf-a{color:var(--gn)}
+.P .dv-tf .tf-up .tf-a{color:var(--og)}
+.P .dv-tf b{font-size:15px;font-weight:600;line-height:1;color:var(--t1);font-variant-numeric:tabular-nums}
+.P .dv-tf em{font-style:normal;font-size:10px;color:var(--t2)}
+.P .dv-tf .tf-c{width:100%;height:30px;position:relative;-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 38%);mask-image:linear-gradient(90deg,transparent 0,#000 38%)}
+.P .dv-tf .tf-c canvas{display:block;width:100%;height:100%}
+@media(max-width:820px){.P .dv-tf{position:relative;left:auto;bottom:auto;align-self:flex-start;margin-top:2px;width:132px;gap:3px}.P .dv-tf .tf-v{gap:10px}.P .dv-tf .tf-a{width:8px;height:8px}.P .dv-tf b{font-size:12px}.P .dv-tf em{font-size:9px}.P .dv-tf .tf-c{height:20px}}
+@media(max-width:480px){.P .dv-head{flex-wrap:wrap}.P .dv-acts{width:100%;justify-content:flex-end}}
 </style>
 <script>
 (function(){
@@ -1731,9 +1882,7 @@ document.addEventListener('keydown',function(e){
  var sm=wfmEl('sim');
  if(sm&&sm.classList.contains('open')){simClose();return;}
  var wb=wfmEl('wlb');
- if(wb&&wb.classList.contains('open')){wlbClose();return;}
- var hq=wfmEl('hqos');
- if(hq&&hq.classList.contains('open'))hqosClose();
+ if(wb&&wb.classList.contains('open'))wlbClose();
 });
 
 /* === s63 第2项: 频段卡(#hm-band)点击 → 载波聚合浮窗(caPop) ===
@@ -2065,12 +2214,8 @@ function wlbRefreshBadge(){
     slot.style.display='';}
    else{slot.innerHTML='';slot.style.display='none';}
   }
-  /* 产品图左上角的无线电波标识 */
-  var dw=wfmEl('dv-wlb'),ds=wfmEl('dv-wlb-ssid');
-  if(dw){
-   if(on){if(ds)ds.textContent=d.ssid||'';dw.style.display='';}
-   else dw.style.display='none';
-  }
+  /* 产品图左上角的上网方式标识归设备总览那段按出口画, 这里桥接状态变了顺手让它刷新一次 */
+  if(window.MRT_NETB)MRT_NETB();
  });
 }
 
@@ -2284,6 +2429,15 @@ function cxSubHtml(){
   return h;
 }
 
+/* 未取得载波制式时不能默认按 LTE 显示；同频段可沿用首页已识别的前缀。 */
+function cxBandPrefix(c){
+  var rat=String(c.rat||'');
+  if(/NR|5G/i.test(rat))return 'n';
+  if(/LTE|4G/i.test(rat))return 'B';
+  var current=String(heroCell&&heroCell.bv||'').match(/^([nB])(\d+)$/i);
+  return current&&Number(current[2])===Number(c.band)?(/^n$/i.test(current[1])?'n':'B'):'';
+}
+
 /* 载波聚合卡。ca_count 是真实成分载波数(已剔除 HFREQINFO 尾部的全零填充组)。
    bare=true 时只返回内部的 ca-hd + ca-grid, 不套折叠卡外壳 —— 给 s63 的
    频段卡点击浮窗(caPop)复用, 那里不需要可折叠的标题行。 */
@@ -2301,7 +2455,7 @@ function cxCaHtml(bare){
   /* 只有一个载波时说"未聚合"而不是"1 载波聚合" —— 后者读起来是自相矛盾的。 */
   var title = n > 1 ? (n + ' 载波聚合') : '单载波 · 未聚合';
   var sub = ca.map(function(c){
-    return (/NR/i.test(c.rat) ? 'n' : 'B') + c.band;
+    return cxBandPrefix(c) + c.band;
   }).join('  +  ');
 
   var h = '<div class="ca-hd"><div class="ca-big"><span class="n">' + n + '</span><span class="u">CC</span></div>'
@@ -2313,7 +2467,7 @@ function cxCaHtml(bare){
         + '</div></div>';
 
   h += '<div class="ca-grid">' + ca.map(function(c){
-    var pfx = /NR/i.test(c.rat) ? 'n' : 'B';
+    var pfx = cxBandPrefix(c);
     var fr = bandFreq(pfx + c.band);
     var isP = (c.role === 'PCC');
     /* 上行 EARFCN 与频点同时为 0 = 该载波只做下行,采集器已把 ul_bw 归零。
@@ -2438,12 +2592,30 @@ function cxNbHtml(){
 /* 真实卡槽。qmodem 报的 "SIM Slot" 是模组自报的逻辑槽位,在这块板子上
    并不等于机身实际在用哪个卡槽 —— 卡槽是 GPIO(cpe-sel0)切的,权威源是
    /tmp/sim_sel,由 simstat.sh 报出来。这里拿它盖掉模组那个值。 */
+/* 首屏可使用上次读数；实际接口返回后立即覆盖缓存。 */
 var simSlot = null, slotTried = false;
+var SIM_CACHE_KEY = 'mrt-sim-<%=dev_cache_key%>';
+function simRestore(){
+  try {
+    var c=JSON.parse(localStorage.getItem(SIM_CACHE_KEY)||'null');
+    if(c&&c.d&&Date.now()-c.t<3600000){
+      simSlot=Object.assign({},c.d,{text:c.d.text+'（上次读数）'});slotTried=true;
+    }
+  } catch(e){}
+}
 function slotLoad(cb){
-  XHR.get('<%=luci.dispatcher.build_url("admin","modem","simstat")%>', {}, function(x, d){
-    if (d && typeof d === 'object' && d.slot) simSlot = d;
-    slotTried = true;
-    if (cb) cb();
+  XHR.get('<%=luci.dispatcher.build_url("admin","modem","simstat")%>',{},function(x,d){
+    slotTried=true;
+    if(d&&typeof d==='object'&&d.slot){
+      simSlot=d;
+      try {
+        if(!(+d.busy)&&String(d.code)==='12')localStorage.setItem(SIM_CACHE_KEY,JSON.stringify({t:Date.now(),d:d}));
+        else localStorage.removeItem(SIM_CACHE_KEY);
+      } catch(e){}
+    } else if(simSlot) {
+      simSlot=Object.assign({},simSlot,{text:String(simSlot.text||'').replace(/（上次读数）$/,'')+'（上次读数）'});
+    }
+    if(cb)cb();
   });
 }
 
@@ -2470,7 +2642,7 @@ function heroExtra(){
   if (ca.length) {
     var n = cellx.ca_count || ca.length, dl = 0, seen = {}, names = [];
     ca.forEach(function(c){
-      var b = (/NR/i.test(c.rat) ? 'n' : 'B') + c.band;
+      var b = cxBandPrefix(c) + c.band;
       if (!seen[b]) { seen[b] = 1; names.push(b); }   // 同频段带内聚合只写一次, 载波数看角标
       dl += (+c.dl_bw || 0);
     });
@@ -2480,7 +2652,7 @@ function heroExtra(){
       : ['未聚合', bandFreq(names[0]), dl ? dl + 'MHz' : ''].filter(Boolean).join(' · ');
     if (caE) { caE.style.display = n > 1 ? '' : 'none'; caE.textContent = n + 'CC'; caE.classList.toggle('on', n > 1); }
     if (bm) bm.title = ca.map(function(c){
-      return (c.role || '') + ' ' + (/NR/i.test(c.rat) ? 'n' : 'B') + c.band + (c.dl_bw ? ' ' + c.dl_bw + 'MHz' : '');
+      return (c.role || '') + ' ' + cxBandPrefix(c) + c.band + (c.dl_bw ? ' ' + c.dl_bw + 'MHz' : '');
     }).join('  /  ');
   } else if (heroCell.bv !== undefined) {
     if (bdE) bdE.textContent = heroCell.bv;
@@ -2511,7 +2683,27 @@ function heroExtra(){
 
 const STICKY_MS=120000,WARM_MS=15000;
 class UI{
-constructor(){this.sel=document.getElementById('modem_selector_select');this.sec=document.getElementById('mrt-sec');this.cfg=null;this.good=null;this.goodT=0;this.t0=Date.now();this.lastBdg='';this.lastSt='';this.sel.addEventListener('change',e=>{this.cfg=e.target.value;this.modem();});this.poll();}
+constructor(){this.sel=document.getElementById('modem_selector_select');this.sec=document.getElementById('mrt-sec');this.cfg=null;this.good=null;this.goodT=0;this.t0=Date.now();this.lastBdg='';this.lastSt='';this.sel.addEventListener('change',e=>{this.cfg=e.target.value;this.cacheRestore();this.modem();});
+/* s64 秒开: 构造时立刻用上次缓存的蜂窝数据把 hero + 卡片画出来, 不等两次网络请求(先取模组列表再取 info)。
+   之后真·轮询回来再覆盖。避免打开半天卡在"读取中 / 等待网络注册"。 */
+simRestore();this.cacheRestore();this.poll();}
+/* 缓存 key 按机型隔离(多模组/换卡各一份); 存 this.good(已过滤的干净非 stale 数据)+ 时间戳 + opV。 */
+cacheKey(){return 'mrt-hero-<%=dev_cache_key%>';}
+cacheSave(){try{var op=this.good.find(e=>/互联网服务提供商|operator|isp/i.test(e.full_name||e.key));localStorage.setItem(this.cacheKey(),JSON.stringify({t:this.goodT,opV:op?(op.value||'').trim():'',data:this.good}));}catch(e){}}
+cacheRestore(){
+ try{
+  var raw=localStorage.getItem(this.cacheKey());if(!raw)return;
+  var c=JSON.parse(raw);if(!c||!Array.isArray(c.data)||!c.data.length)return;
+  /* 太旧的缓存不认(超 1 小时), 免得拿半天前的信号糊脸; 其余照画, 标签会显示"Xs 前的读数" */
+  var age=Math.round((Date.now()-(c.t||0))/1000);
+  if(age>3600)return;
+  this.good=c.data;this.goodT=c.t||0;
+  /* 给每条打上 stale=age(秒): 这样 render 的 srvStale>0, 不会把缓存当"刚拿到的新数据"而把
+     goodT 重置成 now(那样会假显示"实时读数")。打了 stale, heroUp 会诚实标"Xs 前的读数"。 */
+  var tagged=c.data.map(function(e){var o={};for(var k in e)o[k]=e[k];if(o.stale==null)o.stale=Math.max(1,age);return o;});
+  this.render(tagged);
+ }catch(e){}
+}
 poll(){XHR.poll(5,'<%=luci.dispatcher.build_url("admin","modem","qmodem","get_modem_cfg")%>',{},(x,d)=>{if(d&&d.cfgs&&Array.isArray(d.cfgs)){this.sel.innerHTML='';d.cfgs.forEach(c=>{const o=document.createElement('option');o.value=c.cfg;o.textContent=c.name;this.sel.appendChild(o);});if(!this.cfg&&d.cfgs.length){this.cfg=d.cfgs[0].cfg;this.modem();}}});}
 /* 走本包的 modem_ctrl(不是 qmodem 那个):服务端在这里做了粘滞缓存 + 2 秒合流,
    页面/屏保/手机端不会各自去抢 ttyUSB1。 */
@@ -2616,26 +2808,32 @@ const now=Date.now(),fresh=Array.isArray(data)&&data.length>0;
 /* 后端补上的条目自带 stale(秒)。带 stale 的不能算"新拿到的",否则前端会拿它
    再起一个 120 秒窗口,两层叠起来最长能糊 4 分钟的旧数据。 */
 const srvStale=fresh?data.reduce((m,e)=>Math.max(m,(e&&parseInt(e.stale))||0),0):0;
-if(fresh&&!srvStale&&this.hasCell(data)){this.good=data.filter(e=>e&&this.okVal(e.value));this.goodT=now;}
+if(fresh&&!srvStale&&this.hasCell(data)){this.good=data.filter(e=>e&&this.okVal(e.value));this.goodT=now;this.cacheSave();}
 else if(this.good&&now-this.goodT<STICKY_MS){data=fresh?this.mergeGood(data.filter(e=>e&&this.okVal(e.value))):this.good;}
 /* 数据落后了多少秒(-1=本次会话还没拿到过),给 heroUp 决定要不要提示 */
 this.stale=srvStale||(this.goodT?Math.round((now-this.goodT)/1000):-1);
-if(!data||!Array.isArray(data)||!data.length){if(window.MRT_HERO)MRT_HERO.set('sys');else document.getElementById('hero-w').classList.add('hid');this.sec.innerHTML='<div class="cd"><div class="empty-hint"><i class="fas fa-sim-card"></i> 此设备未安装蜂窝模组，或模组未被识别</div></div>';return;}
-this.sec.innerHTML='';const base=[],sim=[],cell=[],w=[];
+if(!data||!Array.isArray(data)||!data.length){if(window.MRT_HERO)MRT_HERO.set('sys');else document.getElementById('hero-w').classList.add('hid');var _empty='<div class="cd"><div class="empty-hint"><i class="fas fa-sim-card"></i> 此设备未安装蜂窝模组，或模组未被识别</div></div>';if(this.sec._h!==_empty){this.sec.innerHTML=_empty;this.sec._h=_empty;}return;}
+/* s64 跳顶修复: 不再每轮 innerHTML='' 清空再重建 —— 那会让 #mrt-sec 瞬间塌高, Safari/部分手机
+   浏览器滚动位置超出文档高度就被夹回顶部(用户"滑到下面自动回顶")。改成先拼进本地串 secHtml,
+   末尾只有内容真变了才写 DOM(内容没变就一个字节不动, 滚动位置纹丝不动)。 */
+let secHtml='';const base=[],sim=[],cell=[],w=[];
 const st=this.sel.options[this.sel.selectedIndex]?.text||'';if(st)base.push({full_name:'模组型号',value:st});
 const op=data.find(e=>/互联网服务提供商|operator|isp/i.test(e.full_name||e.key));let opV=op?(op.value||'').trim():'';
 data.forEach(e=>{if(e.type==='warning_message'){w.push(e);return;}const c=(e.class||'')+(e.class_origin||'');if(/SIM卡信息|SIM Information/i.test(c)){sim.push(e);return;}if(/基站信息|Cell Information/i.test(c)){cell.push(e);return;}if(/基本信息|Base Information/i.test(c)){base.push(e);return;}});
 if(window.MRT_HERO)MRT_HERO.set('cell');else document.getElementById('hero-w').classList.remove('hid');this.heroUp(data,opV);
 const sigKeys=[{re:/^RSRP$|参考信号接收功率/i,name:'RSRP',sub:'参考信号接收功率',unit:'dBm',type:'rsrp'},{re:/^RSRQ$|参考信号接收质量/i,name:'RSRQ',sub:'参考信号接收质量',unit:'dB',type:'rsrq'},{re:/^SINR$|信噪比/i,name:'SINR',sub:'信号噪声比',unit:'dB',type:'sinr'},{re:/^RSSI$|接收信号强度/i,name:'RSSI',sub:'接收信号强度',unit:'dBm',type:'rssi'}];
 const sigItems=sigKeys.map(sk=>{const e=[...cell,...base].find(x=>sk.re.test(x.key||'')||sk.re.test(x.full_name||''));return{...sk,value:e?e.value:null};});
-if(sigItems.some(s=>s.value!==null&&s.value!==undefined&&s.value!=='--')){const html=sigItems.filter(s=>s.value!==null&&s.value!==undefined&&String(s.value).trim()!==''&&s.value!=='--').map(s=>{const lvl=sigLvl(s.type,s.value);const r=24,c=2*Math.PI*r,off=c-(lvl.pct/100)*c;const stk=lvl.cls==='good'?'#34d399':lvl.cls==='fair'?'#fbbf24':'#f87171';const dispVal=(s.value!==null&&s.value!==undefined&&s.value!=='--')?String(s.value).replace(/[^0-9.\-]/g,'')||'--':'--';return`<div class="sig-gauge"><div class="sg-w"><svg viewBox="0 0 60 60"><circle class="sg-bg" cx="30" cy="30" r="${r}"/><circle class="sg-fg" cx="30" cy="30" r="${r}" stroke="${stk}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/></svg><div class="sg-c"><span class="sv">${dispVal}</span><span class="su">${s.unit}</span></div></div><div class="sg-name">${s.name}</div><div class="sg-sub">${s.sub}</div><span class="sg-desc ${lvl.cls}">${lvl.desc}</span></div>`;}).join('');this.sec.innerHTML+=`<div class="cd"><div class="cd-t"><i class="fas fa-signal"></i> 信号质量监测</div><div class="sig-panel">${html}</div></div>`;}
-if(base.length){const netE=data.find(e=>this.mt(e,/^mode$|^network_?mode$|网络模式|network mode|network type/i));const connE=data.find(e=>this.mt(e,/connect|connection|连接状态/i));const bandE=[...cell,...base].find(e=>this.mt(e,/^band$|频段/i));const findF=(rx)=>base.find(e=>rx.test(e.key||'')||rx.test(e.full_name||''));const nameE=findF(/^name$|名称/i);const mfgE=findF(/^manufacturer$|制造商|厂商/i);const revE=findF(/^revision$|^firmware|固件版本/i);const atE=findF(/at_port|AT端口/i);const tempE=findF(/^temperature$|温度/i);let tags='';const nv=netE?netE.value:'';if(nv){const is5g=/5g|NR/i.test(nv);const is4g=/4g|LTE/i.test(nv);tags+=`<span class="net-tag ${is5g?'t-5g':is4g?'t-4g':'t-mode'}"><i class="fas fa-broadcast-tower"></i> ${nv}</span>`;}if(bandE&&bandE.value)tags+=`<span class="net-tag t-band"><i class="fas fa-wave-square"></i> ${bandE.value}${bandFreq(bandE.value)?' · '+bandFreq(bandE.value):''}</span>`;let connHtml='';if(connE){const co=/yes|up|connected|在线/i.test(connE.value);connHtml=`<span class="conn-pill ${co?'on':'off'}"><span class="dot"></span>${co?'链路已连接':'链路断开'}</span>`;}let modCells='';if(nameE)modCells+=`<div class="mod-cell"><div class="mod-cell-l"><i class="fas fa-microchip"></i> 模组型号</div><div class="mod-cell-v lg">${nameE.value||'--'}</div></div>`;if(mfgE)modCells+=`<div class="mod-cell"><div class="mod-cell-l"><i class="fas fa-industry"></i> 制造商</div><div class="mod-cell-v">${mfgE.value||'--'}</div></div>`;if(revE)modCells+=`<div class="mod-cell"><div class="mod-cell-l"><i class="fas fa-code-branch"></i> 固件版本</div><div class="mod-cell-v">${revE.value||'--'}</div></div>`;let metaParts=[];if(atE)metaParts.push(`<span class="at-port-chip"><i class="fas fa-plug"></i> ${atE.value||'--'}</span>`);let tempHtml='';if(tempE){const tNum=parseFloat((tempE.value||'').replace(/[^\d.\-]/g,''));if(!isNaN(tNum)){const tMin=20,tMax=85,tPct=Math.max(0,Math.min(100,(tNum-tMin)/(tMax-tMin)*100));const tColor=tNum<50?'#34d399':tNum<65?'#fbbf24':tNum<75?'#fb923c':'#f87171';tempHtml=`<div class="mod-cell" style="grid-column:span 2"><div class="mod-cell-l"><i class="fas fa-thermometer-half"></i> 模组温度</div><div style="display:flex;align-items:baseline;gap:6px"><span class="mod-cell-v lg" style="color:${tColor}">${tNum}</span><span class="mod-cell-sub">°C</span></div><div class="temp-bar"><div class="temp-bar-track"><div class="temp-bar-mark" style="left:${tPct}%"></div></div><div class="temp-bar-scale"><span>20°</span><span>50°</span><span>85°</span></div></div></div>`;}else{tempHtml=`<div class="mod-cell"><div class="mod-cell-l"><i class="fas fa-thermometer-half"></i> 模组温度</div><div class="mod-cell-v">${tempE.value||'--'}</div></div>`;}}const skipKeys=/^name$|名称|^manufacturer$|制造商|厂商|^revision$|^firmware|固件版本|at_port|AT端口|^temperature$|温度|^mode$|网络模式|network type|connect|connection|连接状态|operator|运营商|isp|^band$|频段/i;const rows=base.filter(e=>!skipKeys.test(e.key||e.full_name||'')&&e.type!=='progress_bar'&&!/RSRP|RSRQ|SINR|RSSI|参考信号/i.test(e.full_name||e.key||'')).map(e=>`<div class="ir"><span class="ik">${e.full_name||e.key}</span><span class="iv">${e.value||'--'}</span></div>`).join('');this.sec.innerHTML+=`<div class="cd"><div class="cd-t"><i class="fas fa-microchip"></i> 蜂窝模组</div>${tags||connHtml?`<div class="net-tags">${tags}${connHtml}</div>`:''}${modCells||tempHtml?`<div class="mod-grid">${modCells}${tempHtml}</div>`:''}${metaParts.length?`<div class="mod-meta">${metaParts.join('')}</div>`:''}${rows}</div>`;}
+if(sigItems.some(s=>s.value!==null&&s.value!==undefined&&s.value!=='--')){const html=sigItems.filter(s=>s.value!==null&&s.value!==undefined&&String(s.value).trim()!==''&&s.value!=='--').map(s=>{const lvl=sigLvl(s.type,s.value);const r=24,c=2*Math.PI*r,off=c-(lvl.pct/100)*c;const stk=lvl.cls==='good'?'#34d399':lvl.cls==='fair'?'#fbbf24':'#f87171';const dispVal=(s.value!==null&&s.value!==undefined&&s.value!=='--')?String(s.value).replace(/[^0-9.\-]/g,'')||'--':'--';return`<div class="sig-gauge"><div class="sg-w"><svg viewBox="0 0 60 60"><circle class="sg-bg" cx="30" cy="30" r="${r}"/><circle class="sg-fg" cx="30" cy="30" r="${r}" stroke="${stk}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/></svg><div class="sg-c"><span class="sv">${dispVal}</span><span class="su">${s.unit}</span></div></div><div class="sg-name">${s.name}</div><div class="sg-sub">${s.sub}</div><span class="sg-desc ${lvl.cls}">${lvl.desc}</span></div>`;}).join('');secHtml+=`<div class="cd"><div class="cd-t"><i class="fas fa-signal"></i> 信号质量监测</div><div class="sig-panel">${html}</div></div>`;}
+if(base.length){const netE=data.find(e=>this.mt(e,/^mode$|^network_?mode$|网络模式|network mode|network type/i));const connE=data.find(e=>this.mt(e,/connect|connection|连接状态/i));const bandE=[...cell,...base].find(e=>this.mt(e,/^band$|频段/i));const findF=(rx)=>base.find(e=>rx.test(e.key||'')||rx.test(e.full_name||''));const nameE=findF(/^name$|名称/i);const mfgE=findF(/^manufacturer$|制造商|厂商/i);const revE=findF(/^revision$|^firmware|固件版本/i);const atE=findF(/at_port|AT端口/i);const tempE=findF(/^temperature$|温度/i);let tags='';const nv=netE?netE.value:'';if(nv){const is5g=/5g|NR/i.test(nv);const is4g=/4g|LTE/i.test(nv);tags+=`<span class="net-tag ${is5g?'t-5g':is4g?'t-4g':'t-mode'}"><i class="fas fa-broadcast-tower"></i> ${nv}</span>`;}if(bandE&&bandE.value)tags+=`<span class="net-tag t-band"><i class="fas fa-wave-square"></i> ${bandE.value}${bandFreq(bandE.value)?' · '+bandFreq(bandE.value):''}</span>`;let connHtml='';if(connE){const co=/yes|up|connected|在线/i.test(connE.value);connHtml=`<span class="conn-pill ${co?'on':'off'}"><span class="dot"></span>${co?'链路已连接':'链路断开'}</span>`;}let modCells='';if(nameE)modCells+=`<div class="mod-cell"><div class="mod-cell-l"><i class="fas fa-microchip"></i> 模组型号</div><div class="mod-cell-v lg">${nameE.value||'--'}</div></div>`;if(mfgE)modCells+=`<div class="mod-cell"><div class="mod-cell-l"><i class="fas fa-industry"></i> 制造商</div><div class="mod-cell-v">${mfgE.value||'--'}</div></div>`;if(revE)modCells+=`<div class="mod-cell"><div class="mod-cell-l"><i class="fas fa-code-branch"></i> 固件版本</div><div class="mod-cell-v">${revE.value||'--'}</div></div>`;let metaParts=[];if(atE)metaParts.push(`<span class="at-port-chip"><i class="fas fa-plug"></i> ${atE.value||'--'}</span>`);let tempHtml='';if(tempE){const tNum=parseFloat((tempE.value||'').replace(/[^\d.\-]/g,''));if(!isNaN(tNum)){const tMin=20,tMax=85,tPct=Math.max(0,Math.min(100,(tNum-tMin)/(tMax-tMin)*100));const tColor=tNum<50?'#34d399':tNum<65?'#fbbf24':tNum<75?'#fb923c':'#f87171';tempHtml=`<div class="mod-cell" style="grid-column:span 2"><div class="mod-cell-l"><i class="fas fa-thermometer-half"></i> 模组温度</div><div style="display:flex;align-items:baseline;gap:6px"><span class="mod-cell-v lg" style="color:${tColor}">${tNum}</span><span class="mod-cell-sub">°C</span></div><div class="temp-bar"><div class="temp-bar-track"><div class="temp-bar-mark" style="left:${tPct}%"></div></div><div class="temp-bar-scale"><span>20°</span><span>50°</span><span>85°</span></div></div></div>`;}else{tempHtml=`<div class="mod-cell"><div class="mod-cell-l"><i class="fas fa-thermometer-half"></i> 模组温度</div><div class="mod-cell-v">${tempE.value||'--'}</div></div>`;}}const skipKeys=/^name$|名称|^manufacturer$|制造商|厂商|^revision$|^firmware|固件版本|at_port|AT端口|^temperature$|温度|^mode$|网络模式|network type|connect|connection|连接状态|operator|运营商|isp|^band$|频段/i;const rows=base.filter(e=>!skipKeys.test(e.key||e.full_name||'')&&e.type!=='progress_bar'&&!/RSRP|RSRQ|SINR|RSSI|参考信号/i.test(e.full_name||e.key||'')).map(e=>`<div class="ir"><span class="ik">${e.full_name||e.key}</span><span class="iv">${e.value||'--'}</span></div>`).join('');secHtml+=`<div class="cd"><div class="cd-t"><i class="fas fa-microchip"></i> 蜂窝模组</div>${tags||connHtml?`<div class="net-tags">${tags}${connHtml}</div>`:''}${modCells||tempHtml?`<div class="mod-grid">${modCells}${tempHtml}</div>`:''}${metaParts.length?`<div class="mod-meta">${metaParts.join('')}</div>`:''}${rows}</div>`;}
 if(sim.length){const r=sim.map(e=>{let v=e.value||'--';const kn=(e.full_name||e.key||'');
 /* 卡槽以设备侧为准:模组只知道自己被接到了哪路,不知道机身把 GPIO 拨到了哪个槽。 */
-if(/SIM.?Slot|插槽|卡槽/i.test(kn)&&simSlot&&simSlot.slot)v=simSlot.slot;if(/status|状态/i.test(e.full_name||e.key))v=/ready/i.test(v)?'<span style="color:var(--gn);font-weight:700">●&nbsp;'+v+'</span>':'<span style="color:var(--rd);font-weight:700">●&nbsp;'+v+'</span>';if(/ICCID|IMSI|IMEI|号码/i.test(e.full_name||e.key))v=`<span style="font-family:'SF Mono','JetBrains Mono',monospace;font-size:11px">${v}</span>`;return`<div class="ir"><span class="ik">${e.full_name||e.key}</span><span class="iv">${v}</span></div>`;}).join('');this.sec.innerHTML+=`<div class="cd"><div class="clh" onclick="tc(this)"><div class="cd-t"><i class="fas fa-id-card"></i> SIM卡信息</div><i class="fas fa-chevron-down cla"></i></div><div class="clb">${cxSubHtml()}<div class="sim-grid">${r}</div></div></div>`;}
-if(cell.length){const keyMap=[{re:/^Band$|频段/i,label:'频段',icon:'fa-wave-square'},{re:/^EARFCN$|^NR.?ARFCN$|频点/i,label:'频点',icon:'fa-broadcast-tower'},{re:/^PCI$|物理小区/i,label:'物理小区',icon:'fa-cube'},{re:/Cell.?ID|小区ID|^CID$/i,label:'小区ID',icon:'fa-broadcast-tower'},{re:/Bandwidth|带宽/i,label:'带宽',icon:'fa-arrows-alt-h'},{re:/^TAC$|^LAC$/i,label:'区位码',icon:'fa-map-marker-alt'}];const gridItems=keyMap.map(km=>{const e=cell.find(x=>this.mt(x,km.re));if(!e)return'';let note='';if(/Band|频段/i.test(km.label)){const f=bandFreq(e.value);if(f)note=f;}return`<div class="cell-item"><div class="ci-label"><i class="fas ${km.icon}"></i> ${km.label}</div><div class="ci-value">${e.value||'--'}</div>${note?`<div class="ci-note">${note}</div>`:''}</div>`;}).filter(Boolean).join('');const sigBars=cell.filter(e=>/RSRP|RSRQ|SINR|RSSI/i.test((e.key||'')+' '+(e.full_name||''))).map(e=>{const nm=((e.key||'')+' '+(e.full_name||'')).match(/RSRP|RSRQ|SINR|RSSI/i)?.[0]||(e.full_name||e.key);const tp=nm.toLowerCase();const lvl=sigLvl(tp,e.value);const cls=lvl.cls;return`<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;margin-bottom:4px;border-radius:8px;background:var(--c2)"><span style="font-size:10px;font-weight:700;color:var(--t1);min-width:42px">${nm}</span><div style="flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,0.06);overflow:hidden"><div style="height:100%;border-radius:3px;width:${lvl.pct}%;background:${cls==='good'?'#34d399':cls==='fair'?'#fbbf24':'#f87171'};transition:width 0.6s"></div></div><span style="font-size:11px;font-weight:700;color:var(--t1);min-width:74px;text-align:right;font-family:monospace">${e.value||'--'}</span><span class="sg-desc ${cls}" style="margin-top:0;min-width:34px;text-align:center">${lvl.desc}</span></div>`;}).join('');const otherRows=cell.filter(e=>!keyMap.some(km=>this.mt(e,km.re))&&!/RSRP|RSRQ|SINR|RSSI/i.test((e.key||'')+' '+(e.full_name||''))).map(e=>`<div class="ir"><span class="ik">${e.full_name||e.key}</span><span class="iv">${e.value||'--'}</span></div>`).join('');this.sec.innerHTML+=`<div class="cd"><div class="clh" onclick="tc(this)"><div class="cd-t"><i class="fas fa-broadcast-tower"></i> 基站信息 · 主服务小区</div><i class="fas fa-chevron-down cla"></i></div><div class="clb">${gridItems?`<div class="cell-grid">${gridItems}</div>`:''}${sigBars?`<div style="margin-top:8px">${sigBars}</div>`:''}${otherRows}</div></div>`;}
+if(/SIM.?Slot|插槽|卡槽/i.test(kn)&&simSlot&&simSlot.slot)v=simSlot.slot;if(/status|状态/i.test(e.full_name||e.key))v=/ready/i.test(v)?'<span style="color:var(--gn);font-weight:700">●&nbsp;'+v+'</span>':'<span style="color:var(--rd);font-weight:700">●&nbsp;'+v+'</span>';if(/ICCID|IMSI|IMEI|号码/i.test(e.full_name||e.key))v=`<span style="font-family:'SF Mono','JetBrains Mono',monospace;font-size:11px">${v}</span>`;return`<div class="ir"><span class="ik">${e.full_name||e.key}</span><span class="iv">${v}</span></div>`;}).join('');secHtml+=`<div class="cd"><div class="clh" onclick="tc(this)"><div class="cd-t"><i class="fas fa-id-card"></i> SIM卡信息</div><i class="fas fa-chevron-down cla"></i></div><div class="clb">${cxSubHtml()}<div class="sim-grid">${r}</div></div></div>`;}
+if(cell.length){const keyMap=[{re:/^Band$|频段/i,label:'频段',icon:'fa-wave-square'},{re:/^EARFCN$|^NR.?ARFCN$|频点/i,label:'频点',icon:'fa-broadcast-tower'},{re:/^PCI$|物理小区/i,label:'物理小区',icon:'fa-cube'},{re:/Cell.?ID|小区ID|^CID$/i,label:'小区ID',icon:'fa-broadcast-tower'},{re:/Bandwidth|带宽/i,label:'带宽',icon:'fa-arrows-alt-h'},{re:/^TAC$|^LAC$/i,label:'区位码',icon:'fa-map-marker-alt'}];const gridItems=keyMap.map(km=>{const e=cell.find(x=>this.mt(x,km.re));if(!e)return'';let note='';if(/Band|频段/i.test(km.label)){const f=bandFreq(e.value);if(f)note=f;}return`<div class="cell-item"><div class="ci-label"><i class="fas ${km.icon}"></i> ${km.label}</div><div class="ci-value">${e.value||'--'}</div>${note?`<div class="ci-note">${note}</div>`:''}</div>`;}).filter(Boolean).join('');const sigBars=cell.filter(e=>/RSRP|RSRQ|SINR|RSSI/i.test((e.key||'')+' '+(e.full_name||''))).map(e=>{const nm=((e.key||'')+' '+(e.full_name||'')).match(/RSRP|RSRQ|SINR|RSSI/i)?.[0]||(e.full_name||e.key);const tp=nm.toLowerCase();const lvl=sigLvl(tp,e.value);const cls=lvl.cls;return`<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;margin-bottom:4px;border-radius:8px;background:var(--c2)"><span style="font-size:10px;font-weight:700;color:var(--t1);min-width:42px">${nm}</span><div style="flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,0.06);overflow:hidden"><div style="height:100%;border-radius:3px;width:${lvl.pct}%;background:${cls==='good'?'#34d399':cls==='fair'?'#fbbf24':'#f87171'};transition:width 0.6s"></div></div><span style="font-size:11px;font-weight:700;color:var(--t1);min-width:74px;text-align:right;font-family:monospace">${e.value||'--'}</span><span class="sg-desc ${cls}" style="margin-top:0;min-width:34px;text-align:center">${lvl.desc}</span></div>`;}).join('');const otherRows=cell.filter(e=>!keyMap.some(km=>this.mt(e,km.re))&&!/RSRP|RSRQ|SINR|RSSI/i.test((e.key||'')+' '+(e.full_name||''))).map(e=>`<div class="ir"><span class="ik">${e.full_name||e.key}</span><span class="iv">${e.value||'--'}</span></div>`).join('');secHtml+=`<div class="cd"><div class="clh" onclick="tc(this)"><div class="cd-t"><i class="fas fa-broadcast-tower"></i> 基站信息 · 主服务小区</div><i class="fas fa-chevron-down cla"></i></div><div class="clb">${gridItems?`<div class="cell-grid">${gridItems}</div>`:''}${sigBars?`<div style="margin-top:8px">${sigBars}</div>`:''}${otherRows}</div></div>`;}
 /* 5700 专属:载波聚合 + 附近小区。cellx 未就绪或非 5700 时两者都返回空串。 */
-this.sec.innerHTML+=cxCaHtml()+cxNbHtml();
+secHtml+=cxCaHtml()+cxNbHtml();
+/* 只有整段 HTML 真的变了才写 DOM。没变就不动 —— 避免每 4 秒清空重建导致的塌高/滚动跳顶,
+   也顺带保住折叠卡(SIM/基站)的展开态和里面的滚动位置。 */
+if(this.sec._h!==secHtml){this.sec.innerHTML=secHtml;this.sec._h=secHtml;}
 if(w.length)toast(w.map(x=>(x.full_name||x.key)+': '+x.value).join(' | '));}
 heroUp(data,opV){const $=id=>document.getElementById(id),hs=$('hero-sig'),logo=$('h-logo'),brand=$('h-brand'),opN=$('h-op');
 /* 刚进页面、服务端缓存也是冷的那几秒:说"读取中"而不是甩一个"等待…"给用户 */
@@ -2646,7 +2844,24 @@ const dialed=/^yes$/i.test(((csE&&csE.value)||'').toString().trim());
 // 但 connect_status 是 generic.sh 拿 AT+CGACT?/CGPADDR 现查的, AT 口被别的进程占着就会报 No。右栏「蜂窝联网」(#ch-c)
 // 是主备守护进程看的真实接口, 它说在线就一定在线 —— 两边任一说在线都算在线。
 // (旧徽章拿 /connect|connection/ 去撞 key, 撞到的未必是这一项, 于是出现过"有 RSRP 却显示未连接"。)
-const chc=$('ch-c'),online=dialed||(!!chc&&/在线|Online/i.test(chc.textContent||''));
+const chc=$('ch-c'),chcTxt=chc?(chc.textContent||''):'';
+const chcOn=/在线|Online/i.test(chcTxt),chcOff=/离线|断开|Offline/i.test(chcTxt);
+/* online 粘滞: dialed(connect_status)和 chc(网关守护)谁说在线都算在线。
+   但这两个都会因 AT 口被占而瞬时读空 → 不能一读空就翻脸报"未连接/等待注册"。
+   规则: 明确在线 → online 且记住 lastOnline; 既没明确在线、chc 也没"明确离线"时,
+   若本会话曾在线(lastOnline)就继续当在线(沿用上次运营商名), 把偶发空读糊过去;
+   只有 chc 明确"离线"才真判离线。真掉线会由网关守护稳定报离线, 不会误判。 */
+/* online 粘滞——但要"跟真实变化走", 不能一味粘旧值(切卡/真掉线后不该还显示在线):
+   · 明确在线(dialed 或网关守护说在线)→ online, 记时间戳 lastOnlineT;
+   · 真·离线信号(网关守护"离线", 或这轮确实读到了 connect_status 且=No)→ 立即清粘滞, 不糊;
+   · 只有"这轮啥都没读到"(csE 不存在 = AT 被占空读)才用粘滞, 且只在上次确认在线后
+     STICKY_MS 窗口内有效, 超时就老实翻未连接。这样偶发空读被糊过去, 但真变化会跟上。 */
+let online=dialed||chcOn;
+var realNeg=chcOff||(csE&&!dialed);         // 确凿的离线/未拨号(有新读数, 非空读)
+if(online){this.lastOnline=true;this.lastOnlineT=Date.now();}
+else if(realNeg){this.lastOnline=false;this.lastOp='';}
+else if(this.lastOnline&&(Date.now()-(this.lastOnlineT||0))<STICKY_MS){online=true;}
+else{this.lastOnline=false;}
 const mR=/^MCC$|^MMC$|Mobile Country Code|移动国家/i,nR=/^MNC$|Mobile Network Code|移动网络/i,iR=/^IMSI$|International Mobile Subscriber|国际移动用户/i;
 const mccE=data.find(e=>mR.test(e.key||'')||mR.test(e.full_name||''));
 const mncE=data.find(e=>nR.test(e.key||'')||nR.test(e.full_name||''));
@@ -2671,11 +2886,18 @@ const showLogo=s=>{if(!logo||!brand)return;
 if(!s){brand.classList.remove('has-logo');delete logo.dataset.op;logo.removeAttribute('src');logo.style.display='none';return;}
 if(logo.dataset.op!==s){logo.dataset.op=s;logo.onerror=()=>{brand.classList.remove('has-logo');logo.style.display='none';};logo.src=s;}
 logo.style.display='';brand.classList.add('has-logo');
-const b=EMB[(s.match(/([a-z]+)\.png$/i)||[])[1]],S=logo.parentNode.clientWidth||36;
+const b=EMB[(s.match(/([a-z]+)\.png$/i)||[])[1]],S=logo.parentNode.clientWidth||28;
 if(b){const k=S/Math.max(b[2],b[3]);logo.style.width=(200*k)+'px';logo.style.height=(62*k)+'px';logo.style.left=(-b[0]*k+(S-b[2]*k)/2)+'px';logo.style.top=(-b[1]*k+(S-b[3]*k)/2)+'px';}
 else{logo.style.width=logo.style.height='100%';logo.style.left=logo.style.top='0';logo.style.objectFit='contain';}};
 showLogo(src||(online&&logo&&logo.dataset.op)||'');
-if(opN){if(!online){opN.textContent=(warming&&!csE)?'读取中…':'等待网络注册';}else if(nm){opN.textContent=nm;}else if(opV&&opV.length>0&&opV!=='--'){opN.textContent=opV;}else if(imsiPlmn){opN.textContent='PLMN '+imsiPlmn;}else if(mcc&&mnc){opN.textContent='PLMN '+mcc+'-'+mnc;}else{opN.textContent='等待网络注册';}}
+if(opN){
+  /* 运营商名也粘滞: 在线时一旦解析出名字(nm/opV/PLMN)就记进 lastOp;
+     在线但这轮没读到名字(AT 空读)→ 沿用 lastOp, 不回退到"等待网络注册"。 */
+  var nameNow=nm||((opV&&opV.length>0&&opV!=='--')?opV:'')||(imsiPlmn?('PLMN '+imsiPlmn):'')||((mcc&&mnc)?('PLMN '+mcc+'-'+mnc):'');
+  if(!online){opN.textContent=(warming&&!csE)?'读取中…':'等待网络注册';}
+  else if(nameNow){opN.textContent=nameNow;this.lastOp=nameNow;}
+  else{opN.textContent=this.lastOp||'等待网络注册';}
+}
 /* 状态行: 圆点 + 已拨号/未连接 + 制式原文。这次读不到就沿用上一次, 别闪"读取中" */
 let st=online?'已拨号':(csE&&this.okVal(csE.value))?'未连接':'';
 if(st)this.lastSt=st;else st=this.lastSt||(warming?'读取中…':'未连接');
@@ -2684,7 +2906,6 @@ if(hs){hs.classList.toggle('is-up',st==='已拨号');hs.classList.toggle('is-dow
 const cellF=re=>data.find(e=>this.mt(e,re)&&this.okVal(e.value));
 const modeE=cellF(/^mode$|^network_?mode$|网络模式|network mode|network type/i);
 const mv=modeE?String(modeE.value).trim():'';
-const mEl=$('h-mode'),sep=$('h-sep');if(mEl){mEl.textContent=mv.replace(/\s*mode$/i,'');mEl.style.display=mv?'':'none';if(sep)sep.style.display=mv?'':'none';}
 /* 制式徽章: 只留一颗(5G SA / 5G NSA / 4G LTE), 连接状态已经由状态行的圆点说了 */
 const bw=$('h-bdg');if(bw){if(!mv&&this.lastBdg){bw.innerHTML=this.lastBdg;}else{
 const g=/NSA|EN-?DC/i.test(mv)?['bdg-5g','5G NSA']:/5g|NR/i.test(mv)?['bdg-5g',/SA/i.test(mv)?'5G SA':'5G']:/4g|lte/i.test(mv)?['bdg-4g','4G LTE']:/wcdma|umts|3g/i.test(mv)?['bdg-4g','3G']:['',''];
@@ -2697,7 +2918,7 @@ box.classList.remove('lv-good','lv-fair','lv-poor');if(L)box.classList.add('lv-'
 box.querySelector('.h-mv .n').textContent=n!==''?n:'--';box.querySelector('.h-mk b').textContent=L?L.desc:'--';box.querySelector('.h-mb>span').style.width=(L?L.pct:0)+'%';};
 met('hm-rsrq','rsrq',/^RSRQ$|参考信号接收质量/i);met('hm-sinr','sinr',/^SINR$|信噪比/i);
 const isNR=/5g|NR/i.test(mv),bandE=cellF(/^Band$|_BAND$|^频段$/i),arE=cellF(/ARFCN|EARFCN|频点/i);
-let bv=bandE?String(bandE.value).trim():'';if(/^\d+$/.test(bv))bv=(isNR?'n':'B')+bv;if(!bv&&arE)bv=arfcnBand(arE.value);
+let bv=bandE?String(bandE.value).trim():'';if(/^\d+$/.test(bv))bv=(isNR?'n':/4g|lte/i.test(mv)?'B':'')+bv;if(!bv&&arE)bv=arfcnBand(arE.value);
 // 先找下行带宽: generic.sh 里 UL Bandwidth 排在 DL 前面, 直接 /带宽/ 会先撞到上行
 const bwE=cellF(/^DL.?Bandwidth$|下行带宽/i)||cellF(/^Bandwidth$|^带宽$/i);let bwv=bwE?String(bwE.value).trim():'';if(/^\d+(\.\d+)?$/.test(bwv))bwv+='MHz';
 const bs=[bandFreq(bv),bwv].filter(Boolean);if(bs.length<2&&arE)bs.push('ARFCN '+arE.value);
@@ -2749,7 +2970,7 @@ window._chart=new TrafficChart('traffic-canvas');
 initWind();
 loadScrStatus();
 wlbRefreshBadge();   /* 无线网桥: 首屏拉一次状态, 点亮按钮/广域网徽章 */
-setInterval(()=>{ui.gw();ui.dev();},2000);
+setInterval(()=>{if(!document.hidden){ui.gw();ui.dev();}},2000);
 /* 蜂窝信息单独放慢到 4 秒,且页面切走时不轮询:每次 info 都要抢 ttyUSB1,
    打太勤反而读不到东西(就是"有信号却显示未连接"的来源),回到页面立刻补一次 */
 setInterval(()=>{if(!document.hidden)ui.modem();},4000);
@@ -2759,15 +2980,15 @@ setInterval(()=>{if(!document.hidden)ui.modem();},4000);
 setInterval(()=>{if(!document.hidden){cxLoad(heroExtra);slotLoad(heroExtra);}},30000);
 /* 无线网桥状态 30 秒刷一次(和卡槽同频), 但浮窗正开着/加入中时不插手, 免得和它自己的轮询打架 */
 setInterval(()=>{if(!document.hidden&&!wlbBusy){var m=wfmEl('wlb');if(!m||!m.classList.contains('open'))wlbRefreshBadge();}},30000);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)ui.modem();});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){ui.modem();ui.gw();ui.dev();}});
 };
 })();
 </script>
 <script>
 /* Device Overview panel — polls免鉴权 /cgi-bin/router3d-data (只读 /sys,无 AT) */
 (function(){
-var IMG={Ultra:'/luci-static/router3d/ultra.png',MAX:'/luci-static/router3d/max.png',E87N:'/luci-static/router3d/e87n.png',H5000M:'/luci-static/router3d/h5000m.png'};
-var NAMES={Ultra:'NRadio C2000 Ultra',MAX:'NRadio C2000 MAX',E87N:'EdgePi E87N',H5000M:'Hiveton H5000M'};
+var IMG={Ultra:'/luci-static/router3d/ultra.png',MAX:'/luci-static/router3d/max.png',E87N:'/luci-static/router3d/e87n.png',H5000M:'/luci-static/router3d/h5000m.png',N5000:'/luci-static/router3d/n5000.png'};
+var NAMES={Ultra:'NRadio C2000 Ultra',MAX:'NRadio C2000 MAX',E87N:'EdgePi E87N',H5000M:'Hiveton H5000M',N5000:'NRadio N5000'};
 var IS_E87N=<%= dev_model == "E87N" and "true" or "false" %>;
 // 本机机型(服务端判定,固定不变)+ 该机型的自定义整机图(存在才非空)。
 // 自定义图按机型隔离(custom_<机型>.png),换机型互不影响。
@@ -2884,12 +3105,184 @@ function chipDuplex(tone,icon,k,rx,tx,rxb,txb){
   (tot>0?'<span class="dv-bar" title="下行 '+rp+'% · 上行 '+(100-rp)+'%"><i style="width:'+rp+'%;background:var(--gn)"></i><i style="width:'+(100-rp)+'%;background:var(--og)"></i></span>':'')+
   '</div>';
 }
+/* s71 产品图接口标注(样式说明见 .dv-pts)。坐标是产品图原图像素(w×h 是量坐标时那张图的尺寸),
+   按图片实际显示的大小等比换算, 所以 PC/手机、改窗口大小都对得上。上传了自定义整机图就不画(坐标对不上)。
+   N5000: 左下=LAN、中间=WAN、右上=USB —— 物理口和 eth0/eth1 的对应没有实机核对过, 不对就改这张表。
+   网口按 router3d-data 的 role 归位(network.wan.device 那个口是 WAN), 不按 eth 名。
+   s72: 每个口给的是开口中心 + 半宽 + 半高(量 n5000.png 黑色开口得到); e = 接口面横向(图上 LAN→USB 方向),
+   d = 插入轴(垂直接口面, 指向镜头右下, 即设备左沿到下顶点的方向), 竖向就是屏幕竖直。 */
+var PORTMAP={N5000:{w:797,h:618,e:[0.814,-0.58],d:[0.818,0.575],p:{USB:[622,306,16,8.2],WAN:[578,344,16.3,10],LAN:[530,379,16.3,10]}},
+ /* Ultra: 右前面两个网口, 左=WAN(eth0 2.5G)、右=LAN(eth1) 按图猜的; 图上那个 USB-C 是供电口, 不画 USB */
+ Ultra:{w:797,h:618,e:[0.87,-0.493],d:[0.87,0.493],p:{WAN:[487,502,14.9,11.6],LAN:[534,476,13.8,11.2]}},
+ /* MAX: 只有左前面一个 2.5G 口, s55 能把它切成 WAN 或 LAN, 两个角色都落在这个口上; 插入轴朝镜头左下(镜像) */
+ MAX:{w:600,h:400,e:[0.919,0.395],d:[-0.86,0.51],p:{WAN:[167.5,249.4,14.7,9.2],LAN:[167.5,249.4,14.7,9.2]}}};
+var UT={modem:['fas fa-broadcast-tower','蜂窝模组'],net:['fas fa-network-wired','USB 网卡'],storage:['fas fa-hdd','存储设备'],hid:['fas fa-keyboard','键盘/鼠标'],hub:['fas fa-sitemap','USB 集线器'],audio:['fas fa-volume-up','音频设备'],video:['fas fa-video','摄像头'],printer:['fas fa-print','打印机'],bt:['fab fa-bluetooth-b','蓝牙适配器'],other:['fas fa-plug','USB 设备']};
+function usbVer(v){v=+v||0;return v>=10000?'USB 3.2':v>=5000?'USB 3.0':v>=480?'USB 2.0':v>0?'USB 1.1':'';}
+function usbCap(mb){mb=+mb||0;return mb<=0?'':mb>=1048576?(mb/1048576).toFixed(1).replace(/\.0$/,'')+'TB':mb>=1024?Math.round(mb/1024)+'GB':mb+'MB';}
+window.MRT_USB={T:UT,ver:usbVer,cap:usbCap};
+var PT={prev:null,d:null,m:''};
+/* s72 插头(SVG): 在接口面上按等轴测画小立体。P(a,b,z) = 开口中心 + a·半宽·e + b·半高·竖直 + z·d(原图像素, 再乘缩放 s)。
+   看得见的是 侧面(sa: N5000/Ultra 是左侧 a=-1; MAX 接口面朝左下, 是右侧 a=+1)、顶面(b=-1)、尾端面(z=末端) 三个面, 投影互不遮挡, 按这个顺序画即可;
+   z=0 的截面正好是开口, 所以插头画上去刚好盖住黑洞, 看起来就是插在里面。
+   网口: 水晶头(8 根金针 + 卡扣) z 0-18 → 绿色护套 z 18-38(收窄, 三道防滑纹);
+   USB: 金属头 z 0-3 → 白色插头壳 z 3-29(比开口大, 顶面一道青色条) → 青色尾套 z 29-37。
+   线从尾端中心顺插入轴出来再往下垂, 描边用渐变淡出(另叠一条细白高光当圆柱感)。u 只用来区分渐变 id(拖影那份)。 */
+var PT_FX='<svg viewBox="-20 -20 40 40" aria-hidden="true"><path d="M0-11v-6M7.8-7.8l4.2-4.2M11 0h6M-7.8-7.8l-4.2-4.2M-11 0h-6M7.8 7.8l4.2 4.2M-7.8 7.8l-4.2 4.2"/></svg>';
+function ptPlug(x,map,s,u){
+ var e=map.e,v=map.d,usb=x.k==='USB',id='ptg'+x.k+u,h='',xr=0,xl=1e9,yt=1e9,yb=0,z1,col,lead,sa=e[1]>0?1:-1,
+  ext=function(p){if(p[0]>xr)xr=p[0];if(p[0]<xl)xl=p[0];if(p[1]>yb)yb=p[1];if(p[1]<yt)yt=p[1];return p;},
+  P=function(a,b,z,hw,hh){return ext([+(x.px+(a*hw*e[0]+z*v[0])*s).toFixed(1),+(x.py+(a*hw*e[1]+b*hh+z*v[1])*s).toFixed(1)]);},
+  poly=function(q,f,ex){return '<path d="M'+q.join('L')+'Z" fill="'+f+'"'+(ex||'')+'/>';},
+  ST=' stroke="rgba(15,23,42,.22)" stroke-width=".6" stroke-linejoin="round"',
+  ln=function(p,q,c,w){return '<path d="M'+p+'L'+q+'" stroke="'+c+'" stroke-width="'+w+'" stroke-linecap="round"/>';},
+  /* z0→z1 一段棱台, 截面从 (a0·半宽, b0·半高) 线性收到 (a1, b1); c = [左侧面, 顶面, 尾端面] 的颜色; ex 在顶面上加细节 */
+  box=function(z0,a0,b0,z1,a1,b1,c,ex){var A=function(a,b,z){var t=(z-z0)/(z1-z0);return P(a,b,z,x.hw*(a0+(a1-a0)*t),x.hh*(b0+(b1-b0)*t));};
+   return poly([A(sa,-1,z0),A(sa,-1,z1),A(sa,1,z1),A(sa,1,z0)],c[0],ST)+poly([A(-1,-1,z0),A(1,-1,z0),A(1,-1,z1),A(-1,-1,z1)],c[1],ST)+
+    poly([A(-1,-1,z1),A(1,-1,z1),A(1,1,z1),A(-1,1,z1)],c[2],ST)+(ex?ex(A):'');};
+ if(!usb){col='#10b981';
+  h+=box(0,.97,.97,18,.97,.97,['rgba(200,214,232,.72)','rgba(248,251,255,.86)','rgba(222,232,244,.8)'],function(A){var r='';
+   for(var i=0;i<8;i++){var a=-.78+i*1.56/7;r+=ln(A(a,-1,1.4),A(a,-1,6.4),'#d4a43a',.9);}
+   return r+poly([A(-.3,-1,8.5),A(.3,-1,8.5),A(.3,-1,16.5),A(-.3,-1,16.5)],'rgba(100,116,139,.28)');});
+  h+=box(18,.86,.86,38,.44,.56,['#059669','#34d399','#047857'],function(A){return [24,29,34].map(function(z){return ln(A(-1,-1,z),A(1,-1,z),'rgba(255,255,255,.42)',.7);}).join('');});
+  z1=38;lead=P(-sa,-1,4,x.hw*.97,x.hh*.97);}
+ else{col='#06b6d4';
+  h+=box(0,.96,.9,3,.96,.9,['#b4c0cf','#eef2f7','#d4dce7']);
+  h+=box(3,1.2,1.45,29,1.08,1.28,['#d2dae5','#fbfdff','#e5ebf2'],function(A){return poly([A(-1,-1,10),A(1,-1,10),A(1,-1,13),A(-1,-1,13)],'#22d3ee');});
+  h+=box(29,.52,.72,37,.34,.5,['#0891b2','#22d3ee','#0e7490']);
+  z1=37;lead=P(-sa,-1,6,x.hw*1.19,x.hh*1.43);}
+ var c0=P(0,0,z1,0,0),mid=P(0,0,z1*.45,0,0),bot=P(0,1,2,x.hw,x.hh*(usb?1.43:.97)),K=function(a,b){return ext([+(c0[0]+a*s).toFixed(1),+(c0[1]+b*s).toFixed(1)]);},
+  c1=K(v[0]*18,v[1]*18),c2=K(v[0]*32,v[1]*32+12),c3=K(v[0]*36,v[1]*36+54),pd='M'+c0+'C'+c1+' '+c2+' '+c3,cw=(usb?6:8)*s,
+  gr=function(n,c,o0,o1,m){return '<linearGradient id="'+n+'" gradientUnits="userSpaceOnUse" x1="'+c0[0]+'" y1="'+c0[1]+'" x2="'+c3[0]+'" y2="'+c3[1]+'"><stop offset="0" stop-color="'+c+'" stop-opacity="'+o0+'"/><stop offset="'+m+'" stop-color="'+c+'" stop-opacity="'+o1+'"/><stop offset="1" stop-color="'+c+'" stop-opacity="0"/></linearGradient>';};
+ h='<defs>'+gr(id,col,1,.7,.5)+gr(id+'h','#fff',.55,.12,.45)+'</defs>'+h+
+  '<path d="'+pd+'" fill="none" stroke="url(#'+id+')" stroke-width="'+cw.toFixed(1)+'" stroke-linecap="round"/>'+
+  '<path d="'+pd+'" fill="none" stroke="url(#'+id+'h)" stroke-width="'+(cw*.28).toFixed(1)+'" stroke-linecap="round" transform="translate('+(-cw*.18).toFixed(1)+' '+(-cw*.2).toFixed(1)+')"/>';
+ /* xl/xr/yt/yb = 插头加垂线的外框(给胶囊让位); mid/r = 悬停热区圆心和半径; bot = 开口下沿(胶囊排到设备下方时引线从这里出) */
+ return {h:h,xr:xr+cw/2,xl:xl-cw/2,yt:yt-cw/2,yb:yb+cw/2,lead:lead,bot:bot,mid:mid,r:Math.max(11,Math.max(x.hw,x.hh)*s*1.6)};
+}
+/* s74 产品图轮廓: 读一次图片 alpha, 记下每一列不透明部分的上沿/下沿(原图像素)。胶囊落位时拿它判断会不会压到设备本体。
+   图片和页面同源, 读得到像素; 万一读不到(canvas 被污染之类)返回 null, 落位退回只看展台边界的老办法 */
+function ptSil(img){
+ var k=img.currentSrc||img.src;if(PT.sk===k)return PT.sil;PT.sk=k;PT.sil=null;
+ try{var w=img.naturalWidth,hh=img.naturalHeight,c=document.createElement('canvas');c.width=w;c.height=hh;var g=c.getContext('2d');g.drawImage(img,0,0);
+  var a=g.getImageData(0,0,w,hh).data,t=new Int16Array(w),b=new Int16Array(w);t.fill(-1);b.fill(-1);
+  for(var X=0;X<w;X++)for(var Y=0;Y<hh;Y++)if(a[(Y*w+X)*4+3]>40){if(t[X]<0)t[X]=Y;b[X]=Y;}
+  PT.sil={w:w,t:t,b:b};}catch(e){}
+ return PT.sil;
+}
+function ptsDraw(d,model){
+ PT.d=d;PT.m=model;
+ var box=$('dv-pts'),img=$('dv-img');if(!box||!img)return;
+ if(!img._ptl){img._ptl=1;img.addEventListener('load',function(){box._s=null;if(PT.d)ptsDraw(PT.d,PT.m);});window.addEventListener('resize',function(){if(PT.d)ptsDraw(PT.d,PT.m);});}
+ var map=PORTMAP[model];
+ if(!map||overrideSrc||!img.naturalWidth||img.style.display==='none'||!img.offsetWidth){if(box._s!==''){box.innerHTML='';box._s='';}return;}
+ var cur={};
+ (d.ports||[]).forEach(function(p){var r=p.role==='WAN'?'WAN':'LAN';if(!cur[r])cur[r]={car:+p.carrier?1:0,cnt:+p.cnt||0,spd:+p.speed||0};});
+ var usb=Array.isArray(d.usb)?d.usb:[],u0=usb[0];
+ cur.USB=u0?{car:1,key:u0.bus+'|'+u0.vid+':'+u0.pid,u:u0,n:usb.length}:{car:0};
+ /* 和上一轮比: in = 刚插上(网口插线次数变大 / 换了一个 USB 设备), out = 刚拔掉(链路 1→0 / USB 设备没了)。
+    第一轮只记不放动画。拔掉的口这一轮还要用上一轮的数据画飞走的插头和淡出的胶囊(x.g) */
+ var prev=PT.prev,fresh={};PT.prev=cur;
+ Object.keys(cur).forEach(function(k){var c=cur[k],o=prev&&prev[k];if(!o)return;
+  if(c.car){if(k==='USB'?c.key!==o.key:(!o.car||c.cnt>o.cnt))fresh[k]='in';}
+  else if(o.car)fresh[k]='out';});
+ var s=img.offsetWidth/map.w,ox=img.offsetLeft,oy=img.offsetTop,W=box.offsetWidth;
+ /* 右边界取展台(.dv-stage, overflow 裁切)的可见右沿, 覆盖层本身可能比它宽 */
+ var X0=4,stg=box.closest('.dv-stage');if(stg){var rb=box.getBoundingClientRect(),rs=stg.getBoundingClientRect();if(rs.width){W=Math.min(W,Math.round(rs.right-rb.left)-6);X0=Math.max(X0,Math.round(rs.left-rb.left)+6);}}
+ var it=[];
+ ['USB','WAN','LAN'].forEach(function(k){var p=map.p[k],c=cur[k];if(!p||!c)return;
+  var px=ox+p[0]*s,py=oy+p[1]*s;
+  /* MAX 的 WAN/LAN 是同一个物理口: 两个角色都有数据时只画有链路(或正在变化)的那个 */
+  var dup=it.filter(function(y){return y.px===px&&y.py===py;})[0];
+  if(dup){if(dup.c.car||dup.f||!(c.car||fresh[k]))return;it.splice(it.indexOf(dup),1);}
+  it.push({k:k,c:c,f:fresh[k]||'',g:fresh[k]==='out'?prev[k]:null,px:px,py:py,ax:Math.round(px),ay:Math.round(py),hw:p[2],hh:p[3]});});
+ var sig=JSON.stringify(it.map(function(x){var c=x.c;return [x.k,x.ax,x.ay,c.car,c.spd,c.key,c.n,c.u&&[c.u.name,c.u.mfr,c.u.type,c.u.mb,c.u.sub]];}))+W;
+ if(box._s===sig&&!Object.keys(fresh).length)return;
+ /* 只有页面上第一次画出来时整体淡入; 之后某个口变了重画, 其他口的胶囊原样不动(不重放淡入, 否则会闪) */
+ var first=!box._s;box._s=sig;
+ /* 胶囊排成一列: 放在最右边那个口再往右, 而且要让开所有插头和垂下来的线; 竖向按接口高度, 挨太近就往下错开一档。
+    插入轴朝左(MAX)时插头和线都往左下走, 胶囊改排在它们左边(colX 是右对齐线), 左边放不下再回到右边 */
+ var lf=map.d[0]<0,on=it.filter(function(x){return x.c.car||x.f==='out';}),colX=lf?1e9:0,lastY=-99,h='',
+  mv='--mx:'+(map.d[0]*52*s).toFixed(1)+'px;--my:'+(map.d[1]*52*s).toFixed(1)+'px';
+ on.forEach(function(x){x.pl=ptPlug(x,map,s,'');colX=lf?Math.min(colX,x.ax-26,Math.round(x.pl.xl)-10):Math.max(colX,x.ax+26,Math.round(x.pl.xr)+10);});
+ on.sort(function(a,b){return a.ay-b.ay;}).forEach(function(x){x.cy=Math.max(x.ay,lastY+28);lastY=x.cy;});
+ /* 插头; 刚插上的多垫一层拖影(同一个插头, 更糊、慢半拍), 插入/拔出都在接口处放一圈波纹 */
+ on.forEach(function(x){var col=x.k==='USB'?'#22d3ee':'#34d399';
+  if(x.f==='in')h+='<svg class="pt-pl gh" aria-hidden="true" style="'+mv+'">'+ptPlug(x,map,s,'g').h+'</svg>';
+  h+='<svg class="pt-pl'+(x.f?' '+x.f:'')+'" aria-hidden="true" style="'+mv+'">'+x.pl.h+'</svg>';
+  if(x.f)h+='<span class="pt-fx '+x.f+'" style="left:'+x.ax+'px;top:'+x.ay+'px;--pc:'+col+'">'+(x.f==='in'?PT_FX:'')+'</span>';});
+ on.forEach(function(x){var c=x.c.car?x.c:x.g,cls='pt-c'+(x.k==='USB'?' u':'')+(x.f?' '+x.f:first?' f0':''),body,attr='';
+  if(x.k==='USB'){var u=c.u,t=UT[u.type]||UT.other,sub=usbCap(u.mb)||(u.type==='hub'&&+u.sub?'下挂 '+(+u.sub)+' 台':t[1]);
+   body='<span class="ic"><i class="'+t[0]+'"></i></span><b>'+esc(u.name||u.mfr||t[1])+'</b><small>'+esc(sub)+'</small>'+(c.n>1?'<em>+'+(c.n-1)+'</em>':'');
+   attr=x.f==='out'?' aria-hidden="true"':' data-pop="usb" aria-label="USB 口已接入'+esc(t[1]+' '+(u.name||''))+'"';}
+  else{body='<span class="ic"><i class="fas fa-ethernet"></i></span><b>'+x.k+'</b><small>'+speedTxt(c.spd)+'</small>';
+   attr=x.f==='out'?' aria-hidden="true"':' data-pop="eth-'+x.k+'" aria-label="'+x.k+' 口已接入网线 '+speedTxt(c.spd)+'"';}
+  h+='<span class="'+cls+'" data-k="'+x.k+'"'+attr+' style="left:'+(lf?0:colX)+'px;top:'+x.cy+'px">'+body+'</span>';});
+ /* 插头上盖一块透明圆当悬停热区(插头 SVG 本身不接鼠标), 和胶囊弹同一个浮层 */
+ on.forEach(function(x){if(!x.c.car)return;var m=x.pl.mid,r=x.pl.r;
+  h+='<span class="pt-hs'+(x.k==='USB'?' u':'')+'" data-pop="'+(x.k==='USB'?'usb':'eth-'+x.k)+'" aria-hidden="true" style="left:'+Math.round(m[0]-r)+'px;top:'+Math.round(m[1]-r)+'px;width:'+Math.round(r*2)+'px;height:'+Math.round(r*2)+'px"></span>';});
+ h+='<svg class="pt-lns" aria-hidden="true"></svg>';
+ box.innerHTML=h;
+ /* s74 胶囊落位: 不许压住设备本体(用户: MAX 的 LAN 胶囊挡在机身正中)。量出胶囊宽度后按顺序试几个位置, 取第一个合格的:
+    ① 原来那列(插头右边; MAX 插头朝左时排左边) ② 插头另一边 ③ 设备下沿下方(插头右侧 / 正下 / 左侧三个横向位置)。
+    合格 = 在展台可见范围内 + 跟产品图轮廓(ptSil)交叠不超过 6px + 不碰任何插头和垂线、已放好的胶囊、左上角上网方式标识。
+    都不行就先收掉副字再试一遍, 还不行才退回老办法(贴右边界, 截短名称)。
+    引线: 侧边落位 = 插头角 → 折一下 → 胶囊近边; 下方落位 = 开口下沿竖直下来 → 拐到胶囊近边 */
+ var svg='',sil=ptSil(img),ss=sil?img.offsetWidth/sil.w:0,Hb=box.offsetHeight,used=[],rb0=box.getBoundingClientRect();
+ var bw=$('dv-wlb');if(bw&&bw.offsetWidth){var q=bw.getBoundingClientRect();used.push([q.left-rb0.left-6,q.top-rb0.top-6,q.right-rb0.left+6,q.bottom-rb0.top+6]);}
+ on.forEach(function(x){used.push([x.pl.xl,x.pl.yt,x.pl.xr,x.pl.yb]);});
+ function cols(x0,x1,f){if(!sil)return;for(var X=Math.max(0,Math.floor((x0-ox)/ss)),Z=Math.min(sil.w-1,Math.ceil((x1-ox)/ss));X<=Z;X++)if(sil.t[X]>=0)f(oy+sil.t[X]*ss,oy+sil.b[X]*ss);}
+ function occ(r){var n=0;cols(r[0],r[2],function(t,b){if(b>r[1]&&t<r[3])n++;});return n*ss;}
+ function low(x0,x1){var m=-1;cols(x0,x1,function(t,b){if(b>m)m=b;});return m;}
+ function hit(r){return used.some(function(u){return r[0]<u[2]&&r[2]>u[0]&&r[1]<u[3]&&r[3]>u[1];});}
+ on.forEach(function(x){var el=box.querySelector('.pt-c[data-k="'+x.k+'"]');if(!el)return;
+  var pl=x.pl,hh=el.offsetHeight/2,pick=null,w;
+  for(var pass=0;pass<2&&!pick;pass++){
+   if(pass){var sm0=el.querySelector('small');if(!sm0)break;sm0.style.display='none';}
+   w=el.offsetWidth;
+   var c=lf?[[colX-w,x.cy,'s'],[Math.round(pl.xr)+10,x.cy,'s']]:[[colX,x.cy,'s'],[Math.round(pl.xl)-10-w,x.cy,'s']];
+   if(sil)[pl.xr+6,x.ax-w/2,pl.xl-6-w].forEach(function(cx){cx=Math.round(cx);var lb=low(cx,cx+w);c.push([cx,Math.round(Math.max(x.ay+hh+6,(lb<0?x.ay:lb)+hh+6)),'b']);});
+   for(var i=0;i<c.length&&!pick;i++){var r=[c[i][0],c[i][1]-hh,c[i][0]+w,c[i][1]+hh];
+    if(r[0]>=X0&&r[2]<=W-4&&r[1]>=2&&r[3]<=Hb-2&&occ(r)<=6&&!hit(r))pick=c[i];}
+  }
+  var cx,cy,mode='s';
+  if(pick){cx=pick[0];cy=pick[1];mode=pick[2];}
+  else{cx=lf?colX-w:colX;cy=x.cy;if(lf&&cx<X0)cx=Math.round(pl.xr)+10;
+   if(cx+w>W-4){cx=Math.max(x.ax+8,W-4-w);
+    /* 手机上挪到接口边上还放不下: 名称按超出量截短(省略号), 最少留 40px */
+    var over=cx+el.offsetWidth-(W-4),b=el.querySelector('b');
+    if(over>0&&b)b.style.maxWidth=Math.max(40,b.offsetWidth-over)+'px';}}
+  el.style.left=cx+'px';el.style.top=cy+'px';w=el.offsetWidth;used.push([cx,cy-hh,cx+w,cy+hh]);
+  var col=x.k==='USB'?'#22d3ee':'#34d399',f=x.f?' '+x.f:'',L,pd;
+  if(mode==='b'){L=pl.bot;var ex=L[0]<cx?cx+1:L[0]>cx+w?cx+w-1:0;
+   pd=ex?'M'+L[0]+' '+L[1]+' L'+L[0]+' '+cy+' L'+ex+' '+cy:'M'+L[0]+' '+L[1]+' L'+L[0]+' '+(cy-hh+1);}
+  else{L=pl.lead;var ex2=cx+w/2<L[0]?cx+w-1:cx+1,mx=Math.round(L[0]+(ex2-L[0])*0.45);pd='M'+L[0]+' '+L[1]+' L'+mx+' '+cy+' L'+ex2+' '+cy;}
+  svg+='<path class="pt-ln'+f+'" pathLength="1" style="--pc:'+col+'" d="'+pd+'"/>'+
+   '<circle class="pt-ld'+f+'" cx="'+L[0]+'" cy="'+L[1]+'" r="1.8" fill="'+col+'"/>';});
+ box.querySelector('.pt-lns').innerHTML=svg;
+}
+/* 只展示联网状态，不执行网络、拨号或切卡操作。 */
+var NETK={online:['fas fa-globe','已联网'],none:['fas fa-unlink','未联网']};
+function netBadge(){
+ var el=$('dv-wlb'),d=window.MRT_R3D;if(!el||!d)return;
+ var eg=d.egress||{},k=eg.device&&eg.kind!=='none'?'online':'none',t=NETK[k];
+ if(el._k===k)return;
+ var kc=!!el._k;el._k=k;
+ el.className='dv-wlb k-'+k;
+ if(kc){el.style.animation='none';void el.offsetWidth;el.style.animation='';}
+ var ic=$('dv-wlb-i');if(ic)ic.className=t[0];
+ var kk=$('dv-wlb-k');if(kk)kk.textContent=t[1];
+ el.setAttribute('role','status');el.setAttribute('aria-label',t[1]);
+ el.style.display='';
+}
+window.MRT_NETB=netBadge;
 function render(d){
  try{HERO.feed(d);}catch(e){}
+ window.MRT_R3D=d;
+ try{netBadge();}catch(e){}
  // model + image:优先信 CGI 的 d.model,认不出则回落服务端判定的 DEV_MODEL。
  // 自定义图(overrideSrc)优先于内置默认图;每次轮询都据此复位,防止被默认图冲掉。
  var model=d.model;
- if(model!=='E87N'&&model!=='MAX'&&model!=='Ultra'&&model!=='H5000M')model=DEV_MODEL;
+ if(model!=='E87N'&&model!=='MAX'&&model!=='Ultra'&&model!=='H5000M'&&model!=='N5000')model=DEV_MODEL;
  var base=IMG[model]||IMG[DEV_MODEL];
  var src=overrideSrc||base;
  var img=$('dv-img');if(img&&src){if(img.getAttribute('data-src')!==src){img.src=src;img.setAttribute('data-src',src);img.style.display='';}}
@@ -2919,11 +3312,12 @@ function render(d){
  if(sto.total>0){var sp=pct(sto.used,sto.total);
   st.push(chip('mcy','fa-hdd','存储占用',sp+'<small>% · '+fmtKB(sto.used)+'/'+fmtKB(sto.total)+'</small>',
    {below:'<span class="dv-bar"><i style="width:'+sp+'%;background:'+barColor(sp)+'"></i></span>',pop:'storage'}));}
- sw.innerHTML=st.join('')||'<div class="empty-hint"><i class="fas fa-info-circle"></i> 无系统数据</div>';
+ var sh=st.join('')||'<div class="empty-hint"><i class="fas fa-info-circle"></i> 无系统数据</div>';
+ if(sw._h!==sh){sw.innerHTML=sh;sw._h=sh;}
  // Ports
  var pw=$('dv-ports');var ports=d.ports||[];
  pw.className='dv-ports'+(ports.length<=1?' single':'');
- pw.innerHTML=ports.map(function(p){
+ var ph=ports.map(function(p){
   var link=!!p.carrier;var lan=(p.role==='LAN');
   return '<div class="dv-port'+(link?' link':' down')+(lan?' lan':'')+'">'+
    '<span class="pic"><i class="fas fa-ethernet"></i></span>'+
@@ -2931,6 +3325,7 @@ function render(d){
    '<span class="ps"><span class="pspeed">'+(link?speedTxt(p.speed):'—')+'</span>'+
    '<span class="pstat"><span class="pdot"></span>'+(link?'已接入':'未接入')+'</span></span></div>';
  }).join('')||'<div class="empty-hint"><i class="fas fa-info-circle"></i> 无网口数据</div>';
+ if(pw._h!==ph){pw.innerHTML=ph;pw._h=ph;}
  /* Connectivity: 只放下方蜂窝区块没有的独有信息(不重复模组/SIM)。
     「内核」那一格去掉了 —— 内核版本是静态规格, 已经在设备规格卡里, 不属于"连接信息"。
     SSID 也不放这里: router3d-data 的返回里没有 ssid 字段(只有 devinfo 给),
@@ -3000,7 +3395,9 @@ function render(d){
     是字串, 算不了。 */
  if(d.wan_rx!=null&&d.wan_tx!=null)tall.push(chipDuplex('mo','fa-arrows-alt-v','WAN 流量',
   fmtKB(Math.round(d.wan_rx/1024)),fmtKB(Math.round(d.wan_tx/1024)),+d.wan_rx||0,+d.wan_tx||0));
- $('dv-meta').innerHTML=flat.concat(tall).join('');
+ var mw=$('dv-meta'),mh=flat.concat(tall).join('');
+ if(mw._h!==mh){mw.innerHTML=mh;mw._h=mh;}
+ try{ptsDraw(d,model);}catch(e){}
  if(window.MRT_POP)MRT_POP.upd('r3d');
 }
 /* ---- s44 二轮: hero 区域的"蜂窝 / 系统信息"二选一 ----
@@ -3009,7 +3406,7 @@ function render(d){
    两边谁先到都不会闪: 要显示系统版必须同时满足 want==='sys' 且已经拿到过一次 router3d-data;
    router3d-data 自己说 modem.present===0(根本没配模组)时不等蜂窝轮询, 直接 want='sys'。
    节点原位改文字/样式, 不重写 innerHTML —— 环的 dashoffset 才有过渡。 */
-var HERO={want:'',d:null,t0:Date.now(),bdg:'',
+var HERO={want:'',d:null,
  C:2*Math.PI*38,
  put:function(id,h){var e=$(id);if(e&&e.getAttribute('data-h')!==h){e.innerHTML=h;e.setAttribute('data-h',h);}},
  set:function(w){if(HERO.want===w)return;HERO.want=w;HERO.apply();},
@@ -3022,16 +3419,21 @@ var HERO={want:'',d:null,t0:Date.now(),bdg:'',
  },
  fill:function(d){
   var y=$('hero-sys'),model=d.model;
-  if(model!=='E87N'&&model!=='MAX'&&model!=='Ultra'&&model!=='H5000M')model=DEV_MODEL;
-  HERO.put('hs-name',esc(String(NAMES[model]||DEV_NAME||d.board||model||'')));
+  if(model!=='E87N'&&model!=='MAX'&&model!=='Ultra'&&model!=='H5000M'&&model!=='N5000')model=DEV_MODEL;
+  /* 品牌(细) + 型号(粗), 和设备总览的机型名同一写法 */
+  var hn=String(NAMES[model]||DEV_NAME||d.board||model||''),hk=hn.indexOf(' ');
+  HERO.put('hs-name',hk>0?'<span class="b">'+esc(hn.slice(0,hk))+'</span>'+esc(hn.slice(hk+1)):esc(hn));
   var online=!!d.wan_ip;
   y.classList.toggle('is-up',online);y.classList.toggle('is-down',!online);
   HERO.put('hs-st',online?'已联网':'未联网');
-  HERO.put('hs-fw',esc([d.fw,d.kernel?'Linux '+d.kernel:''].filter(Boolean).join(' · ')||'--'));
-  /* 徽章: 没配模组 → 灰「未安装蜂窝模组」; 配了但蜂窝轮询还没数据 → 琥珀(刚进页面 20 秒内说"读取中", 之后说"暂无数据") */
-  var m=d.modem||{},b=(+m.present===0)?'<span class="bdg bdg-off"><i class="fas fa-sim-card"></i>未安装蜂窝模组</span>'
-   :'<span class="bdg bdg-wait"><i class="fas fa-sync-alt"></i>'+(Date.now()-HERO.t0<20000?'蜂窝读取中':'蜂窝暂无数据')+'</span>';
-  HERO.put('hs-bdg',b);
+  /* 固件串 "Mwrt @Manper-5.1.1151-24" 拆成 发行名 / 作者 / 版本号(样式说明见 .fw-b) */
+  var fw=String(d.fw||''),fm=fw.match(/^(.+?)\s*@([^\s@-]+)-(\S+)$/),fh='';
+  if(fm)fh='<span class="fw-b"><span class="k"><i class="fas fa-layer-group" aria-hidden="true"></i>'+esc(fm[1])+'</span><span class="v">'+esc(fm[3])+'</span></span>';
+  else if(fw)fh='<span class="fw-b"><span class="k">'+esc(fw)+'</span></span>';
+  if(d.kernel)fh+='<span class="fw-b fw-k"><span class="k"><i class="fab fa-linux" aria-hidden="true"></i>Linux</span><span class="v">'+esc(d.kernel)+'</span></span>';
+  if(fm)fh+='<span class="fw-a">@'+esc(fm[2])+'</span>';
+  HERO.put('hs-fw',fh||'--');
+  /* s71: 原先这里有「未安装蜂窝模组 / 蜂窝读取中 / 蜂窝暂无数据」徽章, 用户嫌多余, 已删 */
   var up=parseInt(d.uptime)||0;
   if(up>0){var dd=Math.floor(up/86400),hh=Math.floor(up%86400/3600),mi=Math.floor(up%3600/60),bt=new Date(Date.now()-up*1000),z=function(n){return (n<10?'0':'')+n;};
    HERO.put('hs-up-v',(dd?dd+'<small>天</small> ':'')+hh+'<small>时</small> '+(dd?'':mi+'<small>分</small>'));
@@ -3137,69 +3539,13 @@ var HNAT_D=null;
 var HNAT_URL='<%=luci.dispatcher.build_url("admin","fancontrol","devpop")%>';
 function hnatFetch(){XHR.get(HNAT_URL,{k:'hnat'},function(x,d){if(d&&typeof d==='object'){HNAT_D=d;window.MRT_HNAT=d;}});}
 
-/* s64: 智能 HQoS(硬件 QoS)—— 状态轮询 + 配置浮窗。入口在 HNAT 卡详情浮层的「配置」按钮。
-   读写走 fancontrol 的 hqos_get / hqos_set(底层 luci-app-eqos-mtk 写 QDMA 硬件队列)。 */
-var HQOS_GET='<%=luci.dispatcher.build_url("admin","fancontrol","hqos_get")%>';
-var HQOS_SET='<%=luci.dispatcher.build_url("admin","fancontrol","hqos_set")%>';
-var hqosBusy=false;
-function hqosFetch(){XHR.get(HQOS_GET,{},function(x,d){if(d&&typeof d==='object')window.MRT_HQOS=d;});}
-function hqosOpen(ev){
- if(ev&&ev.stopPropagation)ev.stopPropagation();
- var m=document.getElementById('hqos');if(!m)return;
- if(window.MRT_POP&&MRT_POP.close)MRT_POP.close();   /* 收起悬停详情, 免得挡着 */
- /* 罩只盖右侧内容区(和 wfm/caw 一套), 窄屏 left=0 即全屏居中。cawLeft 在另一个闭包, 这里内联。 */
- var host=document.querySelector('.main-right')||document.getElementById('maincontent');
- var left=0;if(host){var hr=host.getBoundingClientRect();if(hr.width>0&&hr.left>0)left=Math.round(hr.left);}
- m.style.setProperty('--wfm-l',left+'px');
- m.classList.add('open');m.setAttribute('aria-hidden','false');
- document.body.style.overflow='hidden';
- hqosRender();
- hqosFetch();setTimeout(hqosRender,600);
-}
-function hqosClose(){var m=document.getElementById('hqos');if(!m||hqosBusy)return;m.classList.remove('open');m.setAttribute('aria-hidden','true');document.body.style.overflow='';}
-function hqosRender(){
- var body=document.getElementById('hqos-body');if(!body)return;
- var d=window.MRT_HQOS||{};
- var on=!!(d.enabled);
- var dl=d.download||100,ul=d.upload||20;
- body.innerHTML=
-  '<label class="wlb-chk" style="margin:2px 0 14px"><input type="checkbox" id="hqos-en"'+(on?' checked':'')+'><span>启用智能 HQoS<small>用 SoC 硬件队列整形上下行带宽,游戏/小包流量优先,CPU 零负担</small></span></label>'+
-  '<div class="wfm-f"><label for="hqos-dl">下行带宽(Mbps)</label><input type="number" id="hqos-dl" min="1" max="10000" value="'+dl+'" inputmode="numeric"><span class="wfm-hint">填你家宽带的下载带宽,如 300、500、1000</span></div>'+
-  '<div class="wfm-f"><label for="hqos-ul">上行带宽(Mbps)</label><input type="number" id="hqos-ul" min="1" max="10000" value="'+ul+'" inputmode="numeric"><span class="wfm-hint">填上传带宽,如 30、50。填太高会失去整形意义</span></div>'+
-  '<div class="wfm-warn"><i class="fas fa-circle-info"></i><span>带宽要填真实值整形才准。启用后会重启分载引擎并重置 DHCP 分类,瞬时断流一下属正常。</span></div>'+
-  '<div class="wfm-act"><button type="button" onclick="hqosClose()">取消</button><button type="button" class="pri" id="hqos-ok" onclick="hqosSave()"><i class="fas fa-bolt"></i> 应用</button></div>';
- /* 勾选态切换时灰化带宽输入 */
- var en=document.getElementById('hqos-en');
- function sync(){var off=!en.checked;document.getElementById('hqos-dl').disabled=off;document.getElementById('hqos-ul').disabled=off;}
- en.onchange=sync;sync();
-}
-function hqosSave(){
- if(hqosBusy)return;
- var en=document.getElementById('hqos-en').checked;
- var dl=parseInt(document.getElementById('hqos-dl').value)||0;
- var ul=parseInt(document.getElementById('hqos-ul').value)||0;
- if(en&&(dl<1||dl>10000||ul<1||ul>10000)){toast('请填写 1 - 10000 之间的带宽(Mbps)');return;}
- hqosBusy=true;
- var ok=document.getElementById('hqos-ok');ok.disabled=true;ok.innerHTML='<i class="fas fa-spinner fa-spin"></i> 应用中…';
- var fields={enable:en?'1':'0',download:dl,upload:ul,token:(window.L&&L.env&&L.env.token)||''};
- var b=[],k;for(k in fields)b.push(encodeURIComponent(k)+'='+encodeURIComponent(fields[k]));
- var xhr=new XMLHttpRequest();xhr.open('POST',HQOS_SET,true);
- xhr.setRequestHeader('Content-Type','application/x-www-form-urlencoded');
- xhr.onreadystatechange=function(){
-  if(xhr.readyState!=4)return;hqosBusy=false;
-  var rv=null;try{rv=JSON.parse(xhr.responseText);}catch(e){}
-  if(xhr.status===403){toast('会话已过期, 请刷新页面后重试');ok.disabled=false;ok.innerHTML='<i class="fas fa-bolt"></i> 应用';return;}
-  if(!rv||!rv.ok){toast((rv&&rv.error)||'设置失败 (HTTP '+xhr.status+')');ok.disabled=false;ok.innerHTML='<i class="fas fa-bolt"></i> 应用';return;}
-  toast(en?'智能 HQoS 已开启':'智能 HQoS 已关闭');
-  hqosClose();
-  /* 后端异步写硬件队列, 等几秒再拉状态刷新详情里的状态行 */
-  setTimeout(hqosFetch,1500);setTimeout(hqosFetch,4000);
- };
- xhr.send(b.join('&'));
-}
-window.hqosOpen=hqosOpen;window.hqosClose=hqosClose;window.hqosSave=hqosSave;
+/* s64: 智能 HQoS 的前端(状态轮询 + 配置浮窗 + hqosOpen/Save 等)已整体撤除。
+   原因:当前专有 mtkhnat 驱动没接通 DSCP→QDMA 队列绑定, 往 qdma_txq 写限速是空转
+   (实测下载 200M 不限), 会误导用户。后端 fancontrol 的 hqos_get/hqos_set 入口留着不动,
+   eqos 包也保留, 等拿到联发科完整 QoS SDK 把"按流绑队列"补上后, 把这段 UI 接回来即可。 */
 
-function start(){poll();setInterval(poll,1800);startPreview();initDevImg();hnatFetch();hqosFetch();setInterval(function(){if(!document.hidden){hnatFetch();hqosFetch();}},5000);}
+function start(){poll();setInterval(function(){if(!document.hidden)poll();},1800);startPreview();initDevImg();hnatFetch();setInterval(function(){if(!document.hidden){hnatFetch();}},5000);}
+document.addEventListener('visibilitychange',function(){if(!document.hidden)poll();});
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
 })();
 </script>
@@ -3212,10 +3558,10 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
      由 MRT_HERO.set('cell'|'sys') 切换。首屏判不出来前整个 #hero-w 先 .hid(防止蜂窝板先闪一下系统信息)。 -->
 <div id="hero-w" class="hid"><div class="hero">
 <!-- 三块: h-id 运营商身份 / h-mx 四格指标 / h-sig 信号舱(布局说明见样式表 "Hero · 蜂窝信号")。
-     id 沿用旧版的 h-op / h-op-status / h-bdg / h-ring / h-bars / h-sl / h-logo / h-mode / h-cellid, heroUp 照旧按 id 填 -->
-<div class="hero-sig" id="hero-sig"><div class="h-id"><div class="h-brand" id="h-brand"><i class="fas fa-broadcast-tower h-brand-ph" aria-hidden="true"></i><span class="h-brand-clip"><img id="h-logo" src="" alt="" style="display:none"></span></div><div class="h-id-t"><div class="h-op-row"><div class="h-op-name" id="h-op">--</div><div class="h-bdg" id="h-bdg"></div></div><div class="h-op-sub"><span class="h-dot"></span><span id="h-op-status">读取中…</span><span class="h-sep" id="h-sep">·</span><span class="h-mode" id="h-mode">--</span></div></div></div><div class="h-mx"><div class="h-m" id="hm-rsrq"><div class="h-mk"><span><i class="fas fa-chart-bar"></i>RSRQ</span><b>--</b></div><div class="h-mv"><span class="n">--</span><small>dB</small></div><span class="h-mb"><span style="width:0"></span></span></div><div class="h-m" id="hm-sinr"><div class="h-mk"><span><i class="fas fa-bullseye"></i>SINR</span><b>--</b></div><div class="h-mv"><span class="n">--</span><small>dB</small></div><span class="h-mb"><span style="width:0"></span></span></div><div class="h-m h-m-tap" id="hm-band" role="button" tabindex="0" onclick="caPop()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();caPop();}" title="查看载波聚合详情"><div class="h-mk"><span><i class="fas fa-wave-square"></i>频段 Band</span><b class="h-ca" id="h-ca" style="display:none"></b></div><div class="h-mv" id="h-band">--</div><div class="h-ms" id="h-band-s">--</div><i class="fas fa-layer-group h-m-tapic" aria-hidden="true"></i></div><div class="h-m h-m-tap" id="hm-sim" role="button" tabindex="0" onclick="simPop()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();simPop();}" title="点击快速切换卡槽"><div class="h-mk"><span><i class="fas fa-sim-card"></i>卡槽 SIM</span><span class="h-swap" aria-hidden="true"><i class="fas fa-exchange-alt"></i></span></div><div class="h-mv h-mv-t" id="h-pci">--</div><div class="h-ms h-sim" id="h-cellid">读取中…</div></div></div><div class="h-sig"><div class="sig-rg" id="h-ring"><svg viewBox="0 0 100 100" aria-hidden="true"><circle class="sr-tk" cx="50" cy="50" r="46"/><circle class="sr-bg" cx="50" cy="50" r="38"/><circle class="sr-fg" cx="50" cy="50" r="38" stroke-dasharray="238.8" stroke-dashoffset="238.8"/></svg><div class="ct"><span class="v">--</span><span class="l">dBm</span></div></div><div class="sig-nfo"><div class="sig-k">RSRP · 信号强度</div><div class="sig-lv" id="h-lv">--</div><div class="sig-bars" id="h-bars"><span style="height:9px"></span><span style="height:13px"></span><span style="height:17px"></span><span style="height:21px"></span><span style="height:25px"></span></div><div class="sl" id="h-sl">读取中…</div></div></div></div>
+     id 沿用旧版的 h-op / h-op-status / h-bdg / h-ring / h-bars / h-sl / h-logo / h-cellid, heroUp 照旧按 id 填 -->
+<div class="hero-sig" id="hero-sig"><div class="h-id"><div class="h-brand" id="h-brand"><i class="fas fa-broadcast-tower h-brand-ph" aria-hidden="true"></i><span class="h-brand-clip"><img id="h-logo" src="" alt="" style="display:none"></span></div><div class="h-id-t"><div class="h-op-row"><div class="h-op-name" id="h-op">--</div><div class="h-bdg" id="h-bdg"></div><div class="h-op-st"><span class="h-dot"></span><span id="h-op-status">读取中…</span></div></div></div></div><div class="h-mx"><div class="h-m" id="hm-rsrq"><div class="h-mk"><span><i class="fas fa-chart-bar"></i>RSRQ</span><b>--</b></div><div class="h-mv"><span class="n">--</span><small>dB</small></div><span class="h-mb"><span style="width:0"></span></span></div><div class="h-m" id="hm-sinr"><div class="h-mk"><span><i class="fas fa-bullseye"></i>SINR</span><b>--</b></div><div class="h-mv"><span class="n">--</span><small>dB</small></div><span class="h-mb"><span style="width:0"></span></span></div><div class="h-m h-m-tap" id="hm-band" role="button" tabindex="0" onclick="caPop()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();caPop();}" title="查看载波聚合详情"><div class="h-mk"><span><i class="fas fa-wave-square"></i>频段 Band</span><b class="h-ca" id="h-ca" style="display:none"></b></div><div class="h-mv" id="h-band">--</div><div class="h-ms" id="h-band-s">--</div></div><div class="h-m h-m-tap" id="hm-sim" role="button" tabindex="0" onclick="simPop()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();simPop();}" title="点击快速切换卡槽"><div class="h-mk"><span><i class="fas fa-sim-card"></i>卡槽 SIM</span><span class="h-swap" aria-hidden="true"><i class="fas fa-exchange-alt"></i></span></div><div class="h-mv h-mv-t" id="h-pci">--</div><div class="h-ms h-sim" id="h-cellid">读取中…</div></div></div><div class="h-sig"><div class="sig-rg" id="h-ring"><svg viewBox="0 0 100 100" aria-hidden="true"><circle class="sr-tk" cx="50" cy="50" r="46"/><circle class="sr-bg" cx="50" cy="50" r="38"/><circle class="sr-fg" cx="50" cy="50" r="38" stroke-dasharray="238.8" stroke-dashoffset="238.8"/></svg><div class="ct"><span class="v">--</span><span class="l">dBm</span></div></div><div class="sig-nfo"><div class="sig-k">RSRP · 信号强度</div><div class="sig-lv" id="h-lv">--</div><div class="sig-bars" id="h-bars"><span style="height:9px"></span><span style="height:13px"></span><span style="height:17px"></span><span style="height:21px"></span><span style="height:25px"></span></div><div class="sl" id="h-sl">读取中…</div></div></div></div>
 <!-- 系统信息版 hero: 无蜂窝模组时显示。结构与 #hero-sig 一一对应(h-id / h-mx / h-sig), id 全部以 hs- 开头, 和蜂窝版互不干扰 -->
-<div class="hero-sig hero-sys hid" id="hero-sys"><div class="h-id"><div class="h-brand"><i class="fas fa-server" aria-hidden="true"></i></div><div class="h-id-t"><div class="h-op-row"><div class="h-op-name" id="hs-name">--</div><div class="h-bdg" id="hs-bdg"></div></div><div class="h-op-sub"><span class="h-dot"></span><span class="st" id="hs-st">读取中…</span><span class="h-sep">·</span><span class="h-fw" id="hs-fw">--</span></div></div></div><div class="h-mx"><div class="h-m" id="hs-up"><div class="h-mk"><span><i class="fas fa-clock"></i>运行时间</span></div><div class="h-mv" id="hs-up-v">--</div><div class="h-ms" id="hs-up-s">--</div></div><div class="h-m t-g" id="hs-cl"><div class="h-mk"><span><i class="fas fa-network-wired"></i>在线设备</span></div><div class="h-mv" id="hs-cl-v">--</div><div class="h-ms" id="hs-cl-s">--</div></div><div class="h-m t-o" id="hs-wan"><div class="h-mk"><span><i class="fas fa-arrows-alt-v"></i>WAN 流量</span></div><div class="h-mv" id="hs-wan-v">--</div><div class="h-ms" id="hs-wan-s">--</div></div><div class="h-m t-c" id="hs-sto"><div class="h-mk"><span><i class="fas fa-hdd"></i>存储</span><b id="hs-sto-b">--</b></div><div class="h-mv" id="hs-sto-v">--</div><span class="h-mb"><span id="hs-sto-bar" style="width:0"></span></span><div class="h-ms" id="hs-sto-s">--</div></div></div><div class="h-sig"><div class="sig-rg" id="hs-ring"><svg viewBox="0 0 100 100" aria-hidden="true"><circle class="sr-tk" cx="50" cy="50" r="46"/><circle class="sr-bg" cx="50" cy="50" r="38"/><circle class="sr-fg" cx="50" cy="50" r="38" stroke-dasharray="238.8" stroke-dashoffset="238.8"/></svg><div class="ct"><span class="v" id="hs-rv">--</span><span class="l">load1</span></div></div><div class="sig-nfo"><div class="sig-k">CPU 负载 · 系统状态</div><div class="sig-lv" id="hs-lv">--</div><div class="sig-bars" id="hs-bars"><span style="height:9px"></span><span style="height:13px"></span><span style="height:17px"></span><span style="height:21px"></span><span style="height:25px"></span></div><div class="sl" id="hs-sl">读取中…</div></div></div></div>
+<div class="hero-sig hero-sys hid" id="hero-sys"><div class="h-id"><div class="h-id-t"><div class="h-op-row"><div class="h-op-name" id="hs-name">--</div></div><div class="h-op-sub"><span class="hs-pill"><span class="h-dot"></span><span class="st" id="hs-st">读取中…</span></span><span class="h-fw" id="hs-fw">--</span></div></div></div><div class="h-mx"><div class="h-m" id="hs-up"><div class="h-mk"><span><i class="fas fa-clock"></i>运行时间</span></div><div class="h-mv" id="hs-up-v">--</div><div class="h-ms" id="hs-up-s">--</div></div><div class="h-m t-g" id="hs-cl"><div class="h-mk"><span><i class="fas fa-network-wired"></i>在线设备</span></div><div class="h-mv" id="hs-cl-v">--</div><div class="h-ms" id="hs-cl-s">--</div></div><div class="h-m t-o" id="hs-wan"><div class="h-mk"><span><i class="fas fa-arrows-alt-v"></i>WAN 流量</span></div><div class="h-mv" id="hs-wan-v">--</div><div class="h-ms" id="hs-wan-s">--</div></div><div class="h-m t-c" id="hs-sto"><div class="h-mk"><span><i class="fas fa-hdd"></i>存储</span><b id="hs-sto-b">--</b></div><div class="h-mv" id="hs-sto-v">--</div><span class="h-mb"><span id="hs-sto-bar" style="width:0"></span></span><div class="h-ms" id="hs-sto-s">--</div></div></div><div class="h-sig"><div class="sig-rg" id="hs-ring"><svg viewBox="0 0 100 100" aria-hidden="true"><circle class="sr-tk" cx="50" cy="50" r="46"/><circle class="sr-bg" cx="50" cy="50" r="38"/><circle class="sr-fg" cx="50" cy="50" r="38" stroke-dasharray="238.8" stroke-dashoffset="238.8"/></svg><div class="ct"><span class="v" id="hs-rv">--</span><span class="l">load1</span></div></div><div class="sig-nfo"><div class="sig-k">CPU 负载 · 系统状态</div><div class="sig-lv" id="hs-lv">--</div><div class="sig-bars" id="hs-bars"><span style="height:9px"></span><span style="height:13px"></span><span style="height:17px"></span><span style="height:21px"></span><span style="height:25px"></span></div><div class="sl" id="hs-sl">读取中…</div></div></div></div>
 </div></div>
 
 <!-- Device Overview: 产品图 + 指示灯 + 网口 实时状态
@@ -3234,14 +3580,16 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
      相机/恢复工具键(.dv-imgtools), 绝对定位会叠在一起。 -->
 <div class="dv-body<% if dev_model == "E87N" then %> dv-body-e87n<% end %>">
 <div class="dv-stage">
-<!-- s63 无线网桥: 桥接成功后产品图左上角出一枚带无线电波动画的标识, 显示桥接的 WiFi 名 -->
-<div class="dv-wlb" id="dv-wlb" style="display:none" title="当前正经无线网桥上网" role="button" tabindex="0" onclick="wlbOpen()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();wlbOpen();}">
-<span class="dv-wlb-ic"><span class="dv-wlb-wave"></span><span class="dv-wlb-wave"></span><span class="dv-wlb-wave"></span><i class="fas fa-wifi"></i></span>
-<span class="dv-wlb-tx"><small>无线桥接</small><b id="dv-wlb-ssid">--</b></span>
+<!-- s63 → s74 当前上网方式: 产品图左上角一枚简约标识(图标 + 类型名: WiFi 桥接 / 有线 WAN / 蜂窝 / 未联网), 由设备总览那段 JS 的 netBadge() 按 router3d-data 的 egress 刷新。
+     只有 WiFi 桥接态可点(打开无线网桥窗口), 那时才给 role=button / tabindex -->
+<div class="dv-wlb" id="dv-wlb" role="status" style="display:none">
+<span class="dv-wlb-ic"><i class="fas fa-unlink" id="dv-wlb-i" aria-hidden="true"></i></span>
+<span class="dv-wlb-tx" id="dv-wlb-k">未联网</span>
 </div>
-<div class="dv-shot"><span class="dv-floor" aria-hidden="true"></span><img id="dv-img" src="<%=dev_img%>" alt="<%=luci.util.pcdata(dev_name)%>" onerror="this.style.display='none'"></div>
+<div class="dv-shot"><span class="dv-floor" aria-hidden="true"></span><img id="dv-img" src="<%=dev_img%>" alt="<%=luci.util.pcdata(dev_name)%>" onerror="this.style.display='none'"><div class="dv-pts" id="dv-pts"></div></div>
 <% local dv_b, dv_m = tostring(dev_name):match("^(%S+)%s+(.+)$") %>
 <div class="dv-name" id="dv-name"><% if dv_b then %><span class="dv-brand"><%=luci.util.pcdata(dv_b)%></span><%=luci.util.pcdata(dv_m)%><% else %><%=luci.util.pcdata(dev_name)%><% end %></div>
+<div class="dv-tf" role="group" aria-label="实时流量"><div class="tf-v"><span class="tf-p tf-dn" title="下行"><svg class="tf-a" viewBox="0 0 10 10" aria-hidden="true"><path d="M5 1.5v7M2 5.8l3 3 3-3"/></svg><b id="cv-rx">0</b><em id="cv-rxu">KB/s</em></span><span class="tf-p tf-up" title="上行"><svg class="tf-a" viewBox="0 0 10 10" aria-hidden="true"><path d="M5 8.5v-7M2 4.2l3-3 3 3"/></svg><b id="cv-tx">0</b><em id="cv-txu">KB/s</em></span></div><div class="tf-c"><canvas id="traffic-canvas"></canvas></div></div>
 <!-- 自定义整机图:右上角小图标,点击上传替换(仅当前机型) -->
 <div class="dv-imgtools">
 <button type="button" class="dv-reset" id="dv-reset" title="恢复默认图片" style="display:none"><i class="fas fa-undo"></i></button>
@@ -3265,7 +3613,7 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
      在 document 上捕获 href 含 mwrt_wizard 的点击并就地开弹窗, 和点菜单栏「向导」走同一条路;
      那个脚本没加载时就正常跳到向导页, 由那边的壳子开窗, 不会点了没反应。
      #t-btn / #t-ico 的 id 不能动(window.onload 里是裸的 getElementById, 见卡片上方注释)。 -->
-<div class="dv-head"><div class="dv-sub">系统状态 · System</div><span class="dv-acts"><a class="wz-btn" id="wz-btn" href="<%=luci.dispatcher.build_url("admin","system","mwrt_wizard")%>" title="打开设置向导"><i class="fas fa-magic"></i>设置向导</a><button type="button" class="tbtn" id="t-btn" title="切换白天 / 夜间模式" aria-label="切换白天 / 夜间模式"><i class="fas fa-moon" id="t-ico"></i></button></span></div>
+<div class="dv-head"><div class="dv-sub">系统状态 · System</div><span class="dv-acts"><button type="button" class="wz-btn topo-btn" id="mwrt-topo-open" data-topo-url="<%=luci.dispatcher.build_url("admin","modem","topo_data")%>" title="查看网络拓扑"><i class="fas fa-project-diagram"></i>网络拓扑</button><a class="wz-btn" id="wz-btn" href="<%=luci.dispatcher.build_url("admin","system","mwrt_wizard")%>" title="打开设置向导"><i class="fas fa-magic"></i>设置向导</a><button type="button" class="tbtn" id="t-btn" title="切换白天 / 夜间模式" aria-label="切换白天 / 夜间模式"><i class="fas fa-moon" id="t-ico"></i></button></span></div>
 <div class="dv-stats" id="dv-stats"><div class="empty-hint"><i class="fas fa-circle-notch fa-spin"></i> 读取中…</div></div>
 <div class="dv-ports" id="dv-ports"></div>
 <div class="dv-meta" id="dv-meta"></div>
@@ -3290,15 +3638,8 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
      .sw 先在服务端按 /proc/swaps 有没有挂 swap 打上, 第一帧就画对, 不等 dev() 回来;
      之后由 dev() 按 d["虚拟内存"] 维护(swap 中途被关掉也会撤掉)。 -->
 <% local _swon = (require "nixio.fs".readfile("/proc/swaps") or ""):match("\n/") ~= nil %>
-<div class="ga mg ga-dbl<%=_swon and ' sw' or ''%>" id="ga-mem" data-pop="mem" ondblclick="memClean()" title="双击释放内存"><div class="ga-w" id="g-mem"><svg viewBox="0 0 100 100"><circle class="ga-bg" cx="50" cy="50" r="38"/><circle class="ga-fg" cx="50" cy="50" r="38" stroke-dasharray="238.8" stroke-dashoffset="238.8"/><circle class="ga-sbg" cx="50" cy="50" r="31"/><circle class="ga-sfg" cx="50" cy="50" r="31" stroke-dasharray="194.8" stroke-dashoffset="194.8"/></svg><div class="ga-c"><span class="ga-v" id="gv-mem">0%</span><span class="ga-s">剩余</span></div></div><span class="ga-n"><i class="fas fa-memory" aria-hidden="true"></i>内存</span></div>
+<div class="ga mg ga-dbl<%=_swon and ' sw' or ''%>" id="ga-mem" data-pop="mem" ondblclick="memClean()"><span class="ga-tip" aria-hidden="true">双击清理</span><div class="ga-w" id="g-mem"><svg viewBox="0 0 100 100"><circle class="ga-bg" cx="50" cy="50" r="38"/><circle class="ga-fg" cx="50" cy="50" r="38" stroke-dasharray="238.8" stroke-dashoffset="238.8"/><circle class="ga-sbg" cx="50" cy="50" r="31"/><circle class="ga-sfg" cx="50" cy="50" r="31" stroke-dasharray="194.8" stroke-dashoffset="194.8"/></svg><div class="ga-c"><span class="ga-v" id="gv-mem">0%</span><span class="ga-s">剩余</span></div></div><span class="ga-n"><i class="fas fa-memory" aria-hidden="true"></i>内存</span></div>
 <div class="ga mcy" id="ga-tmp" data-pop="tmp"><div class="ga-w" id="g-tmp"><svg viewBox="0 0 100 100"><circle class="ga-bg" cx="50" cy="50" r="38"/><circle class="ga-fg" cx="50" cy="50" r="38" stroke-dasharray="238.8" stroke-dashoffset="238.8"/></svg><div class="ga-c"><span class="ga-v" id="gv-tmp">0℃</span><span class="ga-s">温度</span></div></div><span class="ga-n"><i class="fas fa-thermometer-half" aria-hidden="true"></i>温度</span></div>
-</div>
-
-<!-- Realtime traffic chart -->
-<div class="chart-card">
-<div class="chart-hd"><div class="cd-t" style="margin-bottom:0"><i class="fas fa-chart-area"></i> 实时流量</div><div class="chart-legend"><span class="lg-rx">下行</span><span class="lg-tx">上行</span></div></div>
-<div class="chart-vals"><div class="cv"><span class="cv-l">↓</span><span class="cv-n" id="cv-rx">0</span><span class="cv-u" id="cv-rxu">KB/s</span></div><div class="cv"><span class="cv-l">↑</span><span class="cv-n" id="cv-tx">0</span><span class="cv-u" id="cv-txu">KB/s</span></div></div>
-<div class="chart-wrap"><canvas id="traffic-canvas"></canvas></div>
 </div>
 
 <!-- 设备规格 —— 一张外层 .cd 卡装三个分区(固件 / 硬件 / 无线)。
@@ -3434,14 +3775,7 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 </div>
 </div>
 
-<!-- s64 智能 HQoS 配置浮窗(入口在 HNAT 卡详情的「配置」按钮) -->
-<div class="wfm caw hqos" id="hqos" role="dialog" aria-modal="true" aria-labelledby="hqos-t" aria-hidden="true" onclick="if(event.target===this)hqosClose()">
-<div class="wfm-win sim-win">
-<button type="button" class="wfm-x" onclick="hqosClose()" title="关闭" aria-label="关闭"><i class="fas fa-times"></i></button>
-<div class="wfm-hd"><i class="fas fa-bolt"></i><div><div class="wfm-t" id="hqos-t">智能 HQoS · 硬件限速</div><div class="wfm-s">SoC 硬件队列整形 · 游戏优先</div></div></div>
-<div id="hqos-body"><div class="caw-empty"><i class="fas fa-circle-notch fa-spin"></i><span>读取中…</span></div></div>
-</div>
-</div>
+<!-- s64: 智能 HQoS 配置浮窗已撤除(驱动未接通队列绑定, 等 SDK 后再放开) -->
 
 <!-- Network -->
 <div class="cd">
@@ -3744,20 +4078,68 @@ function rHnat(){
   g+='<span class="gp-k">PPE'+h(x.n)+' 表项</span>'+bar(x.pct||0)+'<span class="gp-v">'+(x.bind||0)+'<small>/ '+(x.all||0)+'</small></span>';
  });
  if(p.all_total)g+='<span class="gp-k">合计占用</span>'+bar(p.pct_total||0)+'<span class="gp-v">'+(p.pct_total||0)+'%</span>';
- /* 智能 HQoS(硬件 QoS)状态行 + 配置入口。状态来自 window.MRT_HQOS(hqosFetch 轮询)。
-    浮层是悬停态, 鼠标移进来不会关(pointerover 里 pop.contains 分支), 所以这个按钮点得到。 */
- var hq=window.MRT_HQOS;
- var hqLine;
- if(hq&&hq.enabled&&hq.active){hqLine='<span style="color:var(--ac);font-weight:700">已开启</span> · 下行 '+(hq.download||0)+' / 上行 '+(hq.upload||0)+' Mbps';}
- else if(hq&&hq.enabled){hqLine='<span style="color:#fbbf24">启用中…</span>';}
- else{hqLine='<span style="color:var(--t3)">未开启</span>';}
- g+='<span class="gp-k">智能 HQoS</span><span class="gp-v" style="grid-column:2/-1;text-align:left;display:flex;align-items:center;gap:8px;justify-content:space-between"><span>'+hqLine+'</span><button type="button" class="gp-cfgbtn" onclick="hqosOpen(event)">配置</button></span>';
  return o+'<div class="gp-g">'+g+'</div>'+
-  '<div class="gp-f">PPE 表项来自当前内核；智能 HQoS 状态以硬件队列读数为准。</div>';
+  '<div class="gp-f">PPE 表项来自当前内核，展示当前硬件转发占用。</div>';
 }
-function paint(k){var d=window.MRT_DEV||{};return k==='cpu'?rCpu(d):k==='mem'?rMem(d):k==='tmp'?rTmp(d):k==='cputop'?rCpuTop():k==='storage'?rStorage():k==='conns'?rConns():k==='hnat'?rHnat():rCli();}
+/* s71/s74: 产品图网口 / USB 的浮层 —— 直接吃 router3d-data 那一轮(MRT_R3D, 1.8 秒), 不另发请求 */
+/* 字节 → 1.2 GB / 356 MB */
+function bt(b){b=+b||0;var u=['B','KB','MB','GB','TB'],i=0;while(b>=1024&&i<4){b/=1024;i++;}return (i?b.toFixed(b<10?2:b<100?1:0):b)+' '+u[i];}
+function mbps(v){v=+v||0;return v>=1000?(v/1000)+' Gbps':v>0?v+' Mbps':'';}
+function kv(k,v){return '<span class="gp-k">'+k+'</span><span class="gp-v" style="grid-column:2/-1">'+v+'</span>';}
+function io(dn,up,a,b){return '<span class="gp-io"><i class="fas fa-arrow-down" aria-hidden="true"></i>'+(a||'')+bt(dn)+'</span><span class="gp-io"><i class="fas fa-arrow-up" aria-hidden="true"></i>'+(b||'')+bt(up)+'</span>';}
+var PROTO={dhcp:'DHCP 自动获取',pppoe:'PPPoE 拨号',static:'静态 IP',dhcpv6:'DHCPv6'};
+function rEth(r){
+ var d=window.MRT_R3D||{},p=(Array.isArray(d.ports)?d.ports:[]).filter(function(x){return (x.role==='WAN'?'WAN':'LAN')===r;})[0];
+ var o=head('fa-ethernet',r+' 口',p?h(p.id):'');
+ if(!p)return o+'<div class="gp-n">没有找到这个网口</div>';
+ var on=+p.carrier===1,sp=+p.speed||0,eg=d.egress||{},g=[],tag='',f='';
+ var isEg=r==='WAN'&&eg.kind==='wired'&&(eg.dev===p.id||/^pppoe/.test(eg.dev||''));
+ if(r==='WAN')tag=isEg?'<span class="gp-tag">当前上网出口</span>':on?'<span class="gp-tag wd">备用线路</span>':'';
+ else tag='<span class="gp-tag">局域网</span>';
+ o+='<div class="gp-sp">'+(on?'<b>'+(mbps(sp)||'已连接')+'</b><small>'+(p.dup==='full'?'全双工':p.dup==='half'?'半双工':'')+'</small>':'<b class="off">未接网线</b>')+tag+'</div>';
+ if(r==='WAN'){
+  g.push(kv('接入方式',h(PROTO[d.wan_proto]||d.wan_proto||'--')));
+  g.push(kv('WAN 地址','<span class="gp-mono">'+h(d.wan_addr||'未获取')+'</span>'));
+  if(isEg&&eg.gw)g.push(kv('网关','<span class="gp-mono">'+h(eg.gw)+'</span>'));
+  g.push(kv('累计流量',io(p.rx,p.tx)));
+ }else{
+  g.push(kv('路由器地址','<span class="gp-mono">'+h(d.lan_ip||'--')+(+d.lan_pfx?'/'+(+d.lan_pfx):'')+'</span>'));
+  g.push(kv('在线设备',(+d.clients||0)+' 台'));
+  g.push(kv('累计流量',io(p.tx,p.rx)));
+ }
+ if(p.mac)g.push(kv('MAC','<span class="gp-mono">'+h(String(p.mac).toUpperCase())+'</span>'));
+ g.push(kv('插线次数','本次开机 '+(+p.cnt||0)+' 次'));
+ if(on&&sp>0&&sp<1000)f='<div class="gp-f warn">协商速率低于千兆：请检查网线是否为超五类及以上、水晶头是否压好，或对端设备是否只支持百兆。</div>';
+ else f='<div class="gp-f">'+(r==='WAN'?'WAN 口连接上级网络（光猫或上级路由）':'LAN 口连接下级设备')+'，数据随设备图实时刷新。</div>';
+ return o+'<div class="gp-g">'+g.join('')+'</div>'+f;
+}
+var USPD={1:'低速 · 1.5 Mbps',12:'全速 · 12 Mbps',480:'高速 · 480 Mbps',5000:'超高速 · 5 Gbps',10000:'超高速 · 10 Gbps',20000:'超高速 · 20 Gbps'};
+function rUsb(){
+ var d=window.MRT_R3D||{},l=Array.isArray(d.usb)?d.usb:[],U=window.MRT_USB||{T:{},ver:function(){return '';},cap:function(){return '';}};
+ var o=head('fa-plug','USB 口',l.length>1?l.length+' 台设备':'');
+ if(!l.length)return o+'<div class="gp-n">USB 口未接入设备</div>';
+ var warn='';
+ return o+l.map(function(u){var t=U.T[u.type]||U.T.other||['fas fa-plug','USB 设备'],v=U.ver(u.speed),c=U.cap(u.mb),ch=[],g=[];
+  /* 外接 USB 口上认出来的蜂窝模组都是装在 USB 转接板上的 */
+  var lb=u.type==='modem'?'USB 转接板模组':t[1];
+  ch.push('<span class="gp-chip">'+h(lb)+'</span>');
+  if(v)ch.push('<span class="gp-chip">'+v+'</span>');
+  if(c)ch.push('<span class="gp-chip n">'+c+'</span>');
+  if(u.type==='hub')ch.push('<span class="gp-chip n">下挂 '+(+u.sub||0)+' 台</span>');
+  var nm=u.name||u.mfr||lb;
+  g.push(kv('协商速率',h(USPD[+u.speed]||mbps(u.speed)||'--')));
+  if(c)g.push(kv('容量',c));
+  g.push(kv('设备 ID','<span class="gp-mono">'+h(u.vid+':'+u.pid)+'</span>'));
+  g.push(kv('总线位置','<span class="gp-mono">'+h(u.bus)+'</span>'));
+  if(+u.speed===480&&(u.type==='storage'||u.type==='net'))warn='设备工作在 USB 2.0：如果它支持 3.0，检查线材或转接头是否为 USB 3.0。';
+  return '<div class="gp-ud"><i class="'+t[0]+'" aria-hidden="true"></i><div class="gp-dt"><b>'+h(nm)+'</b><span>'+h(u.mfr&&u.mfr!==nm?u.mfr:lb)+'</span></div></div>'+
+   '<div class="gp-chips">'+ch.join('')+'</div><div class="gp-g">'+g.join('')+'</div>';
+ }).join('<div class="gp-sep"></div>')+(warn?'<div class="gp-f warn">'+warn+'</div>':'<div class="gp-f">插拔即时识别，只读系统信息，不占用设备。</div>');
+}
+function paint(k){var d=window.MRT_DEV||{};return k==='usb'?rUsb():k==='eth-WAN'?rEth('WAN'):k==='eth-LAN'?rEth('LAN'):k==='cpu'?rCpu(d):k==='mem'?rMem(d):k==='tmp'?rTmp(d):k==='cputop'?rCpuTop():k==='storage'?rStorage():k==='conns'?rConns():k==='hnat'?rHnat():rCli();}
 function need(k){return k==='tmp'||k==='clients'||k==='cputop'||k==='storage'||k==='conns'||k==='hnat';}
-function target(k){return document.querySelector('[data-pop="'+k+'"]');}
+var curEl=null;
+function target(k){if(curEl&&curEl.isConnected&&curEl.getAttribute('data-pop')===k)return curEl;return document.querySelector('[data-pop="'+k+'"]');}
 
 /* 上一次没回来就不叠发; 回调万一没来(断网之类), 8 秒后放行 */
 function fetchK(k){
@@ -3775,7 +4157,9 @@ function ensure(){
 }
 function place(t){
  var r=t.getBoundingClientRect(),vw=document.documentElement.clientWidth,vh=window.innerHeight,w=pop.offsetWidth,ph=pop.offsetHeight,G=8,M=8;
- var x=Math.max(M,Math.min(Math.round(r.left+r.width/2-w/2),vw-w-M));
+ var pe=document.getElementById('P'),x0=Math.max(M,pe?Math.round(pe.getBoundingClientRect().left)+M:M);
+ /* 浮层挂在 #P 里, 左边的侧栏层级比它高; 横向下限取内容区左沿, 否则贴左的浮层会被侧栏盖掉一截 */
+ var x=Math.max(x0,Math.min(Math.round(r.left+r.width/2-w/2),vw-w-M));
  /* 优先放在目标下方, 下方放不下且上方空间更大才翻到上方 */
  var y=(vh-r.bottom-G-M>=ph||vh-r.bottom>=r.top)?r.bottom+G:r.top-G-ph;
  y=Math.round(Math.max(M,Math.min(y,vh-ph-M)));
@@ -3816,7 +4200,8 @@ document.addEventListener('pointerover',function(e){
  if(!t){clearTimeout(showT);later();return;}
  clearTimeout(hideT);hideT=0;
  var k=t.getAttribute('data-pop');
- if(k===cur)return;
+ if(k===cur){if(curEl!==t){curEl=t;render();}return;}
+ curEl=t;
  clearTimeout(showT);
  if(cur)open(k);else showT=setTimeout(function(){open(k);},120);
 });
@@ -3826,7 +4211,7 @@ document.addEventListener('click',function(e){
  if(lastPT==='mouse')return;
  if(pop&&pop.contains(e.target))return;
  var t=e.target.closest&&e.target.closest('[data-pop]');
- if(t){var k=t.getAttribute('data-pop');if(k===cur)close();else open(k);return;}
+ if(t){var k=t.getAttribute('data-pop');curEl=t;if(k===cur)close();else open(k);return;}
  if(cur)close();
 });
 document.addEventListener('keydown',function(e){if(e.key==='Escape'&&cur)close();});
@@ -3855,5 +4240,27 @@ window.MRT_POP={upd:function(){if(cur)render();},open:open,close:close};
 window.pwmOpen=function(){if(window.mwrtPortSw)mwrtPortSw.open();};
 </script>
 <% end %>
+<script>
+(function(){
+ var b=document.getElementById('mwrt-topo-open');if(!b)return;
+ var pending=false,normal=b.innerHTML;
+ b.addEventListener('click',function(){
+  if(window.MwrtTopo){window.MwrtTopo.open();return;}
+  if(pending)return;
+  pending=true;b.disabled=true;window.MWRT_TOPO_URL=b.getAttribute('data-topo-url')||'';
+  var left=2;
+  function done(){
+   if(--left)return;
+   pending=false;b.disabled=false;
+   if(window.MwrtTopo){b.innerHTML=normal;window.MwrtTopo.open();}
+   else{b.textContent='加载失败，点击重试';setTimeout(function(){b.innerHTML=normal;},3500);}
+  }
+  ['mwrt-topo-art.js','mwrt-topo.js'].forEach(function(name){
+   var s=document.createElement('script');s.src='/luci-static/resources/'+name+'?v=1154-max';
+   s.onload=done;s.onerror=done;document.head.appendChild(s);
+  });
+ });
+})();
+</script>
 <%+footer%>
 

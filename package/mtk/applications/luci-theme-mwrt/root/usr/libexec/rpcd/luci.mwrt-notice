@@ -12,6 +12,7 @@
 #            (ONCE 标记 != 本镜像), 且模组在 HS 上, 或者已发过复位正离开总线。
 #   siminit  mt5700m.sh 正在初始化 SIM 卡(它的锁还活着, 或 simcardstat 停在
 #            初始化态), 且模组对应的网口还没拨上。
+#   swapfile zram 服务首次创建 SD 交换文件，按 .new 文件大小显示进度。
 #   ota      cron 已经查到新固件(读 luci.mwrt-ota 的缓存, 不联网)。
 #
 # reboot_gate: 重启页用。usb3 那条成立时不让重启 —— 复位做到一半重启, 模组会
@@ -27,6 +28,10 @@ TRIES=/tmp/mwrt-qmodem-usb3.tries
 SIMLOCK=/tmp/rm520n.lock
 SIMSTAT=/tmp/simcardstat
 OTA_LATEST=/tmp/myos-update/state.json
+# 与 MAX zram 服务的首次创建提示状态及交换文件路径对应，只读展示。
+SWAPBUSY=/tmp/myos-swapfile.busy
+SWAPFILE=/overlay/myos-swap/swapfile
+SWAP_MB=512
 GATE_MAX=900
 USB3_BOOT_SETTLE=120
 USB3_MAX_TRIES=2
@@ -109,6 +114,28 @@ sim_initializing() {
 	return 0
 }
 
+# 创建期间显示进度；进程结束后不再展示遗留状态。
+swap_progress() {
+	local pid sz
+	pid="$(cat "$SWAPBUSY" 2>/dev/null)"
+	case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+	grep -q '/etc/init.d/zram' "/proc/$pid/cmdline" 2>/dev/null || return 1
+	grep -q swapfile "/proc/$pid/cmdline" 2>/dev/null || return 1
+	if [ -f "$SWAPFILE.new" ]; then
+		sz="$(stat -c %s "$SWAPFILE.new" 2>/dev/null)"
+		case "$sz" in ''|*[!0-9]*) sz=0 ;; esac
+		echo $(( 5 + sz / 1048576 * 85 / SWAP_MB ))
+	elif [ -f "$SWAPFILE" ]; then
+		echo 95
+	else
+		echo
+	fi
+}
+
+swap_text() {
+	printf '正在创建%sMB虚拟内存（仅首次开机），约需2分钟，期间系统可能稍慢，请勿断电。' "$SWAP_MB"
+}
+
 add_notice() {
 	json_add_object
 	json_add_string id "$1"
@@ -179,11 +206,12 @@ usb3_text() {
 }
 
 m_list() {
-	local v
+	local v p
 	json_init
 	json_add_array notices
 	usb3_pending && add_notice usb3 critical 0 "$(usb3_text)" "" "$(usb3_progress)"
 	sim_initializing && add_notice siminit warn 0 "$TXT_SIMINIT"
+	p="$(swap_progress)" && add_notice swapfile warn 0 "$(swap_text)" "" "$p"
 	wlb_event_notice
 	if [ -s "$OTA_LATEST" ] && [ "$(jsonfilter -i "$OTA_LATEST" -e '@.available' 2>/dev/null)" = "true" ]; then
 		v="$(jsonfilter -i "$OTA_LATEST" -e '@.latest' 2>/dev/null)"

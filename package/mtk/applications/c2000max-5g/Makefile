@@ -32,6 +32,8 @@ define Package/qmodem/install
 	$(CP) ./files/rootfs/. $(1)/
 	rm -rf $(1)/lib/modules
 	rm -f $(1)/usr/bin/quectel-CM-M
+	find $(1) -type d -exec chmod 0755 {} +
+	chmod 0755 $(1)/etc/init.d/* $(1)/usr/share/qmodem/*.sh $(1)/usr/libexec/rpcd/*
 endef
 
 $(eval $(call BuildPackage,quectel-CM-5G-M))

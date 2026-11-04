@@ -182,11 +182,12 @@ endef
 # 5: module list
 define ModuleAutoLoad
   $(if $(5), \
-    mkdir -p $(2)/etc/modules.d; \
+    $(INSTALL_DIR) $(2)/etc/modules.d; \
     ($(foreach mod,$(5), \
       echo "$(mod)$(if $(MODPARAMS.$(mod)), $(MODPARAMS.$(mod)),$(if $(MODPARAMS), $(MODPARAMS)))"; )) > $(2)/etc/modules.d/$(3)$(1); \
+    chmod 0644 $(2)/etc/modules.d/$(3)$(1); \
     $(if $(4), \
-      mkdir -p $(2)/etc/modules-boot.d; \
+      $(INSTALL_DIR) $(2)/etc/modules-boot.d; \
       ln -sf ../modules.d/$(3)$(1) $(2)/etc/modules-boot.d/;))
 endef
 
@@ -248,8 +249,8 @@ $(call KernelPackage/$(1)/config)
 			if grep -q "$$$$$$$${mod##$(LINUX_DIR)/}" "$(LINUX_DIR)/modules.builtin"; then \
 				echo "NOTICE: module '$$$$$$$$mod' is built-in."; \
 			elif [ -e $$$$$$$$mod ]; then \
-				mkdir -p $$(1)/$(MODULES_SUBDIR) ; \
-				$(CP) -L $$$$$$$$mod $$(1)/$(MODULES_SUBDIR)/ ; \
+				$(INSTALL_DIR) $$(1)/$(MODULES_SUBDIR) ; \
+				$(INSTALL_DATA) $$$$$$$$mod $$(1)/$(MODULES_SUBDIR)/ ; \
 			else \
 				echo "ERROR: module '$$$$$$$$mod' is missing." >&2; \
 				exit 1; \
@@ -271,7 +272,7 @@ $(call KernelPackage/$(1)/config)
   endif
   $$(eval $$(call BuildPackage,kmod-$(1)))
 
-  $$(IPKG_kmod-$(1)): $$(wildcard $$(call version_filter,$$(FILES)))
+  $$(PACK_kmod-$(1)): $(INCLUDE_DIR)/kernel.mk $(SCRIPT_DIR)/strip-kmod.sh $$(wildcard $$(call version_filter,$$(FILES)))
 
 endef
 

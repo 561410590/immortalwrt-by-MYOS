@@ -45,6 +45,11 @@ for rel in ('dispatcher.uc', 'template/header.ut'):
     shutil.copyfile(src / 'feeds/luci/modules/luci-base/ucode' / rel, dst)
     dst.chmod(0o644)
 
+# Carry the rebuilt shared JavaScript into MAX's custom root filesystem.
+dst = root / 'www/luci-static/resources/luci.js'
+shutil.copyfile(src / 'staging_dir/target-aarch64_cortex-a53_musl/root-mediatek/www/luci-static/resources/luci.js', dst)
+dst.chmod(0o644)
+
 # The stock ucode Argon shell would otherwise take precedence over MWRT's Lua shell.
 old_shell = root / 'usr/share/ucode/luci/template/themes/argon'
 if old_shell.exists():

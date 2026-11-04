@@ -1,0 +1,31 @@
+Subject: [PATCH] usb: xhci-mtk: shut down the host before system reboot
+
+The MTK platform data contains xhci_hcd_mtk rather than usb_hcd, so use
+the contained HCD when invoking the existing xHCI shutdown operation.
+This stops host activity before a warm reboot without a userspace hook.
+
+--- a/drivers/usb/host/xhci-mtk.c
++++ b/drivers/usb/host/xhci-mtk.c
+@@ -736,6 +736,14 @@ static void xhci_mtk_remove(struct platform_device *pdev)
+ 	pm_runtime_set_suspended(dev);
+ }
+ 
++static void xhci_mtk_shutdown(struct platform_device *pdev)
++{
++	struct xhci_hcd_mtk *mtk = platform_get_drvdata(pdev);
++
++	pm_runtime_get_sync(&pdev->dev);
++	xhci_shutdown(mtk->hcd);
++}
++
+ static int __maybe_unused xhci_mtk_suspend(struct device *dev)
+ {
+ 	struct xhci_hcd_mtk *mtk = dev_get_drvdata(dev);
+@@ -854,6 +862,7 @@ static struct platform_driver mtk_xhci_driver = {
+ 	.probe	= xhci_mtk_probe,
+ 	.remove_new = xhci_mtk_remove,
++	.shutdown = xhci_mtk_shutdown,
+ 	.driver	= {
+ 		.name = "xhci-mtk",
+ 		.pm = DEV_PM_OPS,
+ 		.of_match_table = mtk_xhci_of_match,

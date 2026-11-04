@@ -34,10 +34,9 @@ UPTIME=$(cut -d. -f1 /proc/uptime 2>/dev/null)
 is_num "$UPTIME" || UPTIME=0
 
 # --- firmware --------------------------------------------------------------
-FW=$(sed -n "s/^DISTRIB_DESCRIPTION='\(.*\)'/\1/p" /etc/openwrt_release 2>/dev/null)
+FW=$(sed -n "s/^DISTRIB_RELEASE='\(.*\)'/\1/p" /etc/openwrt_release 2>/dev/null)
 [ -n "$FW" ] || FW=$(rd /etc/openwrt_version)
 [ -n "$FW" ] || FW="OpenWrt"
-FW="${FW%% by *}"        # 去掉 "... by Padavanonly's ..." 冗长后缀,保留版本号
 
 # --- cpu (load + cores) ----------------------------------------------------
 # NCPU 已在上面 model 区块算过(用于机型判定),此处复用。
@@ -74,8 +73,69 @@ CLIENTS=$(awk -v d="$LANDEV" '$6==d && $3=="0x2" && $4!="00:00:00:00:00:00"{prin
 is_num "$CLIENTS" || CLIENTS=0
 
 # --- wan ip (effective default-route source addr, no AT) -------------------
-WANIP=$(ip -4 route get 8.8.8.8 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p' | head -1)
-[ -n "$WANIP" ] || WANIP=""
+EGROUTE=$(ip -4 route get 8.8.8.8 2>/dev/null)
+[ -n "$EGROUTE" ] || EGROUTE=$(ip -6 route get 2001:4860:4860::8888 2>/dev/null)
+EGDEV=$(printf '%s\n' "$EGROUTE" | awk '{for(i=1;i<=NF;i++)if($i=="dev"){print $(i+1);exit}}')
+WANIP=$(printf '%s\n' "$EGROUTE" | awk '{for(i=1;i<=NF;i++)if($i=="src"){print $(i+1);exit}}')
+
+# Classify the selected route from runtime interfaces, never a modem model/name.
+# This is display-only: no AT, ping, interface changes or dial prerequisites.
+EGRESS=$(MYOS_EGRESS_DEVICE="$EGDEV" lua - <<'LUA'
+local dev = os.getenv("MYOS_EGRESS_DEVICE") or ""
+local uci = require("uci").cursor()
+local ubus = require("luci.util").ubus
+local fs = require("nixio.fs")
+local json = require("luci.jsonc")
+local names, devices = {}, {}
+local kind, iface = dev ~= "" and "other" or "none", ""
+if dev ~= "" then devices[dev] = true end
+local dump = ubus("network.interface", "dump") or {}
+for _, s in ipairs(dump.interface or {}) do
+    if dev ~= "" and (s.l3_device == dev or s.device == dev) then
+        names[s.interface] = true
+        if s.device and s.device:sub(1, 1) ~= "@" then devices[s.device] = true end
+        if iface == "" then iface = s.interface end
+    end
+end
+local function matches(value, set)
+    if type(value) == "table" then
+        for _, v in ipairs(value) do if matches(v, set) then return true end end
+    elseif type(value) == "string" then
+        for v in value:gmatch("%S+") do
+            if set[v] or (v:sub(1, 1) == "@" and set[v:sub(2)]) then return true end
+        end
+    end
+    return false
+end
+local modem_proto = { qmi=true, mbim=true, ncm=true, ["3g"]=true, modemmanager=true, qmodem=true }
+uci:foreach("network", "interface", function(s)
+    if names[s[".name"]] and ((s.modem_config and s.modem_config ~= "") or modem_proto[s.proto]) then
+        kind, iface = "cell", s[".name"]
+    end
+end)
+uci:foreach("qmodem", "modem-device", function(s)
+    local n = s[".name"]
+    if names[n] or names[n .. "v6"] or names[n .. "_4"] or names[n .. "_6"] or matches(s.network, devices) then
+        kind, iface = "cell", n
+    end
+end)
+if kind == "other" then
+    uci:foreach("wireless", "wifi-iface", function(s)
+        if s.mode == "sta" and (matches(s.network, names) or matches(s.ifname, devices)) then kind = "wifi" end
+    end)
+end
+if kind == "other" then
+    for name in pairs(devices) do
+        if fs.access("/sys/class/net/" .. name .. "/phydev") then kind = "wired"; break end
+    end
+end
+io.write(json.stringify({kind=kind, device=dev, interface=iface}))
+LUA
+)
+if [ -z "$EGRESS" ]; then
+    EGKIND=none; [ -n "$EGDEV" ] && EGKIND=other
+    EGRESS="{\"kind\":\"$EGKIND\",\"device\":\"$(json_str "$EGDEV")\",\"interface\":\"\"}"
+fi
 
 # --- unique premium fields (与下方蜂窝模组区块不重复) -----------------------
 KERNEL=$(uname -r 2>/dev/null)
@@ -109,13 +169,24 @@ for dev in /sys/class/net/eth*; do
 done
 
 # --- wan traffic (累计收发字节,单次读取) -----------------------------------
-TRDEV=$(ip -4 route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++)if($i=="dev"){print $(i+1);exit}}')
+TRDEV=$EGDEV
 [ -n "$TRDEV" ] || TRDEV=$WANDEV
 WRX=$(rd "/sys/class/net/$TRDEV/statistics/rx_bytes"); is_num "$WRX" || WRX=0
 WTX=$(rd "/sys/class/net/$TRDEV/statistics/tx_bytes"); is_num "$WTX" || WTX=0
 
 # --- modem (no AT!) --------------------------------------------------------
-MODCONF=$(rd /tmp/modconf.conf)
+# MYOS uses qmodem; the legacy MWRT temporary file may never be created.
+# This describes the configured module only and does not control networking.
+MODCONF=""
+. /lib/functions.sh
+read_modem_config() {
+    local modem_name
+    config_get modem_name "$1" name
+    [ -n "$MODCONF" ] || MODCONF="$modem_name"
+}
+config_load qmodem
+config_foreach read_modem_config modem-device
+[ -n "$MODCONF" ] || MODCONF=$(rd /tmp/modconf.conf)
 SIMSEL=$(rd /tmp/sim_sel); [ -n "$SIMSEL" ] || SIMSEL=$(uci -q get mwrt.@ndis[0].simsel)
 [ -n "$SIMSEL" ] || SIMSEL="0"
 present=0
@@ -125,8 +196,8 @@ for cf in /tmp/modem_csq /tmp/run/modem_csq; do
     v=$(rd "$cf"); if is_num "$v"; then CSQ="$v"; fi
 done
 
-printf '{"model":"%s","board":"%s","fw":"%s","kernel":"%s","uptime":%s,"cpu":{"load1":%s,"ncpu":%s},"mem":{"total":%s,"avail":%s},"temp":%s,"storage":{"total":%s,"used":%s},"clients":%s,"conns":%s,"wan_ip":"%s","lan_ip":"%s","wan_rx":%s,"wan_tx":%s,"ports":[%s],"modem":{"present":%s,"modconf":"%s","sim_sel":"%s","csq":%s}}\n' \
+printf '{"model":"%s","board":"%s","fw":"%s","kernel":"%s","uptime":%s,"cpu":{"load1":%s,"ncpu":%s},"mem":{"total":%s,"avail":%s},"temp":%s,"storage":{"total":%s,"used":%s},"clients":%s,"conns":%s,"wan_ip":"%s","egress":%s,"lan_ip":"%s","wan_rx":%s,"wan_tx":%s,"ports":[%s],"modem":{"present":%s,"modconf":"%s","sim_sel":"%s","csq":%s}}\n' \
     "$MODEL" "$(json_str "$BOARD")" "$(json_str "$FW")" "$(json_str "$KERNEL")" "$UPTIME" \
     "$LOAD1" "$NCPU" "$MEM_T" "$MEM_A" "$TEMP" "$ST_T" "$ST_U" "$CLIENTS" "$CONNS" \
-    "$(json_str "$WANIP")" "$(json_str "$LANIP")" "$WRX" "$WTX" "$port_json" \
+    "$(json_str "$WANIP")" "$EGRESS" "$(json_str "$LANIP")" "$WRX" "$WTX" "$port_json" \
     "$present" "$(json_str "$MODCONF")" "$(json_str "$SIMSEL")" "$CSQ"

@@ -747,6 +747,7 @@ end
 local function set_firewall_block(mac, block)
 	mac = normalize_mac(mac)
 	local sections = firewall_sections(mac)
+	if not block and #sections == 0 then return true end
 	for i = #sections, 1, -1 do run("uci -q delete " .. shell_quote("firewall." .. sections[i])) end
 	if block then
 		local p = io.popen("uci -q add firewall rule 2>/dev/null")
@@ -851,7 +852,7 @@ local function wifi_info()
 			end
 		end)
 		if #list == 0 then list[1] = {} end
-		return list
+		return require("luci.controller.nradio.app").wifi_app_list(list)
 	end
 	local list, cur = {}, nil
 	local f = io.open("/etc/config/wireless", "r")
@@ -868,7 +869,7 @@ local function wifi_info()
 		f:close()
 	end
 	if #list == 0 then list[1] = {} end
-	return list
+	return require("luci.controller.nradio.app").wifi_app_list(list)
 end
 
 local function valid_wifi_text(value, max_len, required)
@@ -881,7 +882,10 @@ end
 local function wifi_item_for_index(list, index)
 	local wanted = "wlan" .. tostring(index - 1)
 	for _, item in ipairs(list or {}) do
-		if type(item) == "table" and trim(item.rule_name or item.ruleName) == wanted then return item end
+		if type(item) == "table" then
+			local rule = trim(item.rule_name or item.ruleName)
+			if rule == wanted or rule == "t0" then return item end
+		end
 	end
 	return list and list[index]
 end
@@ -901,6 +905,7 @@ local function apply_wifi(req)
 			local password = item.password
 			local encryption = item.encryption
 			local channel = item.channel
+			if tostring(channel or "") == "0" then channel = nil end
 			local hidden = item.hidden
 			local disabled = item.disabled
 			if ssid ~= nil and not valid_wifi_text(ssid, 32, true) then return false end

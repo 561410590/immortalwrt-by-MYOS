@@ -23,7 +23,11 @@ pick_mac() {
 		printf '%s\n' "$mac"
 		return
 	}
-	mac="$(normalize_mac "$(uci -q get oem.board.id 2>/dev/null)")" && printf '%s\n' "$mac"
+	mac="$(normalize_mac "$(uci -q get oem.board.id 2>/dev/null)")" && {
+		printf '%s\n' "$mac"
+		return
+	}
+	mac="$(normalize_mac "$(lua -e 'io.write(require("myos_nradio_data").device_id())' 2>/dev/null)")" && printf '%s\n' "$mac"
 }
 
 find_lan_device() {

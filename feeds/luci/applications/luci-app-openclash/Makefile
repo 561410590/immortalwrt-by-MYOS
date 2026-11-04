@@ -265,6 +265,11 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/*.*.lmo $(1)/usr/lib/lua/luci/i18n/
 	$(CP) $(PKG_BUILD_DIR)/root/* $(1)/
 	$(CP) $(PKG_BUILD_DIR)/luasrc/* $(1)/usr/lib/lua/luci/
+	find $(1) -type d -exec chmod 0755 {} +
+	find $(1) -type f -exec chmod 0644 {} +
+	chmod 0755 $(1)/etc/init.d/openclash $(1)/etc/uci-defaults/luci-openclash
+	chmod 0755 $(1)/etc/openclash/custom/openclash_custom_firewall_rules.sh $(1)/etc/openclash/custom/openclash_custom_overwrite.sh
+	find $(1)/usr/share/openclash -type f \( -name '*.sh' -o -name '*.lua' \) -exec chmod 0755 {} +
 endef
 
 $(eval $(call BuildPackage,$(PKG_NAME)))

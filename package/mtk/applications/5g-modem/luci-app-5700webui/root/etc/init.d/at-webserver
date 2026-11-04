@@ -101,16 +101,6 @@ start_service() {
 	
 	detect_and_add_usb_serial
 
-	board="$(cat /tmp/sysinfo/board_name 2>/dev/null)"
-	if [ "$board" = "nradio,c2000-max" ] && [ -e /var/run/c2000max-sim-select.ready ]; then
-		wait_network=90
-		while [ "$wait_network" -gt 0 ]; do
-			network_up="$(ubus call network.interface.2_1 status 2>/dev/null | jsonfilter -e '@.up' 2>/dev/null)"
-			[ "$network_up" = "true" ] && break
-			wait_network=$((wait_network - 1))
-			sleep 1
-		done
-	fi
 	sync_mt5700_serial_port
 	
 	# 配置防火墙规则（控制外网访问和模块访问限制）

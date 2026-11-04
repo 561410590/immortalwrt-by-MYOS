@@ -134,24 +134,11 @@ _try_device()
 {
     config_get path "$1" path
     config_get network "$1" network
+    config_get data_interface "$1" data_interface
     if [ ! -d "$path" ]; then
         /usr/share/qmodem/modem_scan.sh disable "$1"
-        uci delete network.$1
-        uci delete network.${1}v6
-        uci commit network
-        /etc/init.d/network reload
         return
     fi
-    # if netdevice_path is not under device_path, disable device and scan again
-    netdevice_path=$(readlink -f "/sys/class/net/$network/device/" 2>/dev/null)
-    device_path=$(readlink -f "$path" 2>/dev/null)
-    if [ -n "$netdevice_path" ] && [ -n "$device_path" ]; then
-        case "$netdevice_path" in
-            "$device_path"|"$device_path"/*)
-                return
-                ;;
-        esac
-    fi
-    /usr/share/qmodem/modem_scan.sh disable "$1"
-    /usr/share/qmodem/modem_scan.sh add "$path"
+    # Re-enable and refresh the present device, including a returning USB peer.
+    /usr/share/qmodem/modem_scan.sh add "$(basename "$path")" "$data_interface"
 }

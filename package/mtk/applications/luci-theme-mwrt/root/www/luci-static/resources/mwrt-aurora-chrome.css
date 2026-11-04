@@ -122,8 +122,8 @@
 
 .main .main-left:not(#mwrt-nope) {
   /* 面板底色: 比纯黑软, 带一点点蓝调, 跟浅色内容区是同一个色温 */
-  --sb-bg: #1e242b;
-  --sb-bg-elev: #2a323b;          /* 选中项的抬升底 */
+  --sb-bg: #202833;               /* s68: 设计稿石板灰 */
+  --sb-bg-elev: #2c3744;          /* 选中项的抬升底(设计稿) */
   --sb-hover: rgb(255 255 255 / .055);
   --sb-hairline: rgb(255 255 255 / .08);
   --sb-text: #eef2f5;             /* 选中/主要文字 */
@@ -131,12 +131,14 @@
   --sb-text-faint: #6d7883;       /* 次级/图标静息态 */
   /* --brand(#0085b7) 是给白底调的, 压在 #1e242b 上对比度只有 2.6:1,
      提亮到 #38a9d8 后约 6.4:1, 过 WCAG AA */
-  --sb-accent: #38a9d8;
+  --sb-accent: #20b7d5;           /* s68: 设计稿青 */
   --sb-danger: #ff8f85;           /* --danger(#8d1925) 同理, 深底上要提亮 */
 
-  background: var(--sb-bg) !important;
+  background: linear-gradient(180deg, #202833 0%, #1c2530 55%, #19212b 100%) !important;
   color: var(--sb-text-muted) !important;
   border-right: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
   box-shadow: none !important;
   animation: none !important;
   padding-bottom: .75rem !important;
@@ -273,7 +275,8 @@
   font-weight: 500 !important;
   letter-spacing: 0 !important;
   margin: .0625rem 0 !important;
-  padding: .5rem 1.75rem .5rem 2.6rem !important;
+  padding: .5rem 1rem !important;
+  text-align: center !important;
   transition: background-color .15s ease, color .15s ease !important;
 }
 
@@ -290,27 +293,36 @@
    inset 阴影跟着 border-radius 走, 顶端和底端天然是圆的。 */
 .main .main-left .nav li .menu.active:not(#mwrt-nope),
 .main .main-left .nav > li > a:first-child.active:not(#mwrt-nope) {
-  color: var(--sb-text) !important;
-  background: var(--sb-bg-elev) !important;
-  box-shadow: inset 3px 0 0 0 var(--sb-accent) !important;
+  /* s68k: 亮青实底 + 白字(用户要亮眼那版) */
+  color: #fff !important;
+  background: var(--sb-accent) !important;
+  box-shadow: 0 2px 10px -2px color-mix(in srgb, var(--sb-accent) 55%, transparent) !important;
   font-weight: 600 !important;
 }
 
 /* 图标 */
 .main .main-left .nav li .menu:not(#mwrt-nope)::before,
 .main .main-left .nav > li > a:first-child:not(#mwrt-nope)::before {
+  /* s68e: 图标绝对定位浮在左侧, 不占流, 让文字在整行真居中 */
+  position: absolute !important;
+  left: 1rem !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
   color: var(--sb-text-faint) !important;
   opacity: 1 !important;
   filter: none !important;
-  transform: none !important;
   transition: color .15s ease !important;
 }
+/* s68b/e: hover 图标青, active 图标白; transform 保持居中位移(translateY -50%) */
 .main .main-left .nav li .menu:not(#mwrt-nope):hover::before,
-.main .main-left .nav li .menu.active:not(#mwrt-nope)::before,
-.main .main-left .nav > li > a:first-child:not(#mwrt-nope):hover::before,
-.main .main-left .nav > li > a:first-child.active:not(#mwrt-nope)::before {
+.main .main-left .nav > li > a:first-child:not(#mwrt-nope):hover::before {
   color: var(--sb-accent) !important;
-  transform: none !important;
+  transform: translateY(-50%) !important;
+}
+.main .main-left .nav li .menu.active:not(#mwrt-nope)::before,
+.main .main-left .nav > li > a:first-child.active:not(#mwrt-nope)::before {
+  color: #fff !important;
+  transform: translateY(-50%) !important;
 }
 
 /* 展开箭头 */
@@ -322,44 +334,67 @@
   color: var(--sb-text-muted) !important;
 }
 .main .main-left .nav li .menu.active:not(#mwrt-nope)::after {
-  color: var(--sb-accent) !important;
+  color: #fff !important;
   transform: rotate(90deg) !important;
 }
 
 /* 二级菜单 */
+/* s68g/l: 二级菜单容器 —— 相对定位, 左缩进加大让二级整体右移(文字别太偏左) */
 .main .main-left .nav li.slide .slide-menu:not(#mwrt-nope) {
-  margin: .125rem 0 .375rem 2.6rem !important;
-  padding: .125rem 0 .125rem .75rem !important;
+  position: relative !important;
+  margin: .125rem 0 .375rem 2.1rem !important;
+  padding: .125rem 0 .125rem 1rem !important;
 }
 .main .main-left .nav li.slide .slide-menu:not(#mwrt-nope)::before {
-  background: var(--sb-hairline) !important;
+  content: '' !important;
+  position: absolute !important;
+  left: 0 !important;
+  top: .25rem !important;
+  bottom: .25rem !important;
+  width: 2px !important;
+  border-radius: 1px !important;
+  background: rgb(255 255 255 / .12) !important;
   opacity: 1 !important;
 }
 .main .main-left .nav li.slide .slide-menu li a:not(#mwrt-nope) {
+  position: relative !important;
+  display: block !important;
+  text-align: left !important;
   color: var(--sb-text-faint) !important;
   font-size: .825rem !important;
-  padding: .375rem 0 .375rem .85rem !important;
-  transition: color .15s ease !important;
+  padding: .375rem .5rem .375rem 1.1rem !important;
+  border-radius: .375rem !important;
+  transition: color .15s ease, background-color .15s ease !important;
 }
 .main .main-left .nav li.slide .slide-menu li:not(#mwrt-nope):hover a {
   color: var(--sb-text) !important;
+  background: var(--sb-hover) !important;
   transform: none !important;
 }
 .main .main-left .nav li.slide .slide-menu .active a:not(#mwrt-nope) {
-  color: var(--sb-text) !important;
+  color: var(--sb-accent) !important;
   font-weight: 600 !important;
 }
 /* 圆点指示器 */
-.main .main-left .nav li.slide .slide-menu li:not(#mwrt-nope)::after,
-.main .main-left .nav li.slide .slide-menu .active:not(#mwrt-nope)::after {
-  background: var(--sb-hairline) !important;
-  box-shadow: none !important;
-  transform: translateX(-2px) !important;
-}
-.main .main-left .nav li.slide .slide-menu li:not(#mwrt-nope):hover::after,
-.main .main-left .nav li.slide .slide-menu .active:not(#mwrt-nope)::after {
+/* s68g: 选中项左侧盖一段青色导轨线段(定位到 slide-menu 左边线上), 标识当前位置 */
+.main .main-left .nav li.slide .slide-menu li:not(#mwrt-nope)::after {
+  content: '' !important;
+  position: absolute !important;
+  left: -1rem !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 2px !important;
+  height: 0 !important;
+  border-radius: 1px !important;
   background: var(--sb-accent) !important;
   box-shadow: none !important;
+  transition: height .15s ease !important;
+}
+.main .main-left .nav li.slide .slide-menu .active:not(#mwrt-nope)::after {
+  height: 1.1rem !important;
+}
+.main .main-left .nav li.slide .slide-menu li:not(#mwrt-nope):hover::after {
+  height: .7rem !important;
 }
 
 /* 退出登录 */
@@ -2023,3 +2058,322 @@ html[data-darkmode="true"] #maincontent .mwrt-modbadge.is-none:not(#mwrt-nope) {
 #maincontent .cbi-value-description:not(#mwrt-nope)::before {
   left: 3px !important;
 }
+
+
+/* s65: passwall/ssr 运行状态区卡片扁平化
+   状态区(.pure-g.status)里每个 TCP/UDP/DNS 项是一张 .block 卡片, passwall 页
+   内联 style 给它加了 1px 边框 + 2rem 发散阴影 + 圆角, 卡片像独立白块浮在外层
+   白色 cbi-section 容器上, 明暗分界明显。这里去掉边框/阴影/独立底色, 让卡片和
+   容器融为一片白, 只靠图标+文字区分。只作用于 .pure-g.status 内的 .block。
+   内联样式无 !important, 本表 head 末尾加载, 加 !important + #maincontent 双保险。 */
+#maincontent .pure-g.status .block:not(#mwrt-nope) {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+/* ───────────────────────────────────────────────────────────────────────
+ * s66: 标签栏(ul.tabs)横向滚动条 → 箭头 + 边缘渐变
+ * passwall 等页面标签多到一行放不下时, argon 原本让它横向滚动, 底下露出
+ * 一条灰色滚动条, 不够精致。boot.js §5 给溢出的标签栏外面包一层
+ * .mwrt-tabs-wrap 并插入两枚圆形箭头按钮; 这里负责外观:
+ *   · 藏掉原生滚动条 + 平滑滚动
+ *   · 两侧白色渐变遮罩(只在该侧还有内容可滚时淡入, 暗示"还有更多")
+ *   · 圆形箭头按钮的样式与悬停反馈
+ * 用 :not(#mwrt-nope) 抬一级权重, 稳压 argon 对 .tabs 的既有设定。
+ * ─────────────────────────────────────────────────────────────────────── */
+.mwrt-tabs-wrap:not(#mwrt-nope) {
+  position: relative;
+}
+.mwrt-tabs-wrap:not(#mwrt-nope) > ul.tabs {
+  margin-bottom: 0;
+  scroll-behavior: smooth;
+  scrollbar-width: none;        /* Firefox */
+  -ms-overflow-style: none;     /* 旧 Edge/IE */
+}
+.mwrt-tabs-wrap:not(#mwrt-nope) > ul.tabs::-webkit-scrollbar {
+  display: none;                /* Chrome / Safari */
+  width: 0;
+  height: 0;
+}
+/* 两侧渐变遮罩: 平时透明, 该侧还能继续滚时淡入 */
+.mwrt-tabs-wrap:not(#mwrt-nope)::before,
+.mwrt-tabs-wrap:not(#mwrt-nope)::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2.5rem;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .2s ease;
+  z-index: 2;
+}
+.mwrt-tabs-wrap:not(#mwrt-nope)::before {
+  left: 0;
+  background: linear-gradient(90deg, #fff 20%, rgba(255, 255, 255, 0));
+}
+.mwrt-tabs-wrap:not(#mwrt-nope)::after {
+  right: 0;
+  background: linear-gradient(270deg, #fff 20%, rgba(255, 255, 255, 0));
+}
+.mwrt-tabs-wrap.has-left:not(#mwrt-nope)::before { opacity: 1; }
+.mwrt-tabs-wrap.has-right:not(#mwrt-nope)::after { opacity: 1; }
+/* 圆形箭头按钮 */
+.mwrt-tabs-arrow:not(#mwrt-nope) {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  margin: 0;
+  border: 1px solid #e2e6ea;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .12);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease, background .15s ease, border-color .15s ease;
+}
+.mwrt-tabs-arrow.show:not(#mwrt-nope) {
+  opacity: 1;
+  pointer-events: auto;
+}
+.mwrt-tabs-arrow:not(#mwrt-nope):hover {
+  background: #388087;
+  border-color: #388087;
+}
+/* 箭头本体: 两条边旋转成 "‹" "›" */
+.mwrt-tabs-arrow:not(#mwrt-nope)::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: .5rem;
+  height: .5rem;
+  border-top: 2px solid #4a5560;
+  border-right: 2px solid #4a5560;
+  transition: border-color .15s ease;
+}
+.mwrt-tabs-arrow:not(#mwrt-nope):hover::before {
+  border-top-color: #fff;
+  border-right-color: #fff;
+}
+.mwrt-tabs-prev:not(#mwrt-nope) { left: .3rem; }
+.mwrt-tabs-next:not(#mwrt-nope) { right: .3rem; }
+.mwrt-tabs-prev:not(#mwrt-nope)::before {
+  transform: translate(-30%, -50%) rotate(-135deg);
+}
+.mwrt-tabs-next:not(#mwrt-nope)::before {
+  transform: translate(-70%, -50%) rotate(45deg);
+}
+
+
+/* ── s68: 侧栏左下角固件版本块 ────────────────────────────────────────────
+   侧栏做成竖向 flex(见 §1 的 display:flex), .nav 之后这块靠 margin-top:auto
+   推到最底。扁平低调: 无边框无底色, 只一条极淡上分隔线 + 徽标/版本号/日期三行。
+   数据由 boot.js 从 ubus board 填。 */
+.main .main-left .mwrt-sb-ver:not(#mwrt-nope) {
+  order: 99 !important;
+  margin-top: auto !important;
+  margin-bottom: .9rem !important;
+  padding: 1.9rem 1rem 1.9rem !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  gap: .25rem !important;
+  font-family: var(--font-sans) !important;
+  align-items: center !important;
+  text-align: center !important;
+  border-top: 1px solid rgb(255 255 255 / .16) !important;
+  margin-left: .75rem !important;
+  margin-right: .75rem !important;
+}
+.main .main-left .mwrt-sb-links { display: flex; flex-wrap: wrap; justify-content: center; gap: .35rem .8rem; margin-top: .55rem; }
+.main .main-left .mwrt-sb-links a { color: var(--sb-accent); font-size: .75rem; line-height: 1.5; text-decoration: none; white-space: nowrap; }
+.main .main-left .mwrt-sb-links a:hover { text-decoration: underline; }
+.main .main-left .mwrt-sb-links a:focus-visible { outline: 2px solid var(--sb-accent); outline-offset: 3px; border-radius: 2px; }
+.main .main-left .mwrt-sb-ver .msv-top:not(#mwrt-nope) {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: .4rem !important;
+  min-width: 0 !important;
+}
+.main .main-left .mwrt-sb-ver .msv-dist:not(#mwrt-nope) {
+  font-size: .625rem !important;
+  font-weight: 700 !important;
+  letter-spacing: .06em !important;
+  text-transform: uppercase !important;
+  color: #0b1016 !important;
+  background: var(--sb-accent) !important;
+  padding: .1rem .4rem !important;
+  border-radius: .375rem !important;
+  line-height: 1.4 !important;
+  flex: 0 0 auto !important;
+}
+.main .main-left .mwrt-sb-ver .msv-ver:not(#mwrt-nope) {
+  font-size: .75rem !important;
+  font-weight: 600 !important;
+  color: var(--sb-text-muted) !important;
+  font-variant-numeric: tabular-nums !important;
+  letter-spacing: 0 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  min-width: 0 !important;
+}
+.main .main-left .mwrt-sb-ver .msv-sub:not(#mwrt-nope) {
+  font-size: .625rem !important;
+  color: var(--sb-text-faint) !important;
+  letter-spacing: .02em !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+
+/* ── s68f: 侧栏子元素排序 —— 版本块被 boot.js 插在了 nav 前面(DOM 顺序
+   header/ver/nav), 用 flex order 强制回正: header 最前, nav 其次, 版本块最后,
+   版本块再靠 margin-top:auto 顶到容器最底(左下角)。 */
+.main .main-left .sidenav-header:not(#mwrt-nope) { order: 0 !important; }
+.main .main-left .nav:not(#mwrt-nope) { order: 1 !important; }
+
+
+/* ── s68i: 收掉二级菜单项 a 自带的 ::after 宽块 ────────────────────────────
+   argon(cascade.css)给 .slide-menu a.active::after 画了一个和文字等宽的实色块
+   (content:"" 绝对定位 left:0 宽 ~142px), 盖在选中项文字上, 把"概览"等整行糊住。
+   我们的层级标识走 li::after(左侧青竖线段), 不需要 a 上这个块, 收掉。 */
+.main .main-left .nav li.slide .slide-menu li a:not(#mwrt-nope)::after,
+.main .main-left .nav li.slide .slide-menu li a.active:not(#mwrt-nope)::after {
+  content: none !important;
+  display: none !important;
+  background: transparent !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+
+/* ── s68j: 移动端版本块避开底部导航栏 ─────────────────────────────────────
+   手机下 .main-left 是 fixed 抽屉, 版本块 margin-top:auto 贴抽屉底, 会被
+   body.mwrt-has-bottomnav 那条 64px 固定底栏盖住。这里把它上抬 >= 底栏高度。 */
+@media (max-width: 768px) {
+  .main .main-left .mwrt-sb-ver:not(#mwrt-nope) {
+    margin-bottom: calc(72px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+
+
+/* ── s69: 后台四周边框三档(圆角 / 微边圆角 / 无圆角) ───────────────────────
+   后台四周观感由两处决定: body 的 padding(内容到视口边留白) + .main 的
+   border-radius(整个后台面板圆角)。默认(argon)padding 5px + radius 14px。
+   按 html 上的档位 class 三档覆盖, 由 mwrtst 页三段控件切换 + localStorage 持久,
+   boot.js 每页开头读 localStorage 把 class 打到 <html>(全站实时生效)。
+   不加 class 时维持 argon 默认(=圆角档), 首次访问即圆角不突变。 */
+html.mwrt-bd-round body:not(#mwrt-nope) { padding: 5px !important; }
+html.mwrt-bd-round .main:not(#mwrt-nope) { border-radius: 14px !important; }
+
+html.mwrt-bd-mini body:not(#mwrt-nope) { padding: 3px !important; }
+html.mwrt-bd-mini .main:not(#mwrt-nope) { border-radius: 7px !important; }
+
+html.mwrt-bd-none body:not(#mwrt-nope) { padding: 0 !important; }
+html.mwrt-bd-none .main:not(#mwrt-nope) { border-radius: 0 !important; }
+
+/* ── s69: 边框设置三段控件(mwrtst 页) ─────────────────────────────────────
+   三个扁平按钮连成一条, 当前档位青底白字高亮, 整条一个胶囊外框。 */
+.mwrt-bd-seg {
+  display: inline-flex;
+  align-items: stretch;
+  margin: 2px 0 6px;
+  padding: 3px;
+  border-radius: 10px;
+  background: #eef1f5;
+  border: 1px solid #e2e6ea;
+  gap: 2px;
+}
+.mwrt-bd-seg button {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  margin: 0;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  padding: 7px 18px;
+  border-radius: 8px;
+  color: #51607a;
+  background: transparent;
+  transition: background .15s ease, color .15s ease;
+  white-space: nowrap;
+}
+.mwrt-bd-seg button:hover { color: #253248; background: rgba(32,183,213,.1); }
+.mwrt-bd-seg button.on {
+  color: #fff;
+  background: #20b7d5;
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(32,183,213,.4);
+}
+.mwrt-bd-wrap { max-width: 760px; font-size: 13px; line-height: 1.7; }
+.mwrt-bd-wrap .mwrt-bd-hint { color: #5a6680; font-size: 12.5px; margin-top: 2px; }
+
+/* ── s70: 防火墙状态(iptables)表格美化 ──────────────────────────────── */
+body[data-page="admin-status-iptables"] #maincontent .table:not(#mwrt-nope){background:#fbfcfe!important;border:1px solid #e6eaf0!important;border-radius:10px!important;margin:0 0 14px!important;padding:4px 6px!important;overflow:hidden!important;box-shadow:none!important}
+body[data-page="admin-status-iptables"] #maincontent .table .tr:not(#mwrt-nope){border-bottom:1px solid #eef1f5!important}
+body[data-page="admin-status-iptables"] #maincontent .table .tr:last-child:not(#mwrt-nope){border-bottom:0!important}
+body[data-page="admin-status-iptables"] #maincontent .table .tr.table-titles:not(#mwrt-nope),body[data-page="admin-status-iptables"] #maincontent .table .tr.cbi-section-table-titles:not(#mwrt-nope){background:#eef2f7!important;border-radius:7px!important}
+body[data-page="admin-status-iptables"] #maincontent .table .tr.table-titles .th:not(#mwrt-nope),body[data-page="admin-status-iptables"] #maincontent .table .tr.cbi-section-table-titles .th:not(#mwrt-nope){font-size:11px!important;font-weight:600!important;color:#51607a!important;letter-spacing:.3px!important;padding:7px 10px!important}
+body[data-page="admin-status-iptables"] #maincontent .table .td:not(#mwrt-nope){font-size:12px!important;padding:7px 10px!important;color:#2a3444!important;background:transparent!important}
+body[data-page="admin-status-iptables"] #maincontent .table .tr:not(.table-titles):not(.cbi-section-table-titles):not(.placeholder):nth-of-type(2n):not(#mwrt-nope){background:#f6f8fb!important}
+body[data-page="admin-status-iptables"] #maincontent .table .tr:not(.table-titles):not(.cbi-section-table-titles):not(.placeholder):not(#mwrt-nope):hover{background:#eaf6f9!important}
+body[data-page="admin-status-iptables"] #maincontent .table .tr.placeholder:not(#mwrt-nope),body[data-page="admin-status-iptables"] #maincontent .table .tr.placeholder:not(#mwrt-nope):hover{background:transparent!important}
+body[data-page="admin-status-iptables"] #maincontent .table .tr.placeholder .td:not(#mwrt-nope){text-align:center!important;color:#8a94a6!important;background:transparent!important}
+body[data-page="admin-status-iptables"] #maincontent h3:not(#mwrt-nope),body[data-page="admin-status-iptables"] #maincontent legend:not(#mwrt-nope){font-size:15px!important;font-weight:600!important;color:#1f2937!important;margin:18px 0 8px!important}
+
+/* ── s70: 无线(wireless)卡片扁平融入 ──────────────────────────────────── */
+body[data-page="admin-network-wireless"] #maincontent .cbi-section:not(#mwrt-nope){background:#f3f6fa!important;border:1px solid #e3e8ef!important;box-shadow:none!important}
+body[data-page="admin-network-wireless"] #maincontent #wifi_assoclist_table:not(#mwrt-nope){background:#f3f6fa!important;border:1px solid #e3e8ef!important;border-radius:15px!important;padding:6px 10px!important;box-shadow:none!important}
+body[data-page="admin-network-wireless"] #maincontent #wifi_assoclist_table .tr:not(#mwrt-nope),body[data-page="admin-network-wireless"] #maincontent #wifi_assoclist_table .td:not(#mwrt-nope),body[data-page="admin-network-wireless"] #maincontent #wifi_assoclist_table .th:not(#mwrt-nope){background:transparent!important;box-shadow:none!important}
+body[data-page="admin-network-wireless"] #maincontent .cbi-section .td:not(#mwrt-nope),body[data-page="admin-network-wireless"] #maincontent .cbi-section .th:not(#mwrt-nope),body[data-page="admin-network-wireless"] #maincontent .cbi-value-field:not(#mwrt-nope),body[data-page="admin-network-wireless"] #maincontent .cbi-section-actions:not(#mwrt-nope){background:transparent!important}
+
+/* ── s70: 深色模式对应(浅色硬编码色值在深色下改为深底) ─────────────────── */
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table:not(#mwrt-nope){background:#1b2230!important;border-color:#2a3342!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr:not(#mwrt-nope){border-bottom-color:#263040!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr.table-titles:not(#mwrt-nope),html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr.cbi-section-table-titles:not(#mwrt-nope){background:#232c3b!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr.table-titles .th:not(#mwrt-nope),html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr.cbi-section-table-titles .th:not(#mwrt-nope){color:#9aa7bd!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .td:not(#mwrt-nope){color:#d5dbe5!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr:not(.table-titles):not(.cbi-section-table-titles):not(.placeholder):nth-of-type(2n):not(#mwrt-nope){background:#1f2735!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr:not(.table-titles):not(.cbi-section-table-titles):not(.placeholder):not(#mwrt-nope):hover{background:#22313d!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr.placeholder:not(#mwrt-nope){background:transparent!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr.placeholder .td:not(#mwrt-nope){color:#7d8899!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent h3:not(#mwrt-nope),html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent legend:not(#mwrt-nope){color:#e5e7eb!important}
+html[data-darkmode="true"] body[data-page="admin-network-wireless"] #maincontent .cbi-section:not(#mwrt-nope),html[data-darkmode="true"] body[data-page="admin-network-wireless"] #maincontent #wifi_assoclist_table:not(#mwrt-nope){background:#1b2230!important;border-color:#2a3342!important}
+
+/* ── s79: 移动端底部导航栏遮挡页面最下方按钮 ─────────────────────────────
+   footer.htm 给 body.mwrt-has-bottomnav 留了 padding-bottom:52px+安全区, 但 s69
+   边框档位(mwrtst 页)每页由 boot.js 往 body 写内联 padding:Npx !important, 底边
+   预留被压成 5/3/0px —— 只要用户点过一次边框设置, 手机上每页最下面那排
+   保存/应用按钮就有一截钻到底栏下面。这里把预留量做成变量, boot.js 和
+   mwrtst 页写内联时底边改用 var(--mwrt-nav-reserve, 边距), PC 无底栏回落边距。 */
+@media (max-width: 768px) {
+  body.mwrt-has-bottomnav:not(#mwrt-nope) {
+    --mwrt-nav-reserve: calc(52px + env(safe-area-inset-bottom, 0px));
+  }
+  html.mwrt-bd-round body.mwrt-has-bottomnav:not(#mwrt-nope),
+  html.mwrt-bd-mini body.mwrt-has-bottomnav:not(#mwrt-nope),
+  html.mwrt-bd-none body.mwrt-has-bottomnav:not(#mwrt-nope) {
+    padding-bottom: var(--mwrt-nav-reserve) !important;
+  }
+  /* OpenClash 右下角浮动按钮组(z 9999)原来贴 bottom:16px, 压在底栏上 */
+  body.mwrt-has-bottomnav .oc .oc-float-stack:not(#mwrt-nope) {
+    bottom: calc(var(--mwrt-nav-reserve) + 12px) !important;
+  }
+}
+
+/* 一级菜单保持完整行盒，展开动画只控制直接子菜单。 */
+#mainmenu > .nav > li { position:relative; display:block; float:none; width:100%; }
+#mainmenu > .nav > li > a:first-child { display:block!important; box-sizing:border-box; min-height:2.4rem; }
+#mainmenu > .nav > li > .slide-menu > li { position:relative; display:block; float:none; }

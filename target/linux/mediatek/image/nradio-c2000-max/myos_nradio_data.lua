@@ -220,6 +220,13 @@ local function identity_from_blob(path, key)
 	if not tostring(key or ""):match("^[A-Za-z0-9_]+$") then return "" end
 	local data = read_file(path, 65536)
 	if not data or data == "" then return "" end
+	-- Decode the same bdinfo v1/v2 text offsets used by myos-factory-wifi.sh.
+	-- Binary MAC bytes are not delimiters for the first text key.
+	if data:sub(1, 3) == "\0\0\0" then
+		local version = data:byte(4)
+		if version == 1 then data = data:sub(385)
+		elseif version == 2 then data = data:sub(16) end
+	end
 	data = data:gsub("%z", "\n"):gsub("\255", "\n")
 	local wanted = tostring(key):lower()
 	for line in (data .. "\n"):gmatch("([^\r\n]*)[\r\n]+") do
@@ -1546,12 +1553,14 @@ function M.clients()
 	end
 
 	for line in tostring(util.exec(
-	    "ip -4 neigh show dev br-lan 2>/dev/null") or ""):gmatch("[^\r\n]+") do
+	    "ip neigh show dev br-lan 2>/dev/null") or ""):gmatch("[^\r\n]+") do
 		local ip, mac, state = line:match(
 			"^(%S+).-lladdr%s+(%S+)%s+(%S+)%s*$")
 		if state ~= "FAILED" and state ~= "INCOMPLETE" then
 			local item = client_for(mac, true)
-			if item and ip then item.ip, item.ipaddr = ip, ip end
+			if item and ip and (not ip:find(":", 1, true) or item.ip == "") then
+				item.ip, item.ipaddr = ip, ip
+			end
 		end
 	end
 
@@ -1568,9 +1577,30 @@ function M.clients()
 		file:close()
 	end
 
-	for _, interface in ipairs(wireless_interfaces()) do
+	local interfaces = wireless_interfaces()
+	local wireless_ports = {}
+	for _, interface in ipairs(interfaces) do
+		local port = tonumber(read1("/sys/class/net/" .. interface.ifname ..
+			"/brport/port_no"))
+		if port then wireless_ports[port] = interface end
+	end
+	for line in tostring(util.exec("brctl showmacs br-lan 2>/dev/null") or ""):gmatch("[^\r\n]+") do
+		local port, mac, is_local = line:match("^%s*(%d+)%s+(%S+)%s+(%S+)")
+		local interface = wireless_ports[tonumber(port)]
+		local item = clients[normalize_mac(mac)]
+		if item and interface and is_local == "no" then
+			item.type, item.wire, item.wireless = "wireless", 0, 1
+			item.ifname = interface.ifname
+			item.ssid = interface.ssid or ""
+			item.channel = interface.channel or ""
+			item.frequency = interface.frequency or ""
+			item.band = wireless_band(interface.frequency)
+		end
+	end
+	for _, interface in ipairs(interfaces) do
 		for _, station in ipairs(interface.stations) do
-			local item = client_for(station.mac, true)
+			-- LAN 设备作为终端；MLD 链路关联仅补充无线信息。
+			local item = clients[normalize_mac(station.mac)]
 			if item then
 				item.type = "wireless"
 				item.ifname = station.ifname

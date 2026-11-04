@@ -1,0 +1,38 @@
+{%
+ const board = ubus.call('system', 'board') ?? {};
+ http.prepare_content('text/html; charset=UTF-8');
+-%}
+<!doctype html>
+<html lang="{{ dispatcher.lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f5f5f7">
+<title>MYOS-NEW · {{ entityencode(board.hostname ?? 'OpenWrt') }}</title>
+<link rel="icon" type="image/png" href="{{ media }}/brand.png?v=1">
+<link rel="apple-touch-icon" href="{{ media }}/brand.png?v=1">
+<script>document.documentElement.dataset.appearance='dark';try { const appearance = localStorage.getItem('myos-new-appearance'); if (appearance) document.documentElement.dataset.appearance = appearance; } catch (_) {}</script>
+<link rel="stylesheet" href="{{ media }}/style.css?v=1.0.4-r5">
+{% if (node?.css): %}<link rel="stylesheet" href="{{ resource }}/{{ node.css }}">{% endif %}
+{% if (css): %}<style>{{ css }}</style>{% endif %}
+<script src="{{ dispatcher.build_url('admin/translations', dispatcher.lang) }}"></script>
+<script src="{{ resource }}/cbi.js"></script>
+</head>
+<body class="myos-new{% if (blank_page): %} m-auth{% endif %}" data-home="{{ dispatcher.build_url('admin/myos') }}">
+{% if (!blank_page): %}
+<a class="m-skip" href="#maincontent">跳至内容</a>
+<aside class="m-sidebar" id="m-sidebar" aria-label="主导航">
+ <a class="m-brand" href="{{ dispatcher.build_url('admin/myos') }}"><img class="m-brand-mark" src="{{ media }}/brand.png" alt="MYOS"><span>MYOS<span class="m-new">NEW</span></span></a>
+ <div class="m-sidebar-device">{{ entityencode(board.model ?? 'OpenWrt') }}</div>
+ <label class="m-search"><span aria-hidden="true">⌕</span><input id="m-menu-search" type="search" placeholder="搜索设置" aria-label="搜索设置"></label>
+ <a class="m-home" href="{{ dispatcher.build_url('admin/myos') }}"><span class="m-nav-icon">⌂</span>首页</a>
+ <nav id="m-menu"><p class="m-muted">正在载入导航…</p></nav>
+ <div class="m-sidebar-bottom"><button type="button" class="m-unlock-trigger" aria-label="固件版本，连续点击八次打开插件认证">{{ entityencode(board.release?.version ?? '') }}</button><div><a href="https://nradio.mayebano.shop/" target="_blank" rel="noopener noreferrer">打赏支持</a><a href="https://laoshenshiwo.cn/" target="_blank" rel="noopener noreferrer">冠名支持</a></div><small>MYOS-NEW · LuCI</small></div>
+</aside>
+<button id="m-scrim" class="m-scrim" aria-label="关闭导航" hidden></button>
+<div class="m-workspace">
+ <header class="m-toolbar"><div><button id="m-menu-toggle" class="m-icon-button m-mobile-toggle" aria-controls="m-sidebar" aria-expanded="false" aria-label="打开导航">☰</button><span id="m-page-title">设备控制台</span></div><div class="m-toolbar-actions"><span class="m-hostname">{{ entityencode(board.hostname ?? 'OpenWrt') }}</span><span id="indicators"></span><button id="m-background" class="m-icon-button" aria-label="自定义背景" title="自定义背景"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-6 5 7"/></svg></button><button id="m-appearance" class="m-icon-button" aria-label="切换深浅外观" title="切换深浅外观">◐</button><a class="m-icon-button" href="{{ dispatcher.build_url('admin/logout') }}" aria-label="退出登录" title="退出登录">↗</a></div></header>
+ <main id="maincontent"><div id="tabmenu" hidden></div>
+ <noscript><div class="alert-message warning">请启用 JavaScript 以使用 LuCI 管理界面。</div></noscript>
+{% endif %}

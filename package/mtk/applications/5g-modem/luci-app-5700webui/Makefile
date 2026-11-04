@@ -4,7 +4,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-5700webui
-PKG_VERSION:=1.0-r31
+PKG_VERSION:=1.0-r32
 PKG_RELEASE:=1
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
@@ -32,10 +32,10 @@ endef
 
 define Package/$(PKG_NAME)/install
 	$(CP) ./root/. $(1)/
-	$(SED) 's/"192\.168\.1\.1"/"192.168.66.1"/g' \
-		$(1)/www/5700/umi.ec9b4b52.js \
-		$(1)/www/5700/p__CPE__System__Info__index.a04926af.async.js
-	chmod 0755 $(1)/www/cgi-bin/at-ws-info
+	rm -rf $(1)/www/5700
+	find $(1) -type d -exec chmod 0755 {} +
+	find $(1)/www/luci-static $(1)/usr/share -type f -exec chmod 0644 {} +
+	chmod 0755 $(1)/etc/init.d/* $(1)/etc/uci-defaults/* $(1)/www/cgi-bin/*
 endef
 
 $(eval $(call BuildPackage,$(PKG_NAME)))

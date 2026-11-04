@@ -1,4 +1,4 @@
-#/bin/sh
+#!/bin/sh
 
 action=$1
 config=$2
@@ -88,7 +88,6 @@ scan()
     local slot_type=$1
     if [ "$slot_type" == "usb" ] || [ -z "$slot_type" ];then
         scan_usb
-        usb_slots=$(echo $usb_slots | uniq )
         for slot in $usb_slots; do
             slot_type="usb"
             add $slot
@@ -106,6 +105,7 @@ scan()
 
 scan_usb()
 {
+    local usb_path
     usb_net_device_prefixs="usb eth wwan"
     usb_slots=""
     for usb_net_device_prefix in $usb_net_device_prefixs; do
@@ -114,8 +114,17 @@ scan_usb()
             netdev_path=$(readlink -f "/sys/class/net/$netdev/device/")
             [ -z "$netdev_path" ] && continue
             [ -z "$(echo $netdev_path | grep usb)" ] && continue
-            usb_slot=$(basename $(dirname $netdev_path))
+            # QMAP child interfaces point below the same USB interface.
+            # Resolve their physical USB parent and discover that modem once.
+            usb_path="$netdev_path"
+            while [ "$usb_path" != / ] && [ ! -f "$usb_path/idVendor" ]; do
+                usb_path="${usb_path%/*}"
+                [ -n "$usb_path" ] || break
+            done
+            [ -f "$usb_path/idVendor" ] || continue
+            usb_slot="${usb_path##*/}"
             m_debug "netdev_path: $netdev_path usb slot: $usb_slot"
+            case " $usb_slots " in *" $usb_slot "*) continue ;; esac
             [ -z "$usb_slots" ] && usb_slots="$usb_slot" || usb_slots="$usb_slots $usb_slot"
         done
     done
@@ -246,7 +255,7 @@ scan_pcie_slot_interfaces()
         done
         at_ports="$dun_devices $tty_devices"
     fi
-    validate_at_port
+    valid_at_ports="$at_ports"
 }
 
 scan_usb_slot_interfaces()
@@ -317,38 +326,9 @@ scan_usb_slot_interfaces()
     done
     m_debug "net_devices: $net_devices tty_devices: $tty_devices"
     at_ports="$tty_devices"
-    [ "$slot_vid:$slot_pid" = "3466:3301" ] && at_ports="$pcui_ports"
-    validate_at_port
-}
-
-validate_at_port()
-{
-    local dev_path res at_status probe_attempt
-    valid_at_ports=""
-    for at_port in $at_ports; do
-        dev_path="/dev/$at_port"
-        [ ! -e "$dev_path" ] && continue
-        # A queued probe must not close another client's AT connection.
-        if [ "$use_ubus_flag" != "-u" ]; then
-            ubus call at-daemon close '{ "at_port": "'$dev_path'" }' >/dev/null 2>&1
-        fi
-        for probe_attempt in 1 2 3 4 5 6; do
-            res=$(fastat "$dev_path" "ATI")
-            at_status=$?
-            if [ "$at_status" -eq 0 ] &&
-                printf '%s\n' "$res" | grep -q '^[[:space:]]*OK[[:space:]]*$'; then
-                break
-            fi
-            [ "$probe_attempt" -lt 6 ] && sleep 2
-        done
-        if [ "$at_status" -ne 0 ] ||
-            ! printf '%s\n' "$res" | grep -q '^[[:space:]]*OK[[:space:]]*$'; then
-            m_debug "AT probe not ready: $dev_path after $probe_attempt attempts"
-            continue
-        fi
-        valid_at_port="$at_port"
-        [ -z "$valid_at_ports" ] && valid_at_ports="$valid_at_port" || valid_at_ports="$valid_at_ports $valid_at_port"
-    done
+    [ -n "$pcui_ports" ] && at_ports="$pcui_ports"
+    # Port discovery comes from the device, not from an ATI/OK prerequisite.
+    valid_at_ports="$at_ports"
 }
 
 match_config()
@@ -401,12 +381,9 @@ match_config()
 get_modem_model()
 {
     local at_port=$1
-    sleep 1
-    cgmm=$(at $at_port "AT+CGMM")
-    sleep 1
-    cgmm_1=$(at $at_port "AT+CGMM?")
-    sleep 1
-    gmm=$(at $at_port "AT+GMM")
+    cgmm=$(fastat "$at_port" "AT+CGMM")
+    cgmm_1=
+    gmm=
     name_1=$(echo -e "$cgmm" |grep "+CGMM: " | awk -F': ' '{print $2}')
     name_2=$(echo -e "$cgmm_1" |grep "+CGMM: " | awk -F'"' '{print $2} '| cut -d ' ' -f 1)
     name_3=$(echo -e "$cgmm" | sed -n '2p')
@@ -427,12 +404,45 @@ get_modem_model()
     return 0
 }
 
+deactivate_usb_peer()
+{
+    local slot="$1" bus port peer peer_slot peer_section peer_path key value current
+    bus="${slot%%-*}"
+    port="${slot#*-}"
+    case "$port" in ''|*[!0-9]*) return ;; esac
+    peer="/sys/bus/usb/devices/usb$bus/$bus-0:1.0/usb$bus-port$port/peer"
+    peer_slot=$(basename "$(readlink -f "$peer" 2>/dev/null)" | sed -n 's/^usb\([0-9][0-9]*\)-port\([0-9][0-9]*\)$/\1-\2/p')
+    [ -n "$peer_slot" ] || return
+    peer_section=$(echo "$peer_slot" | sed 's/[\.:-]/_/g')
+    [ "$(uci -q get qmodem.$peer_section)" = "modem-device" ] || return
+    peer_path=$(uci -q get qmodem.$peer_section.path)
+    [ -n "$peer_path" ] && [ ! -d "$peer_path" ] || return
+
+    # HS and SS peers are one physical socket. Retire only its absent identity;
+    # never send a hang command through the AT port reused by the present modem.
+    disable "$peer_section"
+    # Preserve user dial settings when discovery creates the other bus identity.
+    for key in enable_dial apn username password auth pincode apn2 username2 password2 auth2 pincode2 pdp_type pdp_index dial_tool huawei_dial_mode; do
+        value=$(uci -q get qmodem.$peer_section.$key)
+        [ -n "$value" ] || continue
+        current=$(uci -q get qmodem.$section_name.$key)
+        if [ -z "$is_exist" ] || [ -z "$current" ]; then
+            uci -q set "qmodem.$section_name.$key=$value"
+        fi
+    done
+}
+
 add()
 {
     local slot=$1
+    # Coldplug can run before the normal rc.d sequence starts the AT broker.
+    /etc/init.d/ubus-at-daemon start
+    local selected_at_port preset_name saved_at_port
+    modem_name=; manufacturer=; platform=; modes=; suggest_pdp_index=
+    modem_port_config=; slot_vid=; slot_pid=; at_ports=; valid_at_ports=
+    wcdma_available_band=; lte_available_band=; nsa_available_band=; sa_available_band=
     # Wait for an earlier hotplug probe instead of losing this scan.
     lock /tmp/lock/modem_add_$slot
-    [ $? -eq 0 ] || return
     #slot_type is usb or pcie
     #section name is replace slot .:- with _ 
     section_name=$(echo $slot | sed 's/[\.:-]/_/g')
@@ -457,16 +467,37 @@ add()
     esac
     #if no netdev return
     [ -z "$net_devices" ] && lock -u /tmp/lock/modem_add_$slot && return
-    for trys in $(seq 1 3);do
-        for at_port in $valid_at_ports; do
-            m_debug "try at port $at_port;time $trys"
-            get_modem_model "/dev/$at_port"
-            [ $? -eq 0 ] && break || modem_name=""
-        done
-        [ -n "$modem_name" ] && break
-        sleep 1
+    # Prefer existing USB identity rules/product descriptors. A missing AT
+    # response must not suppress the device section or the native dialer.
+    preset_name=$(printf '%s\n' "$modem_port_config" | jq -r '.name // empty')
+    [ -z "$preset_name" ] || match_config "$preset_name"
+    if [ -z "$modem_name" ] && [ -r "$modem_path/product" ]; then
+        match_config "$(cat "$modem_path/product")"
+    fi
+    preset_name="$modem_name"
+    saved_at_port=$(uci -q get qmodem.$section_name.at_port)
+    for at_port in $valid_at_ports; do
+        [ -n "$selected_at_port" ] || selected_at_port="$at_port"
+        [ "$saved_at_port" != "/dev/$at_port" ] || selected_at_port="$at_port"
     done
-    [ -z "$modem_name" ] && lock -u /tmp/lock/modem_add_$slot && return
+    case "$valid_at_ports" in
+        *' '*) probe_ports="$valid_at_ports" ;;
+        *) [ -n "$preset_name" ] && probe_ports= || probe_ports="$valid_at_ports" ;;
+    esac
+    for at_port in $probe_ports; do
+        if get_modem_model "/dev/$at_port"; then
+            selected_at_port="$at_port"
+            break
+        fi
+    done
+    [ -n "$modem_name" ] || [ -z "$preset_name" ] || match_config "$preset_name"
+    if [ -z "$modem_name" ]; then
+        modem_name=unknown
+        manufacturer=$(printf '%s\n' "$modem_support" | jq -r --arg vid "$slot_vid" '[.modem_support.usb[] | select(.manufacturer_id == $vid) | .manufacturer] | unique | if length == 1 then .[0] else "unknown" end')
+        platform=unknown
+        m_debug "Model query unavailable; continue with the detected network driver"
+    fi
+    [ -n "$suggest_pdp_index" ] || suggest_pdp_index=1
     m_debug  "add modem $modem_name slot $slot slot_type $slot_type"
     if [ -n "$is_exist" ]; then
         #network at_port state name 不变，则不需要重启网络
@@ -517,7 +548,7 @@ set qmodem.$section_name.name=$modem_name
 set qmodem.$section_name.network=$net_devices
 set qmodem.$section_name.manufacturer=$manufacturer
 set qmodem.$section_name.platform=$platform
-set qmodem.$section_name.suggest_pdp_index=$pdp_index
+set qmodem.$section_name.suggest_pdp_index=$suggest_pdp_index
 EOF
 
     [ -n "$wcdma_available_band" ] && uci -q set qmodem.$section_name.wcdma_band=$wcdma_available_band
@@ -530,12 +561,13 @@ EOF
     done
     for at_port in $valid_at_ports; do
         uci -q add_list qmodem.$section_name.valid_at_ports="/dev/$at_port"
-        uci -q set qmodem.$section_name.at_port="/dev/$at_port"
     done
+    [ -z "$selected_at_port" ] || uci -q set qmodem.$section_name.at_port="/dev/$selected_at_port"
     for at_port in $at_ports; do
         uci -q add_list qmodem.$section_name.ports="/dev/$at_port"
     done
     [ "$option_driver" == "1" ] && uci -q set qmodem.$section_name.option_driver="1"
+    [ "$slot_type" != "usb" ] || deactivate_usb_peer "$slot"
     uci commit qmodem
     mkdir -p /var/run/qmodem/${section_name}_dir
     lock -u /tmp/lock/modem_add_$slot
@@ -557,8 +589,10 @@ EOF
 #增加预初始化脚本
     exec_post_init $section_name
 #判断是否重启网络
-    [ -n "$is_exist" ] && [ "$orig_network" == "$net_devices" ] && [ "$orig_at_port" == "/dev/$at_port" ] && [ "$orig_state" == "enabled" ] && [ "$orig_name" == "$modem_name" ] && return
-    /etc/init.d/qmodem_network reload
+    [ -n "$is_exist" ] && [ "$orig_network" == "$net_devices" ] && [ "$orig_at_port" == "/dev/$selected_at_port" ] && [ "$orig_state" == "enabled" ] && [ "$orig_name" == "$modem_name" ] && return
+    # Notify the service through its native procd trigger. Coldplug discovery
+    # must not start network reconfiguration before the normal rc.d startup.
+    ubus call service event '{"type":"config.change","data":{"package":"qmodem"}}'
 }
 
 remove()
@@ -588,7 +622,11 @@ EOF
 disable()
 {
     local slot=$1
-    section_name=$(echo $slot | sed 's/[\.:-]/_/g')
+    local section_name=$(echo "$slot" | sed 's/[\.:-]/_/g')
+    [ "$(uci -q get qmodem.$section_name)" = "modem-device" ] || return
+    # Hardware removal must not hang a different modem reusing this AT port.
+    ubus call service delete "{\"name\":\"qmodem_network\",\"instance\":\"modem_$section_name\"}" >/dev/null 2>&1
+    ubus call service delete "{\"name\":\"qmodem_network\",\"instance\":\"led_$section_name\"}" >/dev/null 2>&1
     #reorder to first
     uci -q reorder qmodem.$section_name="1"
     uci -q set qmodem.$section_name.state="disabled"
@@ -613,7 +651,7 @@ case $action in
         debug_subject="modem_scan_scan"
         [ -n "$config" ] && delay=$config && sleep $delay
         # USB and PCIe boot scans start together; both must run.
-        lock /tmp/lock/modem_scan || exit 1
+        lock /tmp/lock/modem_scan
         m_debug "scan start: $slot_type"
         scan $slot_type
         lock -u /tmp/lock/modem_scan

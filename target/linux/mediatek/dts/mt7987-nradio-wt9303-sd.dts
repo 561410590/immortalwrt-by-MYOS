@@ -1211,7 +1211,7 @@
 
 		cpesel0 {
 			gpio-export,name = "cpe-sel0";
-			gpio-export,output = <0x01>;
+			gpio-export,output = <0x00>;
 			gpios = <0x14 0x30 0x00>;
 		};
 

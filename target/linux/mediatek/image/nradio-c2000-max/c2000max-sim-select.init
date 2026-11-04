@@ -4,9 +4,9 @@ START=97
 
 extra_command "select_sim" "<logical-slot> [mode] select a SIM and redial asynchronously"
 extra_command "status_json" "show SIM selection and cellular interface state"
+extra_command "restore" "restore the saved SIM route before the native dial command"
 SIM_LOCK=/var/run/c2000max-sim-select.lock
 SIM_STATE=/var/run/c2000max-sim-select.status.json
-SIM_READY=/var/run/c2000max-sim-select.ready
 
 save_selection() {
 	local cur="$1" mode="$2" slot
@@ -73,7 +73,7 @@ wait_for_modem() {
 		config_foreach pick_modem modem-device
 		[ -z "$modem_section" ] || return 0
 		retries=$((retries - 1))
-		sleep 1
+		[ "$retries" -eq 0 ] || sleep 1
 	done
 	return 1
 }
@@ -199,69 +199,88 @@ lock_selection() {
 }
 
 status_json() {
-	local stage target actual modem busy=0 info interface ip4 ip6 live_cpin live_slot prefix gpio mapping logical
+	local stage target actual modem busy=0 info interface ip4 ip6 live_cpin live_slot prefix gpio mapping logical vendor platform raw_slot last_message
+	. /lib/functions.sh
 	. /usr/share/libubox/jshn.sh
 	json_init
 	[ ! -s "$SIM_STATE" ] || json_load "$(cat "$SIM_STATE")"
 	json_get_var stage stage
+	json_get_var last_message message
+	json_add_string last_action_stage "$stage"
+	json_add_string last_action_message "$last_message"
 	json_get_var target target
-	json_get_var actual actual
-	json_get_var modem modem
-	[ -n "$target" ] || json_add_string target "$(uci -q get cpesel.sim.cur)"
+	[ -n "$target" ] || target="$(uci -q get cpesel.sim.cur)"
+	json_add_string target "$target"
 	lock_alive && busy=1
 	if [ "$busy" = 0 ]; then
-		case "$stage" in
-			queued|stopping|switching|checking|recovering)
-				json_add_string stage error
-				json_add_string message "切卡任务已中断，请重新选择卡槽"
-				;;
-			dialing)
-				modem_section="$modem"
-				modem_at_port="$(uci -q get "qmodem.$modem.override_at_port")"
-				[ -n "$modem_at_port" ] || modem_at_port="$(uci -q get "qmodem.$modem.at_port")"
-				if [ -c "$modem_at_port" ]; then
-					info="$(tom_modem -u -t 2 -d "$modem_at_port" -o a -c 'AT+CPIN?' 2>/dev/null)"
-					live_cpin="$(printf '%s\n' "$info" | sed -n 's/^[[:space:]]*+CPIN:[[:space:]]*//p' | tr -d '\r' | head -n 1)"
-					[ -z "$live_cpin" ] || json_add_string cpin "$live_cpin"
-					if [ "$(uci -q get "qmodem.$modem.manufacturer"):$(uci -q get "qmodem.$modem.platform")" = huawei:hisilicon ]; then
-						info="$(tom_modem -u -t 2 -d "$modem_at_port" -o a -c 'AT^SCICHG?' 2>/dev/null)"
-						live_slot="$(printf '%s\n' "$info" | sed -n 's/^[[:space:]]*\^SCICHG:[[:space:]]*\([01]\)[[:space:]]*,.*/\1/p' | head -n 1)"
-						json_add_string physical_slot "$live_slot"
-						prefix="$(find_gpio_prefix)"
-						gpio="$(read_gpio "$prefix")"
-						mapping="$(uci -q get cpesel.sim.gval)"
-						actual=
-						for logical in 1 2 3; do
-							[ "$(resolve_target "$mapping" "$logical")" != "$gpio $live_slot" ] || actual="$logical"
-						done
-						json_add_string actual "$actual"
-					fi
-				fi
-				interface=2_1
-				case "$interface" in ''|*[!A-Za-z0-9_-]*) interface= ;; esac
-				if [ -n "$interface" ]; then
-					info="$(ubus -t 2 call "network.interface.$interface" status 2>/dev/null)"
-					if [ "$(printf '%s' "$info" | jsonfilter -e '@.up')" = true ]; then
-						ip4="$(printf '%s' "$info" | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)"
-						ip6="$(printf '%s' "$info" | jsonfilter -e '@["ipv6-address"][0].address' 2>/dev/null)"
-					fi
-					info="$(ubus -t 2 call "network.interface.${interface}v6" status 2>/dev/null)"
-					if [ -z "$ip6" ] && [ "$(printf '%s' "$info" | jsonfilter -e '@.up')" = true ]; then
-						ip6="$(printf '%s' "$info" | jsonfilter -e '@["ipv6-address"][0].address' 2>/dev/null)"
-					fi
-					json_add_string ipv4 "$ip4"
-					json_add_string ipv6 "$ip6"
-					if [ -n "$ip4$ip6" ]; then
-						json_add_string stage online
-						json_add_string message "蜂窝接口已获取地址"
-					else
-						json_add_string message "卡槽已确认，等待蜂窝拨号获取地址"
-					fi
-				fi
-				;;
-		esac
+		modem_section=
+		modem_at_port=
+		config_load qmodem
+		config_foreach pick_modem modem-device
+		modem="$modem_section"
+		json_add_string modem "$modem"
+		if [ -n "$modem" ]; then
+			vendor="$(uci -q get "qmodem.$modem.manufacturer")"
+			platform="$(uci -q get "qmodem.$modem.platform")"
+			info="$(tom_modem -u -t 2 -d "$modem_at_port" -o a -c 'AT+CPIN?' 2>/dev/null)"
+			live_cpin="$(printf '%s\n' "$info" | sed -n 's/^[[:space:]]*+CPIN:[[:space:]]*//p' | tr -d '\r' | head -n 1)"
+			case "$vendor:$platform" in
+				huawei:hisilicon)
+					info="$(tom_modem -u -t 2 -d "$modem_at_port" -o a -c 'AT^SCICHG?' 2>/dev/null)"
+					live_slot="$(printf '%s\n' "$info" | sed -n 's/^[[:space:]]*\^SCICHG:[[:space:]]*\([01]\)[[:space:]]*,.*/\1/p' | head -n 1)"
+					;;
+				quectel:*)
+					info="$(tom_modem -u -t 2 -d "$modem_at_port" -o a -c 'AT+QUIMSLOT?' 2>/dev/null)"
+					raw_slot="$(printf '%s\n' "$info" | sed -n 's/^[[:space:]]*+QUIMSLOT:[[:space:]]*\([12]\).*/\1/p' | head -n 1)"
+					case "$raw_slot" in 1|2) live_slot="$((raw_slot - 1))" ;; esac
+					;;
+				*)
+					info="$(/usr/share/qmodem/modem_ctrl.sh get_sim_slot "$modem" 2>/dev/null)"
+					raw_slot="$(printf '%s' "$info" | jsonfilter -e '@.sim_slot' 2>/dev/null)"
+					case "$vendor" in
+						huawei|fibocom) case "$raw_slot" in 0|1) live_slot="$raw_slot" ;; esac ;;
+						*) case "$raw_slot" in 1|2) live_slot="$((raw_slot - 1))" ;; esac ;;
+					esac
+					;;
+			esac
+			prefix="$(find_gpio_prefix)"
+			gpio="$(read_gpio "$prefix")"
+			mapping="$(uci -q get cpesel.sim.gval)"
+			if [ -n "$live_slot" ] && [ -n "$gpio" ]; then
+				for logical in 1 2 3; do
+					[ "$(resolve_target "$mapping" "$logical")" != "$gpio $live_slot" ] || actual="$logical"
+				done
+			fi
+		fi
+		json_add_string cpin "$live_cpin"
+		json_add_string physical_slot "$live_slot"
+		json_add_string actual "$actual"
+		interface="$(uci -q get "qmodem.$modem.alias")"
+		[ -n "$interface" ] || interface="${modem:-2_1}"
+		info="$(ubus -t 2 call "network.interface.$interface" status 2>/dev/null)"
+		if [ "$(printf '%s' "$info" | jsonfilter -e '@.up')" = true ]; then
+			ip4="$(printf '%s' "$info" | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)"
+			ip6="$(printf '%s' "$info" | jsonfilter -e '@["ipv6-address"][0].address' 2>/dev/null)"
+		fi
+		info="$(ubus -t 2 call "network.interface.${interface}v6" status 2>/dev/null)"
+		if [ -z "$ip6" ] && [ "$(printf '%s' "$info" | jsonfilter -e '@.up')" = true ]; then
+			ip6="$(printf '%s' "$info" | jsonfilter -e '@["ipv6-address"][0].address' 2>/dev/null)"
+		fi
+		json_add_string ipv4 "$ip4"
+		json_add_string ipv6 "$ip6"
+		if [ -n "$ip4$ip6" ]; then
+			stage=online
+			json_add_string message "蜂窝接口已获取地址"
+		elif [ -n "$modem" ]; then
+			stage=dialing
+			json_add_string message "正在等待蜂窝接口获取地址"
+		else
+			stage=idle
+			json_add_string message "正在读取模组状态"
+		fi
+		json_add_string stage "$stage"
 	fi
-	[ -n "$stage" ] || { json_add_string stage idle; json_add_string message "等待卡槽状态"; }
+	json_add_int updated "$(date +%s)"
 	json_add_boolean busy "$busy"
 	json_dump
 }
@@ -270,168 +289,64 @@ at_command() {
 	tom_modem -u -t 5 -d "$modem_at_port" -o a -c "$1" 2>/dev/null
 }
 
-check_sim_ready() {
-	local retries="$1" result hvsst
-	while [ "$retries" -gt 0 ]; do
-		if [ -c "$modem_at_port" ]; then
-			result="$(at_command 'AT+CPIN?')"
-			sim_cpin="$(printf '%s\n' "$result" | sed -n 's/^[[:space:]]*+CPIN:[[:space:]]*//p' | tr -d '\r' | head -n 1)"
-			if [ "$manufacturer:$platform" = huawei:hisilicon ]; then
-				result="$(at_command 'AT^SCICHG?')"
-				actual_slot="$(printf '%s\n' "$result" | sed -n 's/^[[:space:]]*\^SCICHG:[[:space:]]*\([01]\)[[:space:]]*,.*/\1/p' | head -n 1)"
-				result="$(at_command 'AT^HVSST?')"
-				hvsst="$(printf '%s\n' "$result" | tr -d ' \r' | grep "^\^HVSST:1,1,$target_slot," | head -n 1)"
-			else
-				actual_slot="$target_slot"
-				hvsst=active
-			fi
-			if [ "$actual_slot" = "$target_slot" ] && [ "$(read_gpio "$gpio_prefix")" = "$target_gpio" ] && [ -n "$hvsst" ]; then
-				case "$sim_cpin" in
-					READY) actual_cur="$selection_cur"; return 0 ;;
-					'SIM PIN'|'SIM PUK') actual_cur="$selection_cur"; return 2 ;;
-				esac
-			fi
-			set_status checking "正在核对实际卡槽与 SIM 识卡状态"
-		else
-			# Rediscover after reset; USB paths may return under another device node.
-			wait_for_modem 1 >/dev/null 2>&1
-		fi
-		retries=$((retries - 1))
-		sleep 2
-	done
-	return 1
-}
-
 apply_sim() {
-	local cur="$1" mapping target target_gpio target_slot gpio_prefix payload result status retries
-	local old_modem_section manufacturer platform hvsst check_result
+	local cur="$1" mapping target target_gpio target_slot vendor_slot gpio_prefix payload result
+	local manufacturer platform operation_failed=0 command_status
 	mapping="$(uci -q get cpesel.sim.gval)"
 	target="$(resolve_target "$mapping" "$cur")" || { fail_selection "SIM 卡槽映射无效"; return 1; }
 	set -- $target
 	target_gpio="$1"; target_slot="$2"
 	. /lib/functions.sh
-	wait_for_modem || { fail_selection "模组 AT 端口未就绪"; return 1; }
-	old_modem_section="$modem_section"
+	wait_for_modem 1 || { fail_selection "模组 AT 端口尚未出现，原拨号继续运行"; return 1; }
 	config_get manufacturer "$modem_section" manufacturer
 	config_get platform "$modem_section" platform
-	gpio_prefix="$(find_gpio_prefix)" || { fail_selection "SIM 选择 GPIO 未就绪"; return 1; }
-	set_status switching "正在切换并激活目标 SIM"
-	# MT5700 manual 11.11/11.17: deactivate hardware SIM, hot switch, activate.
+	gpio_prefix="$(find_gpio_prefix)" || { fail_selection "SIM 选择 GPIO 不存在"; return 1; }
+	vendor_slot="$((target_slot + 1))"
+	case "$manufacturer" in huawei|fibocom) vendor_slot="$target_slot" ;; esac
+	set_status switching "正在切换目标 SIM"
+	selection_started=1
+	# Only an explicit selection changes the SIM; replies never gate dialing.
 	if [ "$manufacturer:$platform" = huawei:hisilicon ]; then
 		result="$(at_command 'AT^HVSST=1,0')"
-		case "$result" in *OK*) ;; *) fail_selection "模组拒绝停用旧 SIM"; return 1 ;; esac
+		logger -t c2000max-sim-select "SIM deactivate: $result"
+		case "$result" in *ERROR*) operation_failed=1 ;; esac
 	fi
-	write_gpio "$gpio_prefix" "$target_gpio" || { fail_selection "SIM 选择 GPIO 写入失败"; return 1; }
-	payload="{\"config_section\":\"$modem_section\",\"slot\":\"$target_slot\"}"
-	retries=3
-	while [ "$retries" -gt 0 ]; do
-		result="$(ubus -t 10 call qmodem set_sim_slot "$payload" 2>/dev/null)"
-		status="$(printf '%s' "$result" | jsonfilter -e '@.status' 2>/dev/null)"
-		[ "$status" = 1 ] && break
-		retries=$((retries - 1)); sleep 1
-	done
-	[ "$status" = 1 ] || { fail_selection "模组拒绝切换物理 SIM 卡槽"; return 1; }
+	write_gpio "$gpio_prefix" "$target_gpio" || operation_failed=1
+	payload="{\"config_section\":\"$modem_section\",\"slot\":\"$vendor_slot\"}"
+	result="$(ubus -t 10 call qmodem set_sim_slot "$payload" 2>/dev/null)"
+	command_status=$?
+	logger -t c2000max-sim-select "SIM selection response: $result"
+	[ "$command_status" -eq 0 ] || operation_failed=1
+	case "$result" in *ERROR*) operation_failed=1 ;; esac
 	if [ "$manufacturer:$platform" = huawei:hisilicon ]; then
 		result="$(at_command 'AT^HVSST=1,1')"
-		case "$result" in *OK*) ;; *) fail_selection "目标 SIM 激活失败"; return 1 ;; esac
-	fi
-	result="$(at_command 'AT+CFUN=1')"
-	case "$result" in *OK*) sleep 2 ;; *) fail_selection "模组进入 online 模式失败"; return 1 ;; esac
-	set_status checking "目标 SIM 已激活，等待识卡"
-	check_sim_ready 20
-	check_result=$?
-	if [ "$check_result" = 1 ]; then
-		set_status recovering "热切卡识卡未恢复，正在软复位模组"
-		# Manual 6.1: CFUN=1,1 is valid only in online mode, with >1s spacing.
-		result="$(at_command 'AT+CFUN=1')"
-		case "$result" in *OK*) sleep 2 ;; *) fail_selection "恢复识卡前无法进入 online 模式"; return 1 ;; esac
-		at_command 'AT+CFUN=1,1' >/dev/null
-		sleep 2
-		wait_for_modem 60 || { fail_selection "软复位后 AT 端口未恢复"; return 1; }
-		# HVSST activation is not retained across modem reset.
-		if [ "$manufacturer:$platform" = huawei:hisilicon ]; then
-			result="$(at_command 'AT^HVSST=1,1')"
-			case "$result" in *OK*) ;; *) fail_selection "软复位后目标 SIM 激活失败"; return 1 ;; esac
-		fi
-		check_sim_ready 30
-		check_result=$?
-	fi
-	if [ "$check_result" = 1 ]; then
-		if [ "$actual_slot" != "$target_slot" ]; then
-			fail_selection "实际物理卡槽与目标不符"
-		else
-			fail_selection "目标 SIM 识卡超时，请检查卡片及内置卡状态"
-		fi
-		return 1
-	fi
-	if [ "$old_modem_section" != "$modem_section" ]; then
-		uci -q set "qmodem.$old_modem_section.state=disabled" || return 1
-	fi
-	uci -q set "qmodem.$modem_section.state=enabled" &&
-	uci -q commit qmodem || { fail_selection "保存模组拨号状态失败"; return 1; }
-	if [ "$manufacturer" = huawei ]; then
+		logger -t c2000max-sim-select "SIM activate: $result"
+		case "$result" in *ERROR*) operation_failed=1 ;; esac
 		printf '%s\n' "$target_slot" > "/tmp/huawei_sim_slot_$modem_section"
 	fi
-	if [ "$check_result" = 2 ]; then
-		# Let QModem apply the target card's configured PIN, never issue repeated PIN attempts here.
-		set_status dialing "目标卡槽已确认，SIM 需要 PIN/PUK；等待拨号程序处理"
-	else
-		set_status dialing "实际卡槽与识卡已确认，正在恢复拨号"
+	result="$(at_command 'AT+CFUN=1')"
+	logger -t c2000max-sim-select "SIM online response: $result"
+	case "$result" in *ERROR*) operation_failed=1 ;; esac
+	if [ "$operation_failed" -ne 0 ]; then
+		fail_selection "切卡操作返回错误，拨号继续运行；请查看实际卡槽与日志"
+		return 1
 	fi
+	set_status dialing "切卡命令已发送，实际卡槽与识卡状态以实时读取为准"
 	return 0
 }
 
 run_selection() {
-	local cur="$1" booting="$2" status wan_zone wan_networks
-	set_status stopping "正在停止旧卡拨号"
-	# Stop the old worker before GPIO/AT changes; it retains the previous SIM's APN.
-	/etc/init.d/qmodem_network stop >/dev/null 2>&1 || {
-		fail_selection "停止旧卡拨号失败"
-		return 1
-	}
+	local cur="$1" booting="$2" status dial_status
+	selection_started=0
 	apply_sim "$cur"
 	status=$?
-	if [ "$status" -eq 0 ]; then
-		uci -q set "qmodem.$modem_section.alias=2_1" && uci -q commit qmodem || {
-			fail_selection "固定蜂窝接口绑定失败"
-			return 1
-		}
-		uci -q batch <<EOF
-set network.2_1=interface
-set network.2_1.proto='dhcp'
-set network.2_1.device='eth2'
-set network.2_1.ifname='eth2'
-set network.2_1.defaultroute='1'
-set network.2_1.metric='11'
-set network.2_1.modem_config='$modem_section'
-set network.2_1v6=interface
-set network.2_1v6.proto='dhcpv6'
-set network.2_1v6.device='@2_1'
-set network.2_1v6.ifname='@2_1'
-set network.2_1v6.metric='11'
-set network.2_1v6.extendprefix='1'
-set network.2_1v6.modem_config='$modem_section'
-commit network
-EOF
-		wan_zone="$(uci show firewall | sed -n "s/^firewall\.@zone\[\([0-9][0-9]*\)\]\.name='wan'$/\1/p" | head -n 1)"
-		if [ -n "$wan_zone" ]; then
-			wan_networks=" $(uci -q get "firewall.@zone[$wan_zone].network") "
-			case "$wan_networks" in *' 2_1 '*) ;; *) uci -q add_list "firewall.@zone[$wan_zone].network=2_1" ;; esac
-			case "$wan_networks" in *' 2_1v6 '*) ;; *) uci -q add_list "firewall.@zone[$wan_zone].network=2_1v6" ;; esac
-			uci -q commit firewall
+	if [ "$booting" != 1 ] && [ "$selection_started" = 1 ]; then
+		/etc/init.d/qmodem_network restart >/dev/null 2>&1
+		dial_status=$?
+		if [ "$dial_status" -ne 0 ]; then
+			fail_selection "拨号服务返回错误"
+			return "$dial_status"
 		fi
-		ubus call network reload >/dev/null 2>&1
-		ifup 2_1 >/dev/null 2>&1
-		ifup 2_1v6 >/dev/null 2>&1
-		/etc/init.d/firewall reload >/dev/null 2>&1
-		: > /var/run/c2000max-sim-select.ready
-		[ "$booting" = 1 ] || /etc/init.d/qmodem_network start >/dev/null 2>&1 || {
-			rm -f /var/run/c2000max-sim-select.ready
-			fail_selection "启动目标卡拨号失败"
-			return 1
-		}
-	else
-		logger -t c2000max-sim-select "SIM selection failed; keep modem dial blocked"
 	fi
 	return "$status"
 }
@@ -444,7 +359,6 @@ start() {
 	selection_cur="$cur"; actual_cur=; actual_slot=; sim_cpin=
 	trap 'release_lock' EXIT
 	trap 'fail_selection "切卡任务被中断"; exit 1' INT TERM
-	rm -f "$SIM_READY"
 	set_status queued "切卡任务已启动"
 	if save_selection "$cur"; then
 		run_selection "$cur" "$booting"; status=$?
@@ -456,9 +370,64 @@ start() {
 	return "$status"
 }
 
+restore() {
+	local cur mapping target prefix gpio vendor platform info raw_slot live_slot result
+	. /lib/functions.sh
+	cur="$(uci -q get cpesel.sim.cur)"
+	[ -n "$cur" ] || cur=1
+	modem_section="$1"
+	config_load qmodem
+	config_get modem_at_port "$modem_section" at_port
+	config_get vendor "$modem_section" manufacturer
+	config_get platform "$modem_section" platform
+	case "$vendor:$platform" in
+		huawei:hisilicon)
+			info="$(at_command 'AT^SCICHG?')"
+			live_slot="$(printf '%s\n' "$info" | sed -n 's/^[[:space:]]*\^SCICHG:[[:space:]]*\([01]\)[[:space:]]*,.*/\1/p' | head -n 1)"
+			;;
+		quectel:*)
+			info="$(at_command 'AT+QUIMSLOT?')"
+			raw_slot="$(printf '%s\n' "$info" | sed -n 's/^[[:space:]]*+QUIMSLOT:[[:space:]]*\([12]\).*/\1/p' | head -n 1)"
+			case "$raw_slot" in 1|2) live_slot="$((raw_slot - 1))" ;; esac
+			;;
+		*)
+			info="$(/usr/share/qmodem/modem_ctrl.sh get_sim_slot "$modem_section" 2>/dev/null)"
+			raw_slot="$(printf '%s' "$info" | jsonfilter -e '@.sim_slot' 2>/dev/null)"
+			case "$vendor" in
+				huawei|fibocom) live_slot="$raw_slot" ;;
+				*) case "$raw_slot" in 1|2) live_slot="$((raw_slot - 1))" ;; esac ;;
+			esac
+			;;
+	esac
+	mapping="$(uci -q get cpesel.sim.gval)"
+	target="$(resolve_target "$mapping" "$cur")"
+	prefix="$(find_gpio_prefix)"
+	gpio="$(read_gpio "$prefix")"
+	# A matching route does not mean the modem has detected the selected SIM.
+	if [ -n "$live_slot" ] && [ "$target" = "$gpio $live_slot" ]; then
+		if [ "$vendor:$platform" = huawei:hisilicon ]; then
+			result="$(at_command 'AT^HVSST=1,1')"
+			logger -t c2000max-sim-select "Saved SIM activate: $result"
+		fi
+		return 0
+	fi
+	selection_cur="$cur"
+	apply_sim "$cur"
+}
+
 boot() {
-	# S98qmodem_network starts the worker after synchronous boot selection.
-	start 1
+	local cur mapping target gpio_prefix
+	cur="$(uci -q get cpesel.sim.cur)"
+	[ -n "$cur" ] || cur=1
+	mapping="$(uci -q get cpesel.sim.gval)"
+	modem_section=
+	# Restore the saved hardware route even when the modem has no AT port yet.
+	if target="$(resolve_target "$mapping" "$cur")" && gpio_prefix="$(find_gpio_prefix)"; then
+		set -- $target
+		write_gpio "$gpio_prefix" "$1" || logger -t c2000max-sim-select "保存的 SIM GPIO 恢复失败"
+	fi
+	# The native dial path restores the modem channel before its dial command.
+	# Do not deactivate the SIM asynchronously after dialing has already started.
 }
 
 select_sim() {
@@ -473,7 +442,6 @@ select_sim() {
 		release_lock
 		reply "保存目标卡槽失败"; return 1
 	}
-	rm -f "$SIM_READY"
 	set_status queued "切卡任务已提交"
 	(
 		current_pid

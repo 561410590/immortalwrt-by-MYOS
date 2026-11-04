@@ -80,7 +80,7 @@ function mount(root, url) {
   }
   el.style.width=Math.max(0,Math.min(100,percent))+'%';
  }
- const paths={wifi:['admin','network','wireless'],signal:['admin','modem','qmodem'],devices:['admin','network','dhcp']};
+ const paths={wifi:['admin','network','wireless'],signal:['admin','modem','qmodem'],devices:['admin','services','oaf','users','list']};
  root.querySelectorAll('[data-panel]').forEach(button=>{
   const link=document.createElement('a'); link.className=button.className;
   link.dataset.panel=button.dataset.panel;

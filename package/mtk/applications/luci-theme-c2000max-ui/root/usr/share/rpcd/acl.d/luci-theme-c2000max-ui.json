@@ -23,7 +23,8 @@
         ],
         "qmodem": [
           "base_info",
-          "cell_info"
+          "cell_info",
+          "sim_info"
         ]
       },
       "file": {

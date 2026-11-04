@@ -5,7 +5,7 @@
 </main>
 {% include('themes/c2000max-ui/mobile') %}
 <script src="{{ media }}/menu.js?v=1.0.17-r2-max"></script>
-<script src="{{ media }}/shell.js?v=1.0.17-r2-max"></script>
+<script src="{{ media }}/shell.js?v=202610221000-devices"></script>
 {% endif %}
 </body>
 </html>

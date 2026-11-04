@@ -12,8 +12,15 @@ return view.extend({
     },
 
     render: function() {
-        var defaultUrl = window.location.origin + '/5700/';
+        var defaultUrl = window.location.origin + '/mt5700/5700/';
         var currentUrl = uci.get('embed_simcard', 'webui', 'url') || defaultUrl;
+        var savedUrl;
+        try { savedUrl = new URL(currentUrl, window.location.origin); } catch (e) {}
+        if (savedUrl && savedUrl.origin === window.location.origin &&
+            /^\/5700(?:\/|$)/.test(savedUrl.pathname)) {
+            currentUrl = window.location.origin + '/mt5700' + savedUrl.pathname +
+                (savedUrl.pathname === '/5700' ? '/' : '') + savedUrl.search + savedUrl.hash;
+        }
         var tabBase = 'display:inline-block;width:100px;height:32px;line-height:32px;' +
             'text-align:center;cursor:pointer;border:1px solid #ccc;border-bottom:none;' +
             'border-radius:4px 4px 0 0;margin-right:4px;font-size:13px;background:#eee;' +

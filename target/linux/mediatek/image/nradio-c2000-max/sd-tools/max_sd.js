@@ -16,6 +16,7 @@ var errors={
  backup_failed:'分区表备份失败。',
  sd_busy:'SD 分区表正在使用，请稍后重试。',
  gpt_write_failed:'分区名切换失败，请保留 SD 卡并使用恢复工具检查。',
+ boot_env_write_failed:'官方启动标记写入失败，请查看设备返回的错误。',
  helper_failed:'功能服务未返回有效状态。',
  helper_unavailable:'功能服务不可用。'
 };
@@ -26,7 +27,7 @@ return view.extend({
   var nativeLayout=data.layout==='official';
   var button=E('button',{
    'class':'cbi-button cbi-button-action important',
-   'disabled':!data.ready || data.mode!=='myos' || this.readonly,
+   'disabled':this.readonly,
    'click':function() {
     ui.showModal('回官方系统',[
      E('p',{},'切换 SD 启动状态并重启，官方系统配置保留。'),

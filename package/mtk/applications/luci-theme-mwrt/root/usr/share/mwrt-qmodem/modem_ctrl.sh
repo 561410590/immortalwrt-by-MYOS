@@ -24,12 +24,18 @@ modem_slot=$(basename $modem_path)
 #please update dynamic_load.json to add new vendor
 vendor_script_prefix="/usr/share/mwrt-qmodem/vendor"
 dynamic_load_json="$vendor_script_prefix/dynamic_load.json"
-vendor_file="${vendor_script_prefix}/`jq -r --arg vendor $vendor '.[$vendor]' $dynamic_load_json`"
-if [ -z "$vendor" ] || [ ! -f "$vendor_file" ]; then
-    logger -t modem_ctrl "vendor $vendor not support"
+vendor_name=$(jq -r --arg vendor "$vendor" '.[$vendor] // empty' "$dynamic_load_json")
+vendor_file="$vendor_script_prefix/$vendor_name"
+if [ ! -f "$vendor_file" ]; then
+    vendor_name=$(jq -r --arg vendor "$vendor" '.[$vendor] // empty' /usr/share/qmodem/vendor/dynamic_load.json)
+    vendor_file="/usr/share/qmodem/vendor/$vendor_name"
+fi
+if [ -f "$vendor_file" ]; then
+    . "$vendor_file"
+else
+    logger -t modem_ctrl "vendor $vendor uses generic modem information"
     . /usr/share/mwrt-qmodem/generic.sh
 fi
-. $vendor_file
 
 try_cache() {
     cache_timeout=$1

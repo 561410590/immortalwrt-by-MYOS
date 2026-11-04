@@ -1,0 +1,13 @@
+{
+	"admin/modem/mt5700": {
+		"title": "MT5700 控制面板",
+		"order": 15,
+		"action": {
+			"type": "view",
+			"path": "mt5700-web/status_v8"
+		},
+		"depends": {
+			"acl": [ "luci-app-mt5700-web" ]
+		}
+	}
+}

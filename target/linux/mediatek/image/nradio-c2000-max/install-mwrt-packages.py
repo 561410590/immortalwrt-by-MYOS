@@ -107,6 +107,7 @@ def install(name):
 for package in requested:
     install(package)
 for path in ('', 'etc', 'usr', 'usr/bin', 'usr/sbin', 'usr/lib', 'usr/lib/lua',
-             'usr/lib/lua/luci', 'usr/share', 'usr/share/rpcd', 'usr/share/rpcd/acl.d', 'www'):
+             'usr/lib/lua/luci', 'usr/share', 'usr/share/luci',
+             'usr/share/rpcd', 'usr/share/rpcd/acl.d', 'www'):
     (root / path).chmod(0o755)
 status.write_text('\n\n'.join(installed.values()) + '\n\n')

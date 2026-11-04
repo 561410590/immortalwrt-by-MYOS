@@ -22,3 +22,36 @@ location /ubus {
         ubus_socket_path /var/run/ubus/ubus.sock;
         ubus_parallel_req 2;
 }
+
+location = /5700 {
+        return 302 /mt5700/5700/;
+}
+
+location ^~ /5700/ {
+        proxy_pass http://127.0.0.1:9010;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+}
+
+location /mt5700/ {
+        proxy_pass http://127.0.0.1:9010/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 300s;
+        proxy_buffering off;
+}
+
+location /modem/ {
+        proxy_pass http://127.0.0.1:9010;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 300s;
+        proxy_buffering off;
+}

@@ -34,6 +34,7 @@ ${CROSS}objcopy \
 	"$MODULE" "$MODULE.tmp"
 
 [ -n "$NO_RENAME" ] && {
+	chmod --reference="$MODULE" "${MODULE}.tmp"
 	mv "${MODULE}.tmp" "$MODULE"
 	exit 0
 }
@@ -51,5 +52,6 @@ $3 && $2 ~ /[brtd]/ && $3 !~ /\$LC/ && !def[$3] {
 ' > "$MODULE.tmp1"
 
 ${CROSS}objcopy $(cat ${MODULE}.tmp1) ${MODULE}.tmp ${MODULE}.out
+chmod --reference="$MODULE" "${MODULE}.out"
 mv "${MODULE}.out" "${MODULE}"
 rm -f "${MODULE}".t*

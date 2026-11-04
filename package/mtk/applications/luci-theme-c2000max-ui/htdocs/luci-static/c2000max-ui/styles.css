@@ -33,10 +33,15 @@
 .menu-children .menu-category { min-height: 40px; padding: 8px 10px; }
 .menu-children .menu-children { margin-left: 8px; padding-left: 8px; }
 .menu-empty, .menu-error { color: var(--text-muted); font-size: var(--text-sm); text-align: center; padding: 20px 14px; }
-.sidebar-footer { display: flex; flex-direction: column; flex-shrink: 0; gap: 5px; margin: 0 20px; padding: 18px 4px; border-top: 1px solid var(--border); color: var(--text-secondary); }
-.sidebar-footer > span { display: flex; align-items: center; gap: 8px; }
-.sidebar-footer i { width: 6px; height: 6px; background: var(--success); border-radius: 50%; }
-.sidebar-footer small { font-size: var(--text-xs); color: var(--text-muted); }
+.sidebar-footer { display: flex; flex-direction: column; flex-shrink: 0; gap: 5px; margin: 0 20px; padding: 16px 4px; border-top: 1px solid var(--border); color: var(--text-secondary); min-width: 0; }
+.sidebar-release { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sidebar-myos { flex: 0 0 auto; padding: 2px 6px; border-radius: 5px; color: var(--accent); background: var(--accent-soft); font-size: 11px; font-weight: 700; line-height: 1.5; }
+.sidebar-version { min-width: 0; font-size: 11px; line-height: 1.5; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.sidebar-support { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; }
+.sidebar-support a { display: inline-flex; align-items: center; min-height: 32px; color: var(--accent); font-size: var(--text-xs); text-decoration: none; }
+.sidebar-support a:hover { text-decoration: underline; }
+.sidebar-support a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
+.sidebar-footer small { font-size: var(--text-xs); color: var(--text-muted); overflow-wrap: anywhere; }
 .sidebar-backdrop { position: fixed; inset: 0; z-index: 29; background: var(--overlay); backdrop-filter: blur(4px); }
 .main { margin-left: var(--sidebar-width); min-height: 100svh; padding: 0 32px 24px; position: relative; isolation: isolate; }
 .topbar { min-height: 100px; display: flex; align-items: center; justify-content: flex-end; gap: 20px; position: relative; z-index: 5; max-width: 1440px; margin: auto; }

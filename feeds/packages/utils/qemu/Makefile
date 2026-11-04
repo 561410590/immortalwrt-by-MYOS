@@ -31,7 +31,7 @@ include $(INCLUDE_DIR)/package.mk
 include ../../lang/python/python3-host.mk
 
 QEMU_DEPS_IN_GUEST := @(TARGET_x86||TARGET_x86_64||TARGET_armsr||TARGET_malta)
-QEMU_DEPS_IN_HOST := @(TARGET_x86_64||TARGET_armsr_armv8||TARGET_sunxi)
+QEMU_DEPS_IN_HOST := @(TARGET_x86_64||TARGET_armsr_armv8||TARGET_sunxi||TARGET_mediatek_filogic)
 QEMU_DEPS_IN_HOST += +libstdcpp
 QEMU_DEPS_IN_HOST += $(ICONV_DEPENDS)
 
@@ -307,8 +307,8 @@ CONFIGURE_ARGS +=			\
 	--host-cc="$(HOSTCC)"		\
 	--disable-fortify-source	\
 	--disable-stack-protector	\
-	--extra-cflags="$(TARGET_CFLAGS) $(EXTRA_CFLAGS)"	\
-	--extra-cxxflags="$(TARGET_CXXFLAGS) $(EXTRA_CXXFLAGS)"	\
+	--extra-cflags="$(TARGET_CPPFLAGS) $(TARGET_CFLAGS) $(EXTRA_CFLAGS)"	\
+	--extra-cxxflags="$(TARGET_CPPFLAGS) $(TARGET_CXXFLAGS) $(EXTRA_CXXFLAGS)"	\
 	--extra-ldflags="$(TARGET_LDFLAGS) $(EXTRA_LDFLAGS)"	\
 
 # VHost features
