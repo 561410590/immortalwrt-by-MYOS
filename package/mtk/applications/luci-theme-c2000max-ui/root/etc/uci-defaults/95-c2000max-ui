@@ -1,11 +1,14 @@
 #!/bin/sh
-# MYOS default theme for the two supported board profiles.
+# N5000 defaults to MWRT; MYOS remains available for manual switching.
 uci -q delete luci.themes.MYOS_UI
 uci -q delete luci.themes.Argon
 uci -q set luci.themes.MYOS='/luci-static/c2000max-ui'
 uci -q set luci.themes.MWRT='/luci-static/argon'
 case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
- nradio,c2000-max|nradio,c2000-ultra|HCMT7987-EMMC|HCMT7987-SNSD)
+ nradio,n5000|HCMT7987-SNSD)
+		uci -q set luci.main.mediaurlbase='/luci-static/argon'
+  ;;
+ nradio,c2000-max|HCMT7987-EMMC)
 		case "$(uci -q get luci.main.mediaurlbase)" in
 			/luci-static/c2000max-ui|/luci-static/argon) ;;
 			*) uci -q set luci.main.mediaurlbase='/luci-static/c2000max-ui' ;;

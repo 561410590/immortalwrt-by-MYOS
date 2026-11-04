@@ -13,7 +13,7 @@ include $(INCLUDE_DIR)/feeds.mk
 
 PKG_NAME:=base-files
 PKG_FLAGS:=nonshared
-PKG_RELEASE:=1860
+PKG_RELEASE:=1861
 
 PKG_FILE_DEPENDS:=$(PLATFORM_DIR)/ $(GENERIC_PLATFORM_DIR)/base-files/
 PKG_FILE_DEPENDS+=$(INCLUDE_DIR)/version.mk
@@ -166,7 +166,7 @@ ifeq ($(CONFIG_LEGACY_SDCARD_SUPPORT),)
   endef
 endif
 
-ifneq ($(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_c2000-ultra),)
+ifneq ($(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_c2000-ultra)$(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_n5000),)
   define Package/base-files/c2000-ultra-phy-firmware
 	$(INSTALL_DIR) $(1)/lib/firmware/mediatek/mt7987
 	$(INSTALL_DATA) $(TOPDIR)/package/mtk/drivers/c2000max-wifi7/files/firmware/mediatek/mt7987/i2p5ge-phy-pmb.bin \
@@ -245,6 +245,13 @@ endif
 
 	$(call ImageConfigOptions,$(1))
 	$(call Package/base-files/install-target,$(1))
+ifeq ($(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_n5000),y)
+	# Restore executable entry points whose modes were lost in the N5000 copy.
+	chmod 0755 $(1)/etc/init.d/* $(1)/etc/rc.common $(1)/etc/preinit $(1)/etc/diag.sh
+	chmod 0755 $(1)/etc/rc.button/*
+	chmod 0755 $(1)/bin/* $(1)/sbin/* $(1)/usr/libexec/*
+	chmod 0755 $(1)/lib/upgrade/stage2 $(1)/lib/upgrade/do_stage2
+endif
 	for conffile in $(1)/etc/config/*; do \
 		if [ -f "$$$$conffile" ]; then \
 			grep "$$$${conffile##$(1)}" $(1)/CONTROL/conffiles || \

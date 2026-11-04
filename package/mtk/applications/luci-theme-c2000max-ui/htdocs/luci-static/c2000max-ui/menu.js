@@ -104,7 +104,7 @@
     const homePath = new URL(home.href, location.href).pathname.replace(/\/$/, '');
     const menuChildren = (node, path) => childrenOf(node).filter(child =>
       options.demo || (!child.hidden &&
-        !['admin/status/c5800','admin/status/c2000max','admin/status/c2000ultra','admin/modeminfo'].includes([...path, child.name].join('/')) &&
+        !['admin/status/c5800','admin/status/c2000max','admin/status/n5000','admin/modeminfo'].includes([...path, child.name].join('/')) &&
         new URL(url([...path, child.name]), location.href).pathname.replace(/\/$/, '') !== homePath));
     home.append(svg('home'), text('span','首页'));
     if (options.demo || activePath === new URL(home.href, location.href).pathname) { home.classList.add('active'); home.setAttribute('aria-current','page'); }

@@ -144,9 +144,6 @@ header.bg-primary,header.bg-primary::after,header .fill{background:#1a1a2e!impor
 </div>
 <div class="fc-hint">智能调速依据 CPU 温度</div>
 <div id="switchContainer" class="switch-container" style="display:none">
-<span class="switch-label">使用模组温度</span>
-<div class="switch" id="temperatureSwitch" onclick="toggleSwitch()"></div>
-<span class="switch-label">使用CPU温度</span>
 </div>
 </div>
 <div class="fc-section" id="schedSection">
@@ -205,8 +202,6 @@ header.bg-primary,header.bg-primary::after,header .fill{background:#1a1a2e!impor
 </div></div>
 
 <script type="text/javascript">
-        let useModemTemp = false;
-        let modemTempTimer = null;
         var tms
         var fanv
         let currentSpeed = 0;
@@ -215,7 +210,6 @@ header.bg-primary,header.bg-primary::after,header .fill{background:#1a1a2e!impor
         const ctx = canvas.getContext('2d');
         const energyFill = document.getElementById('energyFill');
         const switchContainer = document.getElementById('switchContainer');
-        const temperatureSwitch = document.getElementById('temperatureSwitch');
         let wjtsvall = 255; 
         let timer; 
         let isSliderActive = false; 
@@ -360,14 +354,9 @@ header.bg-primary,header.bg-primary::after,header .fill{background:#1a1a2e!impor
             const color = `rgb(${red}, ${green}, 0)`;
             energyFill.style.backgroundColor = color;
 
-            if (useModemTemp) {
-                let tempShow = modemName ? (modemName + "温度：" + temperature + "℃") : ("模组温度：" + temperature + "℃");
-                document.getElementById('temperatureDisplay').innerText = tempShow;
-                tms = "：" + temperature + "℃";
-            } else {
-                document.getElementById('temperatureDisplay').innerText = `${fanv}：${temperature}℃`;
-                tms = `：${temperature}℃`;
-            }
+            document.getElementById('temperatureDisplay').innerText = `CPU温度：${temperature}℃`;
+            tms = `：${temperature}℃`;
+
         }
 
 
@@ -454,93 +443,6 @@ header.bg-primary,header.bg-primary::after,header .fill{background:#1a1a2e!impor
             });
         }
 //---------------------------------------------------------------------------------------------------------------------------------------
-        let modemName = "";  // 保存模组型号
-        function fetchModemName() {
-            var url = '<%=luci.dispatcher.build_url("admin", "modem", "qmodem", "get_modem_cfg")%>';
-            var xhr = new XMLHttpRequest();
-            xhr.open('GET', url, true);
-            xhr.onreadystatechange = function() {
-                if(xhr.readyState === 4 && xhr.status === 200) {
-                    try {
-                        var data = JSON.parse(xhr.responseText);
-                        if (data.cfgs && data.cfgs.length > 0) {
-                            modemName = data.cfgs[0].name || "";
-                        } else {
-                            modemName = "";
-                        }
-                    } catch(e) {
-                        modemName = "";
-                    }
-                }
-            }
-            xhr.send();
-        }
-
-        function renderNetInfo(data){
-            if (!useModemTemp) return; // 只在需要时处理
-            if (Array.isArray(data)) {
-                let tempItem = data.find(item => item.key === "temperature");
-                if (tempItem && tempItem.value) {
-                    // 提取数值部分，例如 "44°C"
-                    let match = tempItem.value.match(/(\d+)\s*°C/i);
-                    let tempNum = match ? parseInt(match[1], 10) : 0;
-                    updateEnergyBar(tempNum);
-                }
-            }
-        }
-
-        function pollNetInfo(){
-            var ts = Date.now();
-            var url = '<%=luci.dispatcher.build_url("admin", "fancontrol", "modem_ctrl")%>'
-                + '?cfg=2_1&action=info&translate=1&' + ts;
-            pollXHR = new window.XMLHttpRequest();
-            pollXHR.open('GET', url, true);
-            pollXHR.onreadystatechange = function(){
-                if(pollXHR.readyState === 4 && pollXHR.status === 200){
-                    var data;
-                    try{ data = JSON.parse(pollXHR.responseText); }catch(e){}
-                    renderNetInfo(data);
-                }
-            };
-            pollXHR.send();
-        }
-
-        function startModemTempPoll() {
-            stopModemTempPoll();
-            pollNetInfo(); // 先立即请求一次
-            modemTempTimer = setInterval(pollNetInfo, 5000); // 每5秒刷新
-        }
-
-        function stopModemTempPoll() {
-            if (modemTempTimer) {
-                clearInterval(modemTempTimer);
-                modemTempTimer = null;
-            }
-        }
-
-        function toggleSwitch() {
-            if (temperatureSwitch.classList.contains('active')) {
-                // 切换到模组温度
-                mwrtFanPost('<%=luci.dispatcher.build_url("admin", "fancontrol", "fansvm")%>', { set: 's', p: 'v' }, function(x, rv) {
-                    useModemTemp = true;
-                    startModemTempPoll();
-                    fanst();
-                    fansttp();
-                });
-            } else {
-                // 切换到CPU温度
-                mwrtFanPost('<%=luci.dispatcher.build_url("admin", "fancontrol", "fansvc")%>', { set: 's', p: 'v' }, function(x, rv) {
-                    useModemTemp = false;
-                    stopModemTempPoll();
-                    fanst();
-                    fansttp();
-                });
-            }
-            temperatureSwitch.classList.toggle('active');
-        }
-
-//---------------------------------------------------------------------------------------------------------------------------------------
-
         function updateButtonStyles(speed) {
             document.querySelectorAll('.FC .button').forEach(function(btn){btn.classList.remove('fc-active');});
 
@@ -575,17 +477,7 @@ header.bg-primary,header.bg-primary::after,header .fill{background:#1a1a2e!impor
             mwrtFanPost('<%=luci.dispatcher.build_url("admin", "fancontrol", "fansttp")%>', { set: s, p: v }, function(x, rv) {
                 var pd = rv.fansttp;
                 fanv = rv.fansv;
-                if (fanv === "模组温度") {
-                    temperatureSwitch.classList.remove('active');
-                    useModemTemp = true;
-                    fetchModemName(); 
-                    startModemTempPoll();
-                } else {
-                    temperatureSwitch.classList.add('active');
-                    useModemTemp = false;
-                    stopModemTempPoll();
-                    updateEnergyBar(pd); // 只用CPU温度
-                }
+                updateEnergyBar(pd);
             });
         }
 

@@ -1,0 +1,18 @@
+#!/bin/sh
+#
+# 99i-mwrt-luci-perf —— 生成 LuCI 静态翻译字典
+#
+# 模板优化已进入本包的 header.htm，运行时只维护翻译资源。
+
+[ -x /usr/bin/mwrt-gen-translations ] || exit 0
+
+/usr/bin/mwrt-gen-translations --if-stale >/dev/null 2>&1
+
+# 保留其他任务，撤掉旧的模板运行期注入。
+sed -i '\|/usr/bin/install-luci-perf.sh|d' /etc/crontabs/root 2>/dev/null
+if ! grep -q 'mwrt-gen-translations' /etc/crontabs/root 2>/dev/null; then
+	echo '43 * * * * /usr/bin/mwrt-gen-translations --if-stale >/dev/null 2>&1' >> /etc/crontabs/root
+fi
+/etc/init.d/cron reload >/dev/null 2>&1
+
+exit 0

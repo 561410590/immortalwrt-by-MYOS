@@ -2099,7 +2099,7 @@ define KernelPackage/mediatek_hnat
 	CONFIG_NETFILTER_FAMILY_BRIDGE=y \
 	CONFIG_NET_MEDIATEK_HNAT
   FILES:= \
-        $(if $(or $(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_c2000-max),$(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_c2000-ultra)),$(LINUX_DIR)/drivers/net/ethernet/mediatek/mtk_hnat/mtkhnat.ko,$(TOPDIR)/package/kernel/linux/files/mt7981-ko/mtkhnat.ko)
+        $(if $(or $(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_c2000-max),$(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_c2000-ultra),$(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_n5000)),$(LINUX_DIR)/drivers/net/ethernet/mediatek/mtk_hnat/mtkhnat.ko,$(TOPDIR)/package/kernel/linux/files/mt7981-ko/mtkhnat.ko)
 endef
 
 define KernelPackage/mediatek_hnat/description

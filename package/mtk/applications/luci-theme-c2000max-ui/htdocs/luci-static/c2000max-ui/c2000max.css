@@ -175,3 +175,8 @@ body.disconnected .operator-logo { opacity: .5; }
 :root[data-skin="national-day"][data-skin] .story-card { background:radial-gradient(circle at 93% 8%,#edc96e55 0 70px,transparent 71px),linear-gradient(145deg,#9b3335,#57252d); }
 :root[data-skin="788"][data-skin] .story-card { background:radial-gradient(ellipse at 0 100%,#d4a65344 0 35%,transparent 35.5%),radial-gradient(ellipse at 90% 12%,#efcf9330 0 22%,transparent 22.5%),linear-gradient(140deg,#8a6031,#493622); --story-text:#fff0ce; --story-muted:#e8ce9d; }
 :root[data-skin="788"] .story-card::before { content:''; position:absolute; right:22px; top:25px; width:66px; height:24px; border-top:2px solid #efd19380; border-bottom:1px solid #efd19360; border-radius:50%; transform:rotate(-12deg); pointer-events:none; }
+
+/* Show the supplied transparent product PNG without its empty outer margins. */
+.n5000-product-frame { position:relative; width:100%; aspect-ratio:1065 / 679; overflow:hidden; z-index:2; }
+.n5000-product-frame > .n5000-product-image { position:absolute; display:block; width:117.370892%; max-width:none; height:auto; left:-8.638498%; top:-42.709867%; }
+.n5000-product-frame + .device-caption { margin-top:14px; }

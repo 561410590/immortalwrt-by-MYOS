@@ -578,9 +578,11 @@ get_eth_if_name()
 get_wifi_if_name()
 {
 	l1dat_exist=`l1dat 2>/dev/null`
-	if [ -z "$l1dat_exist" ]; then
-		dbg "Layer 1 profile does not exist."
-		dbg "Please check l1dat "
+	if [ -z "$l1dat_exist" ] || [ "$(cat /tmp/sysinfo/board_name 2>/dev/null)" = "nradio,n5000" ]; then
+		if [ -z "$l1dat_exist" ]; then
+			dbg "Layer 1 profile does not exist."
+			dbg "Please check l1dat "
+		fi
 
 		wifi1="ra0"
 		wifi1_prefix="ra"

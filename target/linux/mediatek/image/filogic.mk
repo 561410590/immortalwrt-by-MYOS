@@ -3530,3 +3530,108 @@ define Device/nradio_c2000-ultra
 	append-metadata | check-size 220m | firmware-permissions
 endef
 TARGET_DEVICES += nradio_c2000-ultra
+
+define Build/prepare-n5000-app-rootfs
+	rm -rf $(KDIR)/root-n5000-$(1)-app \
+		$(KDIR)/root-n5000-$(1)-app.squashfs \
+		$(KDIR)/root-n5000-$(1)-app.pseudo
+	$(STAGING_DIR_HOST)/bin/unsquashfs4 \
+		-pf $(KDIR)/root-n5000-$(1)-app.pseudo \
+		$(IMAGE_ROOTFS) >/dev/null
+	$(STAGING_DIR_HOST)/bin/unsquashfs4 \
+		-d $(KDIR)/root-n5000-$(1)-app \
+		$(IMAGE_ROOTFS) >/dev/null
+	sh $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/MYOS-nros-app-patch.sh \
+		$(KDIR)/root-n5000-$(1)-app $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/cloud-libs
+	$(TARGET_CC) $(TARGET_CFLAGS) -Os -static -Wall -Wextra -Werror \
+		$(TOPDIR)/target/linux/mediatek/image/nradio-n5000/sd-tools/myos-n5000-gpt.c \
+		-o $(KDIR)/root-n5000-$(1)-app.myos-n5000-gpt
+	chmod 0755 $(KDIR)/root-n5000-$(1)-app.myos-n5000-gpt
+	sh $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/install-n5000.sh \
+		$(KDIR)/root-n5000-$(1)-app $(TOPDIR) "$(VERSION_NUMBER)" "$(REVISION)" \
+		$(KDIR)/root-n5000-$(1)-app.myos-n5000-gpt
+	python3 $(TOPDIR)/target/linux/mediatek/image/finalize-dual-theme.py \
+		$(KDIR)/root-n5000-$(1)-app $(TOPDIR)
+	ln -sf ../init.d/myos-factory-wifi \
+		$(KDIR)/root-n5000-$(1)-app/etc/rc.d/S19myos-factory-wifi
+	chmod 0400 $(KDIR)/root-n5000-$(1)-app/usr/share/myos-nros/id_rsa.db
+	python3 $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/install-mwrt-packages.py $(KDIR)/root-n5000-$(1)-app $(TOPDIR)   kmod-fs-msdos kmod-nls-cp932 kmod-nls-cp936 kmod-nls-cp950 kmod-bonding  tar mount-utils luci-app-openclash luci-app-passwall luci-i18n-passwall-zh-cn  mwrt-openclash-core ipt2socks nftables kmod-nft-socket kmod-nft-tproxy kmod-nft-nat kmod-nf-reject kmod-nf-reject6 geoview haproxy shadowsocks-rust-sslocal shadowsocks-rust-ssserver shadowsocksr-libev-ssr-local shadowsocksr-libev-ssr-redir simple-obfs-client sing-box v2ray-plugin xray-core unzip hysteria tuic-client naiveproxy shadow-tls xray-plugin v2dat v2ray-geoip v2ray-geosite wireguard-tools luci-proto-wireguard luci-app-eqos-mtk luci-app-ramfree luci-app-leigod-acc leigod-acc luci-app-uugamebooster mwrt-memtune  collectd collectd-mod-cpu collectd-mod-interface collectd-mod-iwinfo collectd-mod-load collectd-mod-memory collectd-mod-network collectd-mod-rrdtool rrdtool1 coreutils-stat usbutils openssl-util luci-i18n-eqos-mtk-zh-cn luci-i18n-ramfree-zh-cn
+	ln -sf ../init.d/eqos $(KDIR)/root-n5000-$(1)-app/etc/rc.d/S50eqos
+	ln -sf ../init.d/collectd $(KDIR)/root-n5000-$(1)-app/etc/rc.d/S80collectd
+	ln -sf ../init.d/collectd $(KDIR)/root-n5000-$(1)-app/etc/rc.d/K10collectd
+	ln -sf ../init.d/mwrt-pktsteer $(KDIR)/root-n5000-$(1)-app/etc/rc.d/K10mwrt-pktsteer
+	ln -sf ../init.d/uuplugin $(KDIR)/root-n5000-$(1)-app/etc/rc.d/K15uuplugin
+	ln -sf ../init.d/mwrt-swapfile $(KDIR)/root-n5000-$(1)-app/etc/rc.d/K88mwrt-swapfile
+	ln -sf ../init.d/openclash $(KDIR)/root-n5000-$(1)-app/etc/rc.d/S99openclash
+	ln -sf ../init.d/passwall $(KDIR)/root-n5000-$(1)-app/etc/rc.d/S99passwall
+	ln -sf ../init.d/passwall_server $(KDIR)/root-n5000-$(1)-app/etc/rc.d/S99passwall_server
+	ln -sf ../init.d/mwrt-swapfile $(KDIR)/root-n5000-$(1)-app/etc/rc.d/S12mwrt-swapfile
+	ln -sf ../init.d/mwrt-pktsteer $(KDIR)/root-n5000-$(1)-app/etc/rc.d/S99mwrt-pktsteer
+	ln -sf ../init.d/uuplugin $(KDIR)/root-n5000-$(1)-app/etc/rc.d/S99uuplugin
+	ln -sf ../init.d/openclash $(KDIR)/root-n5000-$(1)-app/etc/rc.d/K15openclash
+	ln -sf ../init.d/passwall $(KDIR)/root-n5000-$(1)-app/etc/rc.d/K15passwall
+	python3 $(TOPDIR)/scripts/prepare-public-rootfs.py $(KDIR)/root-n5000-$(1)-app
+	$(STAGING_DIR_HOST)/bin/mksquashfs4 \
+		$(KDIR)/root-n5000-$(1)-app \
+		$(KDIR)/root-n5000-$(1)-app.squashfs \
+		-nopad -noappend -root-owned -comp xz -Xpreset 9 -Xe -Xlc 0 -Xlp 2 -Xpb 2 \
+		-b 262144 -no-xattrs \
+		-pf $(KDIR)/root-n5000-$(1)-app.pseudo
+	chmod 0644 $(KDIR)/root-n5000-$(1)-app.squashfs
+endef
+
+define Device/nradio_n5000
+  DEVICE_VENDOR := NRadio
+  DEVICE_MODEL := N5000
+  DEVICE_DTS := mt7987-nradio-n5000-spi
+  DEVICE_DTS_DIR := ../dts
+  BOARD_NAME := nradio,n5000
+  SUPPORTED_DEVICES += nradio,n5000 HCMT7987-SNSD
+  DEVICE_PACKAGES := \
+	luci-theme-c2000max-ui luci-theme-mwrt \
+	openmptcprouter-ultra \
+	fdisk blkid parted resize2fs block-mount losetup kmod-fs-ext4 \
+	kmod-mediatek_hnat luci-app-turboacc luci-i18n-turboacc-zh-cn \
+	kmod-oaf appfilter luci-app-oaf luci-i18n-oaf-zh-cn \
+	kmod-hwmon-pwmfan \
+	kmod-phy-airoha-en8811h \
+	kmod-mt798x-2p5g-phy \
+	kmod-ifb kmod-sfp kmod-ebtables \
+	kmod-mtk_wed kmod-mtk_pci kmod-warp \
+	kmod-tun openvpn-openssl libcap-ng liblzo2 liblz4-1 \
+	luci-app-openvpn luci-i18n-openvpn-zh-cn \
+	kmod-mt_wifi_osal kmod-mt_wifi7 kmod-mt_hwifi kmod-connac_if \
+	kmod-mt7992 kmod-mt7992_dbg kmod-mt799a \
+	wifi-dats wifi-scripts wifi-profile mtwifi-cfg luci-app-mtwifi-cfg \
+	luci-app-store luci-lib-ipkg taskd luci-lib-taskd luci-lib-xterm \
+	quickfile luci-app-quickfile luci-i18n-quickfile-zh-cn \
+	luci-nginx nginx-ssl nginx-mod-luci nginx-mod-ubus nginx-ssl-util \
+	uwsgi uwsgi-cgi-plugin uwsgi-syslog-plugin uwsgi-luci-support \
+	miniupnpd-nftables luci-app-upnp luci-i18n-upnp-zh-cn \
+	python3-light uhttpd uhttpd-mod-ubus \
+	f2fsck mkf2fs e2fsprogs \
+	zram-swap kmod-zram \
+	kmod-usb3 kmod-usb-core kmod-usb-xhci-hcd kmod-usb-xhci-mtk \
+	 kmod-usb-ehci kmod-usb-ohci kmod-usb-uhci \
+	kmod-usb-storage kmod-usb-net kmod-usb-net-cdc-ether \
+	coreutils-base64 coreutils-nohup coreutils-timeout lyaml \
+	libyaml libudns resolveip libev \
+	libsodium kmod-netlink-diag ip-full libuci-lua \
+	libbpf libelf iptables-mod-tproxy kmod-ipt-tproxy \
+	libpcap kmod-ipt-ipset ipset libipset \
+	tc-full kmod-netem conntrack conntrackd \
+	kmod-sched kmod-sched-core libnetfilter-cthelper libnetfilter-cttimeout \
+	libnetfilter-queue libltdl liblua5.3
+  KERNEL_LOADADDR := 0x40080000
+  KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb | \
+	firmware-permissions
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k | \
+	firmware-permissions
+  KERNEL_INITRAMFS_SUFFIX := .itb
+  IMAGES := sysupgrade.bin
+  IMAGE/sysupgrade.bin := prepare-n5000-app-rootfs sys | \
+	sysupgrade-tar rootfs=$$(KDIR)/root-n5000-sys-app.squashfs | \
+	append-metadata | check-size 220m | firmware-permissions
+endef
+TARGET_DEVICES += nradio_n5000

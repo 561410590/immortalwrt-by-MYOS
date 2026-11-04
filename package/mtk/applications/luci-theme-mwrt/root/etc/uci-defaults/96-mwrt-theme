@@ -5,5 +5,4 @@ uci -q commit luci
 mkdir -p /etc/crontabs
 [ -s /etc/fanvall ] || echo 9 > /etc/fanvall
 [ -s /usr/bin/fanspeed.conf ] || echo 128 > /usr/bin/fanspeed.conf
-/etc/init.d/mwrt-assurance enable >/dev/null 2>&1
 exit 0

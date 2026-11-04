@@ -1,6 +1,6 @@
 #!/bin/sh
 case "$1" in
- status) /usr/libexec/myos-ultra-boot status | jq '. + {system:"sd"}' ;;
- to-official) /usr/libexec/myos-ultra-boot stock ;;
+ status) /usr/libexec/myos-n5000-boot status | jq '. + {system:"sd"}' ;;
+ to-official) /usr/libexec/myos-n5000-boot stock ;;
  *) echo '{"ok":false,"error":"unsupported_action"}'; exit 1 ;;
 esac

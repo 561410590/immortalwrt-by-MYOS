@@ -2602,6 +2602,9 @@
 		 * has no sub-features.
 		 */
 		hasSystemFeature() {
+			if (sysFeatures == null)
+				return arguments.length == 2 ? null : false;
+
 			const ft = sysFeatures[arguments[0]];
 
 			if (arguments.length == 2)

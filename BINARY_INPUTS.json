@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "tree": "immortalwrt-mt798x-6.6-c2000ultra",
+  "tree": "immortalwrt-mt798x-6.6-n5000",
   "models": [
-    "c2000-ultra"
+    "n5000"
   ],
   "notes": "External binary inputs are not claimed as source. No private identity or signing key is supplied.",
   "inputs": [
@@ -11,7 +11,7 @@
       "kind": "directory",
       "purpose": "Original runtime libraries and board resources used by the APP integration",
       "models": [
-        "c2000-ultra"
+        "n5000"
       ]
     },
     {
@@ -20,7 +20,7 @@
       "sha256": "f20a5011856d163233dd3b3fc4f1c30a59b544841ff09a09ffc7fff5fc208efd",
       "purpose": "Original SD image used by the MAX rootfs assembly rules",
       "models": [
-        "c2000-ultra"
+        "n5000"
       ],
       "optional": true
     },
@@ -28,9 +28,9 @@
       "bytes": 1574,
       "sha256": "54d122faa978f404c0a03be21dcdbe38bce81431cb01112f0d99d466d704cacb",
       "purpose": "Factory encrypted credential input for the APP protocol; supply separately",
-      "path": "target/linux/mediatek/image/nradio-c2000-max/myos-remote-files/usr/share/myos-nros/id_rsa.db",
+      "path": "target/linux/mediatek/image/nradio-n5000/myos-remote-files/usr/share/myos-nros/id_rsa.db",
       "models": [
-        "c2000-ultra"
+        "n5000"
       ]
     }
   ]

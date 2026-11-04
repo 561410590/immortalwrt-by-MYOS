@@ -42,7 +42,7 @@ Signed-off-by: SkyLake.Huang <skylake.huang@mediatek.com>
 +obj-$(CONFIG_MEDIATEK_2P5GE_PHY)	+= mtk-2p5ge.o
 --- /dev/null
 +++ b/drivers/net/phy/mediatek/mtk-2p5ge.c
-@@ -0,0 +1,450 @@
+@@ -0,0 +1,451 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +#include <linux/bitfield.h>
 +#include <linux/firmware.h>
@@ -198,8 +198,9 @@ Signed-off-by: SkyLake.Huang <skylake.huang@mediatek.com>
 +	phy_set_bits_mmd(phydev, MDIO_MMD_VEND2, MTK_PHY_LED1_ON_CTRL,
 +			 MTK_PHY_LED_ON_FDX | MTK_PHY_LED_ON_HDX);
 +
-+	/* C2000MAX PHY LED is active-high and signals traffic only. */
-+	if (of_machine_is_compatible("nradio,c2000-max")) {
++	/* C2000MAX and N5000 PHY LEDs are active-high and signal traffic only. */
++	if (of_machine_is_compatible("nradio,c2000-max") ||
++	    of_machine_is_compatible("nradio,n5000")) {
 +		phy_modify_mmd(phydev, MDIO_MMD_VEND2,
 +			       MTK_PHY_LED0_ON_CTRL,
 +			       MTK_PHY_LED_ON_POLARITY |

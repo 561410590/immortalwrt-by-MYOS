@@ -7,7 +7,7 @@
 	include(`themes/${theme}/header`);
 -%}
 
-<script src="{{ resource }}/luci.js?v={# PKG_VERSION #}-{{ pkgs_update_time }}"></script>
+<script src="{{ resource }}/luci.js?v={# PKG_VERSION #}-{{ pkgs_update_time }}-20261102wifiqr"></script>
 <script>
 	L = new LuCI({{ replace(`${ {
 		media          : media,
@@ -30,7 +30,7 @@
 	} }`, '/', '\\/') }});
 </script>
 {% if (media == '/luci-static/argon'): %}
-<script src="{{ resource }}/mwrt-aurora-boot.js?v=19"></script>
-<link rel="stylesheet" href="{{ resource }}/mwrt-aurora-full.css?v=19">
-<link rel="stylesheet" href="{{ resource }}/mwrt-aurora-chrome.css?v=19">
+<script src="{{ resource }}/mwrt-aurora-boot.js?v=20261102-n5000-support"></script>
+<link rel="stylesheet" href="{{ resource }}/mwrt-aurora-full.css?v=1150-202610221900">
+<link rel="stylesheet" href="{{ resource }}/mwrt-aurora-chrome.css?v=20261102-n5000-support">
 {% endif %}

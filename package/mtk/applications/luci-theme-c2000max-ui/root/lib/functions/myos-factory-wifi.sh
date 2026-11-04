@@ -21,7 +21,7 @@ myos_factory_wifi_prefix() {
 	case "$1" in
 		nradio,nbcpe-688|HCMT7981-emmc-NB68|nradio_wt9111_No2-manper_NB68)
 			printf '%s\n' NBCPE ;;
-		nradio,c5800-688|HCMT7981-emmc|nradio,c2000-max|HCMT7987-EMMC|nradio,c2000-ultra|HCMT7987-SNSD)
+		nradio,c5800-688|HCMT7981-emmc|nradio,c2000-max|HCMT7987-EMMC|nradio,n5000|HCMT7987-SNSD)
 			printf '%s\n' @NRadio ;;
 		*) return 1 ;;
 	esac

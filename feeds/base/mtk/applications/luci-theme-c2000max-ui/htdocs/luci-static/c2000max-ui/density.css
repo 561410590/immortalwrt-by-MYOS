@@ -1,0 +1,178 @@
+/* Authoritative density contract, loaded after the LuCI adapter and page CSS.
+   Desktop: 32px controls / 8px row padding. Touch: 40px / 10px.
+   Keep typography readable; remove stacked spacing instead of scaling text. */
+.c2000-ui .cbi-section { padding:var(--section-padding); margin:12px 0; }
+.c2000-ui .cbi-section .cbi-section { padding:12px; margin:10px 0; }
+.c2000-ui .cbi-map { margin-bottom:16px; }
+.c2000-ui .cbi-map > h2 { font-size:20px; margin-bottom:12px; }
+.c2000-ui .cbi-map-descr,.c2000-ui .cbi-section-descr { margin-bottom:12px; line-height:1.5; }
+.c2000-ui .cbi-value { margin:0; padding:var(--form-row-padding) 0; gap:0 16px; }
+/* LuCI dependency visibility must beat layout display:grid/flex declarations. */
+.c2000-ui .hidden,.c2000-ui .cbi-value[data-widget="CBI.HiddenValue"] { display:none!important; }
+.c2000-ui .cbi-section:has(> .cbi-section-node > .cbi-value[data-widget="CBI.HiddenValue"]):not(:has(> .cbi-section-node > .cbi-value:not([data-widget="CBI.HiddenValue"]))) { display:none; }
+.c2000-ui .cbi-value:last-child { border-bottom:0; }
+.c2000-ui .cbi-value .cbi-value-title { padding-top:6px; line-height:20px; }
+.c2000-ui .cbi-value-field { line-height:20px; }
+.c2000-ui .cbi-value-description { padding:4px 0 0 16px; margin:0; font-size:12px; line-height:18px; }
+.c2000-ui .cbi-value-description:not(:empty)::before { left:0; top:6px; }
+.c2000-ui .cbi-value-field > label { margin:0; }
+.c2000-ui .luci-content input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]):not([type=range]),
+.c2000-ui .modal input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]):not([type=range]),
+.c2000-ui select,.c2000-ui .cbi-dropdown:not(.btn),.ui-input,.form-field input {
+ min-height:var(--control-height); height:var(--control-height); padding:var(--control-padding-y) var(--control-padding-x);
+ font-size:14px; line-height:20px; border-radius:var(--radius-sm); box-sizing:border-box;
+}
+.c2000-ui textarea { padding:8px 10px; font-size:14px; line-height:1.5; min-height:100px; }
+.c2000-ui input[type=checkbox],.c2000-ui input[type=radio] {
+ width:var(--checkbox-size); height:var(--checkbox-size); min-height:0; margin:8px 6px 8px 0;
+}
+.c2000-ui input[type=range] { min-height:var(--control-height); }
+.c2000-ui .cbi-button,.c2000-ui .btn,.c2000-ui input[type=submit],.c2000-ui input[type=reset],.ui-button,.primary-button {
+ min-height:var(--control-height); height:auto; padding:var(--control-padding-y) var(--control-padding-x);
+ font-size:14px; line-height:20px; border-radius:var(--radius-sm); white-space:nowrap;
+}
+.c2000-ui .cbi-dropdown:not(.btn) { padding:0; }
+.c2000-ui .cbi-dropdown:not(.btn) > ul:not(.dropdown) > li,
+.c2000-ui .cbi-dropdown.btn > ul:not(.dropdown) > li { padding:var(--control-padding-y) var(--control-padding-x); line-height:20px; }
+.c2000-ui .cbi-dropdown.btn { min-height:var(--control-height); padding:0; }
+.c2000-ui .cbi-dropdown[open] > ul.dropdown { padding:4px; }
+.c2000-ui .cbi-dropdown[open] > ul.dropdown > li { padding:6px 8px; margin:0; line-height:20px; }
+.c2000-ui .cbi-dropdown .open { border-radius:0 var(--radius-sm) var(--radius-sm) 0; }
+.c2000-ui .cbi-dynlist > .item { min-height:var(--control-height); margin:3px 0; }
+.c2000-ui .cbi-dynlist > .item > span { padding:5px 10px; }
+.c2000-ui .cbi-dynlist > .add-item { margin-top:4px; gap:6px; }
+.c2000-ui .tabs,.c2000-ui .cbi-tabmenu { padding:3px; gap:3px; margin:10px 0 12px; border-radius:8px; }
+.c2000-ui .tabs > li > a,.c2000-ui .cbi-tabmenu > li > a { min-height:var(--control-height); padding:5px 10px; line-height:20px; border-radius:6px; }
+.c2000-ui .table .th,.c2000-ui .table .td,.c2000-ui table th,.c2000-ui table td { padding:var(--table-cell-padding); }
+.c2000-ui .table .th,.c2000-ui table th { white-space:nowrap; overflow-wrap:normal; word-break:normal; }
+.c2000-ui #wifi_assoclist_table .td { min-width:100px; }
+.c2000-ui #wifi_assoclist_table .td:nth-child(3) { min-width:220px; max-width:320px; overflow-wrap:anywhere; }
+.c2000-ui #wifi_assoclist_table .td:nth-child(5) { min-width:190px; }
+.c2000-ui #wifi_assoclist_table .td:nth-child(6) { min-width:100px; white-space:nowrap; }
+.c2000-ui #cbi-wireless-wifi-device .tr:hover,
+.c2000-ui #cbi-wireless-c2000max_mlo:hover { background:transparent; }
+.c2000-ui .ifacebadge { padding:4px 8px; border-radius:6px; }
+.c2000-ui .ifacebox-head,.c2000-ui .ifacebox-body { padding:10px; }
+.c2000-ui .cbi-page-actions { margin-top:16px; padding:10px 0; }
+.c2000-ui .cbi-section-create { margin-top:12px; gap:8px; }
+/* Native interface view reserves only 191px for four actions. Own this column's
+   width so buttons form one row on wide screens and a balanced 2x2 on narrow ones. */
+.c2000-ui[data-page="admin-network-network"] .td.cbi-section-actions:has(button.reconnect) { width:240px!important; min-width:240px!important; }
+.c2000-ui[data-page="admin-network-network"] .td.cbi-section-actions:has(button.reconnect) > div { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+.c2000-ui[data-page="admin-network-network"] .td.cbi-section-actions:has(button.reconnect) > div > button { width:100%; margin:0; padding-inline:8px; }
+.main-footer .firmware-version { flex:1 1 34rem; min-width:0; overflow-wrap:anywhere; }
+.main-footer .theme-credit { flex:0 0 auto; }
+@media(max-width:1399px) {
+ .c2000-ui[data-page="admin-network-network"] .td.cbi-section-actions:has(button.reconnect) { width:126px!important; min-width:126px!important; }
+ .c2000-ui[data-page="admin-network-network"] .td.cbi-section-actions:has(button.reconnect) > div { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+.c2000-ui .alert-message { padding:12px 16px; margin-bottom:16px; line-height:1.5; }
+.c2000-ui .alert-message h4 { font-size:16px; margin:0 0 4px; }
+.c2000-ui .alert-message p { margin:4px 0; line-height:1.5; }
+.c2000-ui #modal_overlay { display:flex; align-items:center; justify-content:center; padding:16px; overflow:hidden; }
+.c2000-ui .modal {
+ margin:0;
+ padding:20px; border-radius:16px; clip-path:inset(0 round 16px);
+ scrollbar-width:thin; scrollbar-color:var(--control-border) transparent;
+ overscroll-behavior:contain; scrollbar-gutter:stable;
+}
+.c2000-ui .modal > h4 { font-size:20px; margin:0 0 12px; line-height:1.4; }
+.c2000-ui .modal .cbi-map { margin-bottom:0; }
+.c2000-ui .modal .cbi-map > .cbi-section { padding:0; margin:0; background:none; border:0; }
+.c2000-ui .modal .cbi-section .cbi-section { padding:12px; margin:10px 0; }
+.c2000-ui .modal .cbi-section > h3 { font-size:16px; margin:0 0 8px; }
+.c2000-ui .modal .cbi-section-node { padding-top:0; }
+.c2000-ui .modal .button-row { gap:8px; }
+.c2000-ui .modal::-webkit-scrollbar { width:8px; }
+.c2000-ui .modal::-webkit-scrollbar-thumb { background:var(--control-border); border:2px solid var(--surface); border-radius:8px; }
+.c2000-ui .modal::-webkit-scrollbar-track { margin:16px 0; }
+.c2000-ui .topbar { min-height:76px; }
+.c2000-ui .theme-control { height:var(--toolbar-height); padding:3px; gap:2px; box-sizing:border-box; }
+.c2000-ui .theme-control button { width:32px; height:32px; }
+.c2000-ui #indicators > [data-indicator=poll-status] { width:var(--toolbar-height); height:var(--toolbar-height); border-radius:10px; background:var(--surface); }
+.c2000-ui #indicators > [data-indicator=poll-status]::before { content:none; }
+.c2000-ui #indicators > [data-indicator=poll-status] .icon { width:18px; height:18px; }
+.c2000-ui #indicators > [data-indicator=poll-status]:hover { background:var(--hover); }
+.c2000-ui .operator-logo[data-operator=unicom] { background:none; padding:0; width:132px; border-radius:0; filter:invert(1) hue-rotate(180deg) saturate(3) brightness(.72); }
+[data-theme=dark] .c2000-ui .operator-logo[data-operator=unicom] { filter:none; }
+.ui-card { padding:var(--section-padding); }
+.ui-card-header { margin-bottom:12px; }
+.ui-data-row { padding:7px 0; }
+/* Opt-in catalog components use the same density tokens as native LuCI. */
+.ui-control { min-height:var(--control-height); padding:var(--control-padding-y) var(--control-padding-x); font-size:14px; line-height:20px; }
+.ui-field { gap:4px; }
+.ui-help { font-size:12px; line-height:18px; }
+.ui-check,.ui-range { min-height:var(--control-height); }
+.ui-range { height:var(--control-height); }
+.ui-check input { width:var(--checkbox-size); height:var(--checkbox-size); }
+.ui-dropdown > summary,.ui-tabs [role=tab],.ui-dynlist-items button,.ui-upload input::file-selector-button {
+ min-height:var(--control-height); padding:var(--control-padding-y) var(--control-padding-x); line-height:20px;
+}
+.ui-table th,.ui-table td { padding:var(--table-cell-padding); }
+.ui-table th { white-space:nowrap; }
+.ui-modal { padding:20px; clip-path:inset(0 round 16px); scrollbar-width:thin; }
+.ui-section,.ui-panel { padding:var(--section-padding); }
+.c2000-ui .dashboard { gap:16px; }
+.c2000-ui .overview,.c2000-ui .quick-access { gap:12px; }
+.c2000-ui .metric { min-height:0; padding:14px 16px; }
+.c2000-ui .quick-card { min-height:70px; padding:14px 16px; gap:12px; }
+.c2000-ui .modem-card,.c2000-ui .thermal-card { padding:16px; }
+.c2000-ui .health-card { min-height:76px; padding:14px 16px; }
+.c2000-ui .modem-link { min-height:36px; padding-top:8px; margin-top:6px; }
+.c2000-ui .resource-header { padding-bottom:12px; }
+.c2000-ui .ram-section,.c2000-ui .storage-section { margin-top:14px; }
+.c2000-ui .storage-section:not(.swap-section) { padding-top:14px; }
+.c2000-ui .resource-footnote { padding-top:14px; }
+.c2000-ui .greeting h1 { font-size:32px; }
+.c2000-ui .device-scene { max-width:300px; }
+.c2000-ui .story-card { min-height:200px; }
+@media(max-width:1100px) {
+ .c2000-ui #cbi-wireless-wifi-device .tr { padding:12px 0; gap:8px 12px; }
+}
+@media(max-width:700px),(pointer:coarse) {
+ :root { --control-height:40px; --control-padding-y:9px; --form-row-padding:10px; }
+ .c2000-ui input[type=checkbox],.c2000-ui input[type=radio] { margin-block:12px; }
+}
+@media(max-width:700px) {
+ :root { --section-padding:14px; }
+ .c2000-ui .cbi-section .cbi-section { padding:10px; }
+ .c2000-ui .cbi-value .cbi-value-title { padding:0 0 4px; }
+ .c2000-ui .modal { padding:14px; }
+ .c2000-ui .modal .cbi-section .cbi-section { padding:10px; }
+ .c2000-ui .theme-picker > .theme-control { height:auto; }
+ .c2000-ui .metric.radio-card { padding:14px 16px; }
+ .c2000-ui .device-scene { max-width:260px; }
+}
+
+/* Header actions and status dialogs use theme tokens in both color modes. */
+.c2000-ui #account-button,.c2000-ui #account-button:hover,.c2000-ui #account-button:active {
+ border:0; box-shadow:none; text-shadow:none; background:transparent; border-radius:50%;
+}
+.c2000-ui #account-button:focus:not(:focus-visible) { outline:none; }
+.c2000-ui #modal_overlay > .modal.alert-message {
+ background:var(--surface-raised); color:var(--text); border:1px solid var(--border); text-shadow:none;
+}
+.c2000-ui #modal_overlay > .modal.alert-message p { color:inherit; }
+.firmware-compact { display:none; }
+.c2000-ui .cbi-dropdown .dropdown-search { position:static; background:var(--surface-raised)!important; }
+.c2000-ui .cbi-dropdown .dropdown-search input { width:100%; min-width:0; }
+.c2000-ui .cbi-dropdown .preview .dropdown-search { display:none!important; }
+@media(max-width:700px) {
+ .c2000-ui .main-footer { margin-top:16px; padding:12px 0; gap:4px; flex-direction:column; font-size:11px; line-height:1.5; }
+ .main-footer .firmware-version { display:none; }
+ .main-footer .firmware-compact { display:block; }
+ .c2000-ui .main-footer > span { margin:0; font-size:11px; line-height:1.5; }
+ .c2000-ui .modal { min-width:0!important; width:100%; max-width:calc(100vw - 32px); overflow-x:hidden; }
+ .c2000-ui .modal .cbi-value-field { min-width:0; }
+ .c2000-ui .modal .cbi-dropdown:not(.btn) { width:100%!important; min-width:0!important; }
+ .c2000-ui .cbi-dropdown:not(.btn)[open] { height:auto!important; }
+ .c2000-ui .cbi-dropdown:not(.btn)[open] > ul.dropdown {
+  position:relative!important; inset:auto!important; width:100%!important; min-width:0!important;
+  max-width:100%; max-height: min(40dvh,280px)!important; overflow:auto; box-sizing:border-box;
+ }
+ .c2000-ui .cbi-dropdown:not(.btn)[open] > ul.dropdown > li { white-space:normal; overflow-wrap:anywhere; }
+ .c2000-ui .cbi-dropdown:not(.btn)[open] > ul.preview { display:none!important; }
+}
+
+/* LuCI option layout must not override search filtering. */
+.c2000-ui .cbi-dropdown[open] > ul.dropdown > li[hidden] { display:none!important; }

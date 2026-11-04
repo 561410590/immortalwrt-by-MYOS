@@ -1,15 +1,17 @@
 include $(TOPDIR)/rules.mk
 
-LUCI_TITLE:=MYOS UI - NRadio C2000 Ultra
+LUCI_TITLE:=MYOS UI - NRadio N5000
 LUCI_DEPENDS:=+luci-base +luci-theme-bootstrap +rpcd-mod-luci +uclient-fetch +ca-bundle +curl +jsonfilter +ucode-mod-fs +ucode-mod-ubus +ucode-mod-uci
 LUCI_MINIFY_CSS:=0
 LUCI_MINIFY_JS:=0
 PKG_LICENSE:=Apache-2.0
-PKG_VERSION:=1.0.17
-PKG_RELEASE:=4
+PKG_VERSION:=1.0.18
+PKG_RELEASE:=4.20261030.n5000
 
 define Package/luci-theme-c2000max-ui/description
- MYOS theme for nradio,c2000-ultra, with model-specific home navigation.
+ MYOS theme for nradio,n5000, with model-specific home navigation.
+ MYOS usage statistics sends only a device digest, model and firmware version.
+ Statistics runs in the existing APP integration service and accepts no commands.
 endef
 
 # Set archive modes after fakeroot chown, which fnOS ACLs can otherwise alter.
@@ -47,8 +49,8 @@ endef
 define Package/luci-theme-c2000max-ui/preinst
 #!/bin/sh
 [ -r /tmp/sysinfo/board_name ] || exit 0
-grep -qx -e 'nradio,c2000-ultra' -e 'HCMT7987-SNSD' /tmp/sysinfo/board_name && exit 0
-echo "MYOS theme model mismatch: requires nradio,c2000-ultra" >&2
+grep -qx -e 'nradio,n5000' -e 'HCMT7987-SNSD' /tmp/sysinfo/board_name && exit 0
+echo "MYOS theme model mismatch: requires nradio,n5000" >&2
 exit 1
 endef
 

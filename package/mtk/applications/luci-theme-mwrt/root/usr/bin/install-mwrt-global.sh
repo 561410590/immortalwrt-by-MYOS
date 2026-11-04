@@ -28,7 +28,7 @@ FOOTER=/usr/share/ucode/luci/template/footer.ut
 RES=/www/luci-static/resources
 MARK_BEGIN="{# mwrt-global:begin #}"
 MARK_END="{# mwrt-global:end #}"
-VER=4
+VER=5
 PV='{{ pkgs_update_time }}'
 
 strip_block() {

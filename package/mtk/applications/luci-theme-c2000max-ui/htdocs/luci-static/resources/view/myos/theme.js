@@ -41,7 +41,8 @@ return view.extend({
      return commitTheme('luci');
     }).then(function() {
      ui.menu.flushCache();
-     window.location.replace(L.url('admin') + '?theme=' + Date.now());
+     var home = select.value === '/luci-static/argon' ? 'overview' : 'n5000';
+     window.location.replace(L.url('admin', 'status', home) + '?theme=' + Date.now());
     }).catch(function(err) {
      applying = false;
      button.disabled = readonly;

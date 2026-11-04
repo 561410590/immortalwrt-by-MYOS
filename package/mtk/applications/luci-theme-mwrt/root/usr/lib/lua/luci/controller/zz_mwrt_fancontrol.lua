@@ -3,25 +3,35 @@ local http = require "luci.http"
 local fs = require "nixio.fs"
 local json = require("luci.jsonc")
 uci = luci.model.uci.cursor()
-local script_path="/usr/share/qmodem/"
-local run_path="/tmp/run/qmodem/"
-local modem_ctrl = "/usr/share/mwrt-qmodem/modem_ctrl.sh "
 
 function index()
+    entry({"admin", "status", "mwrt_fan"}, template("Airpifanctrl/fancontrol"), _("MWRT 风扇"), 91).dependent = false
     entry({"admin", "Outofnetwork"}, call("action_Outofnetwork")).leaf = true
     for _, action in ipairs({"fanstop", "fanst1", "fanst2", "fanst3", "fanst4", "fanswj", "fanswj2", "fanst", "fansttp", "fansvm", "fansvc", "sched_get", "sched_set", "sched_bypass"}) do
         entry({"admin", "fancontrol", action}, call("action_" .. action)).leaf = true
     end
-    if require("luci.model.uci").cursor():get("luci", "main", "mediaurlbase") ~= "/luci-static/argon" then return end
-    entry({"admin", "status", "mwrt_fan"}, template("Airpifanctrl/fancontrol"), _("MWRT 风扇"), 91).dependent = false
     entry({"admin", "fancontrol", "devinfo"}, call("action_devinfo")).leaf = true
-    entry({"admin", "fancontrol", "devpop"}, call("action_devpop")).leaf = true
+    for _, action in ipairs({"devpop", "memfree", "hqos_get", "hqos_set"}) do
+        entry({"admin", "fancontrol", action}, call("action_" .. action)).leaf = true
+    end
+    if require("luci.model.uci").cursor():get("luci", "main", "mediaurlbase") ~= "/luci-static/argon" then return end
+    local home = entry({"admin", "modeminfo"}, template("zmode/modem_info"), _("系统首页"), 2)
+    home.dependent = false
+    local data = entry({"admin", "modeminfo", "router3d"}, call("action_router3d"))
+    data.leaf = true
+    data.sysauth = false
     entry({"admin", "fancontrol", "darkmode_status"}, call("action_darkmode_status")).leaf = true
-    entry({"admin", "fancontrol", "modem_ctrl"}, call("modemCtrl")).leaf = true
     entry({"admin", "fancontrol", "msg"}, call("action_msg")).leaf = true
     entry({"admin", "fancontrol", "msgct"}, call("action_msgct")).leaf = true
     entry({"admin", "fancontrol", "devimg_upload"}, call("action_devimg_upload")).leaf = true
     entry({"admin", "fancontrol", "devimg_reset"}, call("action_devimg_reset")).leaf = true
+end
+
+function action_router3d()
+    local out = luci.sys.exec("/www/cgi-bin/router3d-data") or ""
+    luci.http.prepare_content("application/json")
+    luci.http.header("Cache-Control", "no-store")
+    luci.http.write(out:match("\r\n\r\n(.*)") or out:match("\n\n(.*)") or "{}")
 end
 
 
@@ -337,18 +347,16 @@ function action_devinfo()
             rv["设备温度"] = temp_val and string.format("%.0f", temp_val / 1000) or "未知"
         else rv["设备温度"] = "未知" end
     else rv["设备温度"] = "未知" end
-    -- 设备温度仍是 CPU(风扇卡和风扇策略都看它); 圆环优先用这个, 没有这个键就回落设备温度
-    local wt = wifi_temp()
-    if wt then rv["WiFi温度"] = tostring(wt) end
 
     local kfile = io.popen("uname -r 2>/dev/null")
     rv["内核版本"] = (kfile:read("*a") or ""):gsub("%s+$", "")
     kfile:close()
 
-    local cpu_cores
-    rv["CPU占用"], cpu_cores = get_cpu_usage()
-    -- 空表 write_json 会出成 {}, 前端按数组用, 所以读不到就干脆不给这个键
-    if #cpu_cores > 0 then rv["CPU各核"] = cpu_cores end
+    local cores
+    rv["CPU占用"], cores = get_cpu_usage()
+    if #cores > 0 then rv["CPU各核"] = cores end
+    local wt = wifi_temp()
+    if wt then rv["WiFi温度"] = tostring(wt) end
     local cpucount, cpumodel = 0, ""
     for line in io.lines("/proc/cpuinfo") do
         if line:match("^processor") then cpucount = cpucount + 1 end
@@ -363,15 +371,9 @@ function action_devinfo()
         rv["内存总量"] = string.format("%.0f MB", total / 1048576)
         rv["剩余内存百分比"] = tostring(math.floor(avail / total * 100))
         rv["内存占用"] = string.format("%.1f", (total - avail) / total * 100)
-        -- 内存圆环悬停浮层要"已用 / 总量"的绝对值, 单位和下面虚拟内存一样用 KiB
         rv["物理内存"] = { total = math.floor(total / 1024), avail = math.floor(avail / 1024) }
     else rv["剩余内存百分比"] = "0"; rv["内存占用"] = "未知"; rv["内存总量"] = "未知" end
 
-    -- 虚拟内存(swap), modeminfo 内存圆环卡的内环用。按 /proc/swaps 分两档:
-    -- zram 压缩内存(先用, 快)和 SD 上的 swapfile(zram 满了才溢过去, 慢),
-    -- 前端要分开显示, 所以不用 ubus system info 里那个合计的 swap。
-    -- zram_mem 是压缩池实际占的物理内存(mm_stat 第 3 列, 字节)。单位一律 KiB;
-    -- 没挂任何 swap 就不给这个键, 前端据此不显示内环。只读文件不 fork, 2 秒一轮也不贵。
     local swf = io.open("/proc/swaps", "r")
     if swf then
         local sw = { total = 0, used = 0, zram_total = 0, zram_used = 0, zram_mem = 0, disk_total = 0, disk_used = 0 }
@@ -568,14 +570,6 @@ function action_devinfo()
 end
 
 
--- 首页(modeminfo)温度圆环 / "在线设备"格子的悬停浮层, 浮层开着时才 3 秒拉一次:
---   k=tmp      各温区(thermal_zone*) + WiFi 芯片温度。MTK 闭源驱动不报 hwmon/thermal,
---              只能从 iwpriv <if> stat 里抠 CurrentTemperature, 每个频段一次 fork,
---              所以不放进 2 秒一轮的 devinfo。
---   k=clients  在线设备明细, 口径和设备总览"在线设备"那格(router3d-data)一致:
---              LAN 桥上 ARP 完成态(flags 0x2)、按 MAC 去重。名字取 DHCP 租约, 其次静态租约;
---              接入方式看桥转发表里这个 MAC 落在哪个桥口(ra*=2.4G, rai*=5G, rax*=6G, 其余算有线)。
--- 列表一律在有内容时才放进 rv —— 空表 write_json 出成 {}, 前端按数组用。
 local function wifi_band_of(ifn)
     if ifn:match("^rax%d+$") then return "6G" end
     if ifn:match("^rai%d+$") then return "5G" end
@@ -700,13 +694,320 @@ local function devpop_clients(rv)
     rv.clients = list
 end
 
+-- s63 第4项:占用 CPU 的 TOP 进程(首页 CPU 负载卡悬停/点击的浮层数据)。
+-- 用 busybox top 跑两轮采样(-d 1 -n 2)取第二轮的瞬时 %CPU —— 单轮 -n1 的 %CPU
+-- 是进程自启动以来的累计均值,几乎全是 0,看不出"此刻谁在吃 CPU";跑两轮、读末轮
+-- 才是两次采样之间的真实占用。两轮间隔 1 秒,只在浮层打开时拉(3 秒一次),不常驻。
+--
+-- busybox top -b 的列顺序:PID PPID USER STAT VSZ %VSZ [%CPU] COMMAND。
+-- %CPU 列在多核上要开 CONFIG,这块固件实测有(前面板上 top -bn1 验证过带 %CPU)。
+-- COMMAND 可能带路径/参数,取可执行名(去目录、去 {jail} 包装、截断过长参数)。
+local function devpop_cputop(rv)
+    local th = io.popen("top -bn2 -d 1 2>/dev/null")
+    if not th then return end
+    local raw = th:read("*a") or ""
+    th:close()
+
+    -- top -n2 会输出两屏,用最后一屏(第二次采样)。按出现的最后一处表头切分。
+    local last = raw
+    local hp = nil
+    for p in raw:gmatch("()%s*PID%s+PPID") do hp = p end
+    if hp then last = raw:sub(hp) end
+
+    -- 采集 Load average 作为浮层副标题(和首页 hero-sys 的 load1 同源)
+    local la = raw:match("Load average:%s*([%d%.]+%s+[%d%.]+%s+[%d%.]+)")
+    if la then rv.loadavg = (la:gsub("%s+", " ")) end
+
+    local procs = {}
+    local header_seen = false
+    for line in last:gmatch("[^\r\n]+") do
+        if not header_seen then
+            if line:match("PID%s+PPID") then header_seen = true end
+        else
+            -- PID PPID USER STAT VSZ %VSZ %CPU COMMAND...
+            -- %VSZ / %CPU 两列都带尾随的百分号(busybox 输出 "0%  3%"),%CPU 要吃掉那个 %
+            local pid, cpu, cmd = line:match("^%s*(%d+)%s+%d+%s+%S+%s+%S+%s+%d+%s+%d+%%%s+(%d+)%%%s+(.+)$")
+            if pid and cpu and cmd then
+                cmd = cmd:gsub("%s+$", "")
+                local disp
+                -- {name} 是 procd 给 ujail/服务起的包装名,[name] 是内核线程,都取括号里的
+                local jail = cmd:match("^{([^}]+)}") or cmd:match("^%[([^%]]+)%]")
+                if jail then
+                    disp = jail
+                else
+                    -- 取第一个 token 的基名(去掉路径和参数)
+                    local first = cmd:match("^(%S+)")
+                    disp = first and first:match("([^/]+)$") or cmd
+                end
+                procs[#procs + 1] = { pid = tonumber(pid), cpu = tonumber(cpu), cmd = disp }
+            end
+        end
+    end
+    table.sort(procs, function(a, b) return a.cpu > b.cpu end)
+    -- 只留前 8 个,且过滤掉 0% 的(全 0 时至少给前 3 个,免得空列表)
+    local top = {}
+    for _, p in ipairs(procs) do
+        if #top >= 8 then break end
+        if p.cpu > 0 or #top < 3 then top[#top + 1] = p end
+    end
+    rv.procs = top
+end
+
+-- s63: 存储占用磁贴的悬停浮层 —— 各挂载分区的容量/已用/占用%。
+-- 用 df -k(1KiB 块, busybox 自带), 过滤掉 tmpfs/devtmpfs/proc/sysfs 这类伪文件系统
+-- (它们是内存, 不是"存储"), 只留真正落盘的和 overlay。把每个挂载点算成一条。
+local function devpop_storage(rv)
+    local th = io.popen("df -k 2>/dev/null")
+    if not th then return end
+    local raw = th:read("*a") or ""
+    th:close()
+
+    -- 只认这些有意义的挂载点 + overlay/根; 伪文件系统一律跳过
+    local SKIP = {
+        ["tmpfs"] = true, ["devtmpfs"] = true, ["proc"] = true, ["sysfs"] = true,
+        ["debugfs"] = true, ["none"] = true, ["ramfs"] = true,
+    }
+    local parts = {}
+    local first = true
+    for line in raw:gmatch("[^\r\n]+") do
+        if first then first = false   -- 跳过表头 Filesystem 1K-blocks Used ...
+        else
+            -- Filesystem  1K-blocks  Used  Available  Use%  Mounted on
+            local fs, total, used, avail, usep, mnt =
+                line:match("^(%S+)%s+(%d+)%s+(%d+)%s+(%d+)%s+(%d+)%%%s+(%S.*)$")
+            if fs and total and tonumber(total) > 0 then
+                local fsl = fs:lower()
+                -- 跳过伪文件系统, 以及 /tmp、/dev 这类内存挂载
+                local m = (mnt or ""):gsub("%s+$", "")
+                local skip = SKIP[fsl] or m == "/tmp" or m == "/dev"
+                    or m:match("^/tmp/") or m:match("^/dev/")
+                    or m:match("^/sys") or m:match("^/proc")
+                if not skip then
+                    parts[#parts + 1] = {
+                        fs = fs, mount = m,
+                        total = tonumber(total), used = tonumber(used),
+                        avail = tonumber(avail), pct = tonumber(usep),
+                    }
+                end
+            end
+        end
+    end
+    -- 按已用容量从大到小, 大头排前面
+    table.sort(parts, function(a, b) return a.used > b.used end)
+    rv.parts = parts
+end
+
+-- s63: 活动连接磁贴的悬停浮层 —— 按"对端(外网)IP"聚合的 TOP 连接。
+-- 数据源 /proc/net/nf_conntrack(没有就退回 /proc/net/ip_conntrack)。每条连接取它的
+-- 目的地址作为"对端", 跳过本机内网网段(192.168./10./172.16-31./127.),这样列出来的
+-- 就是"本机正在跟哪些外部地址通信、各占多少条", 回答用户"哪个 IP 占用 TOP"。
+-- 反查不了 URL(内核只有 IP), 所以给 IP + 连接数 + 端口提示, 不臆造域名。
+local function devpop_conns(rv)
+    local path = "/proc/net/nf_conntrack"
+    local f = io.open(path, "r")
+    if not f then path = "/proc/net/ip_conntrack"; f = io.open(path, "r") end
+    if not f then return end
+
+    -- 本机/内网地址不算"对端外部流量", 过滤掉
+    local function is_local(ip)
+        if not ip then return true end
+        if ip:match("^127%.") or ip:match("^192%.168%.") or ip:match("^10%.")
+            or ip:match("^169%.254%.") or ip == "0.0.0.0" then return true end
+        local n = tonumber(ip:match("^172%.(%d+)%."))
+        if n and n >= 16 and n <= 31 then return true end
+        -- IPv6 本地: 回环 ::1、链路本地 fe80::、唯一本地 fc00::/fd00::、未指定 ::
+        if ip:find(":", 1, true) then
+            local lip = ip:lower()
+            local compact = lip:gsub(":", "")
+            if compact:match("^0*$") or compact:match("^0*1$") then return true end
+            if lip == "::1" or lip == "::" or lip:match("^fe80:")
+                or lip:match("^fc") or lip:match("^fd") then return true end
+        end
+        return false
+    end
+
+    local agg = {}      -- ip -> { count, proto, ports={} }
+    local total = 0
+    for line in f:lines() do
+        total = total + 1
+        local proto = line:match("^%w+%s+%d+%s+(%w+)") or line:match("^(%w+)%s")
+        -- 取第一个 dst=(通常是本机发往对端的目的地址)。两个方向都有 dst=,
+        -- 原始方向的 dst 就是真正的远端; 回复方向的 dst 是本机。各取第一个即可。
+        -- dst 可能是 IPv4(1.2.3.4)或 IPv6(2400:3200::1), IPv6 带冒号和十六进制,
+        -- 所以匹配集要含 : 和 a-f, 不能只用 [%d%.](那会把 2400:... 截成 "2400")。
+        local dst = line:match("dst=([%x%.:]+)")
+        local dport = line:match("dport=(%d+)")
+        if dst and not is_local(dst) then
+            local e = agg[dst]
+            if not e then e = { count = 0, proto = proto, ports = {} }; agg[dst] = e end
+            e.count = e.count + 1
+            if dport then e.ports[dport] = (e.ports[dport] or 0) + 1 end
+        end
+    end
+    f:close()
+
+    local list = {}
+    for ip, e in pairs(agg) do
+        -- 取该对端最常用的那个端口做提示
+        local topport, topn = nil, -1
+        for p, n in pairs(e.ports) do if n > topn then topn = n; topport = p end end
+        list[#list + 1] = { ip = ip, count = e.count, proto = e.proto, port = topport }
+    end
+    table.sort(list, function(a, b) return a.count > b.count end)
+    local top = {}
+    for i = 1, math.min(5, #list) do top[i] = list[i] end
+    rv.top = top
+    rv.total = total
+end
+
+-- s64: 硬件加速 HNAT 卡 —— 读 turboacc 的 PPE 表 + Full Cone / FastPath 类型。
+-- 数据源就是 admin/network/turboacc 页用的那三个 ubus 方法(luci.turboacc), 本地调用、
+-- 不占串口不联网。PPE 的 BIND/ALL 折算占比(已绑定表项 / 总表项)。
+local function devpop_hnat(rv)
+    local function ubus_call(method)
+        local out = luci.sys.exec("ubus call luci.turboacc " .. method .. " 2>/dev/null") or ""
+        local p = json.parse(out)
+        return type(p) == "table" and p or {}
+    end
+    local ppe = ubus_call("getMTKPPEStat")
+    local fc  = ubus_call("getFullConeStat")
+    local fp  = ubus_call("getFastPathStat")
+
+    rv.fastpath = fp.type or ""       -- 例: "MediaTek HNAT"
+    rv.fullcone = fc.type or ""       -- 例: "Boardcom Fullcone"
+
+    local num = tonumber(ppe.PPE_NUM) or 0
+    local list = {}
+    local bind_sum, all_sum = 0, 0
+    for i = 0, num - 1 do
+        local bind = tonumber(ppe["BIND_PPE" .. i]) or 0
+        local all  = tonumber(ppe["ALL_PPE" .. i]) or 0
+        local pct = (all > 0) and math.floor(bind * 100 / all + 0.5) or 0
+        list[#list + 1] = { n = i, bind = bind, all = all, pct = pct }
+        bind_sum = bind_sum + bind
+        all_sum = all_sum + all
+    end
+    rv.ppe = list
+    rv.ppe_num = num
+    rv.bind_total = bind_sum
+    rv.all_total = all_sum
+    rv.pct_total = (all_sum > 0) and math.floor(bind_sum * 100 / all_sum + 0.5) or 0
+end
+
 function action_devpop()
     local k = luci.http.formvalue("k")
     local rv = {}
     if k == "tmp" then devpop_temps(rv)
-    elseif k == "clients" then devpop_clients(rv) end
+    elseif k == "clients" then devpop_clients(rv)
+    elseif k == "cputop" then devpop_cputop(rv)
+    elseif k == "storage" then devpop_storage(rv)
+    elseif k == "conns" then devpop_conns(rv)
+    elseif k == "hnat" then devpop_hnat(rv) end
     luci.http.prepare_content("application/json")
     luci.http.write_json(rv)
+end
+
+-- s63 第3项:内存清理(首页内存圆环双击触发)。
+-- 等价于"状态 - 释放内存":sync + echo 3 > drop_caches,回收 pagecache/dentry/inode。
+-- 返回释放前后的内存占用百分比 + 回收的 KiB,前端播"占用→0→新占用"的清理动画。
+--
+-- 内存口径和 action_devinfo 完全一致(ubus system info 的 total / available),
+-- 这样动画起点和圆环平时显示的值对得上,不会一点开就跳一下。
+--
+-- 安全:入口需登录鉴权(index 里没设 sysauth=false),匿名访问拿不到会话直接被
+-- dispatcher 挡在登录页。drop_caches 本身是无损操作(只回收可重建的 pagecache/
+-- dentry/inode 缓存,不丢数据),与同文件其它登录态写接口(wifi_set 等)口径一致。
+local function mem_used_pct()
+    local h = io.popen("ubus call system info 2>/dev/null")
+    local s = h and h:read("*a") or ""
+    if h then h:close() end
+    local info = json.parse(s or "")
+    if not (info and info.memory and info.memory.total and info.memory.total > 0) then
+        return nil
+    end
+    local total = info.memory.total
+    local avail = info.memory.available or info.memory.free or 0
+    return math.floor((total - avail) / total * 100 + 0.5), total, avail
+end
+
+function action_memfree()
+    if not require("luci.dispatcher").test_post_security() then return end
+    luci.http.prepare_content("application/json")
+
+    local before_pct, total, before_avail = mem_used_pct()
+    luci.sys.call("sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null")
+    local after_pct, _, after_avail = mem_used_pct()
+
+    -- 回收量:释放后可用 - 释放前可用(KiB),负数归零(偶发统计抖动)
+    local freed = 0
+    if before_avail and after_avail then
+        freed = math.floor((after_avail - before_avail) / 1024 + 0.5)
+        if freed < 0 then freed = 0 end
+    end
+
+    luci.http.write_json({
+        ok = true,
+        before = before_pct or 0,   -- 释放前内存占用 %
+        after = after_pct or 0,     -- 释放后内存占用 %
+        freed_kib = freed,          -- 回收的 KiB
+        total_kib = total and math.floor(total / 1024) or 0,
+    })
+end
+
+-- s64: 智能 HQoS(硬件 QoS)—— 首页 HNAT 卡详情里的开关。
+-- 底层就是 luci-app-eqos-mtk: enabled=1 + smarthqos=1 时, /etc/init.d/eqos 把上下行速率
+-- 直接写进 MT7987 的 QDMA 硬件队列(qdma_txq1~31 上行 / 33~63 下行), CPU 零负担。
+-- 这里只做"智能整形"这一档(不碰 eqos 的按-IP 限速 device 列表)。
+-- 判据:读 eqos uci + 探一个下行队列(txq33)的 EN 位确认硬件是否真的在整形。
+local function hqos_active()
+    -- qdma_txq33 里 "max   <EN>  <RATE> ..." 那行的 EN=1 即硬件整形生效
+    local t = fs.readfile("/sys/kernel/debug/hnat/qdma_txq33") or ""
+    local en = t:match("max%s+(%d+)")
+    return en == "1"
+end
+
+function action_hqos_get()
+    http.prepare_content("application/json")
+    local enabled = (uci:get("eqos", "config", "enabled") == "1")
+    local smart   = (uci:get("eqos", "config", "smarthqos") == "1")
+    http.write_json({
+        enabled  = enabled and smart,          -- 对首页而言"开"= 启用且智能档
+        download = tonumber(uci:get("eqos", "config", "download")) or 0,
+        upload   = tonumber(uci:get("eqos", "config", "upload")) or 0,
+        active   = hqos_active(),              -- 硬件队列确有整形(真生效)
+    })
+end
+
+function action_hqos_set()
+    http.prepare_content("application/json")
+    local ctx = luci.dispatcher.context
+    if http.getenv("REQUEST_METHOD") ~= "POST" or
+       not ctx or not ctx.authtoken or http.formvalue("token") ~= ctx.authtoken then
+        http.status(403, "Forbidden")
+        return http.write_json({ ok = false, error = "会话已过期" })
+    end
+
+    local enable = (http.formvalue("enable") == "1")
+    if enable then
+        local dl = tonumber(http.formvalue("download")) or 0
+        local ul = tonumber(http.formvalue("upload")) or 0
+        -- 合理区间:1~10000 Mbps(万兆上限足够, 0 或负数不接受 —— 智能档要真实带宽才整形得准)
+        if dl < 1 or dl > 10000 or ul < 1 or ul > 10000 then
+            return http.write_json({ ok = false, error = "请填写 1 - 10000 之间的带宽(Mbps)" })
+        end
+        uci:set("eqos", "config", "enabled", "1")
+        uci:set("eqos", "config", "smarthqos", "1")
+        uci:set("eqos", "config", "download", tostring(math.floor(dl)))
+        uci:set("eqos", "config", "upload", tostring(math.floor(ul)))
+    else
+        uci:set("eqos", "config", "enabled", "0")
+        uci:set("eqos", "config", "smarthqos", "0")
+    end
+    uci:commit("eqos")
+    -- 后台重启 eqos(写硬件队列 + 分类打标 + 重启 dnsmasq), 不阻塞本响应。
+    os.execute("( /etc/init.d/eqos restart ) >/dev/null 2>&1 &")
+
+    http.write_json({ ok = true, enabled = enable })
 end
 
 
@@ -747,212 +1048,6 @@ function shell(command)
 	odpall:close()
 	return odp
 end
-
-function get_modem_device_id()
-	local file = io.open("/etc/config/qmodem", "r")
-	if not file then return nil end
-	for line in file:lines() do
-		local id = line:match("^config%s+modem%-device%s+'([^']+)'")
-		if id then
-			file:close()
-			return id
-		end
-	end
-	file:close()
-	return nil
-end
-
-function translate_modem_info(result)
-	modem_info = result["modem_info"]
-	response = {}
-	for k,entry in pairs(modem_info) do
-		if type(entry) == "table" then
-			key = entry["key"]
-			full_name = entry["full_name"]
-			if full_name then
-				full_name = luci.i18n.translate(full_name)
-			elseif key then
-				full_name = luci.i18n.translate(key)
-			end
-			entry["full_name"] = full_name
-			if entry["class"] then
-				entry["class"] = luci.i18n.translate(entry["class"])
-			end
-			table.insert(response, entry)
-		end
-	end
-	return response
-end
-
--- ===== 蜂窝信息粘滞缓存(2026-09-20) =====
--- modem_ctrl.sh info 靠 AT 口取数,ttyUSB1 被别的进程占着时整段 "Cell Information"
--- (网络模式/小区ID/RSRP...)会直接从 JSON 里消失,只剩 Base+SIM。原样透传的话,前端
--- 每隔几秒就跳一次"等待小区注册 / 未连接 / 无信号",而实际信号一直是好的。
--- 这里:1) 把最近一次取全的字段缓存到 /tmp,缺项/坏值时补回并标 stale 秒数;
---       2) INFO_CACHE_FRESH 秒内的重复请求直接吃缓存,页面+屏保+手机端不再同时抢
---          AT 口(tom_modem 少开,见 tom_modem PID 暴涨那次教训)。
-local INFO_CACHE_DIR = "/tmp/run/mwrt"
-local INFO_CACHE_MAX_AGE = 120   -- 缓存最多顶这么久,再旧就认账、显示真实状态
-local INFO_CACHE_FRESH = 2       -- 这么新的缓存直接复用,不再跑 AT
-
-local function info_cache_path(cfg_id)
-	local safe = tostring(cfg_id):gsub("[^%w_%-]", "_")
-	return INFO_CACHE_DIR .. "/modem_info_" .. safe .. ".json"
-end
-
--- 空值和模组的报错回显都不算有效值("+CME ERROR: 10" 被当成运营商名的坑见 heroUp)
-local function info_is_bad_value(v)
-	if v == nil then return true end
-	local s = tostring(v)
-	if s == "" or s == "--" then return true end
-	if s:find("CME ERROR", 1, true) or s:find("CMS ERROR", 1, true) or s:find("ERROR", 1, true) == 1 then
-		return true
-	end
-	return false
-end
-
--- 这次算不算"取全了": 蜂窝段的关键字段(小区/制式/信号)至少有一个有效
-local function info_is_complete(list)
-	local keys = {}
-	for _, e in ipairs(list) do
-		if type(e) == "table" and e["key"] and not info_is_bad_value(e["value"]) then
-			keys[tostring(e["key"]):upper()] = true
-		end
-	end
-	if keys["RSRP"] or keys["CELL ID"] or keys["NETWORK_MODE"] then
-		return true
-	end
-	return false
-end
-
-local function info_read_cache(path)
-	local f = io.open(path, "r")
-	if not f then return nil end
-	local raw = f:read("*a")
-	f:close()
-	if not raw or raw == "" then return nil end
-	local c = json.parse(raw)
-	if type(c) ~= "table" or type(c["modem_info"]) ~= "table" then return nil end
-	local age = os.time() - (tonumber(c["time"]) or 0)
-	if age < 0 or age > INFO_CACHE_MAX_AGE then return nil end
-	c["age"] = age
-	return c
-end
-
-local function info_write_cache(path, list)
-	fs.mkdirr(INFO_CACHE_DIR)
-	local f = io.open(path, "w")
-	if not f then return end
-	f:write(json.stringify({ time = os.time(), modem_info = list }))
-	f:close()
-end
-
--- 缺的字段用缓存补回,补进来的条目带 stale(秒),前端可据此决定要不要提示
-local function info_merge(list, cached)
-	local present, out = {}, {}
-	for _, e in ipairs(list) do
-		if type(e) == "table" then
-			-- 坏值直接丢掉,下面让缓存里的好值顶上
-			if not (e["key"] and info_is_bad_value(e["value"])) then
-				if e["key"] then present[tostring(e["key"])] = true end
-				table.insert(out, e)
-			end
-		end
-	end
-	for _, e in ipairs(cached["modem_info"]) do
-		if type(e) == "table" and e["key"] and not present[tostring(e["key"])] then
-			e["stale"] = cached["age"]
-			table.insert(out, e)
-		end
-	end
-	return out
-end
-
-local function info_from_cache(cached, mark_stale)
-	local out = {}
-	for _, e in ipairs(cached["modem_info"]) do
-		if type(e) == "table" then
-			if mark_stale then e["stale"] = cached["age"] end
-			table.insert(out, e)
-		end
-	end
-	return { result = {}, modem_info = out }
-end
-
-local function modem_info_sticky(cfg_id, path, raw)
-	local parsed = json.parse(raw or "")
-	if type(parsed) ~= "table" or type(parsed["modem_info"]) ~= "table" then
-		-- 连 JSON 都没拿到(AT 口彻底占死 / 脚本超时): 有近期缓存就先顶上
-		local cached = info_read_cache(path)
-		if cached then return info_from_cache(cached, true) end
-		return nil
-	end
-	if info_is_complete(parsed["modem_info"]) then
-		info_write_cache(path, parsed["modem_info"])
-		return parsed
-	end
-	local cached = info_read_cache(path)
-	if cached then
-		parsed["modem_info"] = info_merge(parsed["modem_info"], cached)
-	end
-	return parsed
-end
-
-function modemCtrl()
-	local action = http.formvalue("action")
-	if action ~= "info" or http.formvalue("params") then
-		http.status(400, "Bad Request")
-		return
-	end
-	-- local cfg_id = http.formvalue("cfg")   -- 删除前端获取
-	local cfg_id = get_modem_device_id()     -- 从配置文件读取
-	local params = http.formvalue("params")
-	local translate = http.formvalue("translate")
-
-	if not cfg_id then
-		--luci.http.status(500, "No modem-device found")
-		--luci.http.write('{"error":"No modem-device found"}')
-		return
-	end
-
-	local raw, info
-	if action == "info" and not params then
-		local path = info_cache_path(cfg_id)
-		local fresh = info_read_cache(path)
-		if fresh and fresh["age"] <= INFO_CACHE_FRESH then
-			info = info_from_cache(fresh, false)
-		else
-			raw = shell(modem_ctrl.."info "..cfg_id)
-			info = modem_info_sticky(cfg_id, path, raw)
-		end
-	elseif params then
-		raw = shell(modem_ctrl..action.." "..cfg_id.." ".."\""..params.."\"")
-	else
-		raw = shell(modem_ctrl..action.." "..cfg_id)
-	end
-
-	local result
-	if info then
-		if translate == "1" then
-			result = json.stringify(translate_modem_info(info))
-		else
-			result = json.stringify(info)
-		end
-	else
-		result = raw
-		if translate == "1" then
-			-- 解析失败时别再硬塞给 translate_modem_info(pairs(nil) 会 500),原样透传
-			local parsed = json.parse(result or "")
-			if type(parsed) == "table" and type(parsed["modem_info"]) == "table" then
-				result = json.stringify(translate_modem_info(parsed))
-			end
-		end
-	end
-
-	luci.http.prepare_content("application/json")
-	luci.http.write(result)
-end
-
 
 function action_msgct()
     local rv = {}
@@ -1376,7 +1471,7 @@ function action_fanst4() max_fan_set(9) end
 function action_fanswj() max_fan_set(999) end
 function action_fansvm()
     http.prepare_content("application/json")
-    http.write_json({error="本机智能调速使用 CPU 温度，请选择 CPU 温度"})
+    http.write_json({error="MAX 智能调速使用 CPU 温度，请选择 CPU 温度"})
 end
 function action_fansvc() max_fan_set(9) end
 

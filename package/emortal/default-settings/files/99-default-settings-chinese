@@ -23,9 +23,7 @@ if [ -z "$opkg_mirror" ]; then
 	opkg_mirror="https://mirrors.tuna.tsinghua.edu.cn/openwrt/releases/24.10.5"
 	uci -q batch <<-EOF
 		set system.@imm_init[0].opkg_mirror="$opkg_mirror"
-		set network.lan.ipaddr="192.168.66.1"
 		commit system
-		commit network
 	EOF
 fi
 

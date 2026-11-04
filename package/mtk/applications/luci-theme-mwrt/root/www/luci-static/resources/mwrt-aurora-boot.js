@@ -40,6 +40,37 @@
 	} catch (e) { /* 老浏览器: 保持浅色 */ }
 
 	/* 把一个样式表节点彻底静音 */
+	/* bian kuang dang wei(hou tai si zhou): mwrtst san duan kongjian xie
+	   localStorage(mwrt-border), mei ye gei body/.main she neilian style
+	   (padding/border-radius important) —— CSS class ya bu dong yuansheng 5px,
+	   zhiyou neilian ke kao. round=5px/14px mini=3px/7px none=0/0. */
+	var MWRT_BD={round:["5px","14px"],mini:["3px","7px"],none:["0px","0px"]};
+	function applyBorderPref(){
+		try{
+			var v=null;try{v=window.localStorage.getItem("mwrt-border");}catch(e){return;}
+			if(!MWRT_BD[v])return;
+			var pad=MWRT_BD[v][0],rad=MWRT_BD[v][1];
+			/* s79: di bian bu neng zhi jie xie pad —— neilian important hui ba yidongduan
+			   gei di bu dao hang lan yuliu de padding-bottom(52px+safe-area) ya diao,
+			   ye mian zui xia mian de an niu bei dao hang lan dang zhu. di bian zou
+			   --mwrt-nav-reserve(chrome.css s79 zhi zai you di lan shi ding yi), PC hui luo pad. */
+			if(document.body){
+				document.body.style.setProperty("padding",pad,"important");
+				document.body.style.setProperty("padding-bottom","var(--mwrt-nav-reserve, "+pad+")","important");
+			}
+			var mn=document.querySelector(".main");
+			if(mn)mn.style.setProperty("border-radius",rad,"important");
+		}catch(e){}
+	}
+	function watchBorderPref(){
+		try{
+			applyBorderPref();
+			if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",applyBorderPref);}
+			setTimeout(applyBorderPref,0);setTimeout(applyBorderPref,300);
+		}catch(e){}
+	}
+	try{watchBorderPref();}catch(e){}
+
 	function mute(node) {
 		try {
 			node.setAttribute('media', 'not all');
@@ -363,13 +394,200 @@
 		try { buildRows(box); } catch (e) { /* ignore */ }
 	}
 
+	/* ── 5. 标签栏横向滚动: 原生滚动条 → 箭头 + 边缘渐变 ───────────────────
+	 * passwall 这类页面标签一多, argon 让 ul.tabs 横向滚动并露出滚动条。
+	 * 这里给溢出的标签栏外面包一层 .mwrt-tabs-wrap, 两端各插一枚圆形箭头,
+	 * 滚动时按"还能往哪滚"点亮对应箭头 + 渐变遮罩(样式在 chrome.css §s66)。
+	 * 不溢出的标签栏一律不动。整段 try/catch, 出错退回原生滚动。
+	 * ──────────────────────────────────────────────────────────────────── */
+	function mkArrow(dir) {
+		var b = document.createElement('button');
+		b.type = 'button';
+		b.className = 'mwrt-tabs-arrow mwrt-tabs-' + dir;
+		b.setAttribute('aria-label', dir === 'prev' ? '向左' : '向右');
+		b.tabIndex = -1;
+		return b;
+	}
+
+	function enhanceTabs(ul) {
+		if (!ul || ul.getAttribute('data-mwrt-tabs')) return;
+		/* 没溢出就不折腾 —— 留 2px 容差, 免得整数像素抖动误判 */
+		if (ul.scrollWidth <= ul.clientWidth + 2) return;
+		ul.setAttribute('data-mwrt-tabs', '1');
+
+		var wrap = document.createElement('div');
+		wrap.className = 'mwrt-tabs-wrap';
+		ul.parentNode.insertBefore(wrap, ul);
+		wrap.appendChild(ul);
+
+		var prev = mkArrow('prev');
+		var next = mkArrow('next');
+		wrap.appendChild(prev);
+		wrap.appendChild(next);
+
+		/* 按当前滚动位置点亮箭头和渐变: 左边还有 → 亮左, 右边还有 → 亮右 */
+		function update() {
+			var max = ul.scrollWidth - ul.clientWidth;
+			var x = ul.scrollLeft;
+			var left = x > 2;
+			var right = x < max - 2;
+			if (left) { prev.className = 'mwrt-tabs-arrow mwrt-tabs-prev show'; }
+			else { prev.className = 'mwrt-tabs-arrow mwrt-tabs-prev'; }
+			if (right) { next.className = 'mwrt-tabs-arrow mwrt-tabs-next show'; }
+			else { next.className = 'mwrt-tabs-arrow mwrt-tabs-next'; }
+			if (left) { if (wrap.className.indexOf('has-left') < 0) wrap.className += ' has-left'; }
+			else { wrap.className = wrap.className.replace(/\s*has-left/g, ''); }
+			if (right) { if (wrap.className.indexOf('has-right') < 0) wrap.className += ' has-right'; }
+			else { wrap.className = wrap.className.replace(/\s*has-right/g, ''); }
+		}
+
+		/* 点箭头滚一屏的七成, 留点重叠让人知道接上了 */
+		function step(dir) {
+			var d = Math.max(80, Math.round(ul.clientWidth * 0.7));
+			ul.scrollLeft += dir * d;
+		}
+		prev.addEventListener('click', function (e) { e.preventDefault(); step(-1); });
+		next.addEventListener('click', function (e) { e.preventDefault(); step(1); });
+
+		/* 竖滚轮也能横向翻, 鼠标用户不必找箭头 */
+		ul.addEventListener('wheel', function (e) {
+			if (e.deltaY === 0) return;
+			var max = ul.scrollWidth - ul.clientWidth;
+			if ((e.deltaY < 0 && ul.scrollLeft > 0) ||
+			    (e.deltaY > 0 && ul.scrollLeft < max)) {
+				ul.scrollLeft += e.deltaY;
+				e.preventDefault();
+			}
+		}, { passive: false });
+
+		ul.addEventListener('scroll', update);
+		try {
+			window.addEventListener('resize', function () {
+				/* 窗口变宽到不再溢出就把增强撤掉, 免得留着空箭头 */
+				update();
+			});
+		} catch (e) { /* ignore */ }
+		update();
+	}
+
+	function scanTabs(root) {
+		try {
+			var uls = (root || document).querySelectorAll('ul.tabs');
+			for (var i = 0; i < uls.length; i++) enhanceTabs(uls[i]);
+		} catch (e) { /* ignore */ }
+	}
+
+	function setupTabs() {
+		scanTabs(document);
+		/* LuCI 的 JS 视图是异步渲染的, 标签栏可能在 DOMContentLoaded 之后才进
+		   DOM; 挂个观察器, 新出现的 ul.tabs 也接管。 */
+		try {
+			new MutationObserver(function (muts) {
+				for (var i = 0; i < muts.length; i++) {
+					var added = muts[i].addedNodes;
+					for (var j = 0; j < added.length; j++) {
+						var n = added[j];
+						if (n.nodeType !== 1) continue;
+						if (n.tagName === 'UL' && /\btabs\b/.test(n.className)) enhanceTabs(n);
+						else scanTabs(n);
+					}
+				}
+			}).observe(document.body, { childList: true, subtree: true });
+		} catch (e) { /* ignore */ }
+	}
+
+	/* ── 6. 侧栏左下角固件版本块 ──────────────────────────────────────────────
+	 * 侧栏(.main-left)底部原本是大片空白。这里插一块扁平的版本信息:
+	 * 发行版徽标(Mwrt) + 版本号主串 + 构建日期。数据走 LuCI 的 /ubus/ 代理
+	 * (和 loadBoard 同一条路), 拿 release.version / distribution / builddate。
+	 * CSS 在 chrome.css §s68(.mwrt-sb-ver), 靠 margin-top:auto 推到最底。
+	 * 整段 try/catch, 拿不到就不插, 侧栏保持原样。
+	 * ──────────────────────────────────────────────────────────────────────── */
+	function pickVer(ver) {
+		/* release.version 形如 "@Manper-5.1.1150-24 by Padavanonly's ..."
+		   只取版本号核心(数字点串), 太长的编译说明不要。 */
+		if (!ver) return '';
+		var m = ver.match(/(\d+(?:\.\d+)+(?:-\d+)?)/);
+		return m ? m[1] : ver.split(/\s+/)[0].replace(/^@/, '');
+	}
+
+
+	function renderSbVer(ml, b) {
+		var rel = b.release || {};
+		var ver = pickVer(rel.version);
+
+		var box = document.createElement('div');
+		box.className = 'mwrt-sb-ver';
+
+		if (ver) {
+			var top = document.createElement('div');
+			top.className = 'msv-top';
+			var dist = document.createElement('span');
+			dist.className = 'msv-dist';
+			dist.textContent = 'MYOS';
+			var vv = document.createElement('span');
+			vv.className = 'msv-ver';
+			vv.textContent = ver;
+			top.appendChild(dist);
+			top.appendChild(vv);
+			box.appendChild(top);
+
+		}
+
+		var links = document.createElement('div');
+		links.className = 'mwrt-sb-links';
+		[
+			[ '打赏支持', 'https://nradio.mayebano.shop/' ],
+			[ '冠名支持', 'https://laoshenshiwo.cn/' ]
+		].forEach(function(item) {
+			var link = document.createElement('a');
+			link.textContent = item[0]; link.href = item[1];
+			link.target = '_blank'; link.rel = 'noopener noreferrer';
+			links.appendChild(link);
+		});
+		box.appendChild(links);
+
+		ml.appendChild(box);
+	}
+
+	function setupSidebarVer() {
+		var ml = document.querySelector('.main .main-left');
+		if (!ml || ml.getAttribute('data-mwrt-ver')) return;
+		var env = (window.L && window.L.env) || {};
+		if (!env.sessionid) return;
+		ml.setAttribute('data-mwrt-ver', '1');
+
+		var xhr = new XMLHttpRequest();
+		xhr.open('POST', env.ubuspath || '/ubus/', true);
+		xhr.setRequestHeader('Content-Type', 'application/json');
+		xhr.onreadystatechange = function () {
+			if (xhr.readyState !== 4) return;
+			var b;
+			try {
+				var r = JSON.parse(xhr.responseText);
+				if (!r.result || r.result[0] !== 0) return;
+				b = r.result[1];
+			} catch (e) { return; }
+			if (!b) return;
+			try { renderSbVer(ml, b); } catch (e) { /* ignore */ }
+		};
+		xhr.send(JSON.stringify({
+			jsonrpc: '2.0', id: 1, method: 'call',
+			params: [env.sessionid, 'system', 'board', {}]
+		}));
+	}
+
 	try {
 		if (document.readyState === 'loading') {
 			document.addEventListener('DOMContentLoaded', function () {
 				try { setupAbout(); } catch (e) { /* ignore */ }
+				try { setupTabs(); } catch (e) { /* ignore */ }
+				try { setupSidebarVer(); } catch (e) { /* ignore */ }
 			});
 		} else {
 			setupAbout();
+			try { setupTabs(); } catch (e) { /* ignore */ }
+			try { setupSidebarVer(); } catch (e) { /* ignore */ }
 		}
 	} catch (e) { /* ignore */ }
 })();

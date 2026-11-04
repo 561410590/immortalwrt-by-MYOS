@@ -1,0 +1,18 @@
+#!/bin/sh
+# MWRT dashboard adapter for the existing MYOS updater.
+case "$1" in
+ list) echo '{"latest":{},"check":{},"info":{}}' ;;
+ board) echo c2000max ;;
+ call)
+  if [ ! -x /usr/libexec/myos-update ]; then
+   echo '{"ok":false,"error":"Online updater is not included in the public source build","update":false}'
+   exit 0
+  fi
+  case "$2" in
+   check) result=$(/usr/libexec/myos-update check) ;;
+   latest|info) result=$(/usr/libexec/myos-update status) ;;
+   *) echo '{"ok":false,"error":"unsupported"}'; exit 1 ;;
+  esac
+  printf '%s' "$result" | jq '{ok:((.error // "")==""),error:(.error // ""),update:(.available // false),version:(.latest // ""),cur_version:.current,board:.board,checked:(.checked != null),notes:(.notes // "")}'
+ ;;
+esac

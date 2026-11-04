@@ -1,0 +1,16 @@
+{
+	"luci-app-mt5700-web": {
+		"description": "Grant access to the MT5700 Web control service",
+		"read": {
+			"uci": [ "mt5700-web", "qmodem" ]
+		},
+		"write": {
+			"uci": [ "mt5700-web" ],
+			"file": {
+				"/etc/init.d/mt5700-web": [ "exec" ],
+				"/usr/bin/mt5700-web-go": [ "exec" ],
+				"/usr/libexec/mt5700-web/service-control": [ "exec" ]
+			}
+		}
+	}
+}

@@ -1,0 +1,790 @@
+#!/bin/sh
+
+RUNDIR="${UU_RUNDIR:-/tmp/uu}"
+PROG="$RUNDIR/uuplugin"
+UU_CONF="$RUNDIR/uu.conf"
+GUARDIAN="$RUNDIR/xuplugin-guardian"
+XTABLES="$RUNDIR/xtables-nft-multi"
+PLATFORM_FILE="$RUNDIR/.platform"
+HASH_MANIFEST="$RUNDIR/.bundle.sha256"
+SOURCE_MANIFEST="$RUNDIR/.source-manifest"
+H3C_INFO="$RUNDIR/h3c_info"
+NETDEV_BASELINE="$RUNDIR/.netdev-before"
+NFT_CREATE="/tmp/xu_nft_create.txt"
+FIREWALL_INIT="/etc/init.d/firewall"
+STATE_FILE="${UU_STATE_FILE:-/tmp/uuplugin.state}"
+PROC_ROOT="${UU_PROC_ROOT:-/proc}"
+SYS_CLASS_NET="${UU_SYS_CLASS_NET:-/sys/class/net}"
+NFT_DELETE="${UU_NFT_DELETE:-/tmp/xu_nft_delete.txt}"
+IP_FULL="${UU_IP_FULL:-/usr/libexec/ip-full}"
+LAUNCHER_PATH="${UU_LAUNCHER_PATH:-/usr/libexec/uuplugin-launcher}"
+PLATFORM=''
+DOWNLOAD_FAILURE_STATE=''
+OFFICIAL_URL=''
+OFFICIAL_MD5=''
+OFFICIAL_MIRROR=''
+stage=''
+archive=''
+
+state() {
+	printf '%s\n' "$1" > "$STATE_FILE"
+	command -v logger >/dev/null 2>&1 && logger -t uuplugin "$1"
+	return 0
+}
+
+load_platform() {
+	PLATFORM="$(uci -q get uuplugin.uuplugin.platform 2>/dev/null)"
+	case "$PLATFORM" in
+		h3c-nx30pro|openwrt-aarch64) ;;
+		*)
+			PLATFORM='openwrt-aarch64'
+			command -v logger >/dev/null 2>&1 &&
+				logger -t uuplugin 'invalid platform in UCI; using openwrt-aarch64'
+			;;
+	esac
+}
+
+sha256_file() {
+	sha256sum "$1" 2>/dev/null | awk '{ print $1 }'
+}
+
+cleanup_stage() {
+	case "$stage" in
+		/tmp/uu-install.*|"$RUNDIR"/.install.*) rm -rf "$stage" ;;
+	esac
+	case "$archive" in /tmp/uu-download.*) rm -f "$archive" ;; esac
+	rm -f "$PROG.new.$$" "$GUARDIAN.new.$$" "$UU_CONF.new.$$" \
+		"$XTABLES.new.$$" "$PLATFORM_FILE.new.$$" \
+		"$HASH_MANIFEST.new.$$" "$SOURCE_MANIFEST.new.$$" \
+		"$H3C_INFO.new.$$"
+}
+
+
+normalize_download_url() {
+	local url type
+
+	url="$1"
+	type="$2"
+	case "$url" in
+		https://uurouter.gdl.netease.com/uuplugin/"$type"/*|\
+		https://uurouter.gdl04.netease.com/uuplugin/"$type"/*|\
+		https://uurouter-19.gdl.nieapps.com/uuplugin/"$type"/*)
+			printf '%s\n' "$url"
+			;;
+		http://uurouter.gdl.netease.com/uuplugin/"$type"/*|\
+		http://uurouter.gdl04.netease.com/uuplugin/"$type"/*|\
+		http://uurouter-19.gdl.nieapps.com/uuplugin/"$type"/*)
+			printf 'https://%s\n' "${url#http://}"
+			;;
+		*) return 1 ;;
+	esac
+}
+
+parse_official_api_response() {
+	local response type clean url tail md5 mirror
+
+	response="$1"
+	type="$2"
+	OFFICIAL_URL=''
+	OFFICIAL_MD5=''
+	OFFICIAL_MIRROR=''
+	clean="$(printf '%s' "$response" | tr -d '\r\n')"
+	[ "$response" = "$clean" ] || return 1
+
+	# The official API currently returns URL,MD5,mirror, with one empty
+	# trailing field.  Accept that documented empty field, while still
+	# rejecting a second trailing delimiter or any non-empty extra field.
+	case "$clean" in *,) clean="${clean%,}" ;; esac
+	[ -n "$clean" ] || return 1
+	url="${clean%%,*}"
+	tail="${clean#*,}"
+	[ "$tail" != "$clean" ] || return 1
+	md5="${tail%%,*}"
+	if [ "$md5" = "$tail" ]; then
+		mirror=''
+	else
+		mirror="${tail#*,}"
+		case "$mirror" in *,*) return 1 ;; esac
+	fi
+	url="$(normalize_download_url "$url" "$type")" || return 1
+	if [ -n "$mirror" ]; then
+		mirror="$(normalize_download_url "$mirror" "$type")" || return 1
+	fi
+	printf '%s' "$md5" | grep -Eq '^[0-9A-Fa-f]{32}$' || return 1
+	OFFICIAL_URL="$url"
+	OFFICIAL_MD5="$(printf '%s' "$md5" | tr 'A-F' 'a-f')"
+	OFFICIAL_MIRROR="$mirror"
+}
+
+archive_layout_valid() {
+	local file type actual expected
+
+	file="$1"
+	type="$2"
+	actual="$(tar -tzf "$file" 2>/dev/null |
+		sed 's#^\./##; /^$/d' | LC_ALL=C sort)" || return 1
+	case "$type" in
+		openwrt-aarch64)
+			expected="$(printf '%s\n' uu.conf uuplugin xtables-nft-multi \
+				xuplugin-guardian | LC_ALL=C sort)"
+			;;
+		h3c-nx30pro)
+			expected="$(printf '%s\n' uu.conf uuplugin xuplugin-guardian |
+				LC_ALL=C sort)"
+			;;
+		*) return 1 ;;
+	esac
+	[ "$actual" = "$expected" ]
+}
+
+valid_stage_file() {
+	[ -f "$1" ] && [ ! -L "$1" ]
+}
+
+elf_hex_bytes() {
+	dd if="$1" bs=1 skip="$2" count="$3" 2>/dev/null |
+		hexdump -v -e '1/1 "%02x"'
+}
+
+valid_aarch64_elf() {
+	local magic class endian machine
+
+	valid_stage_file "$1" || return 1
+	command -v hexdump >/dev/null 2>&1 || return 1
+	magic="$(elf_hex_bytes "$1" 0 4)"
+	class="$(elf_hex_bytes "$1" 4 1)"
+	endian="$(elf_hex_bytes "$1" 5 1)"
+	machine="$(elf_hex_bytes "$1" 18 2)"
+	[ "$magic" = 7f454c46 ] && [ "$class" = 02 ] &&
+		[ "$endian" = 01 ] && [ "$machine" = b700 ]
+}
+
+download_url_to_file() {
+	local url type output effective
+
+	url="$1"
+	type="$2"
+	output="$3"
+	effective="$output.effective"
+	rm -f "$effective"
+	if ! curl -4 -fLsS --retry 2 --retry-all-errors --retry-delay 2 \
+		--connect-timeout 10 --max-time 180 --proto '=https' \
+		--proto-redir '=https' -w '%{url_effective}\n' \
+		-o "$output" "$url" > "$effective" 2>/dev/null; then
+		rm -f "$output" "$effective"
+		return 1
+	fi
+	url="$(sed -n '1p' "$effective")"
+	rm -f "$effective"
+	normalize_download_url "$url" "$type" >/dev/null || {
+		rm -f "$output"
+		return 1
+	}
+}
+
+download_official_bundle() {
+	local type dest api_url response plugin_url plugin_md5 mirror
+	local actual_md5 actual_sha chosen_url
+
+	type="$1"
+	dest="$2"
+	api_url="https://router.uu.163.com/api/plugin?type=$type"
+	response="$(curl -4 -fLsS --retry 2 --retry-all-errors --retry-delay 2 \
+		--connect-timeout 10 --max-time 30 --proto '=https' \
+		-H 'Accept: text/plain' "$api_url" 2>/dev/null)" || {
+		DOWNLOAD_FAILURE_STATE="网易官方 $type 核心 API 请求失败，30 秒后重试"
+		return 1
+	}
+	parse_official_api_response "$response" "$type" || {
+		DOWNLOAD_FAILURE_STATE="网易官方 $type 核心 API 返回格式校验失败，30 秒后重试"
+		return 1
+	}
+	plugin_url="$OFFICIAL_URL"
+	plugin_md5="$OFFICIAL_MD5"
+	mirror="$OFFICIAL_MIRROR"
+
+	archive="/tmp/uu-download.$$.${type}.tar.gz"
+	chosen_url="$plugin_url"
+	if ! download_url_to_file "$plugin_url" "$type" "$archive"; then
+		[ -n "$mirror" ] || {
+			DOWNLOAD_FAILURE_STATE="网易官方 $type 核心下载失败，30 秒后重试"
+			return 1
+		}
+		chosen_url="$mirror"
+		download_url_to_file "$mirror" "$type" "$archive" || {
+			DOWNLOAD_FAILURE_STATE="网易官方 $type 核心及备用地址下载失败，30 秒后重试"
+			return 1
+		}
+	fi
+	actual_md5="$(md5sum "$archive" 2>/dev/null | awk '{ print $1 }')"
+	[ "$actual_md5" = "$plugin_md5" ] || {
+		DOWNLOAD_FAILURE_STATE="网易官方 $type 核心 MD5 校验失败，30 秒后重试"
+		return 1
+	}
+	archive_layout_valid "$archive" "$type" || {
+		DOWNLOAD_FAILURE_STATE="网易官方 $type 核心归档布局校验失败，30 秒后重试"
+		return 1
+	}
+
+	mkdir -p "$dest" || return 1
+	tar -xzf "$archive" -C "$dest" || {
+		DOWNLOAD_FAILURE_STATE="网易官方 $type 核心解包失败，30 秒后重试"
+		return 1
+	}
+	valid_aarch64_elf "$dest/uuplugin" &&
+		valid_aarch64_elf "$dest/xuplugin-guardian" &&
+		valid_stage_file "$dest/uu.conf" && [ -s "$dest/uu.conf" ] &&
+		grep -Eq '^version=v[0-9]+\.[0-9]+\.[0-9]+' "$dest/uu.conf" || {
+		DOWNLOAD_FAILURE_STATE="网易官方 $type 核心内容或 AArch64 架构校验失败，30 秒后重试"
+		return 1
+	}
+	if [ "$type" = openwrt-aarch64 ]; then
+		valid_aarch64_elf "$dest/xtables-nft-multi" || {
+			DOWNLOAD_FAILURE_STATE="网易官方 $type xtables 兼容组件架构校验失败，30 秒后重试"
+			return 1
+		}
+	fi
+	chmod 0755 "$dest/uuplugin" "$dest/xuplugin-guardian" || return 1
+	[ "$type" != openwrt-aarch64 ] ||
+		chmod 0755 "$dest/xtables-nft-multi" || return 1
+	chmod 0644 "$dest/uu.conf" || return 1
+	actual_sha="$(sha256_file "$archive")"
+	{
+		printf 'api=%s\n' "$api_url"
+		printf 'type=%s\n' "$type"
+		printf 'url=%s\n' "$chosen_url"
+		printf 'md5=%s\n' "$actual_md5"
+		printf 'sha256=%s\n' "$actual_sha"
+	} > "$dest/.official-source" || return 1
+	rm -f "$archive"
+	archive=''
+}
+
+bundle_hashes_valid() {
+	[ -f "$HASH_MANIFEST" ] && [ ! -L "$HASH_MANIFEST" ] || return 1
+	(
+		cd "$RUNDIR" || exit 1
+		sha256sum -c .bundle.sha256 >/dev/null 2>&1
+	)
+}
+
+valid_install() {
+	[ "$(cat "$PLATFORM_FILE" 2>/dev/null)" = "$PLATFORM" ] &&
+	[ -x "$PROG" ] && [ -x "$GUARDIAN" ] &&
+	[ -x "$XTABLES" ] && [ -s "$UU_CONF" ]
+}
+
+owned_process_pids() {
+	local proc pid exe args self_pid self_parent key value ignored
+
+	# The loop must run in this launcher shell. Piping the loop into sort makes
+	# ash run it in a child while keeping `$$` equal to the parent shell PID;
+	# that child then sees its own launcher cmdline in /proc and is mistaken for
+	# an orphan forever. Read /proc/self with a shell builtin as an additional
+	# PID-namespace-safe identity check.
+	self_pid="$$"
+	self_parent="$PPID"
+	if [ -r "$PROC_ROOT/self/status" ]; then
+		while read -r key value ignored; do
+			case "$key" in
+				Pid:) self_pid="$value" ;;
+				PPid:) self_parent="$value" ;;
+			esac
+		done < "$PROC_ROOT/self/status"
+	fi
+
+	for proc in "$PROC_ROOT"/[0-9]*; do
+		[ -d "$proc" ] || continue
+		pid="${proc##*/}"
+		[ "$pid" != "$$" ] && [ "$pid" != "$self_pid" ] &&
+			[ "$pid" != "$PPID" ] && [ "$pid" != "$self_parent" ] || continue
+		exe="$(readlink "$proc/exe" 2>/dev/null)"
+		exe="${exe% (deleted)}"
+		case "$exe" in
+			"$PROG"|"$GUARDIAN"|"$PROG.apk-new"|"$GUARDIAN.apk-new")
+				printf '%s\n' "$pid"
+				continue
+				;;
+		esac
+		[ -r "$proc/cmdline" ] || continue
+		args="$(tr '\000' '\n' < "$proc/cmdline" 2>/dev/null)"
+		if printf '%s\n' "$args" | grep -Fxq "$LAUNCHER_PATH" ||
+			printf '%s\n' "$args" | grep -Fxq "$LAUNCHER_PATH.apk-new"; then
+			# LuCI status probes are read-only and short-lived. They must not
+			# keep a cleanup convergence loop busy while the page is polling.
+			if printf '%s\n' "$args" | grep -Eq \
+				'^--(core-running|guardian-running|rules-present)$'; then
+				continue
+			fi
+			printf '%s\n' "$pid"
+		fi
+	done
+}
+
+runtime_process_running() {
+	local wanted proc exe
+
+	wanted="$1"
+	for proc in "$PROC_ROOT"/[0-9]*; do
+		[ -d "$proc" ] || continue
+		exe="$(readlink "$proc/exe" 2>/dev/null)"
+		exe="${exe% (deleted)}"
+		[ "$exe" = "$wanted" ] && return 0
+	done
+	return 1
+}
+
+stop_owned_processes() {
+	local pids pid tries
+
+	tries=0
+	while [ "$tries" -lt 10 ]; do
+		pids="$(owned_process_pids)"
+		[ -n "$pids" ] || return 0
+		for pid in $pids; do
+			kill -TERM "$pid" 2>/dev/null || true
+		done
+		sleep 1
+		tries=$((tries + 1))
+	done
+	pids="$(owned_process_pids)"
+	[ -n "$pids" ] || return 0
+	for pid in $pids; do kill -KILL "$pid" 2>/dev/null || true; done
+	sleep 1
+	[ -z "$(owned_process_pids)" ]
+}
+
+install_downloaded_bundle() {
+	local install selected generic file
+
+	stage="$(mktemp -d /tmp/uu-install.XXXXXX)" || return 1
+	selected="$stage/selected"
+	generic="$stage/generic"
+	install="$stage/install"
+	mkdir -p "$install" || return 1
+
+	if [ "$PLATFORM" = h3c-nx30pro ]; then
+		download_official_bundle h3c-nx30pro "$selected" || return 1
+		# H3C firmware normally supplies its own xtables stack. C2000MAX uses
+		# the verified companion from NetEase's official generic archive.
+		download_official_bundle openwrt-aarch64 "$generic" || return 1
+		cp -f "$selected/uuplugin" "$install/uuplugin" || return 1
+		cp -f "$selected/xuplugin-guardian" "$install/xuplugin-guardian" || return 1
+		cp -f "$selected/uu.conf" "$install/uu.conf" || return 1
+		cp -f "$generic/xtables-nft-multi" "$install/xtables-nft-multi" || return 1
+		{
+			printf 'manifest-version=1\nplatform=%s\n' "$PLATFORM"
+			sed 's/^/core./' "$selected/.official-source"
+			sed 's/^/xtables./' "$generic/.official-source"
+		} > "$install/.source-manifest" || return 1
+	else
+		download_official_bundle openwrt-aarch64 "$selected" || return 1
+		for file in uuplugin xuplugin-guardian uu.conf xtables-nft-multi; do
+			cp -f "$selected/$file" "$install/$file" || return 1
+		done
+		{
+			printf 'manifest-version=1\nplatform=%s\n' "$PLATFORM"
+			sed 's/^/core./' "$selected/.official-source"
+		} > "$install/.source-manifest" || return 1
+	fi
+	chmod 0755 "$install/uuplugin" "$install/xuplugin-guardian" \
+		"$install/xtables-nft-multi" || return 1
+	chmod 0644 "$install/uu.conf" "$install/.source-manifest" || return 1
+	(
+		cd "$install" || exit 1
+		sha256sum uuplugin xuplugin-guardian uu.conf xtables-nft-multi \
+			.source-manifest > .bundle.sha256
+	) || return 1
+
+	stop_owned_processes || return 1
+	mkdir -p "$RUNDIR" || return 1
+	# Invalidate the old bundle before replacing any member. The platform
+	# marker is installed last, so power loss can never accept a mixed bundle.
+	rm -f "$PLATFORM_FILE" || return 1
+	for file in uuplugin xuplugin-guardian uu.conf xtables-nft-multi \
+		.source-manifest .bundle.sha256; do
+		cp -f "$install/$file" "$RUNDIR/$file.new.$$" || return 1
+		mv -f "$RUNDIR/$file.new.$$" "$RUNDIR/$file" || return 1
+	done
+	printf '%s\n' "$PLATFORM" > "$PLATFORM_FILE.new.$$" || return 1
+	chmod 0644 "$PLATFORM_FILE.new.$$" || return 1
+	mv -f "$PLATFORM_FILE.new.$$" "$PLATFORM_FILE" || return 1
+	valid_install || return 1
+	cleanup_stage
+	stage=''
+	return 0
+}
+
+remove_bundle() {
+	rm -f "$PROG" "$GUARDIAN" "$UU_CONF" "$XTABLES" "$PLATFORM_FILE" \
+		"$HASH_MANIFEST" "$SOURCE_MANIFEST" "$RUNDIR/ip" \
+		"$RUNDIR/iptables" "$RUNDIR/iptables-nft" \
+		"$RUNDIR/iptables-save" "$RUNDIR/iptables-restore" \
+		"$RUNDIR/ip6tables" "$RUNDIR/ip6tables-nft" \
+		"$RUNDIR/ip6tables-save" "$RUNDIR/ip6tables-restore"
+}
+
+ensure_runtime_alias() {
+	mkdir -p /var/tmp || return 1
+	if [ -L /var/tmp/uu ]; then
+		ln -sfn "$RUNDIR" /var/tmp/uu
+	elif [ ! -e /var/tmp/uu ]; then
+		ln -s "$RUNDIR" /var/tmp/uu
+	elif [ ! /var/tmp/uu -ef "$RUNDIR" ]; then
+		return 1
+	fi
+}
+
+write_wrapper() {
+	local target command
+
+	target="$1"
+	command="$2"
+	{
+		printf '#!/bin/sh\n'
+		# The H3C core exports its proprietary /lib extension path. Never let
+		# that ABI leak into NetEase's OpenWrt xtables companion (or ip-full).
+		printf 'unset XTABLES_LIBDIR IPTABLES_LIB_DIR IP6TABLES_LIB_DIR\n'
+		printf 'exec %s "$@"\n' "$command"
+	} > "$target.new.$$" || return 1
+	chmod 0755 "$target.new.$$" || return 1
+	mv -f "$target.new.$$" "$target"
+}
+
+ensure_command_wrappers() {
+	local name tool
+
+	[ -x "$IP_FULL" ] || return 1
+	write_wrapper "$RUNDIR/ip" "$IP_FULL" || return 1
+	for name in iptables iptables-nft iptables-save iptables-restore \
+		ip6tables ip6tables-nft ip6tables-save ip6tables-restore; do
+		case "$name" in
+			iptables) tool=iptables-nft ;;
+			ip6tables) tool=ip6tables-nft ;;
+			*) tool="$name" ;;
+		esac
+		write_wrapper "$RUNDIR/$name" "$XTABLES $tool" || return 1
+	done
+	"$RUNDIR/ip" -Version >/dev/null 2>&1 || return 1
+	"$RUNDIR/iptables" --version 2>/dev/null | grep -q 'nf_tables' || return 1
+}
+
+safe_product_name() {
+	printf '%s' "$1" | LC_ALL=C tr -cd 'A-Za-z0-9 ._:+()/-' | cut -c 1-64
+}
+
+generate_h3c_info() {
+	local model mac
+
+	model="$(cat /tmp/sysinfo/model 2>/dev/null)"
+	[ -n "$model" ] || model="$(uci -q get system.@system[0].hostname 2>/dev/null)"
+	model="$(safe_product_name "$model")"
+	[ -n "$model" ] || model='C2000MAX'
+	mac="$(cat "$SYS_CLASS_NET/br-lan/address" 2>/dev/null | tr 'A-F' 'a-f')"
+	printf '%s' "$mac" | grep -Eq '^([0-9a-f]{2}:){5}[0-9a-f]{2}$' || return 1
+	{
+		printf 'productname=%s\n' "$model"
+		printf 'ethaddr=%s\n' "$mac"
+		printf 'hardversion=VER.A\nbootversion=100\n'
+		printf 'manucode=%s\n' "$mac"
+	} > "$H3C_INFO.new.$$" || return 1
+	chmod 0600 "$H3C_INFO.new.$$" || return 1
+	mv -f "$H3C_INFO.new.$$" "$H3C_INFO"
+}
+
+prepare_platform_runtime() {
+	if [ "$PLATFORM" = h3c-nx30pro ]; then
+		generate_h3c_info
+	else
+		rm -f "$H3C_INFO"
+	fi
+}
+
+snapshot_netdevs() {
+	local path
+
+	[ -s "$NETDEV_BASELINE" ] && return 0
+	: > "$NETDEV_BASELINE.new.$$" || return 1
+	for path in "$SYS_CLASS_NET"/*; do
+		[ -e "$path" ] || continue
+		basename "$path" >> "$NETDEV_BASELINE.new.$$" || return 1
+	done
+	LC_ALL=C sort -u "$NETDEV_BASELINE.new.$$" -o "$NETDEV_BASELINE.new.$$" ||
+		return 1
+	mv -f "$NETDEV_BASELINE.new.$$" "$NETDEV_BASELINE"
+}
+
+stack_value() {
+	local key
+
+	key="$1"
+	[ -s "$RUNDIR/uu_stack_config" ] || return 1
+	awk -v wanted="$key" '
+		{
+			line = $0
+			sub(/^[[:space:]]*export[[:space:]]+/, "", line)
+			pos = index(line, "=")
+			if (!pos) next
+			name = substr(line, 1, pos - 1)
+			gsub(/[[:space:]]/, "", name)
+			if (name != wanted) next
+			value = substr(line, pos + 1)
+			gsub(/^[[:space:]"\047]+/, "", value)
+			gsub(/[[:space:]"\047]+$/, "", value)
+			print value
+			exit
+		}
+	' "$RUNDIR/uu_stack_config"
+}
+
+valid_uu_table() {
+	printf '%s' "$1" | grep -Eq '^[0-9]+$' || return 1
+	case "$1" in 0|253|254|255) return 1 ;; esac
+	[ "$1" -gt 0 ] 2>/dev/null
+}
+
+cleanup_table() {
+	local table family tries
+
+	table="$1"
+	valid_uu_table "$table" || return 0
+	for family in -4 -6; do
+		tries=0
+		while "$IP_FULL" "$family" rule show 2>/dev/null |
+			grep -Eq "(lookup|table)[[:space:]]+$table([[:space:]]|$)"; do
+			"$IP_FULL" "$family" rule del table "$table" >/dev/null 2>&1 ||
+				return 1
+			tries=$((tries + 1))
+			[ "$tries" -lt 32 ] || return 1
+		done
+		if "$IP_FULL" "$family" route show table "$table" 2>/dev/null |
+			grep -q .; then
+			"$IP_FULL" "$family" route flush table "$table" >/dev/null 2>&1 ||
+				return 1
+		fi
+	done
+}
+
+cleanup_mark_to_main() {
+	local mark family tries
+
+	mark="$1"
+	printf '%s' "$mark" |
+		grep -Eq '^(0x[0-9A-Fa-f]+|[0-9]+)(/(0x[0-9A-Fa-f]+|[0-9]+))?$' ||
+		return 0
+	case "$mark" in 0|0x0|0X0) return 0 ;; esac
+	for family in -4 -6; do
+		tries=0
+		while "$IP_FULL" "$family" rule show 2>/dev/null |
+			grep -Eq "fwmark[[:space:]]+$mark.*lookup[[:space:]]+main"; do
+			"$IP_FULL" "$family" rule del fwmark "$mark" lookup main \
+				>/dev/null 2>&1 || return 1
+			tries=$((tries + 1))
+			[ "$tries" -lt 8 ] || return 1
+		done
+	done
+}
+
+cleanup_uu_tun() {
+	local tun
+
+	tun="$(stack_value UU_TUN_NAME 2>/dev/null)"
+	[ -n "$tun" ] || return 0
+	printf '%s' "$tun" | grep -Eq '^tun16[0-9A-Za-z_.:-]{0,10}$' || return 0
+	[ -e "$SYS_CLASS_NET/$tun/tun_flags" ] || return 0
+	[ -s "$NETDEV_BASELINE" ] || return 1
+	grep -Fxq "$tun" "$NETDEV_BASELINE" && return 0
+	"$IP_FULL" -4 route flush dev "$tun" >/dev/null 2>&1 || true
+	"$IP_FULL" -6 route flush dev "$tun" >/dev/null 2>&1 || true
+	"$IP_FULL" link delete dev "$tun" >/dev/null 2>&1 ||
+		"$IP_FULL" tuntap del dev "$tun" mode tun >/dev/null 2>&1 || return 1
+	[ ! -e "$SYS_CLASS_NET/$tun" ]
+}
+
+cleanup_policy_runtime() {
+	local table mark rc
+
+	rc=0
+	for table in "$(stack_value UU_ROUTE_DEFAULT_TABLE 2>/dev/null)" \
+		"$(stack_value UU_ROUTE_FWMARK_TABLE 2>/dev/null)"; do
+		[ -z "$table" ] || cleanup_table "$table" || rc=1
+	done
+	mark="$(stack_value UU_DEVICE_FWMARK 2>/dev/null)"
+	[ -z "$mark" ] || cleanup_mark_to_main "$mark" || rc=1
+	cleanup_uu_tun || rc=1
+	return "$rc"
+}
+
+cleanup_legacy_xtables_links() {
+	local name link source rc
+
+	rc=0
+	for name in libxt_TPROXY.so libxt_socket.so; do
+		link="/lib/$name"
+		source="/usr/lib/iptables/$name"
+		[ -L "$link" ] || continue
+		[ "$(readlink "$link" 2>/dev/null)" = "$source" ] || continue
+		rm -f "$link" || rc=1
+	done
+	return "$rc"
+}
+
+cleanup_rules() {
+	local rc delete_ok policy_ok
+
+	rc=0
+	delete_ok=1
+	policy_ok=1
+	if [ -s "$NFT_DELETE" ]; then
+		command -v nft >/dev/null 2>&1 &&
+			nft -f "$NFT_DELETE" >/dev/null 2>&1 || {
+				rc=1
+				delete_ok=0
+			}
+	fi
+	cleanup_policy_runtime || {
+		rc=1
+		policy_ok=0
+	}
+	cleanup_legacy_xtables_links || rc=1
+	rm -f "$NFT_CREATE" \
+		"$RUNDIR/activate_status" "$RUNDIR/crash_dump" \
+		"$RUNDIR/uu_crash_dump" "$H3C_INFO" || rc=1
+	# Route table, fwmark and TUN ownership come from these files. Preserve
+	# them after a failed cleanup so a later cleanup can still identify
+	# lose the remaining UU route or TUN ownership information.
+	[ "$policy_ok" = 0 ] || rm -f "$RUNDIR/uu_stack_config" \
+		"$RUNDIR/uu_stack_config_result" "$NETDEV_BASELINE" || rc=1
+	[ "$delete_ok" = 0 ] || rm -f "$NFT_DELETE" || rc=1
+	return "$rc"
+}
+
+fw4_policy_present() {
+	[ "$(uci -q get firewall.c2000max_uu_tun)" = zone ] &&
+		[ "$(uci -q get firewall.c2000max_uu_tun.name)" = c2000max_uu_tun ] &&
+		[ "$(uci -q get firewall.c2000max_uu_tun.device)" = 'tun16*' ] &&
+		[ "$(uci -q get firewall.c2000max_uu_lan_to_tun.src)" = lan ] &&
+		[ "$(uci -q get firewall.c2000max_uu_lan_to_tun.dest)" = c2000max_uu_tun ] &&
+		[ "$(uci -q get firewall.c2000max_uu_tun_to_lan.src)" = c2000max_uu_tun ] &&
+		[ "$(uci -q get firewall.c2000max_uu_tun_to_lan.dest)" = lan ]
+}
+
+apply_fw4_policy() {
+	uci -q delete firewall.c2000max_uu_tun >/dev/null 2>&1 || true
+	uci -q delete firewall.c2000max_uu_lan_to_tun >/dev/null 2>&1 || true
+	uci -q delete firewall.c2000max_uu_tun_to_lan >/dev/null 2>&1 || true
+	uci -q batch <<-'EOF' || return 1
+		set firewall.c2000max_uu_tun='zone'
+		set firewall.c2000max_uu_tun.name='c2000max_uu_tun'
+		add_list firewall.c2000max_uu_tun.device='tun16*'
+		set firewall.c2000max_uu_tun.input='ACCEPT'
+		set firewall.c2000max_uu_tun.output='ACCEPT'
+		set firewall.c2000max_uu_tun.forward='ACCEPT'
+		set firewall.c2000max_uu_tun.masq='0'
+		set firewall.c2000max_uu_lan_to_tun='forwarding'
+		set firewall.c2000max_uu_lan_to_tun.src='lan'
+		set firewall.c2000max_uu_lan_to_tun.dest='c2000max_uu_tun'
+		set firewall.c2000max_uu_tun_to_lan='forwarding'
+		set firewall.c2000max_uu_tun_to_lan.src='c2000max_uu_tun'
+		set firewall.c2000max_uu_tun_to_lan.dest='lan'
+	EOF
+	uci -q commit firewall || return 1
+	[ -x "$FIREWALL_INIT" ] && "$FIREWALL_INIT" reload >/dev/null 2>&1 ||
+		return 1
+	fw4_policy_present
+}
+
+remove_fw4_policy() {
+	local changed section
+
+	changed=0
+	for section in c2000max_uu_tun c2000max_uu_lan_to_tun \
+		c2000max_uu_tun_to_lan; do
+		if uci -q get "firewall.$section" >/dev/null 2>&1; then
+			uci -q delete "firewall.$section" || return 1
+			changed=1
+		fi
+	done
+	[ "$changed" = 1 ] || return 0
+	uci -q commit firewall || return 1
+	[ -x "$FIREWALL_INIT" ] && "$FIREWALL_INIT" reload >/dev/null 2>&1
+}
+
+uu_rules_present() {
+	local objects object family name seen
+
+	[ -s "$NFT_DELETE" ] || return 1
+	command -v nft >/dev/null 2>&1 || return 1
+	objects="$(awk '
+		($1 == "delete" || $1 == "flush") && $2 == "table" && NF >= 4 {
+			print $3 ":" $4
+		}
+	' "$NFT_DELETE" 2>/dev/null | LC_ALL=C sort -u)"
+	[ -n "$objects" ] || return 1
+	seen=0
+	for object in $objects; do
+		family="${object%%:*}"
+		name="${object#*:}"
+		case "$family" in ip|ip6|inet) ;; *) return 1 ;; esac
+		printf '%s' "$name" | grep -Eq '^[A-Za-z0-9_.-]+$' || return 1
+		nft list table "$family" "$name" >/dev/null 2>&1 || return 1
+		seen=1
+	done
+	[ "$seen" = 1 ]
+}
+
+handle_platform_switch() {
+	local installed
+
+	installed="$(cat "$PLATFORM_FILE" 2>/dev/null)"
+	[ -n "$installed" ] || return 0
+	[ "$installed" = "$PLATFORM" ] && return 0
+	state "正在从 $installed 切换到 $PLATFORM，删除旧核心"
+	remove_bundle
+}
+
+run_core() {
+	if ! valid_install; then
+		state "正在下载网易官方 $PLATFORM 核心"
+		install_downloaded_bundle || {
+			state "网易官方核心下载或解包失败，详见系统日志"
+			return 1
+		}
+	fi
+	ensure_command_wrappers || { state 'UU 兼容命令创建失败'; return 1; }
+	snapshot_netdevs || state "UU 接口记录失败"
+	prepare_platform_runtime || { state 'UU 平台文件生成失败'; return 1; }
+	apply_fw4_policy || state "UU 软件转发规则应用失败，请查看系统日志"
+	cd "$RUNDIR" || return 1
+	export PATH="$RUNDIR:/usr/sbin:/usr/bin:/sbin:/bin"
+	unset XTABLES_LIBDIR IPTABLES_LIB_DIR IP6TABLES_LIB_DIR
+	state "正在启动网易官方 $PLATFORM 核心"
+	exec ./uuplugin ./uu.conf
+}
+
+main() {
+	case "$1" in
+		--rules-present) uu_rules_present; return $? ;;
+		--core-running) runtime_process_running "$PROG"; return $? ;;
+		--guardian-running) runtime_process_running "$GUARDIAN"; return $? ;;
+		--cleanup-only|--prepare-only)
+			local rc=0
+			stop_owned_processes || rc=1
+			cleanup_rules || rc=1
+			remove_fw4_policy || rc=1
+			[ "$rc" = 0 ] || state 'UU 软件规则清理出现错误，请查看系统日志'
+			return "$rc"
+			;;
+	esac
+	trap cleanup_stage EXIT
+	trap 'cleanup_stage; exit 143' HUP INT TERM
+	mkdir -p "$RUNDIR" || return 1
+	ensure_runtime_alias || return 1
+	load_platform
+	cleanup_rules || state "UU 上轮软件规则清理出现错误"
+	remove_fw4_policy || state "UU 上轮软件转发清理出现错误"
+	handle_platform_switch || return 1
+	run_core
+}
+
+main "$@"

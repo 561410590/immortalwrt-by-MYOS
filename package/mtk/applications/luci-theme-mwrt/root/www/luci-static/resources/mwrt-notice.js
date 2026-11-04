@@ -3,9 +3,8 @@
  * 数据来自 rpcd luci.mwrt-notice list(只读文件和 sysfs, 不发 AT), 每 10 秒刷新一次。
  * 多条消息叠加显示, 按等级排序(critical > warn > info)。
  *  - closable 的消息右侧有 ×, 关掉后记进 localStorage, 同一 id 不再出现;
- *  - 不可关闭的消息(模组切换 USB3.0、SIM 初始化、首次开机建虚拟内存)没有 ×,
- *    条件消失后自动撤掉, 底部带一条流动进度线, 表示"进行中"; 后端给了
- *    progress(0-100) 就换成实心进度条, 标签后跟百分比, 原地更新不重建卡片。
+ *  - 不可关闭的消息(模组切换 USB3.0、SIM 初始化)没有 ×, 条件消失后自动撤掉,
+ *    底部带一条流动进度线, 表示"进行中"。
  * 新固件提示也走这里(id 带版本号, 关掉的是这一版), 替代原来的 mwrt-ota-notify.js。
  * 由全局 footer.ut 注入, 所有主题都有。样式自带(半透明毛玻璃卡片), 按页面底色
  * 自动切深浅; 文字一律 textContent。 */
@@ -78,9 +77,6 @@
 		'background:var(--cs)}',
 		'#mwrt-notice .mwrt-notice-busy::after{content:"";position:absolute;top:0;bottom:0;width:40%;',
 		'background:linear-gradient(90deg,transparent,var(--c),transparent);animation:mwrt-notice-busy 1.6s ease-in-out infinite}',
-		'#mwrt-notice .mwrt-notice-busy.mwrt-det::after{left:0;width:var(--p,0%);animation:none;background:var(--c);',
-		'transition:width .6s ease}',
-		'#mwrt-notice .mwrt-notice-pct{margin-left:6px;font-weight:500;opacity:.8;font-variant-numeric:tabular-nums}',
 
 		// 深色页面
 		'#mwrt-notice.mwrt-dark .mwrt-notice-item{color:#e5e7eb;background:rgba(28,31,38,.72);border-color:rgba(255,255,255,.08);',
@@ -174,20 +170,6 @@
 		}, 220);
 	}
 
-	// 百分比放在 aria-hidden 的 span 里: 卡片是 alert, 改它的文字读屏软件会反复播报
-	function setProgress(c, p) {
-		var bz = c.querySelector('.mwrt-notice-busy');
-		var pc = c.querySelector('.mwrt-notice-pct');
-		if (!bz) return;
-		var ok = typeof p === 'number' && isFinite(p);
-		if (ok) {
-			p = Math.max(0, Math.min(100, Math.round(p)));
-			bz.style.setProperty('--p', p + '%');
-		}
-		bz.classList.toggle('mwrt-det', ok);
-		if (pc) pc.textContent = ok ? p + '%' : '';
-	}
-
 	function card(n) {
 		var level = RANK[n.level] === undefined ? 'info' : n.level;
 		var c = document.createElement('div');
@@ -195,6 +177,7 @@
 		c.setAttribute('data-id', n.id);
 		c.setAttribute('data-level', level);
 		c.setAttribute('data-text', n.text || '');
+        c.setAttribute('data-progress', n.progress == null ? '' : String(n.progress));
 		// critical/warn 用 alert 让读屏软件立即播报, info 用 status 不打断
 		c.setAttribute('role', level === 'info' ? 'status' : 'alert');
 
@@ -212,6 +195,13 @@
 		t.textContent = n.text || '';
 		body.appendChild(lb);
 		body.appendChild(t);
+        if (n.progress != null && isFinite(+n.progress)) {
+            var progress = document.createElement('progress');
+            progress.max = 100; progress.value = Math.max(0, Math.min(100, +n.progress));
+            progress.style.cssText = 'display:block;width:100%;height:6px;margin-top:8px';
+            progress.setAttribute('aria-label', '当前进度 ' + progress.value + '%');
+            body.appendChild(progress);
+        }
 
 		var href = n.link && LINKS[n.link];
 		if (href) {
@@ -238,15 +228,10 @@
 			});
 			c.appendChild(x);
 		} else {
-			var pc = document.createElement('span');
-			pc.className = 'mwrt-notice-pct';
-			pc.setAttribute('aria-hidden', 'true');
-			lb.appendChild(pc);
 			var bz = document.createElement('span');
 			bz.className = 'mwrt-notice-busy';
 			bz.setAttribute('aria-hidden', 'true');
 			c.appendChild(bz);
-			setProgress(c, n.progress);
 		}
 		return c;
 	}
@@ -262,7 +247,7 @@
 		var b = container();
 		place();
 		// 内容没变就不动 DOM, 免得读屏软件每 10 秒重播一次
-		var sig = want.map(function (n) { return n.id + '|' + n.text + '|' + (n.progress == null ? '' : n.progress); }).join('\n');
+		var sig = want.map(function (n) { return n.id + '|' + n.text + '|' + n.progress; }).join('\n');
 		if (b.getAttribute('data-sig') === sig) return;
 		b.setAttribute('data-sig', sig);
 
@@ -273,9 +258,8 @@
 		});
 		var live = want.map(function (n) {
 			var c = keep[n.id];
-			if (c && c.getAttribute('data-text') === (n.text || '') && c.getAttribute('data-level') === n.level) {
+			if (c && c.getAttribute('data-text') === (n.text || '') && c.getAttribute('data-level') === n.level && c.getAttribute('data-progress') === (n.progress == null ? '' : String(n.progress))) {
 				delete keep[n.id];
-				if (!n.closable) setProgress(c, n.progress);
 				return c;
 			}
 			return card(n);

@@ -2,7 +2,7 @@
 # MWRT dashboard adapter for the existing MYOS updater.
 case "$1" in
  list) echo '{"latest":{},"check":{},"info":{}}' ;;
- board) echo c2000ultra ;;
+ board) echo n5000 ;;
  call)
   if [ ! -x /usr/libexec/myos-update ]; then
    echo '{"ok":false,"error":"Online updater is not included in the public source build","update":false}'

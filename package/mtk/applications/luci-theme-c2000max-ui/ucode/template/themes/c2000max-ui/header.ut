@@ -6,7 +6,7 @@
  import { getuid, getspnam } from 'luci.core';
  const boardinfo = ubus.call('system', 'board') ?? {};
  const boardname = lc(boardinfo.board_name ?? '');
- const home = match(boardname, /c5800|hcmt7981/) ? 'c5800' : match(boardname, /ultra|snsd/) ? 'c2000ultra' : 'c2000max';
+ const home = 'n5000';
  const homeurl = dispatcher.build_url('admin/status/' + home);
  http.prepare_content('text/html; charset=UTF-8');
 -%}
@@ -19,20 +19,20 @@
 <meta name="theme-color" content="#eef3f8">
 <meta name="darkreader-lock">
 <title>{{ entityencode(boardinfo.hostname ?? 'MYOS') }} · {{ entityencode(node?.title ? _(node.title) : 'MYOS') }}</title>
-<script src="{{ media }}/theme.js?v=1.0.17-r2-ultra"></script>
+<script src="{{ media }}/theme.js?v=3.1.36-202610261000"></script>
 <link rel="stylesheet" href="/luci-static/bootstrap/cascade.css">
 {% for (let file in ['tokens','components','styles','c2000max','luci-adapter']): %}
-<link rel="stylesheet" href="{{ media }}/{{ file }}.css?v=1.0.17-r2-ultra">
+<link rel="stylesheet" href="{{ media }}/{{ file }}.css?v=20261102-footer">
 {% endfor %}
 {% if (node?.css): %}<link rel="stylesheet" href="{{ resource }}/{{ node.css }}">{% endif %}
 {% if (css): %}<style>{{ css }}</style>{% endif %}
-<link rel="stylesheet" href="{{ media }}/density.css?v=1.0.17-r2-ultra">
+<link rel="stylesheet" href="{{ media }}/density.css?v=3.1.36-202610261000">
 <script src="{{ dispatcher.build_url('admin/translations', dispatcher.lang) }}"></script>
 <script src="{{ resource }}/cbi.js"></script>
-<script src="{{ media }}/data.js?v=1.0.17-r2-ultra"></script>
-<script src="{{ media }}/dashboard.js?v=1.0.17-r2-ultra"></script>
+<script src="{{ media }}/data.js?v=3.1.36-202610261000"></script>
+<script src="{{ media }}/dashboard.js?v=3.1.36-202610261000"></script>
 </head>
-<body class="c2000-ui lang_{{ dispatcher.lang }}" data-page="{{ entityencode(join('-', ctx.request_path), true) }}" data-home-url="{{ entityencode(homeurl, true) }}" data-device-model="{{ entityencode(boardinfo.model ?? 'NRadio C2000', true) }}">
+<body class="c2000-ui lang_{{ dispatcher.lang }}" data-page="{{ entityencode(join('-', ctx.request_path), true) }}" data-home-url="{{ entityencode(homeurl, true) }}" data-device-model="{{ entityencode(boardinfo.model ?? 'NRadio N5000', true) }}">
 {% if (!blank_page): %}
 <a class="skip-link" href="#maincontent">{{ _('Skip to content') }}</a>
 {% include('themes/c2000max-ui/icons') %}

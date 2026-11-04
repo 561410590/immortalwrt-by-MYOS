@@ -9,12 +9,9 @@ return {
    call: function() {
     let bus=connect(), board=bus?.call('system','board') || {};
     bus?.disconnect();
-    let qmodem=!!stat('/usr/share/luci/menu.d/luci-app-qmodem-next.json');
     return {
-     model:board.model || trim(readfile('/tmp/sysinfo/model') || '') || 'NRadio C2000',
-     board_name:board.board_name || trim(readfile('/tmp/sysinfo/board_name') || ''),
-     modem_route:qmodem?['admin','modem','qmodem']:null,
-     modem_url:stat('/www/5700/index.html')?'/5700/':null
+     model:board.model || trim(readfile('/tmp/sysinfo/model') || '') || 'NRadio N5000',
+     board_name:board.board_name || trim(readfile('/tmp/sysinfo/board_name') || '')
     };
    }
   },
@@ -89,45 +86,14 @@ return {
     return { cpu_sensor:cpu_temp==null?null:cpu_sensor, cpu_temp, wifi_temps, wireless };
    }
   },
-  sim: {
-   args: { section: '' },
-   call: function(req) {
-    let section=req.args.section;
-    if(type(section)!='string' || !match(section,/^[A-Za-z0-9_]{1,64}$/))
-     return { sim_label:null };
-    let path='/tmp/huawei_sim_slot_'+section, info=stat(path);
-    if(info && info.size<=16) {
-     let slot=trim(readfile(path) || '');
-     if(match(slot,/^[0-9]$/)) return { sim_label:'SIM '+slot, cache_only:true };
+  ports: {
+   call: function() {
+    let ports={};
+    for(let name, dev in {wan:'eth1',lan:'eth0'}) {
+     let speed=trim(readfile('/sys/class/net/'+dev+'/speed')||'');
+     ports[name]={device:dev,carrier:trim(readfile('/sys/class/net/'+dev+'/carrier')||'')=='1',speed:match(speed,/^[0-9]+$/)?int(speed):null};
     }
-    path='/tmp/cache_sim_info_'+section; info=stat(path);
-    if(info && info.size<=262144 && time()-info.mtime<=120) try {
-     let data=json(readfile(path));
-     for(let entry in data.modem_info || [])
-      if(match(lc(''+entry.key),/^sim[ _-]?slot$/) && match(''+entry.value,/^[0-9]$/))
-       return { sim_label:'SIM '+entry.value, cache_only:true };
-    } catch(e) {}
-    return { sim_label:null, cache_only:true };
-   }
-  },
-  modem: {
-   args: { section: '' },
-   call: function(req) {
-    let section = req.args.section;
-    if (type(section) != 'string' || !match(section, /^[A-Za-z0-9_]{1,64}$/))
-     return { sources: [], error: 'invalid_section' };
-    let sources = [];
-    for (let kind in ['base', 'cell', 'sim', 'network']) {
-     let path = '/tmp/cache_' + kind + '_info_' + section;
-     let st = stat(path);
-     if (!st || st.size > 262144) continue;
-     try {
-      let data = json(readfile(path));
-      if (type(data.modem_info) == 'array')
-       push(sources, { kind, age: max(0, time() - st.mtime), entries: data.modem_info });
-     } catch (e) {}
-    }
-    return { section, sources, cache_only: true };
+    return ports;
    }
   }
  }

@@ -1,0 +1,71 @@
+#!/bin/sh
+# Ultra has factory identity in SPI bdinfo; its SD device tree supplies no GMAC MACs.
+[ "$(cat /tmp/sysinfo/board_name 2>/dev/null)" = nradio,n5000 ] || exit 0
+. /lib/functions.sh
+. /lib/functions/system.sh
+. /lib/functions/myos-factory-wifi.sh
+
+factory_mac="$(myos_factory_wifi_mac)" || exit 1
+
+find_device() {
+	local name
+	config_get name "$1" name
+	[ "$name" != "$wanted_device" ] || found_device="$1"
+}
+
+device_section() {
+	local wanted_device="$1" found_device=''
+	config_load network
+	config_foreach find_device device
+	printf '%s' "$found_device"
+}
+
+set_default_mac() {
+	local dev="$1" mac="$2" section current
+	section="$(device_section "$dev")"
+	if [ -n "$section" ]; then
+		current="$(uci -q get "network.$section.macaddr")"
+		if [ -n "$current" ]; then
+			printf '%s' "$current"
+			return 0
+		fi
+	else
+		section="$(uci add network device)" || return 1
+		uci set "network.$section.name=$dev" || return 1
+	fi
+	uci set "network.$section.macaddr=$mac" || return 1
+	printf '%s' "$mac"
+}
+
+# Keep explicit interface/device overrides. Allocate per-device defaults from fac_mac:
+# LAN = factory base, WAN = base+1, internal HNAT = locally administered base+2.
+lan_mac="$(uci -q get network.lan.macaddr)"
+if [ -z "$lan_mac" ]; then
+	bridge_section="$(device_section br-lan)"
+	[ -z "$bridge_section" ] || lan_mac="$(uci -q get "network.$bridge_section.macaddr")"
+fi
+[ -n "$lan_mac" ] || lan_mac="$factory_mac"
+lan_mac="$(set_default_mac eth0 "$lan_mac")" || exit 1
+wan_mac="$(uci -q get network.wan.macaddr)"
+[ -n "$wan_mac" ] || wan_mac="$(macaddr_add "$factory_mac" 1)"
+set_default_mac eth1 "$wan_mac" >/dev/null || exit 1
+set_default_mac hnat "$(macaddr_setbit_la "$(macaddr_add "$factory_mac" 2)")" >/dev/null || exit 1
+set_default_mac br-lan "$lan_mac" >/dev/null || exit 1
+uci commit network || exit 1
+
+# The stock package's /dev/hdb example is not a device on this SD router.
+if [ -f /etc/smartd.conf ] && {
+	[ "$(cat /etc/smartd.conf)" = '/dev/hdb -H' ] ||
+	grep -q '^# MYOS Ultra automatic SMART discovery$' /etc/smartd.conf;
+}; then
+	printf '%s\n' '# MYOS Ultra automatic SMART discovery' 'DEVICESCAN -H' > /etc/smartd.conf
+	if command -v smartctl >/dev/null 2>&1 && [ -z "$(smartctl --scan 2>/dev/null)" ]; then
+		/etc/init.d/smartd stop >/dev/null 2>&1
+		/etc/init.d/smartd disable
+	fi
+fi
+
+if [ ! -e /www/favicon.ico ] && [ -f /www/luci-static/argon/favicon.ico ]; then
+	ln -snf luci-static/argon/favicon.ico /www/favicon.ico
+fi
+exit 0

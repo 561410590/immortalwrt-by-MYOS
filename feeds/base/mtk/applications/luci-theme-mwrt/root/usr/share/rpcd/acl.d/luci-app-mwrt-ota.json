@@ -1,0 +1,20 @@
+{
+  "luci-app-mwrt-ota": {
+    "description": "MWRT dashboard MYOS update status",
+    "read": {
+      "ubus": {
+        "luci.mwrt-ota": [
+          "latest",
+          "info"
+        ]
+      }
+    },
+    "write": {
+      "ubus": {
+        "luci.mwrt-ota": [
+          "check"
+        ]
+      }
+    }
+  }
+}

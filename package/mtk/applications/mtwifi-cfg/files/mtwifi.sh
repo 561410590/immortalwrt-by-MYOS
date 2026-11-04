@@ -35,6 +35,13 @@ detect_mtwifi() {
 					txpower="100"
 					dbdc_main="0"
 				fi
+				if [ "$board" = "nradio,n5000" ]; then
+					if [ "$idx" -eq 1 ]; then
+						htmode="EHT40"
+					else
+						htmode="EHT160"
+					fi
+				fi
 				if [ "$board" = "nradio,c2000-ultra" ]; then
 					if [ "$idx" -eq 1 ]; then
 						htmode="EHT40"

@@ -1,0 +1,14 @@
+MT5700 modern WebUI provenance
+
+Upstream: https://github.com/inotdream/mt5700webui-openwrt-server
+Branch: feat/go-backend
+Commit: f0223e619d24a5b4dff41f2db894e96f8c62ed65
+Built: 2026-08-28
+
+C2000MAX compatibility changes applied before the production build:
+- relative Vite asset base for /modem/<instance>/5700/
+- instance-relative at-ws-info discovery and ws_url support
+- PDCP-first realtime speed with AT^DSFLOWQRY fallback for QModem serial mode
+- backend capability negotiation hides unsupported asynchronous full-band scan
+
+The legacy bundled UI remains available through the LuCI instance setting.

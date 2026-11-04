@@ -1232,7 +1232,13 @@ static INT os_ioctl_get_mac_table(RTMP_ADAPTER *mac_ad,
 
 		dst = &table->entry[table->num++];
 		dst->ap_idx = entry->func_tb_idx;
-		COPY_MAC_ADDR(dst->addr, entry->Addr);
+		/* Report the station's LAN identity so iwinfo and DHCP use the same key. */
+#ifdef DOT11_EHT_BE
+		if (entry->mlo.mlo_en)
+			COPY_MAC_ADDR(dst->addr, entry->mlo.mld_addr);
+		else
+#endif
+			COPY_MAC_ADDR(dst->addr, entry->Addr);
 		dst->aid = entry->Aid;
 		dst->psm = entry->PsMode;
 #ifdef DOT11_N_SUPPORT

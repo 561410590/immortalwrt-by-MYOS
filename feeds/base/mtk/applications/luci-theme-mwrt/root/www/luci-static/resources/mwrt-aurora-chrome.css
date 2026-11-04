@@ -1,0 +1,2379 @@
+/* ==========================================================================
+   mwrt-aurora-chrome.css —— 把 argon 的"外壳"也换成 aurora 的浅色调性
+   --------------------------------------------------------------------------
+   mwrt-aurora-full.css 已经把 aurora 的整套内容区样式移植过来了, 但导航壳
+   还是 argon 的, 而这台机器上的 argon 又被两个本地定制文件改成了深色霓虹风:
+
+     argon-menu-custom.css    深色渐变侧边栏 + 深色顶栏 + #2bffc6 霓虹描边
+     argon-global-custom.css  #388087 青绿控件皮(整份都是 !important)
+
+   本文件做这些事:
+     1. 把 argon 自己的 CSS 变量重定向到 aurora 的色板 —— 这样连我没有逐条
+        改写的地方(链接色、复选框、滚动条、进度条、标签页下划线...)也会自动
+        落进 aurora 的颜色体系。同时重定义 aurora 的 --text-* 字号阶梯,
+        把整个内容区的字号收紧到后台该有的密度(§0 末尾 + §5)。
+     2. 重写侧边栏和顶栏。侧边栏走深色炭灰面板(自成一套 --sb-* 令牌, 见 §1),
+        选中项是抬升底 + 白字 + 3px 蓝竖条, 取代原来的实心霓虹亮块;
+        顶栏走浅色 surface + 1px hairline。深浅对比让导航自成一块版面。
+     3. 收掉 argon 和 aurora 叠加时露出来的接缝: 标题的"卡里套卡"白底(§5)、
+        PC 下那条空顶栏(§6)、标签页的灰底+边框+灰槽三层叠加(§7)、
+        进度条百分比被两个伪元素各画一遍的重影(§8)。
+     4. PC 上把整个应用做成一块四角圆角的卡片, 只留 5px 贴边(§12); 收住
+        第三方整页视图(cellular_data 那种自带日夜切换的 SPA)漫出内容区的
+        深色底(§13); 把横在内容底部的版本信息收进右下角一枚图标 + 点开的
+        "关于本机"浮层(§14, 配合 boot.js §4)。
+
+   配套的 mwrt-aurora-boot.js 会在运行时把上面那两个定制表和 argon 内联的
+   dark.css 标记成 media="not all"。JS 没跑起来时, 本文件的 !important 仍能
+   把导航壳压回浅色 —— 只是内容区会退回 argon 的青绿皮。
+
+   选择器统一带 :not(#mwrt-nope) —— 一个不存在的 id, 只为抬到 id 级权重,
+   压过 argon-menu-custom 那些 .main .main-left .nav li .menu.active 之类的
+   长链 !important 规则。不改变匹配结果。
+   ========================================================================== */
+
+/* ── 0. 变量对齐 ───────────────────────────────────────────────────────── */
+
+:root:not(#mwrt-nope) {
+  /* ── 字体 ────────────────────────────────────────────────────────────────
+     不用 aurora 自带的 Lato 了。原因: 我们只随包了一个 Lato Regular(400),
+     而 aurora 的标题/表头/按钮到处用 500 和 600 —— 缺字重时浏览器会拿 400
+     去"合成加粗"(faux bold), 笔画被算法涂粗, 小字号下发虚发糊, 就是看起来
+     不清晰的主因。另外中文在 Lato 里没有字形, 会掉到下一个字体, Latin 和
+     CJK 两套度量混在一行, 基线和字宽都对不齐。
+
+     换成操作系统的 UI 字体栈: 字重齐全(不用合成), 带屏幕 hinting, 中英文
+     由系统配好的字体搭配来处理 —— 在后台这种小字号密排场景下最清楚。
+     ───────────────────────────────────────────────────────────────────── */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
+    "Segoe UI", "Inter", "Roboto", "Helvetica Neue", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei",
+    "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", "Cascadia Mono",
+    "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace;
+
+  /* aurora 的标题用 tracking-tight(-.025em), 那是给大标题设的;
+     收到 16~22px 再挤就糊成一团, 放松到 -.01em */
+  --tracking-tight: -.01em;
+
+  /* argon 的主色体系 → aurora brand */
+  --primary: var(--brand);
+  --dark-primary: var(--brand);
+  --main-color: var(--brand);
+  --bar-bg: var(--brand);
+
+  /* argon 的顶栏 / 侧边栏 */
+  --header-bg: var(--surface);
+  --header-color: var(--text);
+  --menu-bg-color: var(--surface);
+  --menu-color: var(--text-muted);
+  --menu-color-hover: var(--text);
+  --main-menu-color: var(--text);
+  --submenu-bg-hover: var(--hover-faint);
+  --submenu-bg-hover-active: var(--brand-subtle);
+
+  /* argon 的中性色 */
+  --background-color: var(--bg);
+  --gray-dark: var(--text);
+  --gray: var(--text-muted);
+  --secondary: var(--surface-sunken);
+  --login-form-bg-color: var(--surface);
+
+  --font-family-sans-serif: var(--font-sans);
+  --font-family-normal: var(--font-sans);
+
+  /* ── 字号收紧 ────────────────────────────────────────────────────────────
+     aurora 的字号阶梯是给普通网页设计的(正文 .875rem / 表格单元格 1rem /
+     h2 1.5rem), 落到 LuCI 这种表格密集的后台里就偏大。以前是
+     argon-global-custom.css 用 !important 把整站压小(html 15px、body .85rem、
+     表格 .82rem), 那份表被停用后这层收紧也一起没了。
+
+     这里不逐条改规则, 而是直接重定义 aurora 的 --text-* 阶梯 ——
+     aurora 每条字号规则都是 var(--text-*), 所以改这 7 个变量等于整套内容区
+     一起等比收紧, 层级关系不变。aurora 的 token 在 @layer theme 里,
+     unlayered 永远赢 layered, 不需要 !important。
+
+     配套 html 回到 15px(见下面 §5), 换算后:
+       xs .72rem→10.8px  sm .85rem→12.8px  base .9rem→13.5px
+       lg 1rem→15px      xl 1.1rem→16.5px  2xl 1.25rem→18.8px
+       3xl 1.5rem→22.5px
+     --text-*--line-height 是比值, 不动, 行高自动跟着走。
+     顺带一个好处: --text-xl 定成 1.1rem 后, aurora 的 h3 与 argon 那条
+     压不掉的 .cbi-section>h3:first-child{1.1rem} 正好对齐, 标题不再一大一小。
+     ─────────────────────────────────────────────────────────────────────── */
+  --text-xs: .72rem;
+  --text-sm: .85rem;
+  --text-base: .9rem;
+  --text-lg: 1rem;
+  --text-xl: 1.1rem;
+  --text-2xl: 1.25rem;
+  --text-3xl: 1.5rem;
+}
+
+/* ── 1. 侧边栏 ─────────────────────────────────────────────────────────────
+   深色炭灰面板 + 浅色内容区 —— 深浅对比让导航自己成为一块"版面", 而不是
+   跟内容区糊成一片白。整块的配色变量收在 .main-left 上, 靠继承发下去,
+   所以下面每一条规则都不用再重复写十六进制值。
+
+   注意这里是**故意**不用 aurora 的 --surface/--text 那套的: 那套是为浅底
+   设计的, 直接拿到深底上对比度全反。深色侧栏自成一套 --sb-* 令牌, 只有
+   强调色跟 --brand 挂钩(提亮过, 见下)。
+   ─────────────────────────────────────────────────────────────────────── */
+
+.main .main-left:not(#mwrt-nope) {
+  /* 面板底色: 比纯黑软, 带一点点蓝调, 跟浅色内容区是同一个色温 */
+  --sb-bg: #202833;               /* s68: 设计稿石板灰 */
+  --sb-bg-elev: #2c3744;          /* 选中项的抬升底(设计稿) */
+  --sb-hover: rgb(255 255 255 / .055);
+  --sb-hairline: rgb(255 255 255 / .08);
+  --sb-text: #eef2f5;             /* 选中/主要文字 */
+  --sb-text-muted: #a3adb8;       /* 普通菜单项 */
+  --sb-text-faint: #6d7883;       /* 次级/图标静息态 */
+  /* --brand(#0085b7) 是给白底调的, 压在 #1e242b 上对比度只有 2.6:1,
+     提亮到 #38a9d8 后约 6.4:1, 过 WCAG AA */
+  --sb-accent: #20b7d5;           /* s68: 设计稿青 */
+  --sb-danger: #ff8f85;           /* --danger(#8d1925) 同理, 深底上要提亮 */
+
+  background: linear-gradient(180deg, #202833 0%, #1c2530 55%, #19212b 100%) !important;
+  color: var(--sb-text-muted) !important;
+  border-right: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-shadow: none !important;
+  animation: none !important;
+  padding-bottom: .75rem !important;
+}
+
+/* 右侧那条霓虹渐变竖线 */
+.main .main-left:not(#mwrt-nope)::before {
+  display: none !important;
+}
+
+.main .main-left:not(#mwrt-nope)::-webkit-scrollbar {
+  width: 6px !important;
+}
+.main .main-left:not(#mwrt-nope)::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+.main .main-left:not(#mwrt-nope)::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / .12) !important;
+  border-radius: 999px !important;
+}
+.main .main-left:not(#mwrt-nope)::-webkit-scrollbar-thumb:hover {
+  background: rgb(255 255 255 / .22) !important;
+}
+
+/* ── 品牌区 ────────────────────────────────────────────────────────────────
+   原始 DOM 只有一行纯文字:
+     <div class="sidenav-header d-flex align-items-center">
+       <a class="brand" href="#">NRadio-C2000-Ultra</a> ... </div>
+   argon 把它做成 1.8rem 的 TypoGraphica 装饰字 + 居中, argon-menu-custom 又
+   给它套了青绿渐变文字裁切 + 发光。两者都关掉之后就剩一行光秃秃的黑字。
+
+   不能改 HTML(改了升级就没), 所以标志用 CSS 生成: ::before 画一枚圆角徽章,
+   底是 aurora 自己的进度条渐变(progress-start → brand), 上面叠一个内联 SVG
+   的广播弧线图标 —— data URI 不额外发请求, 也不依赖 argon 的图标字体
+   (那份字体的字形声明在 argon-menu-custom 里, 已经静音了)。
+   徽章 + 左对齐文字, 比居中的一行字更像产品标识。
+   ─────────────────────────────────────────────────────────────────────── */
+.main .main-left .sidenav-header:not(#mwrt-nope) {
+  position: relative !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: .5rem !important;
+  padding: 1.1rem .75rem 1rem !important;
+  text-align: left !important;
+}
+.main .main-left .sidenav-header .brand:not(#mwrt-nope) {
+  /* 去掉渐变文字裁切和发光 */
+  background: none !important;
+  -webkit-background-clip: border-box !important;
+  background-clip: border-box !important;
+  -webkit-text-fill-color: currentColor !important;
+  filter: none !important;
+
+  display: flex !important;
+  align-items: center !important;
+  gap: .5rem !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  color: var(--sb-text) !important;
+  font-family: var(--font-sans) !important;
+  font-weight: 600 !important;
+  font-size: .85rem !important;
+  line-height: 1.25 !important;
+  letter-spacing: -.01em !important;
+  text-decoration: none !important;
+
+  /* 侧边栏只有 15rem(窄屏 13rem), 减掉内边距、徽章和间距, 留给文字的不到
+     140px, 而 "NRadio-C2000-Ultra" 排不下 —— 之前 nowrap+hidden 就把后半截
+     裁掉了。改成允许折行: 型号里本来就有连字符, 会在连字符处断得很自然,
+     实在断不开的长串也有 anywhere 兜底。 */
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  overflow: visible !important;
+}
+/* 徽章 */
+.main .main-left .sidenav-header .brand:not(#mwrt-nope)::before {
+  content: "" !important;
+  flex: 0 0 auto !important;
+  width: 1.875rem !important;
+  height: 1.875rem !important;
+  border-radius: calc(var(--radius-base) * 1.5) !important;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='M3.6 8.9a11.4 11.4 0 0 1 16.8 0'/%3E%3Cpath d='M7.2 12.6a6.6 6.6 0 0 1 9.6 0'/%3E%3Ccircle cx='12' cy='17.4' r='1.5' fill='%23fff' stroke='none'/%3E%3C/svg%3E"),
+    linear-gradient(140deg, var(--progress-start) 0%, var(--brand) 58%, var(--brand-hover) 100%) !important;
+  background-repeat: no-repeat !important;
+  background-position: center, center !important;
+  background-size: 1.05rem 1.05rem, cover !important;
+  /* 深底上外发光比投影管用: 投影在 #1e242b 上根本看不见 */
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / .08),
+    0 4px 14px -4px color-mix(in srgb, var(--sb-accent) 70%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / .28) !important;
+  transition: transform .2s cubic-bezier(.34, 1.56, .64, 1),
+              box-shadow .2s ease !important;
+}
+.main .main-left .sidenav-header .brand:not(#mwrt-nope):hover::before {
+  transform: translateY(-1px) scale(1.04) !important;
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / .12),
+    0 6px 18px -4px color-mix(in srgb, var(--sb-accent) 85%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / .34) !important;
+}
+/* 分隔线: argon-menu-custom 静音后连 content 都没了, 这里整条重建 */
+.main .main-left .sidenav-header:not(#mwrt-nope)::after {
+  content: "" !important;
+  position: absolute !important;
+  left: 1rem !important;
+  right: 1rem !important;
+  bottom: 0 !important;
+  height: 1px !important;
+  background: var(--sb-hairline) !important;
+}
+/* 品牌区里那个 data-action="sidenav-unpin" 的收起按钮是个死元素: 全树既没有
+   它的样式(三条杠 <i> 没尺寸, 所以一直是隐形的), 也没有任何 JS 绑这个 action
+   —— 点了不会有反应。索性收掉, 免得在标志旁边留一块看不见的可点区域。 */
+.main .main-left .sidenav-header .sidenav-toggler:not(#mwrt-nope) {
+  display: none !important;
+}
+
+/* 一级菜单项 —— 图标 + 名称 + 展开箭头的整行 */
+.main .main-left .nav:not(#mwrt-nope) {
+  margin-top: .5rem !important;
+  padding: 0 .5rem !important;
+}
+.main .main-left .nav li .menu:not(#mwrt-nope),
+.main .main-left .nav > li > a:first-child:not(#mwrt-nope) {
+  position: relative !important;
+  color: var(--sb-text-muted) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border-radius: calc(var(--radius-base) * 1.5) !important;
+  font-family: var(--font-sans) !important;
+  font-size: .875rem !important;
+  font-weight: 500 !important;
+  letter-spacing: 0 !important;
+  margin: .0625rem 0 !important;
+  padding: .5rem 1rem !important;
+  text-align: center !important;
+  transition: background-color .15s ease, color .15s ease !important;
+}
+
+.main .main-left .nav li .menu:not(#mwrt-nope):hover,
+.main .main-left .nav > li > a:first-child:not(#mwrt-nope):hover {
+  color: var(--sb-text) !important;
+  background: var(--sb-hover) !important;
+  box-shadow: none !important;
+}
+
+/* 选中态 = 抬升底 + 白字 + 左侧那道蓝竖条。
+   竖条走 inset box-shadow 而不是伪元素: 这个元素的 ::before 是图标、
+   ::after 是展开箭头, 两个都被 argon 占了, 没有第三个伪元素可用。
+   inset 阴影跟着 border-radius 走, 顶端和底端天然是圆的。 */
+.main .main-left .nav li .menu.active:not(#mwrt-nope),
+.main .main-left .nav > li > a:first-child.active:not(#mwrt-nope) {
+  /* s68k: 亮青实底 + 白字(用户要亮眼那版) */
+  color: #fff !important;
+  background: var(--sb-accent) !important;
+  box-shadow: 0 2px 10px -2px color-mix(in srgb, var(--sb-accent) 55%, transparent) !important;
+  font-weight: 600 !important;
+}
+
+/* 图标 */
+.main .main-left .nav li .menu:not(#mwrt-nope)::before,
+.main .main-left .nav > li > a:first-child:not(#mwrt-nope)::before {
+  /* s68e: 图标绝对定位浮在左侧, 不占流, 让文字在整行真居中 */
+  position: absolute !important;
+  left: 1rem !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  color: var(--sb-text-faint) !important;
+  opacity: 1 !important;
+  filter: none !important;
+  transition: color .15s ease !important;
+}
+/* s68b/e: hover 图标青, active 图标白; transform 保持居中位移(translateY -50%) */
+.main .main-left .nav li .menu:not(#mwrt-nope):hover::before,
+.main .main-left .nav > li > a:first-child:not(#mwrt-nope):hover::before {
+  color: var(--sb-accent) !important;
+  transform: translateY(-50%) !important;
+}
+.main .main-left .nav li .menu.active:not(#mwrt-nope)::before,
+.main .main-left .nav > li > a:first-child.active:not(#mwrt-nope)::before {
+  color: #fff !important;
+  transform: translateY(-50%) !important;
+}
+
+/* 展开箭头 */
+.main .main-left .nav li .menu:not(#mwrt-nope)::after {
+  color: var(--sb-text-faint) !important;
+  transition: transform .2s ease, color .15s ease !important;
+}
+.main .main-left .nav li .menu:not(#mwrt-nope):hover::after {
+  color: var(--sb-text-muted) !important;
+}
+.main .main-left .nav li .menu.active:not(#mwrt-nope)::after {
+  color: #fff !important;
+  transform: rotate(90deg) !important;
+}
+
+/* 二级菜单 */
+/* s68g/l: 二级菜单容器 —— 相对定位, 左缩进加大让二级整体右移(文字别太偏左) */
+.main .main-left .nav li.slide .slide-menu:not(#mwrt-nope) {
+  position: relative !important;
+  margin: .125rem 0 .375rem 2.1rem !important;
+  padding: .125rem 0 .125rem 1rem !important;
+}
+.main .main-left .nav li.slide .slide-menu:not(#mwrt-nope)::before {
+  content: '' !important;
+  position: absolute !important;
+  left: 0 !important;
+  top: .25rem !important;
+  bottom: .25rem !important;
+  width: 2px !important;
+  border-radius: 1px !important;
+  background: rgb(255 255 255 / .12) !important;
+  opacity: 1 !important;
+}
+.main .main-left .nav li.slide .slide-menu li a:not(#mwrt-nope) {
+  position: relative !important;
+  display: block !important;
+  text-align: left !important;
+  color: var(--sb-text-faint) !important;
+  font-size: .825rem !important;
+  padding: .375rem .5rem .375rem 1.1rem !important;
+  border-radius: .375rem !important;
+  transition: color .15s ease, background-color .15s ease !important;
+}
+.main .main-left .nav li.slide .slide-menu li:not(#mwrt-nope):hover a {
+  color: var(--sb-text) !important;
+  background: var(--sb-hover) !important;
+  transform: none !important;
+}
+.main .main-left .nav li.slide .slide-menu .active a:not(#mwrt-nope) {
+  color: var(--sb-accent) !important;
+  font-weight: 600 !important;
+}
+/* 圆点指示器 */
+/* s68g: 选中项左侧盖一段青色导轨线段(定位到 slide-menu 左边线上), 标识当前位置 */
+.main .main-left .nav li.slide .slide-menu li:not(#mwrt-nope)::after {
+  content: '' !important;
+  position: absolute !important;
+  left: -1rem !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 2px !important;
+  height: 0 !important;
+  border-radius: 1px !important;
+  background: var(--sb-accent) !important;
+  box-shadow: none !important;
+  transition: height .15s ease !important;
+}
+.main .main-left .nav li.slide .slide-menu .active:not(#mwrt-nope)::after {
+  height: 1.1rem !important;
+}
+.main .main-left .nav li.slide .slide-menu li:not(#mwrt-nope):hover::after {
+  height: .7rem !important;
+}
+
+/* 退出登录 */
+.main .main-left .nav li .menu[data-title="Log_out"]:not(#mwrt-nope),
+.main .main-left .nav li a[data-title="Log_out"]:not(#mwrt-nope),
+.main .main-left .nav li .food[data-title="Log_out"]:not(#mwrt-nope),
+.main .main-left .nav li a[data-title="Logout"]:not(#mwrt-nope) {
+  color: var(--sb-danger) !important;
+}
+.main .main-left .nav li .menu[data-title="Log_out"]:not(#mwrt-nope):hover,
+.main .main-left .nav li a[data-title="Log_out"]:not(#mwrt-nope):hover,
+.main .main-left .nav li .food[data-title="Log_out"]:not(#mwrt-nope):hover,
+.main .main-left .nav li a[data-title="Logout"]:not(#mwrt-nope):hover {
+  color: var(--sb-danger) !important;
+  background: color-mix(in srgb, var(--sb-danger) 16%, transparent) !important;
+  box-shadow: none !important;
+}
+.main .main-left .nav li .menu[data-title="Log_out"]:not(#mwrt-nope)::before,
+.main .main-left .nav li a[data-title="Log_out"]:not(#mwrt-nope)::before,
+.main .main-left .nav li .food[data-title="Log_out"]:not(#mwrt-nope)::before,
+.main .main-left .nav li a[data-title="Logout"]:not(#mwrt-nope)::before {
+  color: var(--sb-danger) !important;
+}
+
+/* 菜单图标补齐 —— 下面这几个字形只在 argon-menu-custom.css 里定义过,
+   boot.js 把那份表停用后需要在这里接住, 否则对应菜单项会没有图标。
+   字体族由 cascade.css 的 ::before 规则给出('argon'), 这里只补 content。 */
+.main .main-left .nav li .menu[data-title="设备总览"]:not(#mwrt-nope)::before {
+  content: "\e906" !important;
+}
+.main .main-left .nav li .menu[data-title="Status"]:not(#mwrt-nope)::before {
+  content: "\e90d" !important;
+}
+.main .main-left .nav li .menu[data-title="Modem"]:not(#mwrt-nope)::before {
+  content: "\e908" !important;
+}
+.main .main-left .nav li .menu[data-title="QuickStart"]:not(#mwrt-nope)::before,
+.main .main-left .nav li .menu[data-title="iStore商店"]:not(#mwrt-nope)::before {
+  content: "\e915" !important;
+}
+.main .main-left .nav li .menu[data-title="Log_out"]:not(#mwrt-nope)::before,
+.main .main-left .nav li a[data-title="Log_out"]:not(#mwrt-nope)::before,
+.main .main-left .nav li .food[data-title="Log_out"]:not(#mwrt-nope)::before {
+  content: "\e907" !important;
+}
+
+/* ── 2. 顶栏 ───────────────────────────────────────────────────────────── */
+
+.main-right header:not(#mwrt-nope),
+.main-right header.bg-primary:not(#mwrt-nope),
+header.bg-primary:not(#mwrt-nope) {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border-bottom: 1px solid var(--hairline) !important;
+  box-shadow: none !important;
+}
+.main-right header:not(#mwrt-nope)::after,
+header:not(#mwrt-nope)::after {
+  display: none !important;
+}
+.main-right header .fill:not(#mwrt-nope),
+header .fill:not(#mwrt-nope) {
+  border-bottom: 0 !important;
+  padding: .6rem 0 !important;
+}
+
+header .fill .container .flex1 .brand:not(#mwrt-nope),
+.main-right header .brand:not(#mwrt-nope) {
+  background: none !important;
+  -webkit-background-clip: border-box !important;
+  background-clip: border-box !important;
+  -webkit-text-fill-color: currentColor !important;
+  color: var(--text) !important;
+  font-family: var(--font-sans) !important;
+  font-weight: 600 !important;
+  letter-spacing: .01em !important;
+}
+
+header .fill .container .flex1 .showSide:not(#mwrt-nope),
+.main-right header .showSide:not(#mwrt-nope) {
+  color: var(--text-muted) !important;
+  transition: color .15s ease !important;
+}
+header .fill .container .flex1 .showSide:not(#mwrt-nope):hover,
+.main-right header .showSide:not(#mwrt-nope):hover {
+  color: var(--brand) !important;
+}
+
+/* 顶栏右侧状态药丸 */
+header .fill .status span:not(#mwrt-nope),
+.main-right header .status span:not(#mwrt-nope) {
+  border: 1px solid var(--hairline) !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+  color: var(--text-muted) !important;
+  background: var(--surface-sunken) !important;
+  font-size: .75rem !important;
+  font-weight: 500 !important;
+  letter-spacing: 0 !important;
+  padding: .2rem .6rem !important;
+  text-transform: none !important;
+  transition: background-color .15s ease, color .15s ease !important;
+}
+header .fill .status span[data-style="active"]:not(#mwrt-nope),
+.main-right header .status span[data-style="active"]:not(#mwrt-nope) {
+  background: var(--success-surface) !important;
+  color: var(--success) !important;
+  border-color: transparent !important;
+}
+header .fill .status span[data-style="inactive"]:not(#mwrt-nope),
+.main-right header .status span[data-style="inactive"]:not(#mwrt-nope) {
+  background: var(--surface-sunken) !important;
+  color: var(--text-muted) !important;
+  border-color: var(--hairline) !important;
+}
+header .fill .status span[data-indicator="poll-status"]:not(#mwrt-nope),
+#xhr_poll_status:not(#mwrt-nope) *,
+.main-right header #xhr_poll_status:not(#mwrt-nope) * {
+  color: var(--text-muted) !important;
+}
+
+/* 移动端遮罩 */
+.darkMask:not(#mwrt-nope) {
+  background: var(--scrim) !important;
+}
+
+/* ── 2b. 移动端顶栏: 深色扁平悬浮卡片 ─────────────────────────────────────
+   s63: 窄屏下 §2 把顶栏做成了白底 + 下边线的浅色平条, 用户要换成"深色扁平
+   卡片"风。只在 <=768px 生效(宽屏顶栏保持 §2 的浅色随主题), 不碰 PC。
+
+   设计:
+   · 整条 header 不再撑满、不画下边线, 改成一张深蓝灰实色卡片, 四周留 10px
+     外边距浮起来, 圆角 14px + 一圈极淡描边 + 柔和投影 —— 扁平但有层次,
+     不堆渐变/高光。深色值取 aurora 深色面板的 #141822 一档, 比纯黑亮一点,
+     和下面内容区(.P 的 #0b0d14)拉开, 像浮在页面之上。
+   · 汉堡键做成 38x38 圆角图标按钮(淡白底), 点击缩放、悬停转品牌青;
+   · 设备名浅色 600 字重, 前面缀一个品牌青信号点(带柔光圈)点睛;
+   · 右侧状态药丸转深色小药丸, 融进卡片。
+   特异度: 复用全表的 :not(#mwrt-nope)(0,2,0 起步)叠上下文, 压过 §2 同名规则;
+   §2 与本段都带 !important, 靠"本段在后 + 选择器更具体"取胜。 */
+@media screen and (max-width: 768px) {
+  .main-right header:not(#mwrt-nope),
+  .main-right header.bg-primary:not(#mwrt-nope),
+  header.bg-primary:not(#mwrt-nope) {
+    background: transparent !important;   /* 真正的卡片底画在 .fill 上, header 只当定位层 */
+    border-bottom: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+  /* .fill = 卡片本体 */
+  .main-right header .fill:not(#mwrt-nope),
+  header .fill:not(#mwrt-nope) {
+    margin: 10px 10px 12px !important;   /* 底部留 12px, 和下面内容拉开, 卡片四面都浮起来 */
+    padding: 0 !important;
+    border-radius: 14px !important;
+    background: #141822 !important;
+    border: 1px solid rgba(255, 255, 255, .07) !important;
+    box-shadow: 0 6px 20px -10px rgba(0, 0, 0, .55),
+                0 1px 0 0 rgba(255, 255, 255, .03) inset !important;
+    overflow: hidden !important;
+  }
+  .main-right header .fill .container:not(#mwrt-nope),
+  header .fill .container:not(#mwrt-nope) {
+    height: auto !important;
+    min-height: 52px !important;
+    padding: 0 12px 0 10px !important;
+  }
+  .main-right header .fill .container .flex1:not(#mwrt-nope),
+  header .fill .container .flex1:not(#mwrt-nope) {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+  }
+
+  /* 汉堡键 → 圆角图标按钮 */
+  header .fill .container .flex1 .showSide:not(#mwrt-nope),
+  .main-right header .showSide:not(#mwrt-nope) {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 38px !important;
+    height: 38px !important;
+    padding: 0 !important;
+    border-radius: 11px !important;
+    background: rgba(255, 255, 255, .06) !important;
+    border: 1px solid rgba(255, 255, 255, .08) !important;
+    color: rgba(255, 255, 255, .78) !important;
+    transition: background-color .16s ease, color .16s ease, transform .12s ease !important;
+  }
+  header .fill .container .flex1 .showSide:not(#mwrt-nope)::before,
+  .main-right header .showSide:not(#mwrt-nope)::before {
+    font-size: 1.35rem !important;   /* 图标比原来的 1.7rem 收一点, 配进 38px 按钮 */
+    line-height: 1 !important;
+  }
+  header .fill .container .flex1 .showSide:not(#mwrt-nope):hover,
+  .main-right header .showSide:not(#mwrt-nope):hover {
+    background: var(--brand-subtle, #061a20) !important;
+    color: #fff !important;
+  }
+  header .fill .container .flex1 .showSide:not(#mwrt-nope):active,
+  .main-right header .showSide:not(#mwrt-nope):active {
+    transform: scale(.92) !important;
+  }
+
+  /* 设备名 → 浅色 600, 前缀一个品牌青信号点(带柔光) */
+  header .fill .container .flex1 .brand:not(#mwrt-nope),
+  .main-right header .brand:not(#mwrt-nope) {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    padding: 0 !important;
+    font-family: var(--font-sans) !important;
+    font-size: 1.02rem !important;
+    font-weight: 600 !important;
+    letter-spacing: .01em !important;
+    color: #f4f6fa !important;
+    -webkit-text-fill-color: #f4f6fa !important;
+    vertical-align: middle !important;
+  }
+  header .fill .container .flex1 .brand:not(#mwrt-nope)::before,
+  .main-right header .brand:not(#mwrt-nope)::before {
+    content: "" !important;
+    flex: 0 0 auto !important;
+    width: 7px !important;
+    height: 7px !important;
+    border-radius: 999px !important;
+    background: var(--brand, #0085b7) !important;
+    box-shadow: 0 0 0 3px rgba(0, 133, 183, .18) !important;
+  }
+
+  /* 右侧状态药丸 → 深色小药丸 */
+  header .fill .status span:not(#mwrt-nope),
+  .main-right header .status span:not(#mwrt-nope) {
+    background: rgba(255, 255, 255, .05) !important;
+    border: 1px solid rgba(255, 255, 255, .08) !important;
+    color: rgba(255, 255, 255, .62) !important;
+  }
+  header .fill .status span[data-style="active"]:not(#mwrt-nope),
+  .main-right header .status span[data-style="active"]:not(#mwrt-nope) {
+    background: rgba(81, 189, 133, .16) !important;
+    color: #7fe0ae !important;
+    border-color: transparent !important;
+  }
+}
+
+/* ── 3. 兜底: JS 没跑时把内容区从青绿皮拉回 aurora ──────────────────────── */
+/*    argon-global-custom.css 整份 !important, 这里只压最显眼的几处;
+      正常情况下 mwrt-aurora-boot.js 会直接把那份表停用, 走 aurora 原样式。 */
+
+html:not(#mwrt-nope),
+html body:not(#mwrt-nope) {
+  font-family: var(--font-sans) !important;
+  background-color: var(--bg) !important;
+  color: var(--text) !important;
+}
+.main-right:not(#mwrt-nope),
+.main-right:not(#mwrt-nope) > #maincontent {
+  background-color: transparent !important;
+}
+
+/* ── 4. 质感统一 ───────────────────────────────────────────────────────── */
+
+/* 全局滚动条: 细、无色, 不抢视觉 */
+:not(html):not(#mwrt-nope)::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+:not(html):not(#mwrt-nope)::-webkit-scrollbar-track {
+  background: transparent;
+}
+:not(html):not(#mwrt-nope)::-webkit-scrollbar-thumb {
+  background: var(--hairline);
+  border-radius: 999px;
+}
+:not(html):not(#mwrt-nope)::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtle);
+}
+
+/* 统一焦点环: 键盘可达性 + 视觉一致 */
+a:not(#mwrt-nope):focus-visible,
+button:not(#mwrt-nope):focus-visible,
+input:not(#mwrt-nope):focus-visible,
+select:not(#mwrt-nope):focus-visible,
+textarea:not(#mwrt-nope):focus-visible,
+.btn:not(#mwrt-nope):focus-visible,
+.cbi-button:not(#mwrt-nope):focus-visible,
+.cbi-dropdown:not(#mwrt-nope):focus-visible {
+  outline: 2px solid var(--focus-ring) !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
+}
+
+/* 选中文字 */
+::selection {
+  background: var(--brand-subtle);
+  color: var(--brand);
+}
+
+/* argon 给按钮加了 translateY(-1px) 的跳动, aurora 用按下缩放, 统一成后者 */
+.cbi-button:not(#mwrt-nope):hover,
+.btn:not(#mwrt-nope):hover {
+  transform: none !important;
+  box-shadow: none !important;
+}
+.cbi-button:not(#mwrt-nope):active,
+.btn:not(#mwrt-nope):active {
+  transform: scale(.97) !important;
+  box-shadow: none !important;
+}
+
+/* 页脚: argon-global-custom 停用后这条要接住。
+   页脚其余部分(配色 + 右下角胶囊)统一放在 §14。 */
+footer #modemenu:empty:not(#mwrt-nope) {
+  display: none !important;
+}
+
+/* 复选框 / 单选框跟随 brand */
+input[type="checkbox"]:not(#mwrt-nope),
+input[type="radio"]:not(#mwrt-nope) {
+  accent-color: var(--brand);
+}
+
+/* 不跟随系统"减弱动画": 面板的风扇/屏保/产品图动效是产品体验的一部分, 全局静音会让它们整体消失 */
+
+/* ── 5. 排版密度 ───────────────────────────────────────────────────────────
+   根字号回到 15px。argon 的 html,body{font-size:16px} 是它自己给的,
+   以前被 argon-global-custom.css 压成 15px, 那份表停用后弹回了 16px ——
+   整个内容区(包括上面的 --text-* 阶梯)都是 rem, 所以这一处就是总闸。
+   ─────────────────────────────────────────────────────────────────────── */
+
+html:not(#mwrt-nope) {
+  font-size: 15px !important;
+}
+
+/* 字形渲染: 后台是"小字号 + 高密度"场景, 默认的次像素抗锯齿会把笔画
+   涂得偏重、发毛; 灰度抗锯齿在浅底深字上更干净利落。 */
+html:not(#mwrt-nope),
+body:not(#mwrt-nope) {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-synthesis-weight: none;   /* 宁可不加粗, 也不要算法合成的糊粗体 */
+}
+
+/* 数字等宽: 表格里的 IP、流量、内存、信号强度都是数字列, 变宽数字会让
+   每一行的位数左右跳动, 扫读时对不齐。 */
+#maincontent table:not(#mwrt-nope),
+#maincontent .table:not(#mwrt-nope),
+#maincontent .cbi-progressbar:not(#mwrt-nope),
+#maincontent .ifacebadge:not(#mwrt-nope),
+#maincontent input:not(#mwrt-nope),
+#maincontent code:not(#mwrt-nope),
+#maincontent pre:not(#mwrt-nope) {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* h1/h2/h3 的"白卡片": argon 给每个标题都套了白底+圆角+投影, 而 aurora 的
+   .cbi-section 本身已经是带边框和投影的卡片了 —— 标题再套一层白卡, 就成了
+   卡里套卡。这里把 argon 那层剥掉, 回到 aurora 的裸标题 + 下细线。 */
+h1:not(#mwrt-nope),
+h2:not(#mwrt-nope),
+h3:not(#mwrt-nope),
+.cbi-section > h3:first-child:not(#mwrt-nope),
+.panel-title:not(#mwrt-nope) {
+  background: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  color: var(--text) !important;
+  letter-spacing: -.01em !important;
+}
+h1:not(#mwrt-nope) {
+  border-bottom: 1px solid var(--hairline) !important;
+  padding: 0 0 .6rem .25rem !important;
+  margin: 0 0 1rem !important;
+}
+h2:not(#mwrt-nope) {
+  border-bottom: 0 !important;
+  padding: .25rem 0 .25rem .25rem !important;
+  margin: 0 0 .85rem !important;
+}
+h3:not(#mwrt-nope),
+.cbi-section > h3:first-child:not(#mwrt-nope),
+.panel-title:not(#mwrt-nope) {
+  padding: 0 0 .7rem !important;
+  margin: 0 0 .9rem !important;
+  line-height: 1.35 !important;
+}
+/* argon 的 h4 是 .7rem 全大写小标题, aurora 是 1rem 正常标题;
+   走 aurora, 但把颜色收成 text-muted, 免得跟 h3 抢注意力 */
+h4:not(#mwrt-nope) {
+  padding: 0 !important;
+  margin: 0 0 .5rem !important;
+  color: var(--text-muted) !important;
+}
+
+/* ── 6. PC 下去掉右侧顶栏 ──────────────────────────────────────────────────
+   桌面宽度下 header 里其实只剩一条空白: .showSide(汉堡键)和 .brand 都被
+   argon 设成 display:none, 只有右边一个 #indicators 里的自动刷新小药丸。
+   一条纯装饰的白条 + 分隔线, 删掉更干净。
+
+   ≤768px 仍然保留 —— 汉堡键在里面, 移动端没它就没法开侧边栏了。
+
+   例外: 有未保存的配置时 LuCI 会往 #indicators 里插 uci-changes 指示器,
+   那是唯一的跨页"应用改动"入口, 所以用 :has() 把顶栏放出来。
+   ─────────────────────────────────────────────────────────────────────── */
+
+@media screen and (min-width: 769px) {
+  .main-right > header:not(#mwrt-nope) {
+    display: none !important;
+  }
+  .main-right > header:not(#mwrt-nope):has(.status span[data-indicator="uci-changes"]) {
+    display: block !important;
+  }
+  /* 顶栏没了, 内容顶到边上, 补一点上边距 */
+  .main-right > #maincontent:not(#mwrt-nope) > .container {
+    margin-top: 1.25rem !important;
+  }
+  /* 例外: 自带整页布局的第三方视图(cellular_data 那种 .P 单页应用)。
+     那种页面自己就从顶边开始画, 还专门写了
+       #maincontent{padding-top:0!important}
+       #maincontent>.container{margin:0!important}
+     来抹掉主题的上边距 —— 但上面那条选择器带 :not(#mwrt-nope), 权重比它高,
+     结果又把边距加了回去, 表现就是页面顶上多一条空白。这里让开。 */
+  .main-right > #maincontent:not(#mwrt-nope):has(.P) > .container {
+    margin-top: 0 !important;
+  }
+  .main-right > header:not(#mwrt-nope):has(.status span[data-indicator="uci-changes"])
+    ~ #maincontent:not(#mwrt-nope) > .container:not(#mwrt-nope) {
+    margin-top: 0 !important;
+  }
+  /* 只在"有未保存改动"时露脸的顶栏, 让那颗指示器显眼一点 */
+  header .fill .status span[data-indicator="uci-changes"]:not(#mwrt-nope) {
+    background: var(--warning-surface) !important;
+    color: var(--warning) !important;
+    border-color: transparent !important;
+    cursor: pointer !important;
+  }
+}
+
+/* ── 7. 标签页去繁 ─────────────────────────────────────────────────────────
+   选中项现在是三层叠加: aurora 给 <a> 一个近黑色药丸(background:var(--text)),
+   argon 又给外面的 <li> 留了 #dce3e9/#e4e9ee 灰底和一条主色下边框, 最外面
+   aurora 的 .cbi-tabmenu 还有 surface-sunken 灰槽 + 1px 边框。
+   保留黑色药丸(它就是 aurora 的选中态), 把灰底、边框、灰槽全部去掉。
+   ─────────────────────────────────────────────────────────────────────── */
+
+/* 7a. .cbi-tabmenu —— 药丸式 */
+.cbi-tabmenu:not(#mwrt-nope) {
+  background: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  gap: .35rem !important;
+  margin: 0 0 .9rem !important;
+}
+.cbi-tabmenu li:not(#mwrt-nope),
+.cbi-tabmenu li:not(#mwrt-nope):hover,
+.cbi-tabmenu li.cbi-tab:not(#mwrt-nope) {
+  background: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.cbi-tabmenu li > a:not(#mwrt-nope) {
+  color: var(--text-muted) !important;
+  background: none !important;
+  padding: .4rem .9rem !important;
+  transition: background-color .15s ease, color .15s ease !important;
+}
+.cbi-tabmenu li:not(#mwrt-nope):hover > a {
+  color: var(--text) !important;
+  background: var(--hover-faint) !important;
+}
+.cbi-tabmenu li.cbi-tab > a:not(#mwrt-nope),
+.cbi-tabmenu li.cbi-tab:not(#mwrt-nope):hover > a {
+  color: var(--surface) !important;
+  background: var(--text) !important;
+  box-shadow: none !important;
+}
+
+/* 7b. .tabs —— 下划线式(argon 给它白卡+投影+灰底选中, 一并去掉) */
+.tabs:not(#mwrt-nope) {
+  background: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  border-bottom: 1px solid var(--hairline) !important;
+  margin: 0 0 1rem !important;
+}
+.tabs li:not(#mwrt-nope),
+.tabs li:not(#mwrt-nope):hover,
+.tabs li.active:not(#mwrt-nope),
+.tabs li[class~="active"]:not(#mwrt-nope) {
+  background: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  margin-bottom: 0 !important;
+}
+.tabs li:not(#mwrt-nope) {
+  border-bottom: 2px solid transparent !important;
+}
+.tabs li:not(#mwrt-nope):hover {
+  border-bottom-color: var(--hairline) !important;
+}
+.tabs li.active:not(#mwrt-nope),
+.tabs li[class~="active"]:not(#mwrt-nope) {
+  border-bottom-color: var(--text) !important;
+}
+.tabs li > a:not(#mwrt-nope) {
+  color: var(--text-muted) !important;
+}
+.tabs li:not(#mwrt-nope):hover > a {
+  color: var(--text) !important;
+}
+.tabs li.active > a:not(#mwrt-nope),
+.tabs li[class~="active"] > a:not(#mwrt-nope) {
+  color: var(--text) !important;
+  font-weight: 600 !important;
+}
+
+/* ── 8. 进度条文字重影 ─────────────────────────────────────────────────────
+   百分比被画了两遍:
+     argon   .cbi-progressbar::after { content: attr(title) }   居中靠 line-height
+     aurora  .cbi-progressbar::before{ --tw-content: attr(title) } 居中靠 translate
+   两个伪元素各画一份, 位置差几个像素就成了重影。留 aurora 那份(字号、
+   颜色都是按 aurora 的阶梯来的), 把 argon 的关掉。
+   ─────────────────────────────────────────────────────────────────────── */
+
+.cbi-progressbar:not(#mwrt-nope)::after {
+  content: none !important;
+  display: none !important;
+}
+
+/* 关掉 argon 那份之后, 文字反被进度条挡住 —— 这是上一步留下的尾巴:
+   argon 的 ::after 自带 z-index:2 才压得住填充条; aurora 的 ::before 没写
+   z-index, 而 argon 又给填充条 .cbi-progressbar>div 加了 position:absolute。
+   两个都是 z-index:auto 的定位元素时按**树序**绘制, ::before 排在子元素
+   <div> 前面, 所以填充条盖在文字上。(aurora 原版里 >div 不是定位元素,
+   所以不会有这个问题, 是 argon 的 absolute 引进来的。)
+   给文字 z-index:2、填充条 z-index:1, 顺序就固定了。 */
+.cbi-progressbar:not(#mwrt-nope)::before {
+  z-index: 2 !important;
+  text-shadow: none !important;   /* 不加描边光晕, 那层白雾很脏 */
+  pointer-events: none !important;
+}
+.cbi-progressbar:not(#mwrt-nope) > div {
+  z-index: 1 !important;
+}
+
+/* ── 9. 表格: 去斑马纹, 收行高 ──────────────────────────────────────────────
+   斑马纹的来源是 argon(不是 aurora), 而且它上了两套、颜色还不一样:
+
+     div>table>tbody>tr:nth-of-type(2n){background:#e2f1ff}   淡蓝
+     div>table>tbody>tr:nth-of-type(4n){background:#e2f7e9}   淡绿
+     .cbi-rowstyle-1{#f9f9f9}  .cbi-rowstyle-2{#eee}
+     .cbi-tabcontainer>.cbi-value:nth-of-type(2n){#f9f9f9}
+     .cbi-section-node/.cbi-section-remove:nth-of-type(2n|4n+3){#f9f9f9}
+     .pure-table-striped tr:nth-child(2n-1) td{#f2f2f2}
+
+   所以看起来是"每隔一行换个颜色, 还三种颜色轮着来"。aurora 只中和了
+   .cbi-rowstyle-*(而且仅限 .table 内部), 其余几套都漏了过来。全部清成透明。
+
+   分隔线也一并去掉(9c): 行与行之间画线是 90 年代表格的做法, 一屏几十行时
+   整块区域会变成一张栅格网, 视觉噪音全是线, 反而看不清内容。扁平化的做法是
+   靠留白和一条表头底线来分组, 定位交给 hover 高亮。
+
+   行高: aurora 的单元格是 padding .75rem + --text-base + line-height 1.5,
+   约 43px/行, 对普通网页合适, 对路由器后台这种一屏几十行的表就太松了。
+   桌面宽度下收到 padding .4/.6rem + --text-sm + 1.45, 约 30px/行。
+   ≤768px 不动 —— 那边 aurora 把每行拆成卡片, 是另一套排版。
+   ─────────────────────────────────────────────────────────────────────── */
+
+/* 9a. 清掉所有隔行底色 */
+#maincontent table > tbody > tr:not(#mwrt-nope),
+#maincontent div > table > tbody > tr:not(#mwrt-nope),
+#maincontent .table > .tr:not(#mwrt-nope),
+#maincontent .table > .tbody > .tr:not(#mwrt-nope),
+#maincontent tr.cbi-rowstyle-1:not(#mwrt-nope),
+#maincontent tr.cbi-rowstyle-2:not(#mwrt-nope),
+#maincontent .tr.cbi-rowstyle-1:not(#mwrt-nope),
+#maincontent .tr.cbi-rowstyle-2:not(#mwrt-nope),
+#maincontent .cbi-rowstyle-1:not(#mwrt-nope),
+#maincontent .cbi-rowstyle-2:not(#mwrt-nope),
+#maincontent .cbi-section-node:not(#mwrt-nope),
+#maincontent .cbi-section-remove:not(#mwrt-nope),
+#maincontent .cbi-tabcontainer > .cbi-value:not(#mwrt-nope),
+#maincontent .pure-table-striped tr:not(#mwrt-nope) > td {
+  background-color: transparent !important;
+}
+
+/* argon 给 .cbi-rowstyle-2 里的上下箭头按钮单独刷了白底, 现在没斑马纹了,
+   让它跟其它中性按钮一样走 surface-sunken */
+#maincontent .cbi-rowstyle-2 .cbi-button-up:not(#mwrt-nope),
+#maincontent .cbi-rowstyle-2 .cbi-button-down:not(#mwrt-nope) {
+  background-color: var(--surface-sunken) !important;
+}
+
+/* 9c. 去掉所有分隔线
+   两边都在画线: argon 的 tr>td,tr>th{border-top:thin solid #fff},
+   aurora 的 td,.td,th,.th{border-bottom:1px solid var(--hairline)},
+   外面还有 .table{border:1px solid var(--hairline);border-radius:1rem}
+   这层外框。表格外面通常已经是 .cbi-section 这张卡了, 卡里再套一个圆角框
+   就是"框里套框"。全部去掉, 只留表头下面那一条(见 9d)。 */
+#maincontent table:not(#mwrt-nope),
+#maincontent .table:not(#mwrt-nope) {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+#maincontent td:not(#mwrt-nope),
+#maincontent .td:not(#mwrt-nope),
+#maincontent th:not(#mwrt-nope),
+#maincontent .th:not(#mwrt-nope),
+#maincontent tr:not(#mwrt-nope),
+#maincontent .tr:not(#mwrt-nope) {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+@media (min-width: 48rem) {
+  /* 9b. 单元格收紧 */
+  #maincontent td:not(#mwrt-nope),
+  #maincontent .td:not(#mwrt-nope) {
+    padding: .4rem .6rem !important;
+    font-size: var(--text-sm) !important;
+    line-height: 1.45 !important;
+  }
+  #maincontent th:not(#mwrt-nope),
+  #maincontent .th:not(#mwrt-nope) {
+    padding: .45rem .6rem !important;
+    font-size: var(--text-xs) !important;
+    line-height: 1.45 !important;
+  }
+  /* 9d. 表头: 唯一保留的那条线。不用底色块 —— argon 刷的 #f6f9fc 和 aurora
+     刷的 surface-sunken 都是一整条灰横条, 在扁平设计里太重。改成
+     "小号 + 加粗 + 浅灰字 + 一条细下线", 分量刚好够把表头和数据分开。
+     不做 uppercase: 界面是中英混排, 汉字不受变换影响, 只会让中间的英文
+     缩写显得突兀。 */
+  #maincontent .tr.table-titles > .th:not(#mwrt-nope),
+  #maincontent .tr.cbi-section-table-titles > .th:not(#mwrt-nope),
+  #maincontent thead th:not(#mwrt-nope),
+  #maincontent .thead .th:not(#mwrt-nope),
+  #maincontent .table[width="100%"] > .tr:first-child > .td:not(#mwrt-nope) {
+    background-color: transparent !important;
+    color: var(--text-subtle) !important;
+    font-weight: 600 !important;
+    font-size: var(--text-xs) !important;
+    letter-spacing: .02em !important;
+    border-bottom: 1px solid var(--hairline) !important;
+    padding-bottom: .35rem !important;
+  }
+  /* 单元格里的控件跟着收一档, 否则按钮/输入框把行撑回去 */
+  #maincontent td .cbi-button:not(#mwrt-nope),
+  #maincontent .td .cbi-button:not(#mwrt-nope),
+  #maincontent td .btn:not(#mwrt-nope),
+  #maincontent .td .btn:not(#mwrt-nope) {
+    min-height: 0 !important;
+    padding: .25rem .6rem !important;
+    font-size: var(--text-xs) !important;
+  }
+  #maincontent td input:not(.cbi-button):not(#mwrt-nope),
+  #maincontent .td input:not(.cbi-button):not(#mwrt-nope),
+  #maincontent td select:not(#mwrt-nope),
+  #maincontent .td select:not(#mwrt-nope),
+  #maincontent td .cbi-dropdown:not(#mwrt-nope),
+  #maincontent .td .cbi-dropdown:not(#mwrt-nope) {
+    min-height: 0 !important;
+    padding: .25rem .5rem !important;
+    font-size: var(--text-sm) !important;
+  }
+  /* 没有斑马纹了, 用 hover 高亮当行定位, 比隔行底色干净 */
+  #maincontent .table > .tr:not(.table-titles):not(.cbi-section-table-titles):not(#mwrt-nope):hover,
+  #maincontent .table > .tbody > .tr:not(.table-titles):not(.cbi-section-table-titles):not(#mwrt-nope):hover,
+  #maincontent table > tbody > tr:not(#mwrt-nope):hover {
+    background-color: var(--hover-faint) !important;
+  }
+  /* 表单行也一起收 */
+  #maincontent .cbi-value:not(#mwrt-nope) {
+    padding-block: .3rem !important;
+  }
+  #maincontent .cbi-value + .cbi-value:not(#mwrt-nope) {
+    margin-top: .4rem !important;
+  }
+}
+
+/* ── 10. 弹窗:标题栏 + 滚动区 + 按钮栏 三段式 ──────────────────────────────
+   aurora 把遮罩层做成 display:grid + place-items:center + overflow:auto,
+   argon 又给 .modal 加了 margin:5em auto。弹窗比视口高的时候(无线设置这种
+   长表单必然如此), 居中会让它上下各溢出一半 —— 而滚动容器只能往下滚, 起始
+   边以上的部分永远到不了, 于是标题和顶部几行既看不见也点不到。
+
+   上一版用 position:sticky + 负偏移(top:-1.5rem)把标题和按钮行钉住, 想借
+   负 margin 抵消弹窗自己的 padding。这是个陷阱: **负的 sticky 偏移允许元素
+   越过滚动容器边缘 1.5rem 再吸附**, 也就是它会先滑出可视区一截才停 ——
+   标题被裁掉顶部、按钮行被裁掉底部, 于是"有些地方看不到保存和取消"。
+
+   这一版仍然用 sticky, 但**偏移改成 0**, 同时把弹窗自己的 padding 归零、
+   下放给三段各自负责 —— 没有 padding 要抵消, 也就不需要负 margin 和负偏移:
+     .modal       撑高到上限, 自己就是那个滚动容器(overflow-y:auto)
+     > h4         sticky top:0    —— 钉在顶部
+     > 中间内容    正常流,跟着滚
+     > 按钮行      sticky bottom:0 —— 钉在底部
+   之所以不改成"中间那段单独滚"的三段式 flex: LuCI 的 showModal 传进来的是
+   一个数组, 中间常常是好几个平级子节点(说明段落、多个 .cbi-section...),
+   给"每个中间子项"挂 overflow 会变成一屏好几个独立滚动条。让弹窗整体滚、
+   两头钉住, 对任意子节点数量都成立。
+
+   两处 argon 遗留必须一并中和:
+     .modal{align-items:center;flex-wrap:wrap} —— 在 aurora 的 column 方向下
+       会把子项挤成居中窄条而不是撑满宽度
+     .modal>*{flex-basis:100%} —— column 里 flex-basis 指的是**高度**,
+       等于每个子项都申请 100% 弹窗高, 几段一起抢, 结果谁都放不下
+   ─────────────────────────────────────────────────────────────────────── */
+
+.modal-overlay-active #modal_overlay:not(#mwrt-nope) {
+  align-items: start !important;
+  padding-block: 1.5rem !important;
+}
+#modal_overlay > .modal:not(#mwrt-nope) {
+  max-height: calc(100dvh - 3rem) !important;
+  margin: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  flex-wrap: nowrap !important;      /* 盖 argon 的 flex-wrap:wrap */
+  align-items: stretch !important;   /* 盖 argon 的 align-items:center */
+  gap: 0 !important;
+  padding: 0 !important;             /* 内边距下放给三段各自负责 */
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+}
+/* 所有直接子项: 中和 argon 的 flex-basis:100%(column 下是高度), 并补回
+   被弹窗让出的左右内边距 */
+#modal_overlay > .modal > *:not(#mwrt-nope) {
+  flex: 0 0 auto !important;
+  flex-basis: auto !important;
+  max-width: none !important;
+  margin-bottom: 0 !important;
+  padding-inline: calc(var(--spacing) * 6) !important;
+}
+#modal_overlay > .modal > *:not(#mwrt-nope):not(h4):not(.button-row):not(.right):not(.left) {
+  padding-block: calc(var(--spacing) * 2) !important;
+}
+/* 标题栏: 钉在顶部 */
+#modal_overlay > .modal > h4:not(#mwrt-nope) {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 3 !important;
+  padding: calc(var(--spacing) * 4) calc(var(--spacing) * 6) !important;
+  margin: 0 !important;
+  background: var(--surface-overlay) !important;
+  border-bottom: 1px solid var(--hairline) !important;
+  color: var(--text) !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+/* 按钮栏: 钉在底部, 永远可见可点 */
+#modal_overlay > .modal > div.right:not(#mwrt-nope),
+#modal_overlay > .modal > div.left:not(#mwrt-nope),
+#modal_overlay > .modal > .button-row:not(#mwrt-nope) {
+  position: sticky !important;
+  bottom: 0 !important;
+  z-index: 3 !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: calc(var(--spacing) * 2) !important;
+  padding: calc(var(--spacing) * 3) calc(var(--spacing) * 6) !important;
+  margin: 0 !important;
+  background: var(--surface-overlay) !important;
+  border-top: 1px solid var(--hairline) !important;
+}
+#modal_overlay > .modal > div.right:not(#mwrt-nope) {
+  justify-content: flex-end !important;
+}
+/* 按钮不要被按钮栏的 stretch 拉伸变形 */
+#modal_overlay > .modal > div.right > *:not(#mwrt-nope),
+#modal_overlay > .modal > div.left > *:not(#mwrt-nope),
+#modal_overlay > .modal > .button-row > *:not(#mwrt-nope) {
+  flex: 0 0 auto !important;
+}
+/* 弹窗里的表单行再收一点, 常见的无线设置一屏能多放两三项 */
+#modal_overlay > .modal .cbi-value:not(#mwrt-nope) {
+  padding-block: .25rem !important;
+}
+
+/* ── 11. "正在加载视图…" 的位置 ────────────────────────────────────────────
+   两边对这个占位块的设想完全相反, 混在一起就飘到了角上:
+
+     argon   #view>.spinning{position:fixed;top:50%;left:50%;
+                             transform:translate(-50%,-50%);
+                             padding:1rem;background:#fff;border-radius;box-shadow}
+             —— 一张脱离文档流、钉在**浏览器视口**中央的白卡片
+     aurora  #view>.spinning:first-child{display:grid;place-items:center;
+                                         width:fit-content;margin-inline:auto;
+                                         min-height:12rem}
+             —— 留在文档流里、在内容区里居中的一块占位区
+
+   aurora 的选择器多一个 :first-child, 权重更高, 所以 display/place-items/
+   width 这些归它; 但它没写 position/top/left/transform, argon 的 fixed 定位
+   原样留着。结果就是一个"按内容区排版、却按视口定位"的四不像, 再叠上
+   width:fit-content, 落点跟内容区中间对不上。
+
+   这里让 aurora 的设想走完: 收回文档流(position:static), 宽度撑满 #view,
+   高度给 60vh, 内容 grid 居中 —— 自然就落在右侧内容区的正中间, 而且不依赖
+   侧边栏宽度, 换窄屏也对。argon 那张白卡片一并去掉, 扁平化不需要它。
+
+   只管 #view 下的那一个。行内的 .spinning(按钮旁边"正在等待…"那种)不动。
+   ─────────────────────────────────────────────────────────────────────── */
+
+#view > .spinning:not(#mwrt-nope) {
+  position: static !important;
+  inset: auto !important;
+  transform: none !important;
+  display: grid !important;
+  place-items: center !important;
+  gap: .85rem !important;
+  width: auto !important;
+  margin: 0 !important;
+  min-height: min(60vh, 26rem) !important;
+  padding: 1rem !important;
+  background: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  color: var(--text-muted) !important;
+  font-size: var(--text-sm) !important;
+}
+
+/* 转圈图标: argon 用绝对定位把 loading.gif 贴在左边(给它留的位置就是
+   .spinning 的 padding-left), aurora 用 --icon-spinning 遮罩 + currentColor
+   画一个会转的图标。两份都活着 —— aurora 只盖掉了 width/height/top/left,
+   argon 的 background-image 还在, 于是 gif 被遮罩裁成图标形状叠在上面。
+   这里把 gif 去掉, 并让图标回到文档流, 变成 grid 的第一行, 图标在上、
+   文字在下, 一起居中。 */
+#view > .spinning:not(#mwrt-nope)::before {
+  position: static !important;
+  inset: auto !important;
+  translate: none !important;
+  width: 1.75rem !important;
+  height: 1.75rem !important;
+  background-image: none !important;
+  background-color: currentColor !important;
+  color: var(--brand) !important;
+  -webkit-mask: var(--icon-spinning) center / contain no-repeat !important;
+  mask: var(--icon-spinning) center / contain no-repeat !important;
+}
+
+/* ── 12. 应用外壳: 四角圆角 + 贴边 ─────────────────────────────────────────
+   PC 上整个应用是一块圆角卡片浮在浅灰底上。留白只走 --shell-gap 这一个值,
+   之前是 .75rem(12px), 离浏览器边太远, 收到 5px —— 刚够把圆角和投影露出来,
+   再窄圆角就被裁得看不出弧度了。
+
+   为什么 body 必须显式 box-sizing:border-box:
+   argon 是 html/body/.main 三层 height:100%。给 body 加内边距后, 如果还是
+   content-box, body 的 100% 是"内容区 100%", 加上 padding 会比视口高出
+   2*gap, .main 跟着溢出, 底部被顶出去一条。
+
+   .main 这里从 argon 的 overflow-y:auto 改成 overflow:hidden —— 一是把
+   圆角裁出来(侧边栏是普通 flex 子项, 不是 fixed, 所以能被裁到, 左上/左下
+   两个角是深色面板自己的圆角), 二是滚动交给 .main-right 内部。
+
+   html/body 也强制不滚: argon 在 ≤1152px 把 html 放开成 overflow-y:visible
+   (让整页滚), 那一档里侧边栏会随页面一起滚上去, 深色面板滚走之后顶部露出
+   一条浅色缝。用 :has() 守卫 —— 登录页没有 .main-left, 页面本身还得能滚,
+   否则窄屏上登录框会被裁掉。
+   ─────────────────────────────────────────────────────────────────────── */
+
+@media screen and (min-width: 769px) {
+  :root:not(#mwrt-nope) {
+    --shell-gap: 5px;
+    --shell-radius: 14px;
+    /* 比 --bg 再深一档, 不然 5px 的缝和卡片糊在一起, 圆角就看不出来了 */
+    --shell-backdrop: #e3e8ee;
+  }
+
+  html:not(#mwrt-nope):has(> body > .main > .main-left) {
+    overflow: hidden !important;
+  }
+  body:not(#mwrt-nope):has(> .main > .main-left) {
+    box-sizing: border-box !important;
+    margin: 0 !important;
+    padding: var(--shell-gap) !important;
+    background: var(--shell-backdrop) !important;
+    overflow: hidden !important;
+  }
+  body:not(#mwrt-nope):has(> .main > .main-left) > .main:not(#mwrt-nope) {
+    height: 100% !important;
+    border-radius: var(--shell-radius) !important;
+    overflow: hidden !important;
+    /* 深色侧边栏压在浅底上, 投影要"托住"卡片而不是糊一圈黑:
+       第一层 1px 描边收边, 第二层大范围低透明度做离地感 */
+    box-shadow:
+      0 0 0 1px rgb(16 24 40 / .07),
+      0 10px 28px -16px rgb(16 24 40 / .35) !important;
+  }
+}
+
+/* ── 13. 第三方整页视图的深色底不要漫出内容区 ─────────────────────────────
+   /admin/modeminfo/cellular_data 这类页面不是 LuCI 的表单视图, 而是一整套
+   自带样式的单页应用(容器 <div class="P" id="P">), 右上角有个自己的
+   日夜切换按钮(#t-btn, 切 .P.L, 记在 localStorage 的 mrt-t 里, 默认深色)。
+
+   它的底色是这么铺的(深色时 --bg 是 #0b0d14):
+     .P::before { content:''; position:fixed; inset:0; z-index:-1;
+                  background: var(--bg) }
+   position:fixed 是相对**视口**定位的, 所以这块底色根本不管自己在哪个容器
+   里, 直接铺满整个浏览器窗口 —— 于是侧边栏以外的所有地方(页面边距、底部
+   footer 那一条)全被刷成近黑色, 只有 z-index:100 的侧边栏压在它上面。
+   切到深色就是"整页变黑"的由来。
+
+   .P 本身是 position:relative, 所以把这块底色改成 position:absolute 就够了:
+   inset:0 立刻改为贴合 .P 自己的盒子(.P 有 min-height:100vh, 所以内容区
+   还是满高的深色, 那页自己的设计不受影响), 不再溢出到内容区之外。
+
+   一并去掉它的 height:100vh 兜底 —— absolute 之后 inset:0 已经决定高度,
+   再叠 100vh 会在内容比一屏长时对不上。
+   ─────────────────────────────────────────────────────────────────────── */
+
+.P:not(#mwrt-nope)::before {
+  position: absolute !important;
+  inset: 0 !important;
+  height: auto !important;
+}
+
+/* ── 14. 页脚 → 右下角"关于本机"浮层 ───────────────────────────────────────
+   原样是一整行版本信息横在内容最底下, 三个链接还各带内联 style 的蓝
+   (#03a9f4)或橙(#FF9800), 一行三种颜色, 很杂。
+
+   走过的两条弯路, 别再改回去:
+     1) position:sticky —— 实测 DOM 是
+          .main > .main-right > #maincontent > [.container, footer.mobile-hide]
+        footer 是 #maincontent 的子节点, 不是滚动容器 .main-right 的直接子
+        节点。sticky 只能在自己包含块(#maincontent 的盒子)里滑动, 内容不满
+        一屏时 #maincontent 压根没撑到滚动视口底部, 胶囊被钉在 #maincontent
+        的下边缘 —— 也就是屏幕中间, 贴不到右下角。#maincontent 又不是 flex
+        容器, margin-top:auto 同样无效。
+     2) position:fixed 的常驻胶囊 —— 位置对了, 但一直压着内容。
+
+   最终做法: 默认只在右下角留一枚小图标(#mwrt-about-btn, 由
+   mwrt-aurora-boot.js §4 挂到 body 上), 点一下才把 footer 本体当浮层弹出,
+   点图标/点关闭/点浮层外面/按 Esc 收起。开合状态是 body.mwrt-about-open。
+   收起时用 visibility:hidden 而不是 display:none —— 这样 opacity/transform
+   的过渡能跑完, 而且元素不可聚焦、不吃点击。
+
+   外观按 aurora 顶栏那一套: --surface 底 + 1px var(--hairline) 描边 +
+   --radius-base 圆角, 文字统一一个颜色(--footer-ink), 连内联的蓝/橙一起压掉。
+
+   .main 上的 overflow:hidden 不会裁掉这两个 fixed 元素 —— 只有
+   transform/filter 一类会生成包含块的属性才困得住 fixed, overflow 不行。
+   ─────────────────────────────────────────────────────────────────────── */
+
+/* ── 一个颜色 ──────────────────────────────────────────────────────────── */
+:root:not(#mwrt-nope) {
+  --footer-ink: #6b7685;            /* 白底上约 4.6:1, 过 AA */
+  --footer-ink-strong: #3d4855;
+  /* 触发图标。内联 SVG 当 mask 用, 所以里面的 stroke 颜色无所谓,
+     只有 alpha 起作用, 实际颜色由 background-color: currentColor 给。
+     注意 "#" 必须写成 %23, 否则会被当成 URL 片段标识符截断。 */
+  --icon-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 11.4v4.8'/%3E%3Ccircle cx='12' cy='7.9' r='1.15' fill='%23000' stroke='none'/%3E%3C/svg%3E");
+  /* 设备信息那一行的芯片图标, 同样是 mask */
+  --icon-chip: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='6.5' y='6.5' width='11' height='11' rx='2.2'/%3E%3Crect x='10' y='10' width='4' height='4' rx='1'/%3E%3Cpath d='M9.6 3.2v3.3M14.4 3.2v3.3M9.6 17.5v3.3M14.4 17.5v3.3M3.2 9.6h3.3M3.2 14.4h3.3M17.5 9.6h3.3M17.5 14.4h3.3'/%3E%3C/svg%3E");
+}
+footer:not(#mwrt-nope),
+footer:not(#mwrt-nope) a,
+footer:not(#mwrt-nope) #osv-switch-link a,
+footer:not(#mwrt-nope) .mwrt-ft-title,
+footer:not(#mwrt-nope) .mwrt-ft-k,
+footer:not(#mwrt-nope) .mwrt-ft-v {
+  color: var(--footer-ink) !important;
+  text-decoration: none !important;
+}
+/* #osv-switch-link 里的 <a> 是 footer.htm 用 JS 塞进去的, 带内联
+   style="color:#03a9f4;font-weight:600;margin-right:16px" ——
+   内联样式优先级高于普通选择器, 这里必须 !important 才压得住。 */
+footer:not(#mwrt-nope) a,
+footer:not(#mwrt-nope) #osv-switch-link a {
+  font-weight: 500 !important;
+  /* 模板给 #osv-switch-link 的 <a> 内联了 margin-right:16px,
+     一长行时是分隔用的, 拆成表之后多余 */
+  margin-right: 0 !important;
+  transition: color .15s ease !important;
+}
+footer:not(#mwrt-nope) a:hover,
+footer:not(#mwrt-nope) #osv-switch-link a:hover {
+  color: var(--footer-ink-strong) !important;
+}
+
+/* ── 触发图标 ──────────────────────────────────────────────────────────────
+   定位**故意写死 px、也故意放在任何 @media 外面**。踩过的坑:
+   上一版把它放进 @media (min-width:769px), 偏移又写成
+   calc(var(--shell-gap) + .7rem) —— 两处都是"条件成立才固定"。任何一条不成立
+   (媒体查询没命中、浏览器缩放把 CSS 视口算到 768px 以下、变量因为某条规则
+   没生效而解析失败), position:fixed 或偏移就落空, 按钮退回文档流末尾 ——
+   也就是页面最底下, 必须滚到底才点得到。写死之后没有这些条件。
+
+   z-index:1041 是查出来的下限: argon 的 #mwrt-sb-toggle 是 1030、
+   #mwrt-bottomnav 是 1040, 要压在它们上面。弹窗另外处理 —— 见下面那条
+   body.modal-overlay-active 的规则, 弹窗开着时这枚图标直接隐藏, 所以不会
+   反过来盖住弹窗。
+
+   平时压到 .7 透明度, 是一枚安静的小圆点; 悬停或展开时才亮起来。
+   ─────────────────────────────────────────────────────────────────────── */
+#mwrt-about-btn:not(#mwrt-nope) {
+  position: fixed !important;
+  right: 14px !important;
+  bottom: 14px !important;
+  left: auto !important;
+  top: auto !important;
+  z-index: 1041 !important;
+  pointer-events: auto !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 1.75rem !important;
+  height: 1.75rem !important;
+  padding: 0 !important;
+  border: 1px solid var(--hairline) !important;
+  border-radius: 999px !important;
+  background: var(--surface) !important;
+  color: var(--footer-ink) !important;
+  box-shadow:
+    0 1px 2px rgb(16 24 40 / .05),
+    0 6px 16px -10px rgb(16 24 40 / .4) !important;
+  cursor: pointer !important;
+  opacity: .7 !important;
+  transition: opacity .15s ease, color .15s ease,
+              border-color .15s ease, box-shadow .15s ease !important;
+}
+#mwrt-about-btn:not(#mwrt-nope):hover,
+body.mwrt-about-open #mwrt-about-btn:not(#mwrt-nope) {
+  opacity: 1 !important;
+  color: var(--brand) !important;
+  border-color: var(--brand-subtle) !important;
+}
+#mwrt-about-btn:not(#mwrt-nope):focus-visible {
+  opacity: 1 !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px var(--focus-ring) !important;
+}
+/* 图标走 mask + currentColor, 这样上面那几条 color 过渡能一起带上它 */
+#mwrt-about-btn:not(#mwrt-nope)::before {
+  content: '' !important;
+  width: .9375rem !important;
+  height: .9375rem !important;
+  background-color: currentColor !important;
+  -webkit-mask: var(--icon-info) center / contain no-repeat !important;
+  mask: var(--icon-info) center / contain no-repeat !important;
+}
+
+/* 弹窗开着时把图标和浮层都收起来: 图标的 z-index 比 argon 的弹窗遮罩高,
+   不收起会浮在弹窗上面。 */
+body.modal-overlay-active:not(#mwrt-nope) #mwrt-about-btn,
+body.modal-overlay-active:not(#mwrt-nope) footer.mobile-hide {
+  display: none !important;
+}
+
+@media screen and (min-width: 769px) {
+  /* ── 浮层本体 = footer ──────────────────────────────────────────────────
+     偏移同样写死 px, 理由见上面触发图标那段。 */
+  footer.mobile-hide:not(#mwrt-nope) {
+    position: fixed !important;
+    left: auto !important;
+    top: auto !important;
+    right: 14px !important;
+    /* 让开下面那枚 28px 的图标, 再留 8px 间距 */
+    bottom: 50px !important;
+    z-index: 1042 !important;
+    width: 22.5rem !important;
+    /* 侧边栏最宽 15rem, 留余量, 保证浮层再宽也不会盖到导航上 */
+    max-width: calc(100vw - 17rem) !important;
+    /* mwrt-aurora-full.css 里 aurora 自己那条
+         footer{display:flex;flex-wrap:wrap;justify-content:space-between;
+                align-items:center}
+       会把标题栏和正文摆成左右两个 flex 项 —— 标题栏于是缩成一小段贴在
+       左边, 铺不满整条。必须显式扳回 block。 */
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+    background: var(--surface) !important;
+    border: 1px solid var(--hairline) !important;
+    border-radius: calc(var(--radius-base) * 2) !important;
+    /* 三层投影: 1px 贴边收形 + 中距离塑体积 + 远距离大范围压场。
+       单独一层怎么调都是"一圈灰", 叠起来才有悬浮感。 */
+    box-shadow:
+      0 1px 2px rgb(16 24 40 / .06),
+      0 8px 16px -8px rgb(16 24 40 / .2),
+      0 24px 48px -22px rgb(16 24 40 / .4) !important;
+    overflow: hidden !important;
+    font-size: .6875rem !important;
+    text-align: left !important;
+    white-space: normal !important;
+    /* 默认收起, 从右下角往外展开 */
+    opacity: 0 !important;
+    visibility: hidden !important;
+    transform: translateY(.4rem) scale(.98) !important;
+    transform-origin: 100% 100% !important;
+    transition: opacity .16s ease, transform .16s ease,
+                visibility 0s linear .16s !important;
+  }
+  body.mwrt-about-open footer.mobile-hide:not(#mwrt-nope) {
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    transition: opacity .16s ease, transform .16s ease,
+                visibility 0s !important;
+  }
+
+  /* ── 标题栏: 照抄 aurora 顶栏 —— surface 底 + 一条 hairline 分隔 ────────
+     底色不用纯色而是从 --surface 渐到 --surface-sunken, 再加一道
+     inset 顶部高光: 这两笔让标题栏有一点"玻璃面"的厚度, 不像贴上去的灰条。 */
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-bar {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: .5rem !important;
+    width: auto !important;
+    padding: .5rem .5rem .5rem .8125rem !important;
+    background: linear-gradient(180deg,
+                var(--surface) 0%, var(--surface-sunken) 100%) !important;
+    border-bottom: 1px solid var(--hairline) !important;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / .8) !important;
+  }
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-title {
+    display: block !important;
+    text-align: left !important;
+    font-size: .8125rem !important;
+    font-weight: 600 !important;
+    letter-spacing: .02em !important;
+    line-height: 1.3 !important;
+  }
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-close {
+    flex: 0 0 auto !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 1.5rem !important;
+    height: 1.5rem !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    background: transparent !important;
+    color: var(--footer-ink) !important;
+    cursor: pointer !important;
+    transition: background-color .15s ease, color .15s ease,
+                transform .12s ease !important;
+  }
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-close::before {
+    content: '\00d7' !important;
+    font: 400 1.125rem/1 var(--font-sans) !important;
+  }
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-close:hover {
+    background: var(--hover-faint) !important;
+    color: var(--footer-ink-strong) !important;
+  }
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-close:active {
+    transform: scale(.92) !important;
+  }
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-close:focus-visible {
+    outline: none !important;
+    box-shadow: 0 0 0 3px var(--focus-ring) !important;
+  }
+
+  /* ── 正文 ──────────────────────────────────────────────────────────────
+     原来是 "A / B / C / 一长串" 挤成一段, 断行断在哪儿全看运气。
+     现在分三块, 块与块之间一条 hairline, 块内只靠行距分隔 ——
+     行行都画线会回到"老表格"的观感, 这里只用分组线, 扁平一些:
+
+       .mwrt-ft-hero            型号大标题 + 构建目标小字 + 芯片图标
+       .mwrt-ft-grp             设备信息(主机名/处理器/内核/…) 和 系统/面板/主题
+       .mwrt-ft-grp-wide        固件构建串, 标签压在值上面独占一行
+
+     padding 交给各组自己管, 外层那个 div 只负责不插手。 */
+  footer.mobile-hide:not(#mwrt-nope) > div {
+    display: block !important;
+    width: auto !important;
+    padding: 0 !important;
+    text-align: left !important;
+    white-space: normal !important;
+  }
+
+  /* ── 主角: 型号 ─────────────────────────────────────────────────────────
+     一整块里只有这一处用 --footer-ink-strong 和大一号的字, 视线先落这儿,
+     其余都退到 --footer-ink。图标底色用 --brand-subtle 的淡色块, 跟内容区
+     那些品牌色点缀是同一套。 */
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-hero {
+    display: flex !important;
+    align-items: center !important;
+    gap: .625rem !important;
+    padding: .75rem .8125rem !important;
+  }
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-hero-ic {
+    flex: 0 0 auto !important;
+    box-sizing: border-box !important;
+    width: 2rem !important;
+    height: 2rem !important;
+    border-radius: calc(var(--radius-base) * 1.2) !important;
+    border: 1px solid var(--brand-subtle) !important;
+    background-color: var(--brand) !important;
+    /* 底色是品牌色, 但整块只留 ~10% —— 再重就抢了型号那行 */
+    background-image: linear-gradient(rgb(255 255 255 / .88),
+                                      rgb(255 255 255 / .88)) !important;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / .7) !important;
+    position: relative !important;
+  }
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-hero-ic::before {
+    content: '' !important;
+    position: absolute !important;
+    inset: 0 !important;
+    margin: auto !important;
+    width: 1.125rem !important;
+    height: 1.125rem !important;
+    background-color: var(--brand) !important;
+    -webkit-mask: var(--icon-chip) center / contain no-repeat !important;
+    mask: var(--icon-chip) center / contain no-repeat !important;
+  }
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-hero-tx {
+    min-width: 0 !important;
+  }
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-hero-name {
+    font-size: .8125rem !important;
+    font-weight: 600 !important;
+    line-height: 1.35 !important;
+    letter-spacing: .01em !important;
+    color: var(--footer-ink-strong) !important;
+    overflow-wrap: anywhere !important;
+  }
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-hero-sub {
+    margin-top: .0625rem !important;
+    font-family: var(--font-mono) !important;
+    font-size: .625rem !important;
+    line-height: 1.4 !important;
+    color: var(--footer-ink) !important;
+    opacity: .66 !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  /* ── 分组 ───────────────────────────────────────────────────────────── */
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-grp {
+    padding: .5rem .8125rem .5625rem !important;
+    border-top: 1px solid var(--hairline) !important;
+  }
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-row {
+    display: flex !important;
+    align-items: baseline !important;
+    gap: .75rem !important;
+    padding: .1875rem 0 !important;
+    line-height: 1.55 !important;
+  }
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-k {
+    flex: 0 0 3.125rem !important;
+    display: block !important;
+    text-align: left !important;
+    font-size: .625rem !important;
+    font-weight: 500 !important;
+    letter-spacing: .06em !important;
+    /* 同一个颜色, 只压透明度 —— 标签退一步, 值站出来 */
+    opacity: .62 !important;
+  }
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-v {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    display: block !important;
+    text-align: left !important;
+    font-weight: 500 !important;
+    /* 构建串里全是连字符和长单词, 不给 anywhere 会顶破浮层 */
+    overflow-wrap: anywhere !important;
+  }
+  /* 版本/构建串用等宽字: 这种一串数字和 r33382 这样的修订号,
+     等宽下更好逐段核对 */
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-mono {
+    font-family: var(--font-mono) !important;
+    font-size: .625rem !important;
+    font-weight: 400 !important;
+    line-height: 1.6 !important;
+    letter-spacing: 0 !important;
+  }
+  /* 固件构建串最长, 标签压在上面、值独占一行, 比左右分栏好读。
+     以前这里用 :last-of-type 去"猜"哪一行是它(#modemenu 那个 <ul> 原样留在
+     末尾, :last-child 选不中), 现在 boot.js 直接给它套了一层
+     .mwrt-ft-grp-wide, 不用再绕。 */
+  footer.mobile-hide:not(#mwrt-nope) .mwrt-ft-grp-wide .mwrt-ft-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: .125rem !important;
+    padding: 0 !important;
+  }
+
+  /* 图标就在右下角, 给滚动区垫一小段底, 免得压住内容最后一行 */
+  .main-right:not(#mwrt-nope) > #maincontent {
+    padding-bottom: 2.25rem !important;
+  }
+}
+
+/* 窄屏上 argon 本来就用 .mobile-hide 把页脚藏了, 触发图标和标题栏
+   一并不显示, 免得凭空多出一枚按钮 */
+@media screen and (max-width: 768px) {
+  /* s63 第5项: 移动端整条页脚"关于本机"直接撤掉, 不占位。
+     这套设备信息是 §13/§14 为宽屏设计的右下角浮层(靠 #mwrt-about-btn 触发),
+     而触发图标和浮层定位都只在 @media (min-width:769px) 生效 —— 移动端既没有
+     入口、也没接管定位。argon 原生只在 <=600px / <=480px 才把 footer.mobile-hide
+     设 display:none, 于是 601-768px 这段区间里页脚以普通文档流块留在内容最底下,
+     夹在主内容和底部导航栏之间撑出一条空隙(用户反馈的那条)。
+     这里按屏宽统一隐藏:移动端不展示这条设备信息, 空隙消失。 */
+  #mwrt-about-btn:not(#mwrt-nope),
+  footer.mobile-hide:not(#mwrt-nope),
+  footer:not(#mwrt-nope) .mwrt-ft-bar {
+    display: none !important;
+  }
+}
+
+/* ── 15. 第三方整页视图: 宽屏下内容区两侧不要露白 ─────────────────────────
+   /admin/modeminfo/cellular_data 的容器 .P 是 max-width:1200px + margin:0 auto,
+   §13 又把它那块底色 ::before 从 fixed 改成了 absolute(inset:0), 于是底色严格
+   贴合 .P 自己那 1200px 的盒子。
+
+   窗口宽过 1200px 时, .P 两侧的留白露出来的是外层 .container —— 而那一页自己
+   写了 #maincontent>.container{background:transparent!important}, 透出来的就是
+   主题的浅色底。深色模式下表现为内容区左右两条白边。
+
+   这里把底色补到 .container 上: .P 仍然居中 1200px(那页的栅格是按这个宽度设计
+   的, 拉满会让卡片过于稀疏), 只是它两侧的留白跟着一起变色。
+
+   两个色值直接取自该模板自己的变量, 别改成别的:
+     深色 .P   { --bg:#0b0d14 }
+     浅色 .P.L { --bg:#f4f5fa }
+   自定义属性只能向下继承, .container 是 .P 的父节点读不到, 所以只能写死。
+   模板里改了色值的话, 这里要跟着改。
+
+   锚点不能写死 data-page(2026-09-21 修): 原来锚的是
+   body[data-page="admin-modeminfo-cellular_data"], 而这个 .P 单页现在挂在
+   /admin/modeminfo 上(controller/modem.lua 的 entry({"admin","modeminfo"}) ->
+   data-page=admin-modeminfo), 整条规则不命中, 白边又回来了。路由以后还可能再
+   挪, 所以改成按 DOM 结构判: #maincontent 的直接子 .container 里有 .P 就补色。
+   顺带把 qmodem 那份同源的 modem_info.htm 也一起覆盖到。
+   日夜切换是 #t-btn 给 .P 加 .L(存 localStorage 的 mrt-t, 默认深色)。
+
+   权重要盖过模板里的 #maincontent>.container{...!important}(1,1,0), 所以带上
+   本表通用的 :not(#mwrt-nope)。
+   ─────────────────────────────────────────────────────────────────────── */
+
+#maincontent:has(> .container > .P) > .container:not(#mwrt-nope) {
+  background: #0b0d14 !important;
+}
+
+#maincontent:has(> .container > .P.L) > .container:not(#mwrt-nope) {
+  background: #f4f5fa !important;
+}
+
+
+/* ── 15b. 第三方整页视图: 底色铺到哪儿为止 ────────────────────────────────
+   §15 只补到 #maincontent > .container 为止, 外面还剩两层浅色:
+     body  —— ≥769px 时 shell 给了 5px 的 --shell-backdrop(#e3e8ee) 边框;
+     html  —— aurora 的 --bg(接近 #f7fafc), 滚动/缩放时露在最外面。
+
+   色值跟 §15 同源, 四处必须一起改(自定义属性只向下继承, html/body 是 .P 的
+   祖先, 读不到 .P 里的 --bg, 只能写死):
+     深色 .P   { --bg:#0b0d14 }
+     浅色 .P.L { --bg:#f4f5fa }
+   刻意不用纯黑/纯白 —— 那两个值是模板自己的底色, 卡片和描边都是按它调的。
+
+   ⚠ 2026-09-24 修: 原来这里无条件把 html+body 刷成 .P 的底色, 于是 PC 上
+   §12 那 5px 的 --shell-backdrop 边框被一起涂成近黑色 —— 而那 5px 正是把
+   圆角和投影露出来的东西, 涂掉之后整个应用外壳的圆角边界线就没了, 深色直接
+   铺到浏览器边缘。所以要按屏幕宽度分开处理:
+
+     <769px  没有外壳(§12 整段在 min-width:769px 里), 页面本来就是满屏,
+             html/body 照旧刷深色, 免得滚动/缩放时最外层露出浅 --bg;
+     ≥769px  body 那 5px 是外壳边框, **不能**动。深色只铺到外壳**里面**的
+             .main-right —— 它是 .main 的子节点, 而 .main 带
+             border-radius:var(--shell-radius) + overflow:hidden, 所以这块
+             深色会被圆角裁好, 四角的弧度和那圈描边/投影都照旧。
+
+   权重: .main-right 那条要压过 §3 的
+   .main-right:not(#mwrt-nope){background-color:transparent!important}(0,2,0) ——
+   带上 body:not(#mwrt-nope):has(#maincontent…) 后是 (2,3,1), 稳赢。
+   body 那条要压过 shell 的 body:not(#mwrt-nope):has(> .main > .main-left)
+   {background:var(--shell-backdrop)!important}(1,2,1); :has() 的权重按参数里
+   最具体的那条复杂选择器算, 参数带 #maincontent 就是 (1,2,0), 合计 (2,2,1)。
+   页面模板自己那行 html,body{background:#0b0d14!important} 权重只有 (0,0,1),
+   一直是输的 —— 别指望它, 也别去改模板。
+   ─────────────────────────────────────────────────────────────────────── */
+
+@media screen and (max-width: 768px) {
+  html:has(#maincontent > .container > .P),
+  body:not(#mwrt-nope):has(#maincontent > .container > .P) {
+    background: #0b0d14 !important;
+  }
+
+  html:has(#maincontent > .container > .P.L),
+  body:not(#mwrt-nope):has(#maincontent > .container > .P.L) {
+    background: #f4f5fa !important;
+  }
+}
+
+@media screen and (min-width: 769px) {
+  body:not(#mwrt-nope):has(#maincontent > .container > .P)
+    .main-right:not(#mwrt-nope) {
+    background: #0b0d14 !important;
+  }
+
+  body:not(#mwrt-nope):has(#maincontent > .container > .P.L)
+    .main-right:not(#mwrt-nope) {
+    background: #f4f5fa !important;
+  }
+}
+
+/* 真正的滚动容器是 .main-right(§ 那边把 html/body/.main 都锁了 overflow),
+   aurora 只定制过 .main-left 的滚动条, 这里那条默认浅色滑槽贴在深色内容右边
+   同样是一条白边 —— 跟着页面走。scrollbar-color 在 Chrome 121+/Firefox 生效,
+   下面的 ::-webkit-scrollbar 是给老 WebKit 的兜底。 */
+body:not(#mwrt-nope):has(#maincontent > .container > .P) .main-right:not(#mwrt-nope) {
+  scrollbar-width: thin !important;
+  scrollbar-color: rgb(255 255 255 / .18) transparent !important;
+}
+body:not(#mwrt-nope):has(#maincontent > .container > .P.L) .main-right:not(#mwrt-nope) {
+  scrollbar-color: rgb(16 24 40 / .22) transparent !important;
+}
+body:not(#mwrt-nope):has(#maincontent > .container > .P) .main-right:not(#mwrt-nope)::-webkit-scrollbar {
+  width: 8px !important;
+}
+body:not(#mwrt-nope):has(#maincontent > .container > .P) .main-right:not(#mwrt-nope)::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+body:not(#mwrt-nope):has(#maincontent > .container > .P) .main-right:not(#mwrt-nope)::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / .18) !important;
+  border-radius: 999px !important;
+}
+body:not(#mwrt-nope):has(#maincontent > .container > .P.L) .main-right:not(#mwrt-nope)::-webkit-scrollbar-thumb {
+  background: rgb(16 24 40 / .22) !important;
+}
+
+
+/* ── 15c. 第三方整页视图: 解掉写死的 1200px 宽度上限 ──────────────────────
+   模板里是 .P{max-width:1200px;margin:0 auto}。内容区比 1200px 宽时 .P 就不再
+   跟着长, 表现为"浏览器怎么缩放, 页面只放大到一个固定值, 两边一直空着"。
+   大屏上整个缩放区间的 CSS 视口都 > 1200px, 所以缩放全程都填不满。
+   这里放开上限, 让它跟内容区同宽 —— 里面全是 grid/flex 卡片, 本来就能自适应。
+   (模板 @media(max-width:768px) 里那条 .P{max-width:100%} 效果相同, 不冲突。)
+
+   .P 的各处元素级上限(.dv-stage img 的 200px、.mp-preview 的 364px 等)是刻意
+   限制单个图片/预览框的, 不动。
+
+   权重: 模板那条是 (0,1,0) 无 !important, 这里 (1,2,0)+!important, 稳过。
+   宽屏下再把左右内边距放宽一点, 免得卡片直接贴到内容区边缘。
+   ─────────────────────────────────────────────────────────────────────── */
+
+#maincontent > .container > .P:not(#mwrt-nope) {
+  max-width: none !important;
+  width: auto !important;
+}
+
+@media screen and (min-width: 1400px) {
+  #maincontent > .container > .P:not(#mwrt-nope) {
+    padding-left: 28px !important;
+    padding-right: 28px !important;
+  }
+}
+
+
+/* ── 16. 命令输出面板 + 当前模组徽标 ───────────────────────────────────────
+   两个页面各有几块"把某条命令的 stdout 原样贴出来"的面板:
+     · /admin/modem/modem      —— USB 设备信息 /lsusb、PCI 设备信息 /lspci
+     · /admin/system/mwrtst    —— USB 设备信息 /lsusb、Banner信息
+   原来两边都是各自 Lua 文件里 inline 写死的 `background:#1a1a1a;color:#fffb00;
+   white-space:pre`,**没有任何溢出处理**。实测最长行 lspci 131 字符、banner 119、
+   lsusb 63,浏览器一缩放(CSS 视口变窄)长行就直接跑到盒子外面,既看不见也拉不回来
+   —— 这就是"缩放的时候内容都跑出去了"的直接原因。
+
+   这里收成一套类,inline 样式从两个包里删掉:
+     · overflow-x:auto + 自身 min-width:0  —— 关键。面板在 .cbi-section-descr /
+       flex 上下文里,不写 min-width:0 的话 flex 子项的 auto 最小尺寸会顶着内容
+       撑开,滚动条压根不出现,照样溢出。
+     · 不换行(white-space:pre)是刻意的:banner 是 ASCII art,换行就散架;
+       lsusb/lspci 每行一个设备,折行反而更难读。所以是横向滚动而不是 wrap。
+     · 配色从写死的黑底亮黄换成中性深色 + 浅前景,和 aurora 的深色滚动区一致;
+       亮黄在浅色后台里太扎眼,而且对比度过冲。
+     · 深色页(html[data-darkmode] / .P 整页视图)沿用同一块底色 —— 这几个面板
+       本来就是深色,不需要随主题反转,只把边框提亮一点免得糊进背景。
+   ─────────────────────────────────────────────────────────────────────── */
+
+#maincontent .mwrt-cmdout:not(#mwrt-nope) {
+  display: block;
+  margin: 0;
+  padding: 12px 14px;
+  min-width: 0;                       /* 见上:不写这条滚动条不出现 */
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: pre;                   /* ASCII art / 逐行设备表, 不折行 */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;     /* 横向滚到头不要带着整页一起弹 */
+  background: #11161f;
+  color: #dbe4f0;
+  border: 1px solid rgb(255 255 255 / .07);
+  border-radius: var(--radius-base, .5rem);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  tab-size: 4;
+}
+
+/* 细滚动条, 和 aurora 其他滚动区一致 */
+#maincontent .mwrt-cmdout:not(#mwrt-nope)::-webkit-scrollbar {
+  height: 8px;
+}
+#maincontent .mwrt-cmdout:not(#mwrt-nope)::-webkit-scrollbar-track {
+  background: transparent;
+}
+#maincontent .mwrt-cmdout:not(#mwrt-nope)::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / .18);
+  border-radius: 999px;
+}
+#maincontent .mwrt-cmdout:not(#mwrt-nope):hover::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / .28);
+}
+#maincontent .mwrt-cmdout:not(#mwrt-nope) {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / .22) transparent;
+}
+
+/* 面板所在的那个 .cbi-section-descr 容器: 它是 flex/grid 子项时同样需要放开
+   最小尺寸, 否则约束会转移到外层, 面板自己的 overflow 还是不生效。 */
+#maincontent .cbi-section-descr:has(> .mwrt-cmdout):not(#mwrt-nope) {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;                   /* 圆角处不露出子元素的方角 */
+}
+
+@media screen and (max-width: 768px) {
+  #maincontent .mwrt-cmdout:not(#mwrt-nope) {
+    padding: 10px 12px;
+    font-size: 11.5px;
+  }
+}
+
+html[data-darkmode="true"] #maincontent .mwrt-cmdout:not(#mwrt-nope),
+body:has(#maincontent > .container > .P):not(:has(#maincontent > .container > .P.L))
+  #maincontent .mwrt-cmdout:not(#mwrt-nope) {
+  border-color: rgb(255 255 255 / .12);
+}
+
+/* ── 当前模组徽标 ──────────────────────────────────────────────────────────
+   「当前模组」原来是个可编辑输入框, 但它其实是只读信息(值恒定由 lsusb 解析得出,
+   uci 里没有这一项)。改成 DummyValue 之后在这里给它一个状态徽标的长相:
+   一颗状态点 + 型号, 后面跟一行更淡的附注(厂商 · VID:PID · USB 代次/总线)。
+   ─────────────────────────────────────────────────────────────────────── */
+
+#maincontent .mwrt-modbadge:not(#mwrt-nope) {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 3px 11px 3px 9px;
+  border-radius: 999px;
+  background: var(--brand-subtle, #e6f2fa);
+  color: var(--brand, #0086bf);
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.5;
+  vertical-align: middle;
+}
+
+#maincontent .mwrt-modbadge-dot:not(#mwrt-nope) {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  /* 品牌色底上再压一圈同色光, 让点看着是"亮着"的而不是一个实心句号 */
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
+}
+
+#maincontent .mwrt-modbadge-name:not(#mwrt-nope) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 没检测到模组: 同一套形状, 换成中性灰, 不用红 —— 没插模组不是错误状态 */
+#maincontent .mwrt-modbadge.is-none:not(#mwrt-nope) {
+  background: var(--hover-faint, rgb(16 24 40 / .05));
+  color: var(--text-muted, #6b7280);
+  font-weight: 500;
+}
+
+#maincontent .mwrt-modbadge-meta:not(#mwrt-nope) {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-muted, #6b7280);
+  font-size: 12px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;             /* VID:PID 串窄屏下可断 */
+}
+
+html[data-darkmode="true"] #maincontent .mwrt-modbadge.is-none:not(#mwrt-nope) {
+  background: rgb(255 255 255 / .08);
+  color: rgb(255 255 255 / .62);
+}
+
+/* ── 17. openclash 状态页卡片区: 按容器宽排版 ─────────────────────────────
+   插件按**视口**断点(1024/768/480)切单/双列, 没算 argon 侧栏(视口 - 容器 ≈ 300px)。
+   1100–1510 视口下两张 main-card 仍并排, 卡片 min-content 把外层
+   <table width="100%">(auto 布局)顶宽, 超出部分被 .main-right{overflow-x:hidden}
+   裁掉 —— 看上去就是 cbi-section 里的东西跑出了浏览器。
+
+   修法不碰插件文件, 只在这里:
+   1) .main-cards-container 设成 inline-size 容器 —— 包含让它对 table 的
+      min-content 贡献归 0, 断开"顶宽"链, table 回到 100%;
+   2) 按容器**实际**宽度套插件自己的 ≤1024(单列) / ≤768(stats 两列)版式。
+
+   阈值是实测的(中/英 × 未运行/内核运行态, 逐行量 min-content):
+   双列最少要 1187 —— 卡 1 824 + 间距 10 + 卡 2 353(运行态「控制面板|混合代理」那行
+   327 + 卡框 26), 留 24 余量 → 1211; 单列下 stats 4 列最少 824, 留 16 → 840。
+   容器再窄于 ≈673 时卡片区在自己框里横向滚动, 不再被裁。
+   :not(#mwrt-nope) 把特异度抬到 (1,3,0), 压过插件 @media 里的 (0,3,0)。
+   ─────────────────────────────────────────────────────────────────────── */
+
+.oc .main-cards-container:not(#mwrt-nope) {
+  container: mwrt-oc / inline-size;
+}
+
+@container mwrt-oc (width < 1211px) {
+  .oc .main-cards-container > .main-card:not(#mwrt-nope) {
+    grid-column: 1 / -1;
+    grid-template-rows: auto auto auto auto;
+  }
+  /* 第二张卡排到第三行(第一行是公告卡) —— 用 last-of-type, 别用 first-of-type:
+     公告卡也是 div, first-of-type 会选中它 */
+  .oc .main-cards-container > .main-card:last-of-type:not(#mwrt-nope) {
+    grid-row: 3;
+  }
+  .oc .main-cards-container .card-row:not(#mwrt-nope) {
+    min-height: auto;
+  }
+}
+
+@container mwrt-oc (width < 840px) {
+  .oc .main-cards-container .card-row.stats-grid:not(#mwrt-nope) {
+    grid-template-columns: repeat(2, 2fr);
+  }
+}
+
+/* ── s64: 表单项描述文字被左侧信息图标挡住 ──────────────────────────────
+   argon 给 .cbi-value-description 前面加了一个 absolute 定位、left≈0、15×15 的
+   蓝色小方块(::before 信息标记), 但描述本身 padding-left:0 —— 文字从 x=0 起排,
+   正好压在那个方块上, 第一个字(和图标)糊成一团。turboacc 等好几个页面都这样。
+   给描述留出左边 22px 让文字避开图标即可; 图标是 absolute 不占文档流, 不受影响。
+   主题原规则 padding-left:0 特异度不低(实测我只加 :not() 压不过, pl 仍是 0), 所以带
+   #maincontent 前缀把特异度抬到 (1,2,0) 并加 !important 兜底, 双保险压过主题。 */
+#maincontent .cbi-value-description:not(#mwrt-nope) {
+  padding-left: 22px !important;
+}
+/* 图标对齐到留白区左侧(原来 left 轻微负值、贴边; 现在落在 padding 里) */
+#maincontent .cbi-value-description:not(#mwrt-nope)::before {
+  left: 3px !important;
+}
+
+
+/* s65: passwall/ssr 运行状态区卡片扁平化
+   状态区(.pure-g.status)里每个 TCP/UDP/DNS 项是一张 .block 卡片, passwall 页
+   内联 style 给它加了 1px 边框 + 2rem 发散阴影 + 圆角, 卡片像独立白块浮在外层
+   白色 cbi-section 容器上, 明暗分界明显。这里去掉边框/阴影/独立底色, 让卡片和
+   容器融为一片白, 只靠图标+文字区分。只作用于 .pure-g.status 内的 .block。
+   内联样式无 !important, 本表 head 末尾加载, 加 !important + #maincontent 双保险。 */
+#maincontent .pure-g.status .block:not(#mwrt-nope) {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+/* ───────────────────────────────────────────────────────────────────────
+ * s66: 标签栏(ul.tabs)横向滚动条 → 箭头 + 边缘渐变
+ * passwall 等页面标签多到一行放不下时, argon 原本让它横向滚动, 底下露出
+ * 一条灰色滚动条, 不够精致。boot.js §5 给溢出的标签栏外面包一层
+ * .mwrt-tabs-wrap 并插入两枚圆形箭头按钮; 这里负责外观:
+ *   · 藏掉原生滚动条 + 平滑滚动
+ *   · 两侧白色渐变遮罩(只在该侧还有内容可滚时淡入, 暗示"还有更多")
+ *   · 圆形箭头按钮的样式与悬停反馈
+ * 用 :not(#mwrt-nope) 抬一级权重, 稳压 argon 对 .tabs 的既有设定。
+ * ─────────────────────────────────────────────────────────────────────── */
+.mwrt-tabs-wrap:not(#mwrt-nope) {
+  position: relative;
+}
+.mwrt-tabs-wrap:not(#mwrt-nope) > ul.tabs {
+  margin-bottom: 0;
+  scroll-behavior: smooth;
+  scrollbar-width: none;        /* Firefox */
+  -ms-overflow-style: none;     /* 旧 Edge/IE */
+}
+.mwrt-tabs-wrap:not(#mwrt-nope) > ul.tabs::-webkit-scrollbar {
+  display: none;                /* Chrome / Safari */
+  width: 0;
+  height: 0;
+}
+/* 两侧渐变遮罩: 平时透明, 该侧还能继续滚时淡入 */
+.mwrt-tabs-wrap:not(#mwrt-nope)::before,
+.mwrt-tabs-wrap:not(#mwrt-nope)::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2.5rem;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .2s ease;
+  z-index: 2;
+}
+.mwrt-tabs-wrap:not(#mwrt-nope)::before {
+  left: 0;
+  background: linear-gradient(90deg, #fff 20%, rgba(255, 255, 255, 0));
+}
+.mwrt-tabs-wrap:not(#mwrt-nope)::after {
+  right: 0;
+  background: linear-gradient(270deg, #fff 20%, rgba(255, 255, 255, 0));
+}
+.mwrt-tabs-wrap.has-left:not(#mwrt-nope)::before { opacity: 1; }
+.mwrt-tabs-wrap.has-right:not(#mwrt-nope)::after { opacity: 1; }
+/* 圆形箭头按钮 */
+.mwrt-tabs-arrow:not(#mwrt-nope) {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  margin: 0;
+  border: 1px solid #e2e6ea;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .12);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease, background .15s ease, border-color .15s ease;
+}
+.mwrt-tabs-arrow.show:not(#mwrt-nope) {
+  opacity: 1;
+  pointer-events: auto;
+}
+.mwrt-tabs-arrow:not(#mwrt-nope):hover {
+  background: #388087;
+  border-color: #388087;
+}
+/* 箭头本体: 两条边旋转成 "‹" "›" */
+.mwrt-tabs-arrow:not(#mwrt-nope)::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: .5rem;
+  height: .5rem;
+  border-top: 2px solid #4a5560;
+  border-right: 2px solid #4a5560;
+  transition: border-color .15s ease;
+}
+.mwrt-tabs-arrow:not(#mwrt-nope):hover::before {
+  border-top-color: #fff;
+  border-right-color: #fff;
+}
+.mwrt-tabs-prev:not(#mwrt-nope) { left: .3rem; }
+.mwrt-tabs-next:not(#mwrt-nope) { right: .3rem; }
+.mwrt-tabs-prev:not(#mwrt-nope)::before {
+  transform: translate(-30%, -50%) rotate(-135deg);
+}
+.mwrt-tabs-next:not(#mwrt-nope)::before {
+  transform: translate(-70%, -50%) rotate(45deg);
+}
+
+
+/* ── s68: 侧栏左下角固件版本块 ────────────────────────────────────────────
+   侧栏做成竖向 flex(见 §1 的 display:flex), .nav 之后这块靠 margin-top:auto
+   推到最底。扁平低调: 无边框无底色, 只一条极淡上分隔线 + 徽标/版本号/日期三行。
+   数据由 boot.js 从 ubus board 填。 */
+.main .main-left .mwrt-sb-ver:not(#mwrt-nope) {
+  order: 99 !important;
+  margin-top: auto !important;
+  margin-bottom: .9rem !important;
+  padding: 1.9rem 1rem 1.9rem !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  gap: .25rem !important;
+  font-family: var(--font-sans) !important;
+  align-items: center !important;
+  text-align: center !important;
+  border-top: 1px solid rgb(255 255 255 / .16) !important;
+  margin-left: .75rem !important;
+  margin-right: .75rem !important;
+}
+.main .main-left .mwrt-sb-links { display: flex; flex-wrap: wrap; justify-content: center; gap: .35rem .8rem; margin-top: .55rem; }
+.main .main-left .mwrt-sb-links a { color: var(--sb-accent); font-size: .75rem; line-height: 1.5; text-decoration: none; white-space: nowrap; }
+.main .main-left .mwrt-sb-links a:hover { text-decoration: underline; }
+.main .main-left .mwrt-sb-links a:focus-visible { outline: 2px solid var(--sb-accent); outline-offset: 3px; border-radius: 2px; }
+.main .main-left .mwrt-sb-ver .msv-top:not(#mwrt-nope) {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: .4rem !important;
+  min-width: 0 !important;
+}
+.main .main-left .mwrt-sb-ver .msv-dist:not(#mwrt-nope) {
+  font-size: .625rem !important;
+  font-weight: 700 !important;
+  letter-spacing: .06em !important;
+  text-transform: uppercase !important;
+  color: #0b1016 !important;
+  background: var(--sb-accent) !important;
+  padding: .1rem .4rem !important;
+  border-radius: .375rem !important;
+  line-height: 1.4 !important;
+  flex: 0 0 auto !important;
+}
+.main .main-left .mwrt-sb-ver .msv-ver:not(#mwrt-nope) {
+  font-size: .75rem !important;
+  font-weight: 600 !important;
+  color: var(--sb-text-muted) !important;
+  font-variant-numeric: tabular-nums !important;
+  letter-spacing: 0 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  min-width: 0 !important;
+}
+.main .main-left .mwrt-sb-ver .msv-sub:not(#mwrt-nope) {
+  font-size: .625rem !important;
+  color: var(--sb-text-faint) !important;
+  letter-spacing: .02em !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+
+/* ── s68f: 侧栏子元素排序 —— 版本块被 boot.js 插在了 nav 前面(DOM 顺序
+   header/ver/nav), 用 flex order 强制回正: header 最前, nav 其次, 版本块最后,
+   版本块再靠 margin-top:auto 顶到容器最底(左下角)。 */
+.main .main-left .sidenav-header:not(#mwrt-nope) { order: 0 !important; }
+.main .main-left .nav:not(#mwrt-nope) { order: 1 !important; }
+
+
+/* ── s68i: 收掉二级菜单项 a 自带的 ::after 宽块 ────────────────────────────
+   argon(cascade.css)给 .slide-menu a.active::after 画了一个和文字等宽的实色块
+   (content:"" 绝对定位 left:0 宽 ~142px), 盖在选中项文字上, 把"概览"等整行糊住。
+   我们的层级标识走 li::after(左侧青竖线段), 不需要 a 上这个块, 收掉。 */
+.main .main-left .nav li.slide .slide-menu li a:not(#mwrt-nope)::after,
+.main .main-left .nav li.slide .slide-menu li a.active:not(#mwrt-nope)::after {
+  content: none !important;
+  display: none !important;
+  background: transparent !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+
+/* ── s68j: 移动端版本块避开底部导航栏 ─────────────────────────────────────
+   手机下 .main-left 是 fixed 抽屉, 版本块 margin-top:auto 贴抽屉底, 会被
+   body.mwrt-has-bottomnav 那条 64px 固定底栏盖住。这里把它上抬 >= 底栏高度。 */
+@media (max-width: 768px) {
+  .main .main-left .mwrt-sb-ver:not(#mwrt-nope) {
+    margin-bottom: calc(72px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+
+
+/* ── s69: 后台四周边框三档(圆角 / 微边圆角 / 无圆角) ───────────────────────
+   后台四周观感由两处决定: body 的 padding(内容到视口边留白) + .main 的
+   border-radius(整个后台面板圆角)。默认(argon)padding 5px + radius 14px。
+   按 html 上的档位 class 三档覆盖, 由 mwrtst 页三段控件切换 + localStorage 持久,
+   boot.js 每页开头读 localStorage 把 class 打到 <html>(全站实时生效)。
+   不加 class 时维持 argon 默认(=圆角档), 首次访问即圆角不突变。 */
+html.mwrt-bd-round body:not(#mwrt-nope) { padding: 5px !important; }
+html.mwrt-bd-round .main:not(#mwrt-nope) { border-radius: 14px !important; }
+
+html.mwrt-bd-mini body:not(#mwrt-nope) { padding: 3px !important; }
+html.mwrt-bd-mini .main:not(#mwrt-nope) { border-radius: 7px !important; }
+
+html.mwrt-bd-none body:not(#mwrt-nope) { padding: 0 !important; }
+html.mwrt-bd-none .main:not(#mwrt-nope) { border-radius: 0 !important; }
+
+/* ── s69: 边框设置三段控件(mwrtst 页) ─────────────────────────────────────
+   三个扁平按钮连成一条, 当前档位青底白字高亮, 整条一个胶囊外框。 */
+.mwrt-bd-seg {
+  display: inline-flex;
+  align-items: stretch;
+  margin: 2px 0 6px;
+  padding: 3px;
+  border-radius: 10px;
+  background: #eef1f5;
+  border: 1px solid #e2e6ea;
+  gap: 2px;
+}
+.mwrt-bd-seg button {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  margin: 0;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  padding: 7px 18px;
+  border-radius: 8px;
+  color: #51607a;
+  background: transparent;
+  transition: background .15s ease, color .15s ease;
+  white-space: nowrap;
+}
+.mwrt-bd-seg button:hover { color: #253248; background: rgba(32,183,213,.1); }
+.mwrt-bd-seg button.on {
+  color: #fff;
+  background: #20b7d5;
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(32,183,213,.4);
+}
+.mwrt-bd-wrap { max-width: 760px; font-size: 13px; line-height: 1.7; }
+.mwrt-bd-wrap .mwrt-bd-hint { color: #5a6680; font-size: 12.5px; margin-top: 2px; }
+
+/* ── s70: 防火墙状态(iptables)表格美化 ──────────────────────────────── */
+body[data-page="admin-status-iptables"] #maincontent .table:not(#mwrt-nope){background:#fbfcfe!important;border:1px solid #e6eaf0!important;border-radius:10px!important;margin:0 0 14px!important;padding:4px 6px!important;overflow:hidden!important;box-shadow:none!important}
+body[data-page="admin-status-iptables"] #maincontent .table .tr:not(#mwrt-nope){border-bottom:1px solid #eef1f5!important}
+body[data-page="admin-status-iptables"] #maincontent .table .tr:last-child:not(#mwrt-nope){border-bottom:0!important}
+body[data-page="admin-status-iptables"] #maincontent .table .tr.table-titles:not(#mwrt-nope),body[data-page="admin-status-iptables"] #maincontent .table .tr.cbi-section-table-titles:not(#mwrt-nope){background:#eef2f7!important;border-radius:7px!important}
+body[data-page="admin-status-iptables"] #maincontent .table .tr.table-titles .th:not(#mwrt-nope),body[data-page="admin-status-iptables"] #maincontent .table .tr.cbi-section-table-titles .th:not(#mwrt-nope){font-size:11px!important;font-weight:600!important;color:#51607a!important;letter-spacing:.3px!important;padding:7px 10px!important}
+body[data-page="admin-status-iptables"] #maincontent .table .td:not(#mwrt-nope){font-size:12px!important;padding:7px 10px!important;color:#2a3444!important;background:transparent!important}
+body[data-page="admin-status-iptables"] #maincontent .table .tr:not(.table-titles):not(.cbi-section-table-titles):not(.placeholder):nth-of-type(2n):not(#mwrt-nope){background:#f6f8fb!important}
+body[data-page="admin-status-iptables"] #maincontent .table .tr:not(.table-titles):not(.cbi-section-table-titles):not(.placeholder):not(#mwrt-nope):hover{background:#eaf6f9!important}
+body[data-page="admin-status-iptables"] #maincontent .table .tr.placeholder:not(#mwrt-nope),body[data-page="admin-status-iptables"] #maincontent .table .tr.placeholder:not(#mwrt-nope):hover{background:transparent!important}
+body[data-page="admin-status-iptables"] #maincontent .table .tr.placeholder .td:not(#mwrt-nope){text-align:center!important;color:#8a94a6!important;background:transparent!important}
+body[data-page="admin-status-iptables"] #maincontent h3:not(#mwrt-nope),body[data-page="admin-status-iptables"] #maincontent legend:not(#mwrt-nope){font-size:15px!important;font-weight:600!important;color:#1f2937!important;margin:18px 0 8px!important}
+
+/* ── s70: 无线(wireless)卡片扁平融入 ──────────────────────────────────── */
+body[data-page="admin-network-wireless"] #maincontent .cbi-section:not(#mwrt-nope){background:#f3f6fa!important;border:1px solid #e3e8ef!important;box-shadow:none!important}
+body[data-page="admin-network-wireless"] #maincontent #wifi_assoclist_table:not(#mwrt-nope){background:#f3f6fa!important;border:1px solid #e3e8ef!important;border-radius:15px!important;padding:6px 10px!important;box-shadow:none!important}
+body[data-page="admin-network-wireless"] #maincontent #wifi_assoclist_table .tr:not(#mwrt-nope),body[data-page="admin-network-wireless"] #maincontent #wifi_assoclist_table .td:not(#mwrt-nope),body[data-page="admin-network-wireless"] #maincontent #wifi_assoclist_table .th:not(#mwrt-nope){background:transparent!important;box-shadow:none!important}
+body[data-page="admin-network-wireless"] #maincontent .cbi-section .td:not(#mwrt-nope),body[data-page="admin-network-wireless"] #maincontent .cbi-section .th:not(#mwrt-nope),body[data-page="admin-network-wireless"] #maincontent .cbi-value-field:not(#mwrt-nope),body[data-page="admin-network-wireless"] #maincontent .cbi-section-actions:not(#mwrt-nope){background:transparent!important}
+
+/* ── s70: 深色模式对应(浅色硬编码色值在深色下改为深底) ─────────────────── */
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table:not(#mwrt-nope){background:#1b2230!important;border-color:#2a3342!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr:not(#mwrt-nope){border-bottom-color:#263040!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr.table-titles:not(#mwrt-nope),html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr.cbi-section-table-titles:not(#mwrt-nope){background:#232c3b!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr.table-titles .th:not(#mwrt-nope),html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr.cbi-section-table-titles .th:not(#mwrt-nope){color:#9aa7bd!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .td:not(#mwrt-nope){color:#d5dbe5!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr:not(.table-titles):not(.cbi-section-table-titles):not(.placeholder):nth-of-type(2n):not(#mwrt-nope){background:#1f2735!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr:not(.table-titles):not(.cbi-section-table-titles):not(.placeholder):not(#mwrt-nope):hover{background:#22313d!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr.placeholder:not(#mwrt-nope){background:transparent!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent .table .tr.placeholder .td:not(#mwrt-nope){color:#7d8899!important}
+html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent h3:not(#mwrt-nope),html[data-darkmode="true"] body[data-page="admin-status-iptables"] #maincontent legend:not(#mwrt-nope){color:#e5e7eb!important}
+html[data-darkmode="true"] body[data-page="admin-network-wireless"] #maincontent .cbi-section:not(#mwrt-nope),html[data-darkmode="true"] body[data-page="admin-network-wireless"] #maincontent #wifi_assoclist_table:not(#mwrt-nope){background:#1b2230!important;border-color:#2a3342!important}
+
+/* ── s79: 移动端底部导航栏遮挡页面最下方按钮 ─────────────────────────────
+   footer.htm 给 body.mwrt-has-bottomnav 留了 padding-bottom:52px+安全区, 但 s69
+   边框档位(mwrtst 页)每页由 boot.js 往 body 写内联 padding:Npx !important, 底边
+   预留被压成 5/3/0px —— 只要用户点过一次边框设置, 手机上每页最下面那排
+   保存/应用按钮就有一截钻到底栏下面。这里把预留量做成变量, boot.js 和
+   mwrtst 页写内联时底边改用 var(--mwrt-nav-reserve, 边距), PC 无底栏回落边距。 */
+@media (max-width: 768px) {
+  body.mwrt-has-bottomnav:not(#mwrt-nope) {
+    --mwrt-nav-reserve: calc(52px + env(safe-area-inset-bottom, 0px));
+  }
+  html.mwrt-bd-round body.mwrt-has-bottomnav:not(#mwrt-nope),
+  html.mwrt-bd-mini body.mwrt-has-bottomnav:not(#mwrt-nope),
+  html.mwrt-bd-none body.mwrt-has-bottomnav:not(#mwrt-nope) {
+    padding-bottom: var(--mwrt-nav-reserve) !important;
+  }
+  /* OpenClash 右下角浮动按钮组(z 9999)原来贴 bottom:16px, 压在底栏上 */
+  body.mwrt-has-bottomnav .oc .oc-float-stack:not(#mwrt-nope) {
+    bottom: calc(var(--mwrt-nav-reserve) + 12px) !important;
+  }
+}
+
+/* 一级菜单保持完整行盒，展开动画只控制直接子菜单。 */
+#mainmenu > .nav > li { position:relative; display:block; float:none; width:100%; }
+#mainmenu > .nav > li > a:first-child { display:block!important; box-sizing:border-box; min-height:2.4rem; }
+#mainmenu > .nav > li > .slide-menu > li { position:relative; display:block; float:none; }

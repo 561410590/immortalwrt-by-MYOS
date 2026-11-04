@@ -1,9 +1,9 @@
 {
-  "snapshot_date": "2026-10-21",
-  "tree": "immortalwrt-mt798x-6.6-c2000ultra",
+  "snapshot_date": "2026-11-04",
+  "tree": "immortalwrt-mt798x-6.6-n5000",
   "base_commit": "c88458e977271b41b6a8943dd14940c103c904bd",
-  "source_version": "V3.1.35-202610180300",
-  "configuration_target": "nradio_c2000-ultra",
+  "source_version": "V3.1.39-202611011200",
+  "configuration_target": "nradio_n5000",
   "feed_origins": {
     "istore": "a4a02e700e7840ba0d01cc5677a36257864291c8",
     "luci": "6ac4a0390e5cc92c7cba7a68233be74ae61cd9a4",
@@ -16,5 +16,9 @@
   "feed_local_modifications": "included verbatim in feeds/",
   "app_integration_source_included": true,
   "private_author_services_included": false,
-  "clean_firmware_build_verified": false
+  "clean_firmware_build_verified": false,
+  "publication_branch": "N5000",
+  "publication_build_performed": false,
+  "base_feed": "bundled MAX package snapshot in feeds/base",
+  "source_git_metadata_available": false
 }

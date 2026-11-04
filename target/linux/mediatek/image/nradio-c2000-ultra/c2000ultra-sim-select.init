@@ -6,7 +6,6 @@ extra_command "select_sim" "<logical-slot> [mode] select a SIM and redial asynch
 extra_command "status_json" "show SIM selection and cellular interface state"
 SIM_LOCK=/var/run/c2000ultra-sim-select.lock
 SIM_STATE=/var/run/c2000ultra-sim-select.status.json
-SIM_READY=/var/run/c2000ultra-sim-select.ready
 
 save_selection() {
 	local cur="$1" mode="$2" slot
@@ -215,7 +214,7 @@ status_json() {
 				json_add_string stage error
 				json_add_string message "切卡任务已中断，请重新选择卡槽"
 				;;
-			dialing)
+			dialing|online|error)
 				modem_section="$modem"
 				modem_at_port="$(uci -q get "qmodem.$modem.override_at_port")"
 				[ -n "$modem_at_port" ] || modem_at_port="$(uci -q get "qmodem.$modem.at_port")"
@@ -270,41 +269,9 @@ at_command() {
 	tom_modem -u -t 5 -d "$modem_at_port" -o a -c "$1" 2>/dev/null
 }
 
-check_sim_ready() {
-	local retries="$1" result hvsst
-	while [ "$retries" -gt 0 ]; do
-		if [ -c "$modem_at_port" ]; then
-			result="$(at_command 'AT+CPIN?')"
-			sim_cpin="$(printf '%s\n' "$result" | sed -n 's/^[[:space:]]*+CPIN:[[:space:]]*//p' | tr -d '\r' | head -n 1)"
-			if [ "$manufacturer:$platform" = huawei:hisilicon ]; then
-				result="$(at_command 'AT^SCICHG?')"
-				actual_slot="$(printf '%s\n' "$result" | sed -n 's/^[[:space:]]*\^SCICHG:[[:space:]]*\([01]\)[[:space:]]*,.*/\1/p' | head -n 1)"
-				result="$(at_command 'AT^HVSST?')"
-				hvsst="$(printf '%s\n' "$result" | tr -d ' \r' | grep "^\^HVSST:1,1,$target_slot," | head -n 1)"
-			else
-				actual_slot="$target_slot"
-				hvsst=active
-			fi
-			if [ "$actual_slot" = "$target_slot" ] && [ "$(read_gpio "$gpio_prefix")" = "$target_gpio" ] && [ -n "$hvsst" ]; then
-				case "$sim_cpin" in
-					READY) actual_cur="$selection_cur"; return 0 ;;
-					'SIM PIN'|'SIM PUK') actual_cur="$selection_cur"; return 2 ;;
-				esac
-			fi
-			set_status checking "正在核对实际卡槽与 SIM 识卡状态"
-		else
-			# Rediscover after reset; USB paths may return under another device node.
-			wait_for_modem 1 >/dev/null 2>&1
-		fi
-		retries=$((retries - 1))
-		sleep 2
-	done
-	return 1
-}
-
 apply_sim() {
-	local cur="$1" mapping target target_gpio target_slot gpio_prefix payload result status retries
-	local old_modem_section manufacturer platform hvsst check_result
+	local cur="$1" mapping target target_gpio target_slot gpio_prefix payload result status
+	local old_modem_section manufacturer platform
 	mapping="$(uci -q get cpesel.sim.gval)"
 	target="$(resolve_target "$mapping" "$cur")" || { fail_selection "SIM 卡槽映射无效"; return 1; }
 	set -- $target
@@ -319,51 +286,18 @@ apply_sim() {
 	# MT5700 manual 11.11/11.17: deactivate hardware SIM, hot switch, activate.
 	if [ "$manufacturer:$platform" = huawei:hisilicon ]; then
 		result="$(at_command 'AT^HVSST=1,0')"
-		case "$result" in *OK*) ;; *) fail_selection "模组拒绝停用旧 SIM"; return 1 ;; esac
+		logger -t c2000ultra-sim-select "SIM deactivate reply: $result"
 	fi
 	write_gpio "$gpio_prefix" "$target_gpio" || { fail_selection "SIM 选择 GPIO 写入失败"; return 1; }
 	payload="{\"config_section\":\"$modem_section\",\"slot\":\"$target_slot\"}"
-	retries=3
-	while [ "$retries" -gt 0 ]; do
-		result="$(ubus -t 10 call qmodem set_sim_slot "$payload" 2>/dev/null)"
-		status="$(printf '%s' "$result" | jsonfilter -e '@.status' 2>/dev/null)"
-		[ "$status" = 1 ] && break
-		retries=$((retries - 1)); sleep 1
-	done
-	[ "$status" = 1 ] || { fail_selection "模组拒绝切换物理 SIM 卡槽"; return 1; }
+	result="$(ubus -t 10 call qmodem set_sim_slot "$payload" 2>&1)"
+	logger -t c2000ultra-sim-select "SIM slot command reply: $result"
 	if [ "$manufacturer:$platform" = huawei:hisilicon ]; then
 		result="$(at_command 'AT^HVSST=1,1')"
-		case "$result" in *OK*) ;; *) fail_selection "目标 SIM 激活失败"; return 1 ;; esac
+		logger -t c2000ultra-sim-select "SIM activate reply: $result"
 	fi
 	result="$(at_command 'AT+CFUN=1')"
-	case "$result" in *OK*) sleep 2 ;; *) fail_selection "模组进入 online 模式失败"; return 1 ;; esac
-	set_status checking "目标 SIM 已激活，等待识卡"
-	check_sim_ready 20
-	check_result=$?
-	if [ "$check_result" = 1 ]; then
-		set_status recovering "热切卡识卡未恢复，正在软复位模组"
-		# Manual 6.1: CFUN=1,1 is valid only in online mode, with >1s spacing.
-		result="$(at_command 'AT+CFUN=1')"
-		case "$result" in *OK*) sleep 2 ;; *) fail_selection "恢复识卡前无法进入 online 模式"; return 1 ;; esac
-		at_command 'AT+CFUN=1,1' >/dev/null
-		sleep 3
-		wait_for_modem 60 || { fail_selection "软复位后 AT 端口未恢复"; return 1; }
-		# HVSST activation is not retained across modem reset.
-		if [ "$manufacturer:$platform" = huawei:hisilicon ]; then
-			result="$(at_command 'AT^HVSST=1,1')"
-			case "$result" in *OK*) ;; *) fail_selection "软复位后目标 SIM 激活失败"; return 1 ;; esac
-		fi
-		check_sim_ready 30
-		check_result=$?
-	fi
-	if [ "$check_result" = 1 ]; then
-		if [ "$actual_slot" != "$target_slot" ]; then
-			fail_selection "实际物理卡槽与目标不符"
-		else
-			fail_selection "目标 SIM 识卡超时，请检查卡片及内置卡状态"
-		fi
-		return 1
-	fi
+	logger -t c2000ultra-sim-select "CFUN online reply: $result"
 	if [ "$old_modem_section" != "$modem_section" ]; then
 		uci -q set "qmodem.$old_modem_section.state=disabled" || return 1
 	fi
@@ -372,12 +306,7 @@ apply_sim() {
 	if [ "$manufacturer" = huawei ]; then
 		printf '%s\n' "$target_slot" > "/tmp/huawei_sim_slot_$modem_section"
 	fi
-	if [ "$check_result" = 2 ]; then
-		# Let QModem apply the target card's configured PIN, never issue repeated PIN attempts here.
-		set_status dialing "目标卡槽已确认，SIM 需要 PIN/PUK；等待拨号程序处理"
-	else
-		set_status dialing "实际卡槽与识卡已确认，正在恢复拨号"
-	fi
+	set_status dialing "卡槽指令已提交，原拨号流程继续；实际卡槽和识卡状态由页面读取"
 	return 0
 }
 
@@ -387,6 +316,7 @@ run_selection() {
 	# Stop the old worker before GPIO/AT changes; it retains the previous SIM's APN.
 	/etc/init.d/qmodem_network stop >/dev/null 2>&1 || {
 		fail_selection "停止旧卡拨号失败"
+		/etc/init.d/qmodem_network start >/dev/null 2>&1
 		return 1
 	}
 	apply_sim "$cur"
@@ -394,19 +324,17 @@ run_selection() {
 	if [ "$status" -eq 0 ]; then
 		uci -q set "qmodem.$modem_section.alias=2_1" && uci -q commit qmodem || {
 			fail_selection "固定蜂窝接口绑定失败"
-			return 1
+			status=1
 		}
 		ubus call network reload >/dev/null 2>&1
 		# QModem keeps 2_1/2_1v6 on the discovered Ultra modem's actual netdev.
-		: > /var/run/c2000ultra-sim-select.ready
-		[ "$booting" = 1 ] || /etc/init.d/qmodem_network start >/dev/null 2>&1 || {
-			rm -f /var/run/c2000ultra-sim-select.ready
-			fail_selection "启动目标卡拨号失败"
-			return 1
-		}
 	else
-		logger -t c2000ultra-sim-select "SIM selection failed; keep modem dial blocked"
+		logger -t c2000ultra-sim-select "SIM selection reported an error; original modem dialing continues"
 	fi
+	[ "$booting" = 1 ] || /etc/init.d/qmodem_network start >/dev/null 2>&1 || {
+		fail_selection "原拨号程序启动失败"
+		status=1
+	}
 	return "$status"
 }
 
@@ -423,7 +351,6 @@ start() {
 	lock_selection "$cur" || return 1
 	trap 'release_lock' EXIT
 	trap 'fail_selection "切卡任务被中断"; exit 1' INT TERM
-	rm -f "$SIM_READY"
 	set_status queued "切卡任务已启动"
 	if save_selection "$cur"; then
 		run_selection "$cur" "$booting"; status=$?
@@ -452,7 +379,6 @@ select_sim() {
 		release_lock
 		reply "保存目标卡槽失败"; return 1
 	}
-	rm -f "$SIM_READY"
 	set_status queued "切卡任务已提交"
 	(
 		current_pid

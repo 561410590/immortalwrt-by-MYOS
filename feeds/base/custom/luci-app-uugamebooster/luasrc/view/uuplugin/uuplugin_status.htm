@@ -1,0 +1,40 @@
+<script type="text/javascript">//<![CDATA[
+XHR.poll(3, '<%=url([[admin]], [[services]], [[uuplugin]], [[status]])%>', null,
+	function(x, data) {
+		var tb = document.getElementById('uuplugin_status');
+		var selected = data && data.configured_platform == 'h3c-nx30pro'
+			? 'H3C NX30 Pro' : 'OpenWrt aarch64（官方通用）';
+		var detail = data && data.status ? String(data.status)
+			.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;').replace(/"/g, '&quot;') : '';
+		var health = data && data.health_detail ? String(data.health_detail)
+			.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;').replace(/"/g, '&quot;') : '';
+		detail = '<small><%:所选核心%>: ' + selected + '</small>' +
+			(health ? '<br><small>' + health + '</small>' : '') +
+			(detail ? '<br><small>' + detail + '</small>' : '');
+		if (data && tb) {
+			if (data.phase == 'ready') {
+				tb.innerHTML = '<em><b><font color=green>UU GameAcc <%:已就绪%></font></b></em>' +
+					'<br>' + detail;
+			} else if (data.phase == 'network_uninitialized') {
+				tb.innerHTML = '<em><b><font color=orange>UU GameAcc <%:核心运行，网络未初始化%></font></b></em>' +
+					'<br>' + detail;
+			} else if (data.phase == 'core_running') {
+				tb.innerHTML = '<em><b><font color=#2874a6>UU GameAcc <%:核心运行%></font></b></em>' +
+					'<br>' + detail;
+			} else {
+				tb.innerHTML = '<em><b><font color=red>UU GameAcc <%:未运行%></font></b></em>' +
+					'<br>' + detail;
+			}
+		}
+	}
+);
+//]]>
+</script>
+<style>.mar-10 {margin-left: 50px; margin-right: 10px;}</style>
+<fieldset class="cbi-section">
+	<p id="uuplugin_status">
+		<em><%:Collecting data...%></em>
+	</p>
+</fieldset>

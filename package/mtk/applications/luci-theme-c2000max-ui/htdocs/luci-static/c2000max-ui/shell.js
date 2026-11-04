@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 const $ = s => document.querySelector(s);
-const paths = { home:['admin','status','c2000ultra'], wifi:['admin','network','wireless'], signal:['admin','modem','qmodem'], devices:['admin','network','dhcp'] };
+const paths = { home:['admin','status','n5000'], wifi:['admin','network','wireless'], network:['admin','network','network'], devices:['admin','services','oaf','users','list'] };
 document.querySelectorAll('.mobile-nav [data-panel]').forEach(button => {
  const path = paths[button.dataset.panel];
  if (!path) return;

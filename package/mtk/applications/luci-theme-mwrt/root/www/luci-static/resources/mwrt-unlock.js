@@ -1,4 +1,4 @@
-/* MWRT-only local unlock: mwrtmwrt opens the dialog; POST validates the local code. */
+/* MWRT local unlock: keyboard keyword and eight firmware-card taps share the same dialog. */
 (function () {
 	'use strict';
 
@@ -316,4 +316,279 @@
 			show();
 		}
 	}, true);
+
+	/* 连点版本卡片八次打开原密码框，保留原键盘入口。 */
+	var CAT_CSS = CAT_STYLE();
+	var catWrap = null, catN = 0, catT = 0, catTimer = null;
+	var NEED = 8, SHOW_FROM = 3, GAP = 1600;
+
+	function catReset() {
+		catN = 0;
+		if (catTimer) { clearTimeout(catTimer); catTimer = null; }
+		if (catWrap) { catWrap.classList.remove('mc-on'); catWrap.classList.add('mc-off'); }
+	}
+
+	function onTap() {
+		var now = Date.now();
+		if (now - catT > GAP) catReset();
+		catT = now;
+		catN++;
+		/* 每一次点击都给反馈(含前两次还没出猫时): 点哪儿冒一枚粉色猫爪肉球, 弹一下淡出。
+		 * 这样"点版本卡片"从第一下就有可爱回应, 不是前两下石沉大海。 */
+		pawPop();
+		if (catN >= SHOW_FROM) catShow(catN);
+		if (catTimer) { clearTimeout(catTimer); }
+		/* 一段时间没继续点就收起(但别在跳出/弹框的那次收) */
+		if (catN < NEED) catTimer = setTimeout(catReset, GAP + 400);
+		if (catN >= NEED) {
+			catEscape();
+			var n = catN; catN = 0;
+			setTimeout(show, 760);           /* 等跳出动画播完再弹框 */
+			setTimeout(catReset, 1400);
+		}
+	}
+
+	var catX = 0, catY = 0;
+	document.addEventListener('click', function (e) {
+		var t = e.target;
+		if (!t || !t.closest) return;
+		if (!t.closest('.fw-banner')) return;
+		if (t.closest('.fw-act')) return;   /* 检查更新 / NEW 是正经操作, 不算 */
+		/* 记录点击位置(视口坐标), 让猫就从手指点的地方冒出来, 而不是固定在屏幕下方。
+		 * touch 事件没有 clientX 时回退到被点元素的中心。 */
+		if (e.clientX || e.clientY) { catX = e.clientX; catY = e.clientY; }
+		else { var r = t.getBoundingClientRect(); catX = r.left + r.width / 2; catY = r.top + r.height / 2; }
+		onTap();
+	}, true);
+
+	/* ---- 笼中猫动画 ---- */
+	function catBuild() {
+		if (catWrap) return;
+		var st = document.createElement('style');
+		st.textContent = CAT_CSS;
+		document.head.appendChild(st);
+		catWrap = document.createElement('div');
+		catWrap.id = 'mwrt-cat';
+		catWrap.className = 'mc-off';
+		catWrap.setAttribute('aria-hidden', 'true');
+		catWrap.innerHTML = CAT_SVG();
+		document.body.appendChild(catWrap);
+	}
+
+	/* 把猫浮层摆到点击点: 120px 见方, 让猫的下半(笼子底座)大致落在手指处、头往上探。
+	 * 夹在视口内, 别超出屏幕边。 */
+	function catPlace() {
+		if (!catWrap) return;
+		var W = 120, H = 120, m = 6;
+		var vw = window.innerWidth || document.documentElement.clientWidth;
+		var vh = window.innerHeight || document.documentElement.clientHeight;
+		var left = catX - W / 2;
+		var top = catY - H * 0.72;   /* 点击点落在笼子中下部, 猫头在其上方 */
+		left = Math.max(m, Math.min(left, vw - W - m));
+		top = Math.max(m, Math.min(top, vh - H - m));
+		catWrap.style.left = left + 'px';
+		catWrap.style.top = top + 'px';
+	}
+
+	function catShow(n) {
+		catBuild();
+		catPlace();
+		/* --esc: 0~1 的挣脱进度, 从第 3 次(0)到第 7 次(接近 1)。栏杆弯曲 / 猫上移都看它 */
+		var esc = Math.max(0, Math.min(1, (n - SHOW_FROM) / (NEED - 1 - SHOW_FROM)));
+		catWrap.style.setProperty('--esc', esc.toFixed(3));
+		catWrap.classList.remove('mc-off', 'mc-escape');
+		catWrap.classList.add('mc-on');
+		/* 撸猫: 每次点都重放一遍"被撸"动画(眯眼 + 冒爱心) */
+		catWrap.classList.remove('mc-pet');
+		void catWrap.offsetWidth;
+		catWrap.classList.add('mc-pet');
+	}
+
+	function catEscape() {
+		catBuild();
+		catPlace();
+		catWrap.style.setProperty('--esc', '1');
+		catWrap.classList.remove('mc-off');
+		catWrap.classList.add('mc-on', 'mc-escape');
+	}
+
+	/* 每次点击在点击点冒一枚猫爪肉球, 弹一下淡出后自删。独立于笼中猫, 前两次点也有。 */
+	function pawPop() {
+		catBuild();   /* 复用它注入的样式表 */
+		var p = document.createElement('div');
+		p.className = 'mc-paw';
+		p.innerHTML = PAW_SVG();
+		p.style.left = catX + 'px';
+		p.style.top = catY + 'px';
+		document.body.appendChild(p);
+		setTimeout(function () { if (p.parentNode) p.parentNode.removeChild(p); }, 700);
+	}
+
+	/* 二次元猫 + 牢笼, 全内联 SVG。分三层:
+	 *   .mc-cage-back 笼子后半(猫在它前面) / .mc-cat 猫 / .mc-cage 笼子前栏杆(猫被关在后面)
+	 * 栏杆用 <path>, 由 CSS 的 --esc 控制中段外弯的程度(scaleX/路径变形靠 transform)。 */
+	/* 猫爪肉球: 一个大掌垫 + 四个趾垫, 点击反馈用。粉色、圆润。 */
+	function PAW_SVG() {
+		return '<svg viewBox="0 0 40 40" width="40" height="40" aria-hidden="true">' +
+			'<ellipse class="mc-pad" cx="20" cy="26" rx="10" ry="8.5"/>' +
+			'<circle class="mc-pad" cx="10" cy="16" r="3.4"/>' +
+			'<circle class="mc-pad" cx="17" cy="11" r="3.6"/>' +
+			'<circle class="mc-pad" cx="24" cy="11" r="3.6"/>' +
+			'<circle class="mc-pad" cx="31" cy="16" r="3.4"/>' +
+			'</svg>';
+	}
+
+	function CAT_SVG() {
+		return '' +
+		'<div class="mc-stage">' +
+		  '<svg class="mc-svg" viewBox="0 0 120 120" width="120" height="120" aria-hidden="true">' +
+		    /* 地台阴影 */
+		    '<ellipse class="mc-shadow" cx="60" cy="110" rx="34" ry="6"/>' +
+		    /* 笼子底座 */
+		    '<rect class="mc-base" x="18" y="98" width="84" height="8" rx="3"/>' +
+		    /* 猫(一个 group, 跳出时整体位移) */
+		    '<g class="mc-cat">' +
+		      /* 身体(露出一点) */
+		      '<path class="mc-body" d="M42 104 Q60 86 78 104 Z"/>' +
+		      /* 头 */
+		      '<g class="mc-head">' +
+		        '<path class="mc-ear" d="M40 60 L46 44 L54 58 Z"/>' +
+		        '<path class="mc-ear" d="M80 60 L74 44 L66 58 Z"/>' +
+		        '<circle class="mc-face" cx="60" cy="68" r="22"/>' +
+		        /* 腮红 */
+		        '<ellipse class="mc-blush" cx="47" cy="72" rx="4" ry="2.6"/>' +
+		        '<ellipse class="mc-blush" cx="73" cy="72" rx="4" ry="2.6"/>' +
+		        /* 眼睛: 睁眼 + 眯眼两套, 撸猫时切换 */
+		        '<g class="mc-eyes-open">' +
+		          '<circle class="mc-eye" cx="52" cy="66" r="3.4"/>' +
+		          '<circle class="mc-eye" cx="68" cy="66" r="3.4"/>' +
+		          '<circle class="mc-eye-hl" cx="53.2" cy="64.8" r="1.1"/>' +
+		          '<circle class="mc-eye-hl" cx="69.2" cy="64.8" r="1.1"/>' +
+		        '</g>' +
+		        '<g class="mc-eyes-happy">' +
+		          '<path class="mc-eye-line" d="M48 66 Q52 62 56 66"/>' +
+		          '<path class="mc-eye-line" d="M64 66 Q68 62 72 66"/>' +
+		        '</g>' +
+		        /* 鼻+嘴 */
+		        '<path class="mc-nose" d="M58 73 L62 73 L60 75 Z"/>' +
+		        '<path class="mc-mouth" d="M60 75 Q56 79 52 76 M60 75 Q64 79 68 76"/>' +
+		        /* 胡须 */
+		        '<path class="mc-whisker" d="M38 69 L28 67 M38 73 L28 74"/>' +
+		        '<path class="mc-whisker" d="M82 69 L92 67 M82 73 L92 74"/>' +
+		      '</g>' +
+		    '</g>' +
+		    /* 前栏杆(把猫关住) */
+		    '<g class="mc-cage">' +
+		      '<rect class="mc-top" x="16" y="34" width="88" height="7" rx="3"/>' +
+		      '<path class="mc-bar" d="M30 40 L30 98"/>' +
+		      '<path class="mc-bar" d="M45 40 L45 98"/>' +
+		      '<path class="mc-bar" d="M60 40 L60 98"/>' +
+		      '<path class="mc-bar" d="M75 40 L75 98"/>' +
+		      '<path class="mc-bar" d="M90 40 L90 98"/>' +
+		    '</g>' +
+		    /* 撸猫时冒的爱心 */
+		    '<g class="mc-hearts">' +
+		      '<path class="mc-heart" d="M60 30 q-4 -5 -8 -1 q-3 3 0 6 l8 7 l8 -7 q3 -3 0 -6 q-4 -4 -8 1 z"/>' +
+		    '</g>' +
+		  '</svg>' +
+		'</div>';
+	}
+
+	function CAT_STYLE() {
+		return [
+			/* 浮层: 定位到点击点(left/top 由 JS 按手指位置设), 不挡内容(pointer-events:none),
+			 * 跟弹窗一样高 z-index。出现/消失用 scale+位移, 以浮层中心为原点。 */
+			'#mwrt-cat{position:fixed;left:0;top:0;transform-origin:50% 70%;z-index:2147483645;',
+			'pointer-events:none;--esc:0;filter:drop-shadow(0 12px 22px rgba(0,0,0,.28))}',
+			'#mwrt-cat.mc-off{opacity:0;transform:translateY(16px) scale(.5);',
+			'transition:opacity .3s ease,transform .3s cubic-bezier(.2,.9,.3,1.2)}',
+			'#mwrt-cat.mc-on{opacity:1;transform:translateY(0) scale(1);',
+			'transition:opacity .28s ease,transform .38s cubic-bezier(.2,.9,.3,1.3)}',
+			'#mwrt-cat .mc-stage{width:120px;height:120px}',
+			'#mwrt-cat .mc-svg{display:block;overflow:visible}',
+			/* 配色: 二次元奶白猫 + 橘黄耳朵 / 蓝灰笼子 */
+			'#mwrt-cat .mc-shadow{fill:rgba(0,0,0,.18)}',
+			'#mwrt-cat .mc-base{fill:#5b6475}',
+			'#mwrt-cat .mc-body{fill:#fff2e0;stroke:#e9d6bd;stroke-width:1.5}',
+			'#mwrt-cat .mc-face{fill:#fff6ea;stroke:#e9d6bd;stroke-width:1.5}',
+			'#mwrt-cat .mc-ear{fill:#ffb870;stroke:#e9975a;stroke-width:1.2;stroke-linejoin:round}',
+			'#mwrt-cat .mc-blush{fill:#ffc2cf}',
+			'#mwrt-cat .mc-eye{fill:#3a3340}',
+			'#mwrt-cat .mc-eye-hl{fill:#fff}',
+			'#mwrt-cat .mc-eye-line{fill:none;stroke:#3a3340;stroke-width:2.4;stroke-linecap:round}',
+			'#mwrt-cat .mc-nose{fill:#ff9db0}',
+			'#mwrt-cat .mc-mouth{fill:none;stroke:#b88b63;stroke-width:1.6;stroke-linecap:round}',
+			'#mwrt-cat .mc-whisker{stroke:#d9c3a6;stroke-width:1.3;stroke-linecap:round}',
+			/* 眼睛两套默认: 睁眼显示、眯眼藏 */
+			'#mwrt-cat .mc-eyes-happy{opacity:0}',
+			/* 笼子 */
+			'#mwrt-cat .mc-top{fill:#6b7488}',
+			'#mwrt-cat .mc-bar{fill:none;stroke:#7c8698;stroke-width:4;stroke-linecap:round}',
+			''
+		].join('') + CAT_STYLE_ANIM();
+	}
+
+	function CAT_STYLE_ANIM() {
+		return [
+			/* 挣脱进度 --esc(0~1): 猫头顶着栏杆往上拱, 中间几根栏杆被撑弯(scaleY 压短 + 外移),
+			 * 顶梁随之被顶起翘一点。都用 calc 按 --esc 插值, 不用 keyframes。 */
+			'#mwrt-cat .mc-cat{transform:translateY(calc(var(--esc) * -10px));transition:transform .35s cubic-bezier(.2,.9,.3,1.3)}',
+			'#mwrt-cat .mc-cage{transition:transform .35s ease}',
+			/* 中间三根(45/60/75)受力最大: 用 nth 分别给不同弯曲量 */
+			'#mwrt-cat .mc-bar{transition:transform .35s cubic-bezier(.3,.8,.3,1.1),stroke .3s}',
+			'#mwrt-cat .mc-bar:nth-of-type(2){transform:translateX(calc(var(--esc) * -4px)) scaleY(calc(1 - var(--esc)*.12))}',
+			'#mwrt-cat .mc-bar:nth-of-type(3){transform:translateX(calc(var(--esc) * -7px)) rotate(calc(var(--esc) * -7deg));transform-origin:50px 98px}',
+			'#mwrt-cat .mc-bar:nth-of-type(4){transform:scaleY(calc(1 - var(--esc)*.22)) translateX(calc(var(--esc) * 1px));transform-origin:60px 98px}',
+			'#mwrt-cat .mc-bar:nth-of-type(5){transform:translateX(calc(var(--esc) * 7px)) rotate(calc(var(--esc) * 7deg));transform-origin:70px 98px}',
+			'#mwrt-cat .mc-bar:nth-of-type(6){transform:translateX(calc(var(--esc) * 4px)) scaleY(calc(1 - var(--esc)*.12))}',
+			'#mwrt-cat .mc-top{transition:transform .35s ease;transform:translateY(calc(var(--esc) * -3px)) rotate(calc(var(--esc) * -2deg));transform-origin:60px 37px}',
+			/* 挣脱时栏杆泛红一点表示"要崩了" */
+			'#mwrt-cat.mc-on .mc-bar{stroke:color-mix(in srgb,#7c8698,#ff7a7a calc(var(--esc)*55%))}',
+			/* 撸猫: 眯眼笑 + 轻微点头 + 冒一颗爱心。每次点击重放(先移除再加类触发) */
+			'#mwrt-cat.mc-pet .mc-eyes-open{opacity:0}',
+			'#mwrt-cat.mc-pet .mc-eyes-happy{opacity:1}',
+			'#mwrt-cat.mc-pet .mc-head{animation:mc-nod .45s ease}',
+			'#mwrt-cat.mc-pet .mc-hearts{animation:mc-heart .9s ease}',
+			'@keyframes mc-nod{0%{transform:translateY(0) rotate(0)}40%{transform:translateY(2px) rotate(-3deg)}100%{transform:translateY(0) rotate(0)}}',
+			'#mwrt-cat .mc-head{transform-box:fill-box;transform-origin:center}',
+			'#mwrt-cat .mc-hearts{opacity:0}',
+			'@keyframes mc-heart{0%{opacity:0;transform:translateY(6px) scale(.4)}25%{opacity:1}100%{opacity:0;transform:translateY(-26px) scale(1)}}',
+			'#mwrt-cat .mc-heart{fill:#ff6f91}',
+			/* 跳出: 猫整体蹿出屏外上方 + 笼子炸开(栏杆向两侧倒) */
+			'#mwrt-cat.mc-escape .mc-cat{animation:mc-jump .7s cubic-bezier(.2,.7,.2,1) forwards}',
+			'@keyframes mc-jump{0%{transform:translateY(-10px)}35%{transform:translateY(-34px) scale(1.06)}100%{transform:translateY(-130px) scale(.9);opacity:0}}',
+			'#mwrt-cat.mc-escape .mc-cage{animation:mc-burst .5s ease forwards}',
+			'@keyframes mc-burst{100%{transform:scale(1.15);opacity:0}}',
+			'#mwrt-cat.mc-escape .mc-bar:nth-of-type(3){transform:rotate(-40deg) translateY(10px);transform-origin:50px 98px;transition:transform .5s ease}',
+			'#mwrt-cat.mc-escape .mc-bar:nth-of-type(5){transform:rotate(40deg) translateY(10px);transform-origin:70px 98px;transition:transform .5s ease}',
+			/* 动画降级: 系统开了"减少动态效果"时, 还是出猫/弹框, 只是不播花哨过渡 */
+			'@media (prefers-reduced-motion:reduce){#mwrt-cat .mc-cat,#mwrt-cat .mc-bar,#mwrt-cat .mc-top{transition:none}',
+			'#mwrt-cat.mc-pet .mc-head,#mwrt-cat.mc-pet .mc-hearts,#mwrt-cat.mc-escape .mc-cat,#mwrt-cat.mc-escape .mc-cage{animation:none}}',
+			/* 点击反馈: 猫爪肉球在点击点弹一下淡出。以自身中心对齐光标。 */
+			'.mc-paw{position:fixed;z-index:2147483645;pointer-events:none;width:40px;height:40px;margin:-20px 0 0 -20px;',
+			'animation:mc-paw .7s cubic-bezier(.2,.8,.3,1) forwards;transform-origin:50% 60%}',
+			'.mc-paw .mc-pad{fill:#ff8fab;opacity:.95}',
+			'@keyframes mc-paw{0%{opacity:0;transform:scale(.3) rotate(-12deg)}22%{opacity:1;transform:scale(1.12) rotate(-6deg)}',
+			'45%{transform:scale(.96) rotate(-6deg)}100%{opacity:0;transform:scale(1) rotate(-6deg) translateY(-10px)}}',
+			/* 逗猫棒光标: 悬停版本卡片时, 鼠标变成一根带绒球的逗猫棒(内联 SVG data-URI)。
+			 * 热点设在绒球端(2,2)。触屏没有光标, 不影响。整条 .fw-banner 都给, 但 .fw-act
+			 * (检查更新/NEW)是正经按钮, 覆盖回普通 pointer。 */
+			'.fw-banner{cursor:url("data:image/svg+xml,' + TEASER_CURSOR() + '") 2 2,pointer}',
+			'.fw-banner .fw-act,.fw-banner .fw-act *{cursor:pointer}',
+			''
+		].join('');
+	}
+
+	/* 逗猫棒光标 SVG(URL 编码后的 data-URI 内容): 斜杆 + 顶端绒球 + 挂一颗铃铛。
+	 * 用 %23 代替 #, 空格用 %20, 保证能塞进 CSS url()。 */
+	function TEASER_CURSOR() {
+		var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">' +
+			'<line x1="6" y1="6" x2="26" y2="26" stroke="%23b5835a" stroke-width="2.4" stroke-linecap="round"/>' +
+			'<circle cx="6" cy="6" r="5" fill="%23ff8fab"/>' +
+			'<circle cx="6" cy="6" r="5" fill="none" stroke="%23ff6f91" stroke-width="1"/>' +
+			'<circle cx="26" cy="27" r="2.2" fill="%23ffd166" stroke="%23e0a93b" stroke-width="0.8"/>' +
+			'</svg>';
+		return svg.replace(/</g, '%3C').replace(/>/g, '%3E').replace(/"/g, '%22').replace(/ /g, '%20');
+	}
+
 }());

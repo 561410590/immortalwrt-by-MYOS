@@ -287,7 +287,7 @@ function showAk68Overlay() {
                         请耐心等待完成，不要将设备断电...
                     </div>
                     <div style="color:#B3E5FC;font-size:18px;margin-top:22px;">
-                        后台地址：192.168.88.1，默认密码为 admin<br>
+                        设备恢复后，请使用实际 LAN 管理地址和对应登录密码。<br>
                         请使用快捷键清理缓存（Windows）：Ctrl+Shift+Delete，(Mac): Command+Shift+Delete
                     </div>
                 </div>
@@ -328,20 +328,6 @@ function showAk68Overlay() {
         var isAk68Conn = msg && msg.indexOf('AK68已连接') !== -1;
         if (isAk68Conn) {
             showAk68Overlay();
-            return;
-        }
-
-        var isInit = msg && msg.indexOf('切换完成，重启设备...') !== -1;
-        if (isInit) {
-            overlay.style.opacity = 0;
-            overlay.style.display = 'none';
-            var initOverlay = document.getElementById('init-overlay');
-            if (initOverlay) {
-                initOverlay.style.display = "flex";
-                initOverlay.style.zIndex = "999999"; 
-                animateProgress(); 
-            }
-            isShowing = true;
             return;
         }
 
@@ -457,19 +443,6 @@ function showAk68Overlay() {
     <div id="idle_status" style="display:flex;gap:8px;align-items:center;margin-bottom:24px;flex-wrap:wrap;justify-content:center;"></div>
   </div>
 
-  <div id="idle_cell_card" style="display:none;width:100%;max-width:1000px;background:linear-gradient(135deg,rgba(255,255,255,0.04) 0%,rgba(255,255,255,0.02) 100%);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,0.08);border-radius:18px;padding:18px 22px;position:relative;overflow:hidden;">
-    <div class="idle-cell-glow"></div>
-    <div id="idle_cell_header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-      <div style="display:flex;align-items:center;gap:6px;"><span style="width:5px;height:5px;border-radius:50%;background:#a78bfa;box-shadow:0 0 6px #a78bfa;"></span><span style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:3px;text-transform:uppercase;font-weight:600;">CELLULAR · 蜂窝网络</span></div>
-      <div id="idle_cell_mode_wrap"></div>
-    </div>
-    <div id="idle_cell_body" style="display:grid;grid-template-columns:auto 1fr auto;gap:24px;align-items:center;">
-      <div id="idle_cell_left" style="display:flex;flex-direction:column;align-items:center;gap:8px;min-width:140px;"></div>
-      <div id="idle_cell_center" style="display:flex;flex-direction:column;align-items:center;gap:6px;"></div>
-      <div id="idle_cell_right" style="display:grid;grid-template-columns:repeat(2,minmax(108px,1fr));gap:6px;"></div>
-    </div>
-  </div>
-
   <div id="idle_grid" style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;max-width:780px;width:100%;margin-top:14px;"></div>
 
   
@@ -520,8 +493,12 @@ function showAk68Overlay() {
 #idle_overlay .idle-isp-mode.mode-4g{background:linear-gradient(90deg,rgba(96,165,250,0.2),rgba(34,211,238,0.2));border-color:rgba(96,165,250,0.4);color:#67e8f9}
 #idle_overlay .idle-empty{padding:14px;text-align:center;color:rgba(255,255,255,0.3);font-size:11px;letter-spacing:1px}
 #idle_overlay .idle-cell-glow{position:absolute;top:-30%;right:-10%;width:340px;height:340px;background:radial-gradient(circle,rgba(167,139,250,0.12) 0%,transparent 65%);pointer-events:none;filter:blur(20px)}
-#idle_overlay .ic-carrier-logo{width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,rgba(167,139,250,0.2),rgba(96,165,250,0.15));border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:#fff;letter-spacing:-0.5px;box-shadow:0 6px 20px rgba(167,139,250,0.18);position:relative}
-#idle_overlay .ic-carrier-logo::after{content:'';position:absolute;inset:-2px;border-radius:50%;border:1px solid rgba(255,255,255,0.05);pointer-events:none}
+#idle_overlay .ic-carrier-logo{width:64px;height:64px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:#fff;letter-spacing:-0.5px;position:relative}
+/* 运营商真 PNG logo(和首页 hero 同一套 /logo/*.png, 200x62 透明横图):
+   透明无底、无圆环, img 用 EMB 包围盒绝对定位裁出"图形那一截"(和首页一致)。 */
+#idle_overlay .ic-carrier-logo.has-png{background:transparent;padding:0;overflow:hidden}
+#idle_overlay .ic-carrier-logo.has-png img{position:absolute;max-width:none;display:block}
+#idle_overlay .ic-carrier-logo.op-fallback{border-radius:50%;background:linear-gradient(135deg,#3a6ea5,#2a5080)}
 #idle_overlay .ic-carrier-name{font-size:15px;font-weight:600;color:#fff;letter-spacing:1px;text-align:center}
 #idle_overlay .ic-mode-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:14px;font-size:10px;font-weight:700;letter-spacing:1.5px;background:linear-gradient(90deg,rgba(167,139,250,0.22),rgba(96,165,250,0.22));color:#c4b5fd;border:1px solid rgba(167,139,250,0.32)}
 #idle_overlay .ic-mode-pill.mode-5g{background:linear-gradient(90deg,rgba(167,139,250,0.28),rgba(244,114,182,0.28));border-color:rgba(244,114,182,0.45);color:#f9a8d4}
@@ -666,97 +643,8 @@ function showAk68Overlay() {
     }
 
     function pollNetInfo(){
-        var xhr=new XMLHttpRequest();xhr.open('GET','<%=luci.dispatcher.build_url("admin","fancontrol","modem_ctrl")%>?cfg=2_1&action=info&translate=1&'+Date.now(),true);
-        xhr.onreadystatechange=function(){if(xhr.readyState===4&&xhr.status===200){try{renderNetInfo(JSON.parse(xhr.responseText));}catch(e){renderNetInfo(null);}}};xhr.send();
         var xhr2=new XMLHttpRequest();xhr2.open('GET','<%=luci.dispatcher.build_url("admin","fancontrol","devinfo")%>?'+Date.now(),true);
         xhr2.onreadystatechange=function(){if(xhr2.readyState===4&&xhr2.status===200){try{renderSysInfo(JSON.parse(xhr2.responseText));}catch(e){}}};xhr2.send();
-    }
-
-    function getOpName(map){
-        var imsi=(map.IMSI&&map.IMSI.value)||'';
-        var plmn=imsi.substring(0,5);
-        if(plmn.indexOf('46000')===0||plmn==='46002'||plmn==='46004'||plmn==='46007'||plmn==='46008')return '中国移动';
-        if(plmn==='46001'||plmn==='46006'||plmn==='46009')return '中国联通';
-        if(plmn==='46003'||plmn==='46005'||plmn==='46011')return '中国电信';
-        if(plmn==='46015')return '中国广电';
-        var ISP=(map.ISP&&map.ISP.value)||'';
-        if(ISP==='4E2D56FD79FB52A8')return '中国移动';
-        if(ISP==='N-V ^u5')return '中国广电';
-        if(ISP==='CHN-CT'||ISP==='CT')return '中国电信';
-        if(ISP==='4E2D56FD8054901A')return '中国联通';
-        if(ISP)return ISP;
-        return '';
-    }
-
-    function renderNetInfo(arr){
-        var L=document.getElementById('idle_panel_left');
-        var card=document.getElementById('idle_cell_card');
-        var L=document.getElementById('idle_cell_left');
-        var C=document.getElementById('idle_cell_center');
-        var R=document.getElementById('idle_cell_right');
-        var modeWrap=document.getElementById('idle_cell_mode_wrap');
-        if(!Array.isArray(arr)||!arr.length){
-            if(card)card.style.display='none';
-            return;
-        }
-        if(card)card.style.display='block';
-        var map={};arr.forEach(function(i){if(i&&i.key)map[i.key]=i;});
-        var ISP=getOpName(map);
-        var mode=(map['Network Type']&&map['Network Type'].value)||(map['网络类型']&&map['网络类型'].value)||'';
-        var modeClass='';var modeText=mode;
-        if(mode.indexOf('NR')>=0){modeText='5G NR';modeClass='mode-5g';}
-        else if(mode.indexOf('LTE')>=0){modeText='4G LTE';modeClass='mode-4g';}
-        else if(mode){modeText=mode;}
-
-        var rsrp=map.RSRP||map['参考信号接收功率'];
-        var rsrq=map.RSRQ||map['参考信号接收质量'];
-        var sinr=map.SINR||map['信噪比'];
-        var band=(map.Band&&map.Band.value)||(map['频段']&&map['频段'].value)||'';
-        var earfcn=(map.EARFCN&&map.EARFCN.value)||(map.NRARFCN&&map.NRARFCN.value)||'';
-        var pci=(map.PCI&&map.PCI.value)||(map['Physical Cell ID']&&map['Physical Cell ID'].value)||'';
-        var cellid=(map.CID&&map.CID.value)||(map['Cell ID']&&map['Cell ID'].value)||'';
-        var tac=(map.TAC&&map.TAC.value)||'';
-        var bw=(map.Bandwidth&&map.Bandwidth.value)||(map['带宽']&&map['带宽'].value)||'';
-        var temp=(map.Temperature&&map.Temperature.value)||(map['温度']&&map['温度'].value)||'';
-
-        var pct=0;var rsrpVal='';var rsrpRaw='';
-        if(rsrp&&rsrp.value){
-            var v=parseFloat(rsrp.value);rsrpVal=Math.round(v)+' dBm';rsrpRaw=Math.round(v);
-            var mn=parseFloat(rsrp.min_value||-110),mx=parseFloat(rsrp.max_value||-44);
-            pct=Math.round(100*(v-mn)/(mx-mn));pct=Math.max(0,Math.min(100,pct));
-        }
-        var bars=Math.ceil(pct/20);if(bars<1&&pct>0)bars=1;
-
-        if(modeWrap)modeWrap.innerHTML=modeText?'<span class="ic-mode-pill '+modeClass+'">'+modeText+'</span>':'';
-
-        var initial=(ISP&&ISP.charAt(0))||'·';
-        var ispShort=ISP||'未知运营商';
-        var L1='<div class="ic-carrier-logo">'+initial+'</div>';
-        L1+='<div class="ic-carrier-name">'+ispShort+'</div>';
-        var bs='';for(var b=1;b<=5;b++)bs+='<span'+(b<=bars?' class="on"':'')+'></span>';
-        L1+='<div class="ic-bars">'+bs+'</div>';
-        L.innerHTML=L1;
-
-        var radius=56;var circ=2*Math.PI*radius;var off=circ*(1-pct/100);
-        var C1='<div class="ic-ring">';
-        C1+='<svg viewBox="0 0 130 130"><circle class="sr-bg" cx="65" cy="65" r="'+radius+'" fill="none" stroke-width="5"/>';
-        C1+='<circle class="sr-fg" cx="65" cy="65" r="'+radius+'" fill="none" stroke-width="5" stroke-dasharray="'+circ+'" stroke-dashoffset="'+off+'"/></svg>';
-        C1+='<div class="sr-center"><div class="sr-pct">'+pct+'<sup>%</sup></div><div class="sr-label">SIGNAL</div>';
-        if(rsrpVal)C1+='<div class="sr-rsrp">'+rsrpVal+'</div>';
-        C1+='</div></div>';
-        C.innerHTML=C1;
-
-        var R1='';
-        if(rsrq&&rsrq.value)R1+='<div class="ic-chip acc-green"><span class="cl">RSRQ</span><span class="cv">'+rsrq.value+' dB</span></div>';
-        if(sinr&&sinr.value)R1+='<div class="ic-chip acc-amber"><span class="cl">SINR</span><span class="cv">'+sinr.value+' dB</span></div>';
-        if(band)R1+='<div class="ic-chip acc-purple"><span class="cl">频段</span><span class="cv">B'+band+'</span></div>';
-        if(bw)R1+='<div class="ic-chip acc-cyan"><span class="cl">带宽</span><span class="cv">'+bw+'</span></div>';
-        if(pci)R1+='<div class="ic-chip acc-pink"><span class="cl">PCI</span><span class="cv">'+pci+'</span></div>';
-        if(earfcn)R1+='<div class="ic-chip"><span class="cl">ARFCN</span><span class="cv">'+earfcn+'</span></div>';
-        if(cellid)R1+='<div class="ic-chip"><span class="cl">CELL ID</span><span class="cv" style="font-size:10px">'+cellid+'</span></div>';
-        if(tac)R1+='<div class="ic-chip"><span class="cl">TAC</span><span class="cv">'+tac+'</span></div>';
-        if(temp)R1+='<div class="ic-chip acc-red"><span class="cl">模组温度</span><span class="cv">'+temp+'</span></div>';
-        R.innerHTML=R1;
     }
 
     function renderSysInfo(d){
@@ -765,9 +653,9 @@ function showAk68Overlay() {
         var brandModel=document.getElementById('idle_brand_model');
         if(modelEl){
             var m=d["设备型号"];if(m&&typeof m==='object')m=m.name||'';
-            var name=m?'Mwrt-'+m:mwrtFirmwareVersion;
+            var name=m?'Mwrt-'+m:'Mwrt-1139-24';
             modelEl.innerHTML='<span style="width:36px;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.3));"></span><span style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:6px;text-transform:uppercase;font-weight:500;">'+name+'</span><span style="width:36px;height:1px;background:linear-gradient(90deg,rgba(255,255,255,0.3),transparent);"></span>';
-            if(brandModel)brandModel.textContent=m||'NRadio C2000 Ultra';
+            if(brandModel)brandModel.textContent=m||'NRadio N5000';
         }
         var stEl=document.getElementById('idle_status');if(stEl){var p='';
             if(d["WAN状态"]){var on=d["WAN状态"]==="已连接";p+='<div class="idle-status-pill"><span class="sp-dot" style="background:'+(on?'#34d399':'#f87171')+';color:'+(on?'#34d399':'#f87171')+'"></span>'+(on?'已联网':'未联网')+'</div>';}
@@ -789,93 +677,6 @@ function showAk68Overlay() {
     idleOverlay.addEventListener('click',function(){});
     pollShowtime();
 })();
-</script>
-
-<!-- MWRT -->
-<div id="init-overlay" style="display:none;position:fixed;z-index:999999;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.90);color:#fff;flex-direction:column;justify-content:center;align-items:center;font-size:24px;">
-    <div class="argon-spinner"></div>
-    <span style="margin-top:24px;">初始化...</span>
-    <span style="margin-top:16px;">大约占用2分钟时间,完成后登录即可</span>
-    <span id="argon-init-dot" style="margin-top:24px;font-size:20px;color:#ccc;">正在初始化中,请勿刷新页面！<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></span>
-    <div style="width:380px;max-width:90vw;margin-top:40px;">
-        <div style="background:#333;border-radius:8px;overflow:hidden;height:18px;">
-            <div id="argon-progress-bar" style="background:#4fc3f7;width:0;height:18px;transition:width 0.2s;"></div>
-        </div>
-    </div>
-    <div id="argon-progress-text" style="margin-top:18px;font-size:18px;color:#80d6ff;">
-        正在初始化...
-    </div>
-    <div style="position:absolute;bottom:32px;left:0;width:100vw;text-align:center;font-size:16px;color:#a0a0a0;letter-spacing:1px;">
-        Power by Manper-zcy Mwrt
-    </div>
-</div>
-<style>
-.argon-spinner {
-    margin-bottom: 32px;
-    width: 48px;
-    height: 48px;
-    border: 6px solid #4fc3f7;
-    border-right-color: transparent;
-    border-radius: 50%;
-    animation: argon-spin 1s linear infinite;
-}
-@keyframes argon-spin {
-    100% { transform: rotate(360deg); }
-}
-#argon-init-dot .dot {
-    opacity: 0.2;
-    animation: dotblink 1.4s infinite;
-}
-#argon-init-dot .dot:nth-child(1) { animation-delay: 0s;}
-#argon-init-dot .dot:nth-child(2) { animation-delay: 0.2s;}
-#argon-init-dot .dot:nth-child(3) { animation-delay: 0.4s;}
-@keyframes dotblink {
-    0% { opacity: 0.2;}
-    20% { opacity: 1;}
-    100% { opacity: 0.2;}
-}
-</style>
-<script>
-const progressSteps = [
-  { time: 0, text: "执行AT命令AT^SETAUTODIAL=1,1..." },
-  { time: 8, text: "执行AT命令AT^SETAUTODIAL=0..." },
-  { time: 15, text: "执行AT命令AT^SETAUTODIAL=1,1..." },
-  { time: 30, text: "执行AT命令AT^TDPMCFG=0,0,0,0..." },
-  { time: 60, text: "执行AT命令AT^SETMODE=4..." },
-  { time: 110, text: "正在软重启Mwrt..." }
-];
-const totalTime = 120; // 秒
-
-function animateProgress() {
-    const progressBar = document.getElementById('argon-progress-bar');
-    const progressText = document.getElementById('argon-progress-text');
-    const overlay = document.getElementById('init-overlay');
-    const start = Date.now();
-    let lastText = "";
-
-    function update() {
-        const elapsed = (Date.now() - start) / 1000;
-        const percent = Math.min(100, (elapsed / totalTime) * 100);
-        progressBar.style.width = percent + "%";
-
-        let curText = progressSteps[0].text;
-        for(let i=0;i<progressSteps.length;i++){
-            if(elapsed >= progressSteps[i].time) curText = progressSteps[i].text;
-        }
-        if(curText !== lastText) {
-            progressText.textContent = curText;
-            lastText = curText;
-        }
-
-        if(elapsed < totalTime) {
-            requestAnimationFrame(update);
-        } else {
-            overlay.style.display = "none";
-            window.location.href = "http://192.168.88.1";
-        }
-    }
-    update();
-}
 </script>
 
 <!-- ===== MWRT 导航增强:PC侧栏折叠 + 移动端底部快捷栏 ===== -->
@@ -913,7 +714,7 @@ body.mwrt-sb-collapsed #mwrt-sb-toggle svg{transform:rotate(180deg)}
   box-shadow:0 -3px 16px rgba(0,0,0,.18);
   padding-bottom:env(safe-area-inset-bottom,0);
 }
-@media (max-width:768px){#mwrt-bottomnav{display:grid}body.mwrt-has-bottomnav{padding-bottom:64px}}
+@media (max-width:768px){#mwrt-bottomnav{display:grid}body.mwrt-has-bottomnav{padding-bottom:calc(52px + env(safe-area-inset-bottom,0px))}}
 #mwrt-bottomnav a{
   position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:4px;padding:9px 2px 8px;text-decoration:none;
@@ -939,19 +740,19 @@ body.mwrt-sb-collapsed #mwrt-sb-toggle svg{transform:rotate(180deg)}
 
 <!-- 移动端:底部快捷导航 -->
 <nav id="mwrt-bottomnav">
-  <a href="<%=url('admin/modeminfo/cellular_data')%>" data-match="modeminfo">
+  <a href="<%=url('admin/modeminfo')%>" data-match="modeminfo">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
     <span>概览</span>
   </a>
-  <a href="<%=url('admin/modem/qmodem')%>" data-match="modem">
+  <a href="<%=url('admin/network/wireless')%>" data-match="network/wireless">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12" y2="20"></line></svg>
-    <span>蜂窝</span>
+    <span>无线</span>
   </a>
   <a href="<%=url('admin/network/network')%>" data-match="network">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
     <span>网络</span>
   </a>
-  <a href="<%=url('admin/status/overview')%>" data-match="status">
+  <a href="<%=url('admin/system/system')%>" data-match="system">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
     <span>系统</span>
   </a>

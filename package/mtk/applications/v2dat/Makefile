@@ -11,6 +11,7 @@ PKG_MIRROR_HASH:=skip
 PKG_BUILD_DEPENDS:=golang/host
 PKG_BUILD_PARALLEL:=1
 PKG_LICENSE:=GPL-3.0
+PKG_FILE_MODES:= /:root:root:0755 /usr:root:root:0755
 
 GO_PKG:=github.com/urlesistiana/v2dat
 

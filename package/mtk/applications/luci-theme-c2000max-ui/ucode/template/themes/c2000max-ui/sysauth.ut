@@ -4,10 +4,7 @@
  let myos_board=ubus.call('system','board') || {};
  let login_action = http.getenv('REQUEST_URI') || dispatcher.build_url();
  if (replace(split(login_action, '?')[0], /\/+$/, '') == replace(dispatcher.build_url(), /\/+$/, '')) {
-  if (myos_board.board_name == 'nradio,c2000-ultra')
-   login_action = dispatcher.build_url('admin/status/c2000ultra');
-  else if (myos_board.board_name == 'nradio,c2000-max')
-   login_action = dispatcher.build_url('admin/status/c2000max');
+  login_action = dispatcher.build_url('admin/status/n5000');
  }
  try { wallpaper = json(readfile('/www/luci-static/c2000max-ui/wallpaper/default.json')); } catch (e) {}
  http.prepare_content('text/html; charset=UTF-8');
@@ -20,16 +17,16 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#111111">
 <title>MYOS · 登录</title>
-<script src="{{ media }}/theme.js?v=1.0.17-r2-ultra"></script>
-<link rel="stylesheet" href="{{ media }}/tokens.css?v=1.0.17-r2-ultra">
-<link rel="stylesheet" href="{{ media }}/components.css?v=1.0.17-r2-ultra">
-<link rel="stylesheet" href="{{ media }}/login.css?v=1.0.17-r2-ultra">
-<script src="{{ media }}/login.js?v=1.0.17-r2-ultra" defer></script>
+<script src="{{ media }}/theme.js?v=3.1.36-202610261000"></script>
+<link rel="stylesheet" href="{{ media }}/tokens.css?v=3.1.36-202610261000">
+<link rel="stylesheet" href="{{ media }}/components.css?v=3.1.36-202610261000">
+<link rel="stylesheet" href="{{ media }}/login.css?v=3.1.36-202610261000">
+<script src="{{ media }}/login.js?v=3.1.36-202610261000" defer></script>
 </head>
 <body class="login-page">
 <img class="login-wallpaper" src="{{ media }}/wallpaper/default.jpg" data-fallback="{{ media }}/wallpaper/default.jpg" data-date="{{ entityencode(wallpaper.date ?? '', true) }}" alt="" aria-hidden="true">
 <div class="login-shade" aria-hidden="true"></div>
-<header class="login-top"><a class="login-brand" href="{{ dispatcher.build_url() }}"><strong>MYOS</strong><span>{{ entityencode(myos_board.model || 'NRadio C2000') }}</span></a>
+<header class="login-top"><a class="login-brand" href="{{ dispatcher.build_url() }}"><strong>MYOS</strong><span>{{ entityencode(myos_board.model || 'NRadio N5000') }}</span></a>
 {% include('themes/c2000max-ui/appearance') %}
 </header>
 <main class="login-center">

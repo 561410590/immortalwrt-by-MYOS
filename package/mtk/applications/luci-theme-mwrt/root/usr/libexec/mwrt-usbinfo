@@ -1,0 +1,69 @@
+#!/bin/sh
+# /usr/libexec/mwrt-usbinfo —— 列出外接 USB 设备(只看根集线器下第一层), 一台一行, "|" 分隔:
+#   总线位置|vid|pid|速率Mbps|类型|容量MB|下挂设备数|序列号|厂商|名称
+# 类型: modem(蜂窝模组) net(USB 网卡) storage(存储) hid(键鼠) hub(集线器)
+#       audio video printer bt other
+# 只读 sysfs, 不发 AT、不开串口。首页设备图(router3d-data, 1.8 秒一轮)和
+# 全局接入通知(luci.mwrt-notice)共用这一份判型, 两边不要各写一套。
+# 字符串里的控制字符和 "|" 一律删掉, 调用方按 IFS='|' 读, 空字段不会错位。
+
+D=/sys/bus/usb/devices
+
+clean() { tr -d '\000-\037|' < "$1" 2>/dev/null; }
+
+for d in "$D"/[0-9]*-[0-9]*; do
+	b=${d##*/}
+	# 1-1.2 是集线器下面的二层设备, 1-1:1.0 是接口节点, 都不单列
+	case "$b" in *[.:]*) continue ;; esac
+	[ -r "$d/idVendor" ] || continue
+
+	ty=0; wd=0; nt=0; cls=""
+	for i in "$d/$b":*; do
+		[ -d "$i" ] || continue
+		for x in "$i"/ttyUSB*; do [ -e "$x" ] && ty=$((ty + 1)); done
+		[ -d "$i/usbmisc" ] && wd=1
+		[ -d "$i/net" ] && nt=1
+		cls="$cls $(cat "$i/bInterfaceClass" 2>/dev/null)"
+	done
+
+	# 蜂窝模组: 有 cdc-wdm(QMI/MBIM 控制口), 或者有两个以上 ttyUSB(AT/诊断口)。
+	# 单个 ttyUSB 多半是 USB 转串口线, 归 other。
+	t=other
+	if [ "$wd" = 1 ] || [ "$ty" -ge 2 ]; then t=modem
+	elif [ "$nt" = 1 ]; then t=net
+	elif [ "$(cat "$d/bDeviceClass" 2>/dev/null)" = "09" ]; then t=hub
+	else
+		case "$cls " in
+			*" 08 "*) t=storage ;;
+			*" 03 "*) t=hid ;;
+			*" 0e "*) t=video ;;
+			*" 01 "*) t=audio ;;
+			*" 07 "*) t=printer ;;
+			*" e0 "*) t=bt ;;
+		esac
+	fi
+
+	mb=0
+	if [ "$t" = storage ]; then
+		for s in "$d/$b":*/host*/target*/*/block/*/size; do
+			[ -r "$s" ] || continue
+			mb=$(( $(cat "$s" 2>/dev/null || echo 0) / 2048 ))
+			break
+		done
+	fi
+
+	sub=0
+	if [ "$t" = hub ]; then
+		for c in "$D/$b".[0-9]*; do
+			case "${c##*/}" in *:*) continue ;; esac
+			[ -r "$c/idVendor" ] && sub=$((sub + 1))
+		done
+	fi
+
+	spd=$(cat "$d/speed" 2>/dev/null); spd=${spd%%.*}
+	case "$spd" in ''|*[!0-9]*) spd=0 ;; esac
+
+	printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$b" \
+		"$(clean "$d/idVendor")" "$(clean "$d/idProduct")" "$spd" "$t" "$mb" "$sub" \
+		"$(clean "$d/serial")" "$(clean "$d/manufacturer")" "$(clean "$d/product")"
+done

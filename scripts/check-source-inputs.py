@@ -21,7 +21,7 @@ def digest(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--model', required=True,
-                        choices=('c8-688', 'c5800-688', 'nbcpe-688', 'c2000-max', 'c2000-ultra'))
+                        choices=('c8-688', 'c5800-688', 'nbcpe-688', 'c2000-max', 'c2000-ultra', 'n5000'))
     args = parser.parse_args()
     manifest = json.loads((SOURCE / 'BINARY_INPUTS.json').read_text())
     if args.model not in manifest['models']:

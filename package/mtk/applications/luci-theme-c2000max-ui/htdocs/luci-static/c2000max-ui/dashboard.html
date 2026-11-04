@@ -5,13 +5,13 @@
           <div class="device-scene" role="group" aria-label="设备外观与节日装饰">
             <div class="rings" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
             <div class="device-shadow" aria-hidden="true"></div>
-            <img class="device-art" src="assets/c2000ultra-front.png" alt="NRadio C2000-Ultra" width="1400" height="1900">
-            <div class="device-caption"><strong id="device-model">NRadio C2000</strong><span>MYOS · 5G CPE</span></div>
+            <div class="n5000-product-frame"><img class="n5000-product-image" src="assets/n5000-product.png" alt="NRadio N5000 产品图" width="1250" height="1166" decoding="async"></div>
+            <div class="device-caption"><strong id="device-model">NRadio N5000</strong><span>MYOS · 路由器</span></div>
           </div>
           <dl class="metrics">
-            <div class="metric ui-card radio-card cellular"><dt class="radio-card-heading"><span><svg class="icon icon-tone-signal" aria-hidden="true"><use href="#signal"/></svg>移动网络</span><span class="ui-badge neutral" id="network-generation">—</span></dt><dd class="operator-reading"><img class="operator-logo" hidden src="assets/china-mobile.png" width="250" height="77" alt="中国移动 China Mobile"><strong id="operator-name">未获取运营商</strong><span class="operator-mode" id="network-mode">—</span></dd></div>
-            <div class="metric ui-card radio-card radio-metric"><dt class="radio-card-heading"><span><svg class="icon icon-tone-signal" aria-hidden="true"><use href="#activity"/></svg>信号质量</span></dt><dd class="radio-card-values"><div><span class="stat-label">RSRP</span><span class="radio-value"><strong id="nr-rsrp">—</strong><small>dBm</small></span></div><div><span class="stat-label" id="signal-secondary-label">SINR</span><span class="radio-value"><strong id="nr-sinr">—</strong><small>dB</small></span></div></dd></div>
-            <div class="metric ui-card radio-card carrier-metric"><dt class="radio-card-heading"><span><svg class="icon icon-tone-device" aria-hidden="true"><use href="#layers"/></svg>频段与聚合</span></dt><dd class="radio-card-values"><div><span class="stat-label">主频段</span><span class="radio-value"><strong id="nr-band">—</strong></span></div><div><span class="stat-label">载波聚合</span><span class="radio-value"><strong id="nr-ca" aria-label="载波数量未获取">—</strong></span></div></dd></div>
+            <div class="metric ui-card radio-card"><dt class="radio-card-heading">WAN · 2.5G</dt><dd class="radio-card-values"><div><span class="stat-label" id="wan-link">读取中</span><strong id="wan-speed">—</strong></div></dd></div>
+            <div class="metric ui-card radio-card"><dt class="radio-card-heading">LAN · 2.5G</dt><dd class="radio-card-values"><div><span class="stat-label" id="lan-link">读取中</span><strong id="lan-speed">—</strong></div></dd></div>
+            <div class="metric ui-card radio-card"><dt class="radio-card-heading">有线上行</dt><dd class="radio-card-values"><div><span class="stat-label" id="wan-protocol">—</span><strong id="wan-ip">—</strong></div></dd></div>
             <div class="metric ui-card radio-card session-metric" aria-labelledby="session-title">
               <dt class="radio-card-heading"><span id="session-title"><svg class="icon icon-tone-network" aria-hidden="true"><use href="#activity"/></svg>会话连接数</span></dt>
               <dd class="radio-card-values"><div><span class="stat-label">已连接</span><span class="radio-value"><strong id="session-count">—</strong><small>个</small></span></div></dd>
@@ -20,7 +20,6 @@
         </div>
         <div class="health-card ui-card">
           <div class="uptime"><span class="status-dot" aria-hidden="true"></span><div><span class="health-label">运行时间</span><p id="uptime-value">—</p></div></div>
-          <button class="signal-health" data-panel="signal"><svg class="icon icon-tone-signal"><use href="#signal"/></svg><div><span class="health-label">信号强度</span><p id="signal-quality">—</p></div><svg class="icon chevron"><use href="#chevron"/></svg></button>
         </div>
         <section class="resource-card ui-card" aria-labelledby="resource-title">
           <header class="resource-header"><span class="ui-icon-box icon-tone-network"><svg class="icon icon-tone-network" aria-hidden="true"><use href="#memory"/></svg></span><div><h2 id="resource-title">内存与存储空间</h2><p id="resource-capacity">—</p></div><div class="resource-total"><strong id="ram-percent">—</strong><span id="ram-total-detail">—</span></div></header>
@@ -37,12 +36,7 @@
       <aside class="quick-access" aria-label="快捷管理">
         <button class="quick-card ui-card" data-panel="wifi"><svg class="icon card-icon icon-tone-signal"><use href="#wifi"/></svg><span class="card-copy"><strong>Wi-Fi</strong><small id="wifi-name">—</small></span><svg class="icon chevron"><use href="#chevron"/></svg></button>
         <button class="quick-card ui-card" data-panel="devices"><svg class="icon card-icon icon-tone-device"><use href="#people"/></svg><span class="card-copy"><strong>已连接设备</strong><small id="client-count">—</small></span><svg class="icon chevron"><use href="#chevron"/></svg></button>
-        <section class="ui-card modem-card" aria-labelledby="modem-title">
-          <header class="ui-card-header"><span class="ui-icon-box icon-tone-device"><svg class="icon icon-tone-device" aria-hidden="true"><use href="#radio"/></svg></span><h2 class="ui-card-title" id="modem-title">5G 模组</h2><span class="ui-badge success" id="modem-status">—</span></header>
-          <dl class="ui-data-list"><div class="ui-data-row"><dt>模组型号</dt><dd id="modem-model">—</dd></div><div class="ui-data-row"><dt>固件版本</dt><dd id="modem-firmware">—</dd></div><div class="ui-data-row"><dt>5G 模组温度</dt><dd id="modem-temperature">—</dd></div><div class="ui-data-row"><dt>当前 SIM</dt><dd id="modem-sim">—</dd></div></dl>
-          <p class="modem-note">读取 QModem 缓存中</p>
-          <button class="modem-link" data-panel="signal">查看模组详情<svg class="icon chevron" aria-hidden="true"><use href="#chevron"/></svg></button>
-        </section>
+        <section class="ui-card"><header class="ui-card-header"><h2 class="ui-card-title">USB 扩展</h2></header><p>USB 3.0 · 支持 USB 存储</p><button class="modem-link" data-panel="network">网络接口设置</button></section>
         <section class="ui-card thermal-card" aria-labelledby="thermal-title">
           <header class="ui-card-header"><h2 class="ui-card-title" id="thermal-title">设备温度</h2><span class="ui-badge success" id="thermal-status" role="status">—</span></header>
           <div class="temperature-grid"><div class="stat-tile"><span class="stat-label">CPU</span><strong class="stat-value" id="cpu-temperature">—</strong><span class="stat-unit">°C</span></div><div class="stat-tile"><span class="stat-label">Wi-Fi</span><strong class="stat-value" id="wifi-temperature">—</strong><span class="stat-unit">°C</span></div></div>

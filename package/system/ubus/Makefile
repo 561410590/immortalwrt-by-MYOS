@@ -34,7 +34,7 @@ define Package/ubusd
   CATEGORY:=Base system
   TITLE:=OpenWrt RPC daemon
   DEPENDS:=+libubox +libblobmsg-json
-  USERID:=$(if $(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_c2000-ultra),,ubus=81:ubus=81)
+  USERID:=$(if $(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_c2000-ultra)$(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_n5000),,ubus=81:ubus=81)
 endef
 
 define Package/libubus

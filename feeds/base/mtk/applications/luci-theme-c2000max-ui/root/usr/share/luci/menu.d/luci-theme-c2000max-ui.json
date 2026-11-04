@@ -1,0 +1,45 @@
+{
+  "admin/status": {
+    "title": "Status",
+    "order": 10,
+    "action": {
+      "type": "firstchild",
+      "preferred": "c2000max",
+      "recurse": true
+    }
+  },
+  "admin/status/c2000max": {
+    "title": "MYOS 首页",
+    "order": 0,
+    "action": {
+      "type": "view",
+      "path": "myos/max"
+    },
+    "depends": {
+      "uci": {
+        "luci": {
+          "main": {
+            "mediaurlbase": "/luci-static/c2000max-ui"
+          }
+        }
+      },
+      "acl": [
+        "luci-theme-c2000max-ui"
+      ]
+    }
+  },
+  "admin/status/c5800": {
+    "hidden": true,
+    "action": {
+      "type": "alias",
+      "path": "admin/status/c2000max"
+    }
+  },
+  "admin/status/c2000ultra": {
+    "hidden": true,
+    "action": {
+      "type": "alias",
+      "path": "admin/status/c2000max"
+    }
+  }
+}

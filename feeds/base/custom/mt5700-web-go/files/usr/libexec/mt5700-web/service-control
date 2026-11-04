@@ -1,0 +1,63 @@
+#!/bin/sh
+
+status_snapshot() {
+	local enabled listen port port_hex pid listening=0 running=0
+
+	enabled="$(uci -q get mt5700-web.main.enabled)"
+	[ "$enabled" = 1 ] || enabled=0
+	listen="$(uci -q get mt5700-web.main.listen)"
+	[ -n "$listen" ] || listen='0.0.0.0:9010'
+	port="${listen##*:}"
+	port="${port%]}"
+	pid="$(pidof mt5700-web-go 2>/dev/null | awk '{ print $1 }')"
+
+	case "$port" in
+		''|*[!0-9]*) ;;
+		*)
+			port_hex="$(printf '%04X' "$port" 2>/dev/null)"
+			if [ -n "$pid" ] && [ -d "/proc/$pid" ] &&
+			   awk -v p="$port_hex" '
+				FNR > 1 && $4 == "0A" {
+					split($2, address, ":")
+					if (toupper(address[2]) == p)
+						found = 1
+				}
+				END { exit(found ? 0 : 1) }
+			   ' /proc/net/tcp /proc/net/tcp6 2>/dev/null; then
+				listening=1
+			fi
+			;;
+	esac
+
+	[ -n "$pid" ] && [ -d "/proc/$pid" ] && [ "$listening" = 1 ] && running=1
+	printf 'running=%s\nenabled=%s\npid=%s\nlisten=%s\nlistening=%s\n' \
+		"$running" "$enabled" "$pid" "$listen" "$listening"
+}
+
+case "$1" in
+	start)
+		uci -q set mt5700-web.main.enabled='1'
+		uci -q commit mt5700-web
+		/etc/init.d/mt5700-web enable >/dev/null 2>&1 || true
+		exec /etc/init.d/mt5700-web start
+		;;
+	stop)
+		uci -q set mt5700-web.main.enabled='0'
+		uci -q commit mt5700-web
+		/etc/init.d/mt5700-web stop >/dev/null 2>&1 || true
+		exec /etc/init.d/mt5700-web disable
+		;;
+	restart)
+		uci -q set mt5700-web.main.enabled='1'
+		uci -q commit mt5700-web
+		/etc/init.d/mt5700-web enable >/dev/null 2>&1 || true
+		exec /etc/init.d/mt5700-web restart
+		;;
+	status)
+		status_snapshot
+		;;
+	*)
+		echo "usage: $0 {start|stop|restart|status}" >&2
+		exit 2
+		;;
+esac
