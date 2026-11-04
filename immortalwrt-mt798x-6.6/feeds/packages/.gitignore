@@ -1,9 +1,0 @@
-*.o
-.DS_Store
-.*.swp
-*.orig
-*.rej
-.vscode*
-/.env
-/.env.*
-/*.patch

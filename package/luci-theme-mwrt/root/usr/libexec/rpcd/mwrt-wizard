@@ -1,0 +1,83 @@
+#!/usr/bin/lua
+-- On-demand MWRT wizard API. Network edits use LuCI's existing UCI apply flow.
+local json = require "luci.jsonc"
+local fs = require "nixio.fs"
+local util = require "luci.util"
+local uci = require("luci.model.uci").cursor()
+local function read(path) return (fs.readfile(path) or ""):gsub("%s+$", "") end
+local function get(c, s, k) return uci:get(c, s, k) or "" end
+local function status()
+    local out = {model=read("/tmp/sysinfo/model"), board=read("/tmp/sysinfo/board_name"),
+        hostname=get("system","@system[0]","hostname"), timezone=get("system","@system[0]","timezone"),
+        zonename=get("system","@system[0]","zonename"), lang=get("luci","main","lang"),
+        modem={present=false}, radios={}, lan={}, wan={}, nros={}}
+    uci:foreach("wireless","wifi-device",function(dev)
+        local r={device=dev[".name"],band=dev.band,radio_disabled=dev.disabled}
+        uci:foreach("wireless","wifi-iface",function(ap)
+            if ap.device==dev[".name"] and (ap.mode or "ap")=="ap" and not r.iface then
+                r.iface=ap[".name"]; r.ssid=ap.ssid; r.key=ap.key
+                r.encryption=ap.encryption; r.iface_disabled=ap.disabled
+            end
+        end)
+        out.radios[#out.radios+1]=r
+    end)
+    for _,k in ipairs({"ipaddr","netmask"}) do out.lan[k]=get("network","lan",k) end
+    for _,k in ipairs({"start","limit","leasetime","ignore"}) do out.lan[k]=get("dhcp","lan",k) end
+    for _,k in ipairs({"proto","device","username","ipaddr","netmask","gateway","dns","disabled"}) do out.wan[k]=get("network","wan",k) end
+    if type(out.wan.dns)=="table" then out.wan.dns=table.concat(out.wan.dns," ") end
+    for _,k in ipairs({"enabled","local_enabled","remote_web_enabled"}) do out.nros[k]=get("myos_nros","main",k) end
+    out.nros.device_name=get("oem","board","name")
+    out.system_name=read("/etc/myos-version")
+    local ok,shared=pcall(require,"myos_nradio_data")
+    if ok and shared.is_native_c5800() then
+        local m=shared.summary({network="cpe"})
+        out.modem={present=true,name=m.model or "主 5G",cur=tonumber(get("cpesel","sim","cur")) or 1,slots={}}
+        local i,external,embedded=0,0,0
+        for typ in (get("cpesel","sim","stype")..","):gmatch("([^,]+),") do
+            i=i+1
+            if typ=="4" then embedded=embedded+1 else external=external+1 end
+            out.modem.slots[i]={value=i,label=typ=="4" and ("内置卡"..embedded) or ("SIM"..external)}
+        end
+        if get("network","cpe1","mode")=="odu" then
+            local sub=require("c5800_secondary").status()
+            out.secondary={name=sub.name,cur=sub.cur,slots=sub.slots}
+        end
+    end
+    return out
+end
+local function apply(args)
+    local p=json.parse(args.payload or "") or {}
+    for _,k in ipairs({"timezone","zonename"}) do
+        if type(p[k])=="string" and p[k]~="" then uci:set("system","@system[0]",k,p[k]) end
+    end
+    if not uci:commit("system") then return {ok=false,errors="时区保存失败"} end
+    local ctl="/usr/sbin/myos-nros-cloudctl"
+    local errors={}
+    local function run(action)
+        local rc=os.execute(ctl.." "..action.." >/dev/null 2>&1")
+        if rc~=0 and rc~=true then errors[#errors+1]="远程管理设置失败" end
+    end
+    if type(p.nros_mac)=="string" and p.nros_mac~="" then run("set-mac "..util.shellquote(p.nros_mac)) end
+    if p.nros_enabled=="1" then run("enable") elseif p.nros_enabled=="0" then run("disable") end
+    if p.main_sim then
+        if not require("myos_nradio_data").apply_native_cpesel(tonumber(p.main_sim),1) then errors[#errors+1]="主设备切卡失败，请刷新实际状态" end
+    end
+    if p.secondary_sim then
+        local result,message=require("c5800_secondary").select(p.secondary_sim)
+        if not result then errors[#errors+1]=message end
+    end
+    return {ok=#errors==0,errors=#errors>0 and table.concat(errors,"；") or nil}
+end
+local result={}
+if arg[1]=="list" then
+    io.write('{"status":{},"modem":{},"apply":{"payload":"String"},"markdone":{"value":"String"}}\n')
+    return
+elseif arg[1]=="call" then
+    local args=json.parse(io.read("*a") or "") or {}
+    if arg[2]=="status" then result=status()
+    elseif arg[2]=="apply" then result=apply(args)
+    elseif arg[2]=="modem" then result={ok=true}
+    elseif arg[2]=="markdone" then result={ok=true}
+    end
+end
+io.write(json.stringify(result),"\n")

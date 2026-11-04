@@ -1,1 +1,0 @@
-import{d as u,r as e,o as r,e as s,w as i,b as c}from"./index.js?v=5b4be379";const _=u({__name:"index",setup(l){const a=[{name:"disk",title:"\u6211\u7684\u78C1\u76D8",path:"/router/disk"}];return(m,d)=>{const n=e("router-loading"),o=e("layout-page");return r(),s(o,{menus:a},{default:i(()=>[c(n)]),_:1})}}});export{_ as default};

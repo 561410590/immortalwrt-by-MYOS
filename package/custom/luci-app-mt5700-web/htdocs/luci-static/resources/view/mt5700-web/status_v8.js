@@ -1,0 +1,365 @@
+'use strict';
+'require view';
+'require form';
+'require uci';
+'require fs';
+'require ui';
+
+function parseKeyValue(result) {
+	var state = { running: false, enabled: false, listening: false, pid: '', listen: '' };
+	String((result && result.stdout) || '').split(/\n/).forEach(function(line) {
+		var match = line.match(/^([a-z_]+)=(.*)$/);
+		if (!match)
+			return;
+		if (match[1] === 'running' || match[1] === 'enabled' || match[1] === 'listening')
+			state[match[1]] = match[2] === '1';
+		else if (match[1] === 'pid' || match[1] === 'listen')
+			state[match[1]] = match[2];
+	});
+	state.running = state.running && state.listening && !!state.pid;
+	return state;
+}
+
+function parseDiscovery(result) {
+	try {
+		return JSON.parse(String((result && result.stdout) || '{}'));
+	}
+	catch (error) {
+		return { modems: [], ports: [], selected_section: 'auto', selected_port: '', selected_model: '', supported: false };
+	}
+}
+
+function serviceAction(action) {
+	return fs.exec('/usr/libexec/mt5700-web/service-control', [ action ]).then(function() {
+		ui.addNotification(null, E('p', {}, _('服务操作已完成。')), 'info');
+		window.setTimeout(function() { window.location.reload(); }, 1500);
+	}).catch(function(error) {
+		ui.addNotification(null, E('p', {}, error.message || String(error)), 'danger');
+	});
+}
+
+function listenPort(listen) {
+	var match = String(listen || '').match(/:(\d+)$/);
+	return match ? match[1] : '9010';
+}
+
+function baseURL(listen) {
+	return window.location.protocol + '//' + window.location.hostname + ':' + listenPort(listen);
+}
+
+function instanceURL(listen, path) {
+	return baseURL(listen) + '/modem/' + encodeURIComponent(path) + '/5700/';
+}
+
+function sha256Hex(value) {
+	function rotateRight(number, amount) {
+		return (number >>> amount) | (number << (32 - amount));
+	}
+	var bytes = unescape(encodeURIComponent(value));
+	var words = [];
+	var hash = [];
+	var constants = [];
+	var composite = {};
+	var prime = 2;
+	while (constants.length < 64) {
+		if (!composite[prime]) {
+			for (var multiple = prime * prime; multiple < 313; multiple += prime)
+				composite[multiple] = true;
+			hash.push((Math.pow(prime, 0.5) * 0x100000000) | 0);
+			constants.push((Math.pow(prime, 1 / 3) * 0x100000000) | 0);
+		}
+		prime++;
+	}
+	for (var index = 0; index < bytes.length; index++)
+		words[index >> 2] |= bytes.charCodeAt(index) << ((3 - index) % 4) * 8;
+	words[bytes.length >> 2] |= 0x80 << ((3 - bytes.length) % 4) * 8;
+	words[((bytes.length + 8) >> 6) * 16 + 15] = bytes.length * 8;
+	for (var block = 0; block < words.length; block += 16) {
+		var schedule = [];
+		var working = hash.slice(0);
+		for (var round = 0; round < 64; round++) {
+			var word = round < 16 ? (words[block + round] || 0) : 0;
+			if (round >= 16) {
+				var w15 = schedule[round - 15];
+				var w2 = schedule[round - 2];
+				word = (
+					schedule[round - 16] +
+					(rotateRight(w15, 7) ^ rotateRight(w15, 18) ^ (w15 >>> 3)) +
+					schedule[round - 7] +
+					(rotateRight(w2, 17) ^ rotateRight(w2, 19) ^ (w2 >>> 10))
+				) | 0;
+			}
+			schedule[round] = word;
+			var a = working[0], e = working[4];
+			var temp1 = (working[7] + (rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25)) +
+				((e & working[5]) ^ ((~e) & working[6])) + constants[round] + word) | 0;
+			var temp2 = ((rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22)) +
+				((a & working[1]) ^ (a & working[2]) ^ (working[1] & working[2]))) | 0;
+			working = [ (temp1 + temp2) | 0, working[0], working[1], working[2],
+				(working[3] + temp1) | 0, working[4], working[5], working[6] ];
+		}
+		for (var part = 0; part < 8; part++)
+			hash[part] = (hash[part] + working[part]) | 0;
+	}
+	var result = '';
+	for (var hashIndex = 0; hashIndex < 8; hashIndex++)
+		for (var shift = 3; shift >= 0; shift--)
+			result += ((hash[hashIndex] >> (shift * 8)) & 255).toString(16).padStart(2, '0');
+	return Promise.resolve(result);
+}
+
+function pathValidator(sectionId, value) {
+	if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(value || ''))
+		return _('路径只能包含小写字母、数字、短横线和下划线，且必须以字母或数字开头（最长 32 字符）。');
+	var duplicate = (uci.sections('mt5700-web', 'modem') || []).some(function(section) {
+		return section['.name'] !== sectionId && section.path === value;
+	});
+	return duplicate ? _('该路径已被另一个模组使用。') : true;
+}
+
+return view.extend({
+	load: function() {
+		return uci.load('mt5700-web').then(function() {
+			var legacySection = uci.get('mt5700-web', 'main', 'modem_section') || 'auto';
+			var legacyPort = uci.get('mt5700-web', 'main', 'at_port') || 'auto';
+			return Promise.all([
+				fs.exec('/usr/libexec/mt5700-web/service-control', [ 'status' ]).catch(function() {
+					return { stdout: 'running=0\nenabled=0\nlistening=0\npid=\n' };
+				}),
+				fs.exec('/usr/bin/mt5700-web-go', [ '-discover', '-modem-section', legacySection, '-serial', legacyPort ]).catch(function() {
+					return { stdout: '{}' };
+				})
+			]);
+		});
+	},
+
+	render: async function(data) {
+		var service = parseKeyValue(data[0]);
+		var discovery = parseDiscovery(data[1]);
+		var listen = service.listen || uci.get('mt5700-web', 'main', 'listen') || '0.0.0.0:9010';
+		var rootURL = baseURL(listen) + '/';
+		var stateLabel = service.running ? _('运行中') : (service.enabled ? _('已启用，但服务未运行') : _('已停止'));
+		var configuredHash = uci.get('mt5700-web', 'main', 'auth_password_hash') || '';
+		var instances = uci.sections('mt5700-web', 'modem') || [];
+
+		var map = new form.Map('mt5700-web', _('MT5700 多模组控制面板'),
+			_('WebUI 3.0：主模组使用C5800原厂共享AT通道，PoE副模组使用AK原厂接口；每个模组独立读取和操作。'));
+		map.on_after_commit = function() {
+			var enabled = uci.get('mt5700-web', 'main', 'enabled') === '1';
+			return fs.exec('/usr/libexec/mt5700-web/service-control', [ enabled ? 'restart' : 'stop' ]);
+		};
+
+		var global = map.section(form.NamedSection, 'main', 'service', _('服务与访问保护'));
+		global.anonymous = true;
+
+		var enabled = global.option(form.Flag, 'enabled', _('启用服务'));
+		enabled.rmempty = false;
+		enabled.description = _('默认启用，为模组 WebUI 3.0 提供服务。');
+
+		var listenOption = global.option(form.Value, 'listen', _('网页监听地址'));
+		listenOption.placeholder = '0.0.0.0:9010';
+		listenOption.rmempty = false;
+
+		var authEnabled = global.option(form.Flag, 'auth_enabled', _('启用密码保护'));
+		authEnabled.rmempty = false;
+		authEnabled.default = '0';
+		authEnabled.description = _('默认关闭。开启后，首页、所有模组页面、健康检查和 WebSocket 均需认证。HTTP Basic 只限制访问，不加密链路；不要把 9010 端口直接暴露到公网。');
+
+		var authUsername = global.option(form.Value, 'auth_username', _('用户名'));
+		authUsername.default = 'admin';
+		authUsername.rmempty = false;
+		authUsername.depends('auth_enabled', '1');
+		authUsername.validate = function(sectionId, value) {
+			return value && !/[\x00-\x20:]/.test(value) ? true : _('用户名不能为空，也不能包含冒号、空格或控制字符。');
+		};
+
+		var password = global.option(form.Value, '_new_password', _('设置新密码'));
+		password.password = true;
+		password.rmempty = true;
+		password.depends('auth_enabled', '1');
+		password.placeholder = configuredHash ? _('密码已设置，留空保持不变') : _('首次启用密码保护时必须设置');
+		password.description = _('密码不会明文写入 UCI，只保存浏览器生成的 SHA-256 摘要。');
+		password.load = function() { return ''; };
+		password.validate = function(sectionId, value) {
+			return !value || value.length >= 8 ? true : _('密码至少需要 8 个字符。');
+		};
+		password.write = function(sectionId, value) {
+			if (!value)
+				return Promise.resolve();
+			return sha256Hex(value).then(function(hash) {
+				uci.set('mt5700-web', 'main', 'auth_password_hash', hash);
+			});
+		};
+		password.remove = function() {};
+		authEnabled.write = function(sectionId, value) {
+			var requested = value === '1';
+			var suppliedPassword = String(password.formvalue(sectionId) || '');
+			var storedHash = String(uci.get('mt5700-web', 'main', 'auth_password_hash') || configuredHash || '');
+
+			// Cross-field validation on a Flag is invoked by some LuCI themes with
+			// the enabled sentinel while the switch is visually off. That blocked
+			// every unrelated modem setting when no password had ever been set.
+			// Fail closed instead: keep protection disabled, save the rest of the
+			// form, and only enable it once a stored or newly supplied secret exists.
+			if (requested && !/^[0-9a-f]{64}$/i.test(storedHash) && !suppliedPassword) {
+				uci.set('mt5700-web', 'main', 'auth_enabled', '0');
+				ui.addNotification(null, E('p', {}, _('未设置新密码，密码保护保持关闭；其他设置已正常保存。')), 'warning');
+				return;
+			}
+			uci.set('mt5700-web', 'main', 'auth_enabled', requested ? '1' : '0');
+		};
+		authEnabled.remove = function() { uci.set('mt5700-web', 'main', 'auth_enabled', '0'); };
+
+		var modemGrid = map.section(form.GridSection, 'modem', _('模组实例'));
+		modemGrid.addremove = true;
+		modemGrid.anonymous = false;
+		modemGrid.nodescriptions = true;
+		modemGrid.sectiontitle = function(sectionId) {
+			return uci.get('mt5700-web', sectionId, 'name') || sectionId;
+		};
+
+		var modemEnabled = modemGrid.option(form.Flag, 'enabled', _('启用'));
+		modemEnabled.default = '1';
+		modemEnabled.rmempty = false;
+
+		var name = modemGrid.option(form.Value, 'name', _('显示名称'));
+		name.placeholder = _('例如：内置 MT5700、AK68 聚合模组');
+		name.rmempty = false;
+
+		var path = modemGrid.option(form.Value, 'path', _('URL 路径'));
+		path.placeholder = 'internal';
+		path.rmempty = false;
+		path.validate = pathValidator;
+		path.description = _('访问地址格式：/modem/<路径>/5700/');
+
+		var uiVariant = modemGrid.option(form.ListValue, 'ui_variant', _('界面版本'));
+		uiVariant.value('modern', _('WebUI 3.0'));
+		uiVariant.default = 'modern';
+		uiVariant.cfgvalue = function() { return 'modern'; };
+		uiVariant.rmempty = false;
+		uiVariant.modalonly = true;
+		uiVariant.description = _('仅使用WebUI 3.0。');
+
+		var transport = modemGrid.option(form.ListValue, 'transport', _('AT 连接方式'));
+		transport.value('native', _('C5800 原厂通道'));
+		transport.value('serial', _('QModem / 串口'));
+		transport.value('network', _('网络 AT'));
+		transport.default = 'serial';
+		transport.rmempty = false;
+
+		var modemSection = modemGrid.option(form.ListValue, 'modem_section', _('模组通道'));
+		modemSection.value('cpe', _('主模组 · 内置5G'));
+		modemSection.value('cpe1', _('副模组 · PoE 5G'));
+		modemSection.value('auto', _('自动选择第一个模组'));
+		modemSection.modalonly = true;
+		(discovery.modems || []).forEach(function(modem) {
+			modemSection.value(modem.section, '%s（%s，%s）'.format(
+				modem.name || modem.section, modem.model || _('未知型号'), modem.at_port || _('无串口')));
+		});
+		modemSection.depends('transport', 'serial');
+		modemSection.depends('transport', 'native');
+
+		var atPort = modemGrid.option(form.Value, 'at_port', _('AT 串口'));
+		atPort.value('auto', _('跟随 QModem 自动选择'));
+		atPort.modalonly = true;
+		(discovery.ports || []).forEach(function(port) { atPort.value(port, port); });
+		atPort.placeholder = '/dev/ttyUSB1';
+		atPort.depends('transport', 'serial');
+
+		var baudrate = modemGrid.option(form.ListValue, 'baudrate', _('串口波特率'));
+		[ '9600', '19200', '38400', '57600', '115200', '230400' ].forEach(function(rate) { baudrate.value(rate); });
+		baudrate.default = '115200';
+		baudrate.modalonly = true;
+		baudrate.depends('transport', 'serial');
+
+		var networkHost = modemGrid.option(form.Value, 'network_host', _('网络 AT 地址'));
+		networkHost.placeholder = '192.168.8.1';
+		networkHost.modalonly = true;
+		networkHost.depends('transport', 'network');
+
+		var networkPort = modemGrid.option(form.Value, 'network_port', _('网络 AT 端口'));
+		networkPort.datatype = 'port';
+		networkPort.placeholder = '20249';
+		networkPort.modalonly = true;
+		networkPort.depends('transport', 'network');
+
+		var timeout = modemGrid.option(form.Value, 'command_timeout', _('普通命令超时'));
+		timeout.placeholder = '8s';
+		timeout.modalonly = true;
+
+		var longTimeout = modemGrid.option(form.Value, 'long_command_timeout', _('长命令超时'));
+		longTimeout.placeholder = '240s';
+		longTimeout.modalonly = true;
+
+		var maxClients = modemGrid.option(form.Value, 'max_clients', _('最大客户端数'));
+		maxClients.datatype = 'range(1,32)';
+		maxClients.placeholder = '8';
+		maxClients.modalonly = true;
+
+		function button(label, style, action) {
+			return E('button', {
+				'class': 'btn cbi-button ' + style,
+				'type': 'button',
+				'click': ui.createHandlerFn(this, function() { return serviceAction(action); })
+			}, label);
+		}
+
+		function openPanelButton(url, label) {
+			return E('button', {
+				'class': 'btn cbi-button cbi-button-positive',
+				'type': 'button',
+				'disabled': service.running ? null : 'disabled',
+				'click': function() { window.open(url, '_blank', 'noopener'); }
+			}, label);
+		}
+
+		var addressRows = instances.filter(function(instance) {
+			return instance.enabled !== '0';
+		}).map(function(instance) {
+			var instancePath = instance.path || instance['.name'];
+			var url = instanceURL(listen, instancePath);
+			var target = instance.transport === 'network'
+				? ((instance.network_host || '192.168.8.1') + ':' + (instance.network_port || '20249'))
+				: (instance.at_port || _('跟随 QModem'));
+			return E('div', { 'class': 'tr' }, [
+				E('div', { 'class': 'td left', 'style': 'width:24%' }, instance.name || instance['.name']),
+				E('div', { 'class': 'td left', 'style': 'width:20%' }, instance.transport === 'network' ? _('网络 AT') : _('QModem / 串口')),
+				E('div', { 'class': 'td left', 'style': 'width:22%' }, target),
+				E('div', { 'class': 'td left' }, [
+					E('div', { 'style': 'display:flex;align-items:center;gap:.6rem;flex-wrap:wrap' }, [
+						E('a', { 'href': url, 'target': '_blank', 'rel': 'noopener' }, url),
+						openPanelButton(url, _('打开面板'))
+					])
+				])
+			]);
+		});
+
+		var warning = E('div', { 'class': 'alert-message warning' }, [
+			E('strong', {}, _('兼容性提醒：')),
+			_('此面板及其 AT 命令集仅为 MT5700 系列设计。多个本地串口实例会分别进入 QModem 串行队列；请勿把同一串口重复配置给多个实例。')
+		]);
+		var status = E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('运行状态与管理地址')),
+			E('div', { 'class': 'table' }, [
+				E('div', { 'class': 'tr' }, [ E('div', { 'class': 'td left', 'style': 'width:33%' }, _('服务状态')), E('div', { 'class': 'td left' }, E('strong', { 'style': 'color:' + (service.running ? '#2d9d53' : '#d34b4b') }, stateLabel)) ]),
+				E('div', { 'class': 'tr' }, [ E('div', { 'class': 'td left' }, _('进程 / 端口检查')), E('div', { 'class': 'td left' }, service.running ? _('PID %s，端口正在监听').format(service.pid) : (service.pid ? _('PID %s 存在，但端口未监听').format(service.pid) : _('未发现服务进程'))) ]),
+				E('div', { 'class': 'tr' }, [ E('div', { 'class': 'td left' }, _('模组地址列表')), E('div', { 'class': 'td left' }, E('a', { 'href': rootURL, 'target': '_blank', 'rel': 'noopener' }, rootURL)) ]),
+				E('div', { 'class': 'tr' }, [ E('div', { 'class': 'td left' }, _('访问保护')), E('div', { 'class': 'td left' }, uci.get('mt5700-web', 'main', 'auth_enabled') === '1' ? _('已启用') : _('默认关闭')) ])
+			]),
+			E('div', { 'style': 'display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1rem' }, [
+				button.call(this, _('启动服务'), 'cbi-button-positive', 'start'),
+				button.call(this, _('停止服务'), 'cbi-button-negative', 'stop'),
+				button.call(this, _('重启服务'), 'cbi-button-action', 'restart')
+			])
+		]);
+		var addresses = E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('各模组管理地址')),
+			addressRows.length ? E('div', { 'class': 'table' }, [
+				E('div', { 'class': 'tr table-titles' }, [ E('div', { 'class': 'th' }, _('名称')), E('div', { 'class': 'th' }, _('连接')), E('div', { 'class': 'th' }, _('AT 目标')), E('div', { 'class': 'th' }, _('管理地址')) ])
+			].concat(addressRows)) : E('em', {}, _('尚未配置模组实例。请在下方添加至少一个模组。'))
+		]);
+
+		var mapNode = await map.render();
+		return E('div', {}, [ warning, status, addresses, mapNode ]);
+	}
+});

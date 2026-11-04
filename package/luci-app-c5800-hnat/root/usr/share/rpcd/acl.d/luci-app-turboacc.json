@@ -1,0 +1,24 @@
+{
+  "luci-app-turboacc": {
+    "description": "MWRT TurboACC",
+    "read": {
+      "ubus": {
+        "luci.turboacc": [
+          "getSystemFeatures",
+          "getFastPathStat",
+          "getFullConeStat",
+          "getTCPCCAStat",
+          "getMTKPPEStat"
+        ]
+      },
+      "uci": [
+        "turboacc"
+      ]
+    },
+    "write": {
+      "uci": [
+        "turboacc"
+      ]
+    }
+  }
+}

@@ -1,0 +1,16 @@
+'use strict';
+import { popen } from 'fs';
+function status(action) {
+    let p = popen('/usr/libexec/myos-update ' + action + ' 2>/dev/null', 'r');
+    if (!p) return { ok:false, error:'更新服务不可用' };
+    let raw = p.read('all'); p.close();
+    let s;
+    try { s = json(raw); } catch (e) { return { ok:false, error:'更新结果无法解析' }; }
+    return { ok:!s.error, error:s.error, update:!!s.available, version:s.latest || '', current:s.current || '' };
+}
+return {
+    'luci.mwrt-ota': {
+        latest: { call:function() { return status('status'); } },
+        check: { call:function() { return status('check'); } }
+    }
+};

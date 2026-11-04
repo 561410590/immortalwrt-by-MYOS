@@ -1,6 +1,0 @@
-#!/bin/sh
-# 网络/USB 事件后重跑数据包分流,盖过厂商 /sbin/smp.sh
-# (厂商 30-ext-devices-rps-setting 会 `mtk_smp restart` 把 WED 中断钉回 CPU0、
-#  eth 的 RPS 收回单核;本钩子序号 99 > 30,在其之后同步覆盖。)
-# 幂等、纯运行时,失败不影响网络事件本身。
-[ -x /usr/bin/mwrt-pktsteer.sh ] && /usr/bin/mwrt-pktsteer.sh

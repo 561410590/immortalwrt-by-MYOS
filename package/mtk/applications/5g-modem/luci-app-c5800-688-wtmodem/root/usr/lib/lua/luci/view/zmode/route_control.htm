@@ -1,0 +1,76 @@
+<div id="c5800-external-settings" class="cellular-route" data-route-status="<%=luci.dispatcher.build_url('admin','modem','route_status')%>"
+     data-route-set="<%=luci.dispatcher.build_url('admin','modem','route_set')%>"
+     data-dividing="<%=luci.dispatcher.build_url('admin','modem','factory_dividing')%>"
+     data-token="<%=luci.dispatcher.context.authtoken%>">
+  <h3>外网设置</h3>
+  <p class="route-label">上网线路</p>
+  <div class="route-lines">
+    <label><span>内置 5G <small data-online="main"></small></span><input type="checkbox" data-line="main" role="switch"></label>
+    <label><span>◉ 副 5G <small data-online="poe"></small></span><input type="checkbox" data-line="poe" role="switch"></label>
+    <label><span>◎ WAN <small data-online="wan"></small></span><input type="checkbox" data-line="wan" role="switch"></label>
+  </div>
+  <p class="cellular-help">副 5G 开关同时控制 4 号口 PoE 供电，保存并应用后生效。<span data-power-state></span></p>
+  <p class="route-label">网口模式</p>
+  <div class="route-ports">
+    <div data-device="lan1"><span>1</span><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M16 5h16v8h8v29H8V13h8Z M14 21h20v15H14Z M19 21v6m5-6v6m5-6v6"/></svg><strong>LAN</strong><small data-port-link></small></div>
+    <div data-device="lan2"><span>2</span><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M16 5h16v8h8v29H8V13h8Z M14 21h20v15H14Z M19 21v6m5-6v6m5-6v6"/></svg><strong>LAN</strong><small data-port-link></small></div>
+    <div data-device="lan3"><span>3</span><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M16 5h16v8h8v29H8V13h8Z M14 21h20v15H14Z M19 21v6m5-6v6m5-6v6"/></svg><strong data-port="wan">LAN</strong><small data-port-link></small></div>
+    <div data-device="port5"><span>4</span><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M16 5h16v8h8v29H8V13h8Z M14 21h20v15H14Z M19 21v6m5-6v6m5-6v6"/></svg><strong data-port="poe">副 5G</strong><small data-port-link></small></div>
+  </div>
+  <div class="route-wan" hidden>
+    <label class="route-field"><span>有线上网方式</span><select data-field="proto"><option value="dhcp">DHCP 客户端</option><option value="static">静态地址</option><option value="pppoe">PPPoE 拨号</option></select></label>
+    <div data-wan-proto="static" hidden>
+      <label class="route-field"><span>IPv4 地址</span><input data-field="ipaddr" type="text"></label>
+      <label class="route-field"><span>子网掩码</span><input data-field="netmask" type="text"></label>
+      <label class="route-field"><span>网关</span><input data-field="gateway" type="text"></label>
+    </div>
+    <div data-wan-proto="pppoe" hidden>
+      <label class="route-field"><span>宽带账号</span><input data-field="username" type="text" autocomplete="off"></label>
+      <label class="route-field"><span>宽带密码</span><input data-field="password" type="password" autocomplete="new-password" placeholder="留空保留已有密码"></label>
+    </div>
+    <label class="route-field"><span>重设 MTU</span><input data-field="mtu" type="number" min="576" max="9000" placeholder="1500"></label>
+    <label class="route-field"><span>重设 MAC</span><input data-field="macaddr" type="text" placeholder="使用网口默认 MAC"></label>
+    <label class="route-field"><span>使用默认 DNS</span><input data-field="peerdns" type="checkbox" role="switch"></label>
+    <label class="route-field route-dns"><span>DNS 服务器</span><input data-field="dns" type="text" placeholder="多个地址用空格分隔"></label>
+    <p class="cellular-help">启用有线 WAN 后，3 号网口改为 WAN；请将上游网线接到 3 号口。</p>
+  </div>
+  <p class="route-label" data-multi-label>工作模式</p>
+  <div class="route-modes" role="group" aria-label="工作模式">
+    <button type="button" data-mode="Priority">备份</button>
+    <button type="button" data-mode="Dividing">分流</button>
+    <button type="button" data-mode="Overlap">本地叠加</button>
+  </div>
+  <div data-panel="Priority">
+    <div class="route-priority"></div>
+    <p class="cellular-help">按优先级选择线路，主线路离线时，新连接使用下一条在线线路。</p>
+  </div>
+  <div data-panel="Dividing" hidden>
+    <label class="route-field"><span>默认线路</span><select data-field="default"></select></label>
+    <label class="route-field"><span>分流方式</span><select data-field="dividing"><option value="client">终端分流</option><option value="protocol">IP / 域名分流</option></select></label>
+    <div class="route-details">
+      <h4>分流配置</h4>
+      <div data-dividing-panel="client">
+        <div class="route-clients"></div><datalist id="c5800-route-hosts"></datalist>
+        <button type="button" data-add-client>添加终端</button>
+      </div>
+      <div data-dividing-panel="protocol" hidden>
+        <label data-address="main">5G<textarea rows="4" placeholder="每行一个目标 IPv4 地址或域名"></textarea></label>
+        <label data-address="poe">副 5G<textarea rows="4" placeholder="每行一个目标 IPv4 地址或域名"></textarea></label>
+        <label data-address="wan">WAN<textarea rows="4" placeholder="每行一个目标 IPv4 地址或域名"></textarea></label>
+      </div>
+      <p class="cellular-help">未命中所选分流规则的连接使用默认线路；域名规则使用本机 DNS 的解析结果。</p>
+    </div>
+  </div>
+  <div data-panel="Overlap" hidden>
+    <div class="route-weights">
+      <label class="route-field" data-weight-row="main"><span>5G 带宽比例</span><input type="number" data-weight="main" min="1" max="1000" step="1" value="1"></label>
+      <label class="route-field" data-weight-row="poe"><span>副 5G 带宽比例</span><input type="number" data-weight="poe" min="1" max="1000" step="1" value="1"></label>
+      <label class="route-field" data-weight-row="wan"><span>WAN 带宽比例</span><input type="number" data-weight="wan" min="1" max="1000" step="1" value="1"></label>
+    </div>
+    <p class="cellular-help">各条线路按比例分配新连接。1:1 表示两条线路被选中的概率相同，单条连接使用一条线路。</p>
+  </div>
+  <p class="cellular-help" data-multi-help>备份、分流和本地叠加用于 IPv4 全端口连接；当前 IPv6 透传按源前缀选路。已有连接保留原出口。</p>
+  <p class="cellular-help" data-single-help hidden>当前仅启用一条上网线路。</p>
+  <div class="route-submit"><button type="button" data-route-save disabled>保存并应用</button><button type="button" data-route-refresh>刷新状态</button></div>
+  <p class="cellular-route-state" role="status">正在读取线路设置…</p>
+</div>

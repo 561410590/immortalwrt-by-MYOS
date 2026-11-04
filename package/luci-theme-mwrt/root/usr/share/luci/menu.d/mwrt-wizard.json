@@ -1,0 +1,15 @@
+{
+  "admin/system/mwrt_wizard": {
+    "title": "设置向导",
+    "order": 1,
+    "action": {
+      "type": "view",
+      "path": "mwrt/wizard"
+    },
+    "depends": {
+      "acl": [
+        "luci-app-mwrt-features"
+      ]
+    }
+  }
+}

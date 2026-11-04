@@ -1,0 +1,38 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2018 Lean <coolsnowwolf@gmail.com>
+# Copyright (C) 2019-2022 Tianling Shen <cnsztl@immortalwrt.org>
+# C5800 adaptation of the MWRT TurboACC plugin for the MediaTek 6.6 driver.
+
+START=90
+STOP=10
+USE_PROCD=1
+
+start_service() {
+	config_load turboacc
+	local fastpath eth_hnat ipv6_hnat bind_rate fullcone tcpcca
+	config_get fastpath config fastpath mediatek_hnat
+	config_get_bool eth_hnat config fastpath_mh_eth_hnat 1
+	config_get_bool ipv6_hnat config fastpath_mh_eth_hnat_v6 1
+	config_get bind_rate config fastpath_mh_eth_hnat_bind_rate 30
+	config_get fullcone config fullcone 1
+	config_get tcpcca config tcpcca bbr
+
+	local hnat_path=/sys/kernel/debug/hnat
+	if [ "$fastpath" = mediatek_hnat ]; then
+		echo "$eth_hnat" > "$hnat_path/hook_toggle"
+		echo "8 $ipv6_hnat" > "$hnat_path/hnat_setting"
+		echo "11 $bind_rate" > "$hnat_path/hnat_setting"
+	else
+		echo 0 > "$hnat_path/hook_toggle"
+	fi
+	echo "$fullcone" > /proc/sys/net/netfilter/nf_conntrack_nat_mode
+	sysctl -w net.ipv4.tcp_congestion_control="$tcpcca"
+}
+
+reload_service() {
+	start_service
+}
+
+service_triggers() {
+	procd_add_reload_trigger turboacc
+}

@@ -1,0 +1,50 @@
+{
+  "luci-app-mwrt-features": {
+    "description": "MWRT wizard, notifications and update status",
+    "read": {
+      "ubus": {
+        "mwrt-wizard": [
+          "status",
+          "modem"
+        ],
+        "luci.mwrt-notice": [
+          "list"
+        ],
+        "luci.mwrt-ota": [
+          "latest"
+        ],
+        "luci": [
+          "getTimezones"
+        ]
+      },
+      "uci": [
+        "network",
+        "wireless",
+        "dhcp",
+        "system",
+        "luci"
+      ]
+    },
+    "write": {
+      "ubus": {
+        "mwrt-wizard": [
+          "apply",
+          "markdone"
+        ],
+        "luci.mwrt-ota": [
+          "check"
+        ],
+        "luci": [
+          "setPassword"
+        ]
+      },
+      "uci": [
+        "network",
+        "wireless",
+        "dhcp",
+        "system",
+        "luci"
+      ]
+    }
+  }
+}

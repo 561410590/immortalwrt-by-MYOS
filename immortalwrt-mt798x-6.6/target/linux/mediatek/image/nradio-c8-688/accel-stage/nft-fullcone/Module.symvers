@@ -1,5 +1,0 @@
-0x00000000	nf_nat_fullcone_dying_tuple_list_add	/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/target/linux/mediatek/image/nradio-c8-688/accel-stage/nft-fullcone/nft_fullcone	EXPORT_SYMBOL_GPL	
-0x00000000	nf_nat_fullcone_handle_dying_tuples	/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/target/linux/mediatek/image/nradio-c8-688/accel-stage/nft-fullcone/nft_fullcone	EXPORT_SYMBOL_GPL	
-0x00000000	nf_nat_fullcone_destroy_mappings	/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/target/linux/mediatek/image/nradio-c8-688/accel-stage/nft-fullcone/nft_fullcone	EXPORT_SYMBOL_GPL	
-0x00000000	nf_nat_fullcone_ipv4	/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/target/linux/mediatek/image/nradio-c8-688/accel-stage/nft-fullcone/nft_fullcone	EXPORT_SYMBOL_GPL	
-0x00000000	nf_nat_fullcone_ipv6	/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/target/linux/mediatek/image/nradio-c8-688/accel-stage/nft-fullcone/nft_fullcone	EXPORT_SYMBOL_GPL	

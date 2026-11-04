@@ -1,0 +1,40 @@
+#!/usr/bin/ucode
+'use strict';
+import * as fs from 'fs';
+
+const ENVTOOL = '/usr/libexec/myos-ubenv';
+function run(command) {
+	let p = fs.popen(command + ' 2>&1', 'r');
+	if (!p) return { code: 127, text: '' };
+	let text = p.read('all');
+	return { code: p.close(), text: trim(text || '') };
+}
+function bootValue() {
+	let result = run(ENVTOOL + ' -s boot_system -o 1');
+	let found = match(result.text, /^boot_system\s*=\s*([01])$/);
+	return !result.code && found ? int(found[1]) : null;
+}
+function status() {
+	let board = trim(fs.readfile('/tmp/sysinfo/board_name') || '');
+	let second = !!match(fs.readfile('/proc/cmdline') || '', /(^|\s)root=PARTLABEL=rootfs_2nd(\s|$)/);
+	let boot_system = bootValue();
+	return {
+		board, current: second ? 'second' : 'official', enabled: true, boot_system,
+		message: boot_system == null ? '启动标记暂未读到；仍可手动返回官方系统' :
+			(second ? '可返回已保留的官方系统' : '当前已经运行官方系统')
+	};
+}
+let result;
+try {
+	if (ARGV[0] == 'official') {
+		let write = run(ENVTOOL + ' -s boot_system -v 0 -o 0');
+		if (write.code) die('写入官方系统启动标记失败：' + write.text);
+		let queue = run('(/bin/sleep 3; /bin/sync; /sbin/reboot) </dev/null >/dev/null 2>&1 & echo queued');
+		if (queue.code || queue.text != 'queued') die('启动标记已设为官方系统，请手动重启');
+		result = { started: true, boot_system: 0 };
+	}
+	else if (ARGV[0] == 'status') result = status();
+	else die('不支持的操作');
+}
+catch (e) { result = { error: '' + e }; }
+printf('%J\n', result);

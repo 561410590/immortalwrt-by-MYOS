@@ -1,0 +1,212 @@
+#!/bin/sh
+# MWRT notifications for C5800. Only observes link and USB changes.
+. /usr/share/libubox/jshn.sh
+PORT_STATE=/tmp/mwrt-notice-ports.state
+PORT_EVENT=/tmp/mwrt-notice-ports.events
+PORT_SEEN=/tmp/mwrt-notice-ports.seen
+PORT_LOCK=/tmp/mwrt-notice-ports.lock
+PORT_STALE=120
+PORT_EVENT_TTL=150
+WLB_EVENT=/tmp/mwrt-wlbridge.event
+WLB_EVENT_TTL=150
+add_notice() {
+	json_add_object
+	json_add_string id "$1"
+	json_add_string level "$2"
+	json_add_boolean closable "$3"
+	json_add_string text "$4"
+	[ -n "$5" ] && json_add_string link "$5"
+	[ -n "$6" ] && json_add_int progress "$6"
+	# 可选: 专属图标(前端 ICON 表里的键)和标题(替换"系统通知")
+	[ -n "$7" ] && json_add_string icon "$7"
+	[ -n "$8" ] && json_add_string title "$8"
+	json_close_object
+}
+
+# 无线网桥一次性事件 → 通知。读事件文件(epoch|up|ssid 或 epoch|down|ssid),
+# 事件在 WLB_EVENT_TTL 秒内才显示, 过期自动不再出。id 带上 epoch, 这样"连上"
+# 和"断开"是两条不同 id, 前端不会把它们当同一条去重。closable=1 用户可手动关掉。
+wlb_event_notice() {
+	[ -s "$WLB_EVENT" ] || return
+	local line ts kind ssid now age
+	read -r line < "$WLB_EVENT" 2>/dev/null
+	ts="${line%%|*}"
+	kind="${line#*|}"; ssid="${kind#*|}"; kind="${kind%%|*}"
+	[ -n "$ts" ] || return
+	case "$ts" in *[!0-9]*) return ;; esac
+	now="$(date +%s)"
+	age=$((now - ts))
+	[ "$age" -ge 0 ] && [ "$age" -le "$WLB_EVENT_TTL" ] || return
+	if [ "$kind" = "up" ]; then
+		add_notice "wlbridge-up-$ts" info 1 "已保存无线网桥「${ssid:-上游 WiFi}」连接设置。"
+	elif [ "$kind" = "down" ]; then
+		add_notice "wlbridge-down-$ts" info 1 "已断开无线网桥「${ssid:-上游 WiFi}」，网络出口已切回原线路。"
+	fi
+}
+
+# 当前快照: "eth <名> <插线次数> <链路>" 和 "usb <vid:pid:序列号> <类型>|<容量MB>|<厂商>|<名称>|<速率>"
+port_snapshot() {
+	local d n
+	for d in /sys/class/net/lan* /sys/class/net/port5; do
+		[ -e "$d/carrier" ] || continue
+		n="${d##*/}"
+		echo "eth $n $(cat "$d/carrier_up_count" 2>/dev/null || echo 0) $(cat "$d/carrier" 2>/dev/null || echo 0)"
+	done
+	[ -x /usr/libexec/mwrt-usbinfo ] || return 0
+	/usr/libexec/mwrt-usbinfo 2>/dev/null | while IFS='|' read -r b v p sp t mb sub ser mfr name; do
+		[ -n "$v" ] || continue
+		# 认人键里不能有空格(下面按空格切字段)
+		echo "usb $(printf '%s' "$v:$p:$ser" | tr ' ' '_') $t|$mb|$mfr|$name|$sp"
+	done
+}
+
+# 同一个口(网口名 / USB 认人键)只留最新一条事件: 插上后马上拔掉, "已接入"那条就被"已断开"顶掉, 反之亦然
+port_event_add() {
+	if [ -s "$PORT_EVENT" ]; then
+		awk -F'|' -v k="$2" '$3 != k' "$PORT_EVENT" > "$PORT_EVENT.n" 2>/dev/null
+		mv -f "$PORT_EVENT.n" "$PORT_EVENT"
+	fi
+	echo "$1" >> "$PORT_EVENT"
+}
+
+port_scan() {
+	local now cur old age mt wan model k a b c rest t
+	now="$(date +%s)"
+	cur="$(port_snapshot)"
+	if [ ! -f "$PORT_STATE" ]; then
+		echo "$cur" > "$PORT_STATE"
+		return
+	fi
+	mt="$(date -r "$PORT_STATE" +%s 2>/dev/null)"
+	case "$mt" in ''|*[!0-9]*) mt=0 ;; esac
+	age=$((now - mt))
+	old="$(cat "$PORT_STATE" 2>/dev/null)"
+	echo "$cur" > "$PORT_STATE"
+	[ "$age" -ge 0 ] && [ "$age" -le "$PORT_STALE" ] || return
+
+	wan="$(uci -q get network.wan.device)"; [ -n "$wan" ] || wan=eth0
+	model="$(tr 'A-Z' 'a-z' < /tmp/sysinfo/model 2>/dev/null)"
+	echo "$cur" | while read -r k a b c; do
+		case "$k" in
+		eth)
+			local o
+			local o oc role=LAN spd
+			o="$(echo "$old" | sed -n "s/^eth $a \([0-9]*\) .*/\1/p")"
+			oc="$(echo "$old" | sed -n "s/^eth $a [0-9]* \([0-9]*\)$/\1/p")"
+			case "$o" in ''|*[!0-9]*) continue ;; esac
+			case "$b" in ''|*[!0-9]*) continue ;; esac
+			[ "$a" = "$wan" ] && role=WAN
+			[ "$a" = "port5" ] && role="副5G"
+			if [ "$b" -gt "$o" ] && [ "$c" = 1 ]; then
+				spd="$(cat "/sys/class/net/$a/speed" 2>/dev/null)"
+				port_event_add "$now|eth|$a|$role|$spd" "$a"
+			elif [ "$oc" = 1 ] && [ "$c" = 0 ]; then
+				# 上一轮还有链路、这一轮没了 = 网线拔掉(或对端断电)
+				port_event_add "$now|ethoff|$a|$role" "$a"
+			fi
+			;;
+		usb)
+			# 名称里可能有空格, 被 read 切进了 c, 拼回去
+			b="$b${c:+ $c}"
+			echo "$old" | grep -qxF "usb $a $b" && continue
+			echo "$old" | grep -qF "usb $a " && continue
+			t="${b%%|*}"
+			if [ "$t" = modem ]; then
+				case "$model" in *n5000*) ;; *) continue ;; esac
+				grep -qxF "$a" "$PORT_SEEN" 2>/dev/null && continue
+				echo "$a" >> "$PORT_SEEN"
+			fi
+			port_event_add "$now|usb|$a|$b" "$a"
+			;;
+		esac
+	done
+	# 上一轮有、这一轮没有的 USB 设备 = 拔掉了。蜂窝模组不报: USB2→3 切换、模组重启都会掉线重枚举, 报出来全是误报
+	echo "$old" | while read -r k a b c; do
+		[ "$k" = usb ] || continue
+		echo "$cur" | grep -qF "usb $a " && continue
+		b="$b${c:+ $c}"
+		[ "${b%%|*}" = modem ] && continue
+		port_event_add "$now|usboff|$a|$b" "$a"
+	done
+
+	# 过期事件删掉, 文件不会越攒越大
+	if [ -s "$PORT_EVENT" ]; then
+		awk -F'|' -v n="$now" -v t="$PORT_EVENT_TTL" '$1 ~ /^[0-9]+$/ && n - $1 <= t' "$PORT_EVENT" > "$PORT_EVENT.n" 2>/dev/null
+		mv -f "$PORT_EVENT.n" "$PORT_EVENT"
+	fi
+}
+
+port_speed_txt() {
+	case "$1" in
+		10000) echo 10Gbps ;; 5000) echo 5Gbps ;; 2500) echo 2.5Gbps ;; 1000) echo 1Gbps ;;
+		''|-*|*[!0-9]*) echo "" ;;
+		*) echo "${1}Mbps" ;;
+	esac
+}
+
+port_event_notice() {
+	# 多个页面同时问时只让一个去比快照, 其余直接读事件
+	if command -v flock >/dev/null 2>&1; then
+		( flock -n 9 && port_scan ) 9>"$PORT_LOCK"
+	else
+		port_scan
+	fi
+	[ -s "$PORT_EVENT" ] || return
+	local now ts kind a b c d e f g sp txt lb nm sz ul
+	now="$(date +%s)"
+	while IFS='|' read -r ts kind a b c d e f g; do
+		case "$ts" in ''|*[!0-9]*) continue ;; esac
+		[ $((now - ts)) -le "$PORT_EVENT_TTL" ] || continue
+		if [ "$kind" = eth ]; then
+			# a=网口 b=LAN/WAN c=速率
+			sp="$(port_speed_txt "$c")"
+			txt="${b} 口（${a}）已接入网线"
+			[ -n "$sp" ] && txt="${txt}，协商速率 ${sp}"
+			add_notice "port-$ts-$a" info 1 "${txt}。" "" "" eth "${b} 口接入"
+		elif [ "$kind" = ethoff ]; then
+			add_notice "port-$ts-$a-off" info 1 "${b} 口（${a}）网线已断开。" "" "" eth-off "${b} 口断开"
+		elif [ "$kind" = usb ] || [ "$kind" = usboff ]; then
+			# a=vid:pid:序列号 b=类型 c=容量MB d=厂商 e=名称 f=速率
+			case "$b" in
+				modem) lb='蜂窝模组' ;; net) lb='USB 网卡' ;; storage) lb='存储设备' ;;
+				hid) lb='键盘/鼠标' ;; hub) lb='USB 集线器' ;; audio) lb='音频设备' ;;
+				video) lb='摄像头' ;; printer) lb='打印机' ;; bt) lb='蓝牙适配器' ;;
+				*) lb='USB 设备' ;;
+			esac
+			nm="${e:-$d}"; [ -n "$nm" ] || nm="${a%:*}"
+			if [ "$kind" = usboff ]; then
+				add_notice "port-$ts-$(printf '%s' "$a" | tr -c 'A-Za-z0-9' '_')-off" info 1 "USB 口的${lb}「${nm}」已移除。" "" "" usb-off "USB 移除"
+				continue
+			fi
+			txt="USB 口已接入${lb}「${nm}」"
+			case "$c" in ''|0|*[!0-9]*) ;; *)
+				if [ "$c" -ge 1024 ]; then
+					sz="$(awk -v m="$c" 'BEGIN{printf "%.1fGB", m/1024}')"
+				else
+					sz="${c}MB"
+				fi
+				txt="${txt}，容量 ${sz}" ;;
+			esac
+			case "$f" in
+				20000|10000) ul='USB 3.2' ;; 5000) ul='USB 3.0' ;; 480) ul='USB 2.0' ;; 12|1) ul='USB 1.1' ;; *) ul='' ;;
+			esac
+			[ -n "$ul" ] && txt="${txt}（${ul}）"
+			add_notice "port-$ts-$(printf '%s' "$a" | tr -c 'A-Za-z0-9' '_')" info 1 "${txt}。" "" "" usb "USB 接入"
+		fi
+	done < "$PORT_EVENT"
+}
+
+
+case "$1" in
+    list) echo '{"list":{}}' ;;
+    call)
+        if [ "$2" = "list" ]; then
+            json_init
+            json_add_array notices
+            wlb_event_notice
+            port_event_notice
+            json_close_array
+            json_dump
+        fi
+        ;;
+esac

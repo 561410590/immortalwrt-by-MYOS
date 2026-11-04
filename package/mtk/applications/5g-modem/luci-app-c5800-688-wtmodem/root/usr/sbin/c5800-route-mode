@@ -1,0 +1,27 @@
+#!/bin/sh
+# Apply the factory Priority / Dividing / Overlap policies to new connections.
+# Interface settings are handled by the existing LuCI controller; no power action.
+case "$1" in
+	apply) ;;
+	daily|download)
+		if [ "$1" = download ]; then
+			uci set mwan3.globals.net_kind=Overlap
+			uci set mwan3.lan_default.use_policy=dual_download
+		else
+			uci set mwan3.globals.net_kind=Priority
+			uci set mwan3.lan_default.use_policy=poe_first
+		fi
+		uci set "mwan3.globals.download_mode=$1"
+		uci -q delete mwan3.web_tcp
+		uci -q delete mwan3.web_quic
+		uci commit mwan3 || exit 1
+		;;
+	*) exit 2 ;;
+esac
+
+. /lib/functions.sh
+. /lib/functions/network.sh
+. /lib/mwan3/mwan3.sh
+mwan3_init
+mwan3_set_policies_iptables
+mwan3_set_user_rules

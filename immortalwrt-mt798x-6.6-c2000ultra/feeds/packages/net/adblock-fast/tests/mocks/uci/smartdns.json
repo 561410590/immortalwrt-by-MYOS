@@ -1,9 +1,0 @@
-{
-	"smartdns": [
-		{
-			".name": "smartdns",
-			".type": "smartdns",
-			"enabled": "0"
-		}
-	]
-}

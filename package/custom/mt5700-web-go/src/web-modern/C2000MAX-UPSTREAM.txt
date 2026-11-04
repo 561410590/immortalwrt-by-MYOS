@@ -1,0 +1,16 @@
+MT5700 modern WebUI provenance
+
+Upstream: https://github.com/inotdream/mt5700webui-openwrt-server
+Release: v3.0.2
+Commit: 4bf3ae2 (release tag)
+Updated in C5800 source tree: 2026-10-30
+
+C2000MAX compatibility changes applied before the production build:
+- relative Vite asset base for /modem/<instance>/5700/
+- instance-relative at-ws-info discovery and ws_url support
+- PDCP-first realtime speed with AT^DSFLOWQRY fallback for QModem serial mode
+- backend capability negotiation hides unsupported asynchronous full-band scan
+
+The C5800 tree embeds only WebUI 3.0.2 release assets. No legacy WebUI assets
+or Python at-webserver are packaged. The multi-instance Go service is derived
+from the MAX package; C5800 uses its existing cpetools and AK factory API.

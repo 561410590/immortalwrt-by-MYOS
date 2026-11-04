@@ -1,0 +1,122 @@
+#myos-simple-wifi {
+	--wifi-border: var(--border, var(--hairline, #dce4ef));
+	--wifi-accent: var(--accent, var(--brand, #2873ef));
+	--wifi-surface: var(--surface, #fff);
+	--wifi-muted: var(--text-muted, #738197);
+	--wifi-control: var(--control-bg, var(--surface, #fff));
+	--wifi-control-border: var(--control-border, var(--border, var(--hairline, #dce4ef)));
+	color: var(--text, #1b2d46);
+	max-width: 1120px;
+	margin: 0 auto;
+	padding: 8px 0 24px;
+	font-size: 14px;
+	line-height: 1.5;
+}
+#myos-simple-wifi * { box-sizing: border-box; }
+#myos-simple-wifi .wifi-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 20px;
+	margin: 0 0 24px;
+}
+#myos-simple-wifi h2 { margin: 0 0 6px; font-size: 27px; font-weight: 700; line-height: 1.3; }
+#myos-simple-wifi h3 { margin: 0; font-size: 18px; font-weight: 650; }
+#myos-simple-wifi h4 { margin: 4px 0 16px; font-size: 15px; color: var(--wifi-accent); }
+#myos-simple-wifi .wifi-heading p { margin: 0; color: var(--wifi-muted); font-size: 14px; }
+#myos-simple-wifi .wifi-expert { color: var(--wifi-accent); font-size: 13px; text-decoration: none; white-space: nowrap; }
+#myos-simple-wifi .wifi-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+#myos-simple-wifi .wifi-cards-split { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+#myos-simple-wifi .wifi-card {
+	min-width: 0;
+	background: var(--wifi-surface);
+	border: 1px solid var(--wifi-border);
+	border-radius: 16px;
+	padding: 24px;
+	box-shadow: 0 3px 16px rgba(12, 31, 60, .025);
+}
+#myos-simple-wifi .wifi-combine { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 20px; padding: 20px 24px; }
+#myos-simple-wifi .wifi-card-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 24px; }
+#myos-simple-wifi .wifi-badge { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; font-size: 12px; padding: 5px 10px; border-radius: 20px; background: var(--surface-soft, var(--surface-sunken, #f3f5f9)); color: var(--wifi-muted); }
+#myos-simple-wifi .wifi-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+#myos-simple-wifi .wifi-badge.is-on { color: #079483; background: rgba(0, 157, 131, .09); }
+#myos-simple-wifi .wifi-hint { margin: 6px 0 0; color: var(--wifi-muted); font-size: 12px; line-height: 1.65; }
+#myos-simple-wifi .wifi-card-intro { position: relative; min-width: 0; flex: 1; }
+#myos-simple-wifi .wifi-card-subtitle { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+#myos-simple-wifi .wifi-card-subtitle > .wifi-hint { margin: 0; }
+#myos-simple-wifi .wifi-qr { display: inline-flex; }
+#myos-simple-wifi .wifi-qr-button { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; min-height: 0; margin: 0; padding: 7px; color: var(--wifi-accent); background: transparent; border: 1px solid var(--wifi-border); border-radius: 7px; box-shadow: none; cursor: pointer; }
+#myos-simple-wifi .wifi-qr-button > svg { display: block; width: 24px; height: 24px; }
+#myos-simple-wifi .wifi-qr-popup { position: absolute; z-index: 30; top: 100%; left: 0; width: 272px; max-width: calc(100vw - 84px); padding: 15px; color: #182536; background: #fff; border: 1px solid var(--wifi-border); border-radius: 12px; box-shadow: 0 8px 28px rgba(12,31,60,.18); text-align: center; }
+#myos-simple-wifi .wifi-qr-popup[hidden] { display: none; }
+#myos-simple-wifi .wifi-qr-popup > svg { display: block; width: 240px; max-width: 100%; height: auto; margin: 8px auto 0; background: #fff; }
+#myos-simple-wifi .wifi-qr-name { display: block; font-size: 14px; color: #182536; overflow-wrap: anywhere; }
+#myos-simple-wifi .wifi-qr-popup .wifi-hint { color: #596579; }
+#myos-simple-wifi .wifi-field { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 16px; align-items: start; margin-bottom: 20px; }
+#myos-simple-wifi .wifi-label { padding-top: 11px; color: var(--text, #1b2d46); font-size: 14px; line-height: 20px; }
+#myos-simple-wifi .wifi-control { min-width: 0; max-width: 32rem; }
+#myos-simple-wifi input.cbi-input-text,
+#myos-simple-wifi select.cbi-input-select {
+	width: 100%; min-width: 0; max-width: none;
+	margin: 0; padding: 10px 12px; height: 42px;
+	color: var(--text, #1b2d46); background: var(--wifi-control);
+	border: 1px solid var(--wifi-control-border); border-radius: 8px;
+	font: inherit; box-shadow: none;
+}
+#myos-simple-wifi input:focus-visible,
+#myos-simple-wifi select:focus-visible,
+#myos-simple-wifi button:focus-visible,
+#myos-simple-wifi summary:focus-visible,
+#myos-simple-wifi a:focus-visible { outline: 2px solid var(--wifi-accent); outline-offset: 3px; }
+#myos-simple-wifi input:disabled, #myos-simple-wifi select:disabled, #myos-simple-wifi button:disabled { opacity: .55; cursor: not-allowed; }
+#myos-simple-wifi .wifi-password { position: relative; }
+#myos-simple-wifi .wifi-password input { padding-right: 62px; }
+#myos-simple-wifi .wifi-reveal { position: absolute; top: 1px; right: 1px; height: 40px; min-width: 56px; padding: 0 10px; margin: 0; color: var(--wifi-accent); background: transparent; border: 0; border-radius: 0 8px 8px 0; box-shadow: none; font: inherit; font-size: 12px; cursor: pointer; }
+#myos-simple-wifi .wifi-switch { position: relative; display: inline-flex; align-items: center; min-height: 42px; gap: 10px; margin: 0; cursor: pointer; flex-shrink: 0; }
+#myos-simple-wifi .wifi-switch input { position: absolute; left: 0; top: 9px; width: 42px; height: 24px; margin: 0; opacity: 0; z-index: 1; cursor: pointer; }
+#myos-simple-wifi .wifi-switch-track { display: block; position: relative; width: 42px; height: 24px; border-radius: 20px; background: var(--text-muted, #aab4c2); opacity: .6; transition: background .15s, opacity .15s; }
+#myos-simple-wifi .wifi-switch-track::after { content: ''; position: absolute; left: 3px; top: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.15); transition: transform .15s; }
+#myos-simple-wifi .wifi-switch input:checked + .wifi-switch-track { background: var(--wifi-accent); opacity: 1; }
+#myos-simple-wifi .wifi-switch input:checked + .wifi-switch-track::after { transform: translateX(18px); }
+#myos-simple-wifi .wifi-switch input:focus-visible + .wifi-switch-track { outline: 2px solid var(--wifi-accent); outline-offset: 3px; }
+#myos-simple-wifi .wifi-switch input:disabled + .wifi-switch-track { opacity: .4; }
+#myos-simple-wifi .wifi-switch-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+#myos-simple-wifi .wifi-advanced { border-top: 1px solid var(--wifi-border); margin-top: 8px; }
+#myos-simple-wifi .wifi-advanced summary { display: flex; align-items: center; justify-content: space-between; min-height: 48px; gap: 16px; padding: 10px 0 0; list-style: none; color: var(--wifi-accent); font-size: 13px; cursor: pointer; }
+#myos-simple-wifi .wifi-advanced summary::-webkit-details-marker { display: none; }
+#myos-simple-wifi .wifi-chevron { font-size: 20px; transition: transform .15s; }
+#myos-simple-wifi .wifi-advanced[open] .wifi-chevron { transform: rotate(180deg); }
+#myos-simple-wifi .wifi-advanced-content { padding-top: 20px; }
+#myos-simple-wifi .wifi-radio-advanced + .wifi-radio-advanced { border-top: 1px solid var(--wifi-border); padding-top: 20px; }
+#myos-simple-wifi .wifi-radio-advanced .wifi-field:last-child { margin-bottom: 0; }
+#myos-simple-wifi .wifi-feedback { margin-top: 16px; font-size: 13px; color: var(--wifi-accent); }
+#myos-simple-wifi .wifi-feedback:empty { display: none; }
+#myos-simple-wifi .wifi-feedback.is-error { color: #df4d56; }
+#myos-simple-wifi .wifi-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--wifi-border); }
+#myos-simple-wifi .wifi-actions .wifi-hint { margin: 0; }
+#myos-simple-wifi .wifi-save { min-width: 150px; height: 42px; padding: 0 24px; margin: 0; border: 1px solid var(--wifi-accent); border-radius: 8px; background: var(--wifi-accent); color: var(--on-accent, var(--on-brand, #fff)); font: inherit; font-weight: 600; box-shadow: none; white-space: nowrap; cursor: pointer; }
+#myos-simple-wifi .wifi-empty { padding: 24px 0; color: var(--wifi-muted); }
+@media (max-width: 1050px) {
+	#myos-simple-wifi .wifi-cards-split .wifi-field { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+	#myos-simple-wifi .wifi-cards-split .wifi-label { padding-top: 0; }
+}
+@media (max-width: 700px) {
+	#myos-simple-wifi { padding-top: 0; }
+	#myos-simple-wifi .wifi-heading { align-items: flex-start; gap: 12px; margin-bottom: 18px; }
+	#myos-simple-wifi h2 { font-size: 23px; }
+	#myos-simple-wifi .wifi-heading p { font-size: 12px; }
+	#myos-simple-wifi .wifi-expert { padding-top: 5px; font-size: 12px; }
+	#myos-simple-wifi .wifi-cards-split { grid-template-columns: minmax(0, 1fr); }
+	#myos-simple-wifi .wifi-card { padding: 18px; border-radius: 12px; }
+	#myos-simple-wifi .wifi-combine { padding: 16px 18px; }
+	#myos-simple-wifi .wifi-card-heading { margin-bottom: 20px; }
+	#myos-simple-wifi .wifi-field { grid-template-columns: minmax(0, 1fr); gap: 6px; margin-bottom: 18px; }
+	#myos-simple-wifi .wifi-label { padding-top: 0; }
+	#myos-simple-wifi .wifi-control { max-width: none; }
+	#myos-simple-wifi .wifi-basic > .wifi-field:first-child { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+	#myos-simple-wifi .wifi-actions { flex-direction: column; align-items: stretch; }
+	#myos-simple-wifi .wifi-save { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+	#myos-simple-wifi .wifi-switch-track, #myos-simple-wifi .wifi-switch-track::after, #myos-simple-wifi .wifi-chevron { transition: none; }
+}

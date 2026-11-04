@@ -1,8 +1,0 @@
-{
-  "at": {
-    "host": "192.168.66.1",
-    "port": 8765
-  },
-  "status": "true",
-  "require_auth": false
-}

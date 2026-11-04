@@ -1,9 +1,0 @@
-{
-	"unbound": [
-		{
-			".name": "unbound",
-			".type": "unbound",
-			"enabled": "0"
-		}
-	]
-}

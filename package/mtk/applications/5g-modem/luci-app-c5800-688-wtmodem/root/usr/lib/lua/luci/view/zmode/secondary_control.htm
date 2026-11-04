@@ -1,0 +1,47 @@
+<% local sim_view = self and self.option == "ak_secondary" %>
+<% if sim_view then %><%+cbi/valueheader%><% end %>
+<div id="ak-secondary" class="<%=sim_view and 'cellular-secondary' or 'cms-radio-form'%>" data-status="<%=luci.dispatcher.build_url('admin','modem','secondary_status')%>"
+ data-set="<%=luci.dispatcher.build_url('admin','modem','secondary_set')%>" data-token="<%=luci.dispatcher.context.authtoken%>">
+ <% if sim_view then %>
+ <p data-info>正在读取副设备…</p>
+ <div class="cellular-actions">
+  <label>副设备卡槽 <select data-slot></select></label>
+  <button type="button" class="cbi-button" data-select>切换所选卡槽</button>
+  <button type="button" class="cbi-button" data-refresh>刷新</button>
+ </div>
+ <p class="cellular-help">卡槽按副设备实际能力显示；仅手动切换。</p>
+ <% else %>
+ <details class="cms-radio-options">
+  <summary>副设备 APN</summary>
+  <div class="cms-radio-toolbar"><p data-info>正在读取副设备…</p><button type="button" class="cbi-button" data-refresh>刷新</button></div>
+  <div class="cms-radio-field-grid">
+   <label>APN<input data-field="apn" placeholder="留空自动匹配"></label>
+   <label>用户名<input data-field="username" autocomplete="off"></label>
+   <label>密码<input data-field="password" type="password" autocomplete="new-password"></label>
+   <label>认证<select data-field="auth"><option value="0">无</option><option value="1">PAP</option><option value="2">CHAP</option><option value="3">PAP/CHAP</option></select></label>
+   <label>地址类型<select data-field="pdptype"><option>IPV4V6</option><option>IP</option><option>IPV6</option></select></label>
+  </div>
+  <div class="cms-radio-submit"><button type="button" class="cbi-button cbi-button-apply" data-save>应用 APN 到副设备</button></div>
+ </details>
+ <% end %>
+ <p data-result class="cms-radio-result" role="status"></p>
+</div>
+<% if sim_view then %><%+cbi/valuefooter%><% end %>
+<script>
+(function(){
+ 'use strict';
+ var root=document.getElementById('ak-secondary'),slot=root.querySelector('[data-slot]'),info=root.querySelector('[data-info]'),msg=root.querySelector('[data-result]');
+ function read(){return fetch(root.dataset.status,{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.json();}).then(function(s){
+  info.textContent=s.name+' · '+(s.version||s.transport)+' · '+(s.connected?'网口已连接':'网口未连接');
+  if(slot){slot.textContent=''; (Array.isArray(s.slots)?s.slots:[]).forEach(function(v){var o=document.createElement('option');o.value=v.value;o.textContent=v.label;slot.appendChild(o);});slot.value=String(s.cur);}
+  var apn=s.apn||{},p=s.profile||{}; root.querySelectorAll('[data-field]').forEach(function(e){var k=e.dataset.field,v=k==='apn'?apn.name:apn[k];e.value=v||p[k]||({auth:'0',pdptype:'IPV4V6'}[k]||'');});
+  if(s.read_error) msg.textContent='实时读取失败，当前显示缓存：'+s.read_error;
+ }).catch(function(e){msg.textContent='读取失败：'+e.message;});}
+ function send(data){data.token=root.dataset.token;msg.textContent='正在提交副设备…';return fetch(root.dataset.set,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(data).toString()}).then(function(r){return r.json();}).then(function(r){msg.textContent=r.error||r.message||'请求完成，请刷新实际状态';if(!r.error)read();}).catch(function(e){msg.textContent='请求失败：'+e.message;});}
+ root.querySelector('[data-refresh]').onclick=read;
+ var select=root.querySelector('[data-select]'),save=root.querySelector('[data-save]');
+ if(select)select.onclick=function(){send({action:'sim',slot:slot.value});};
+ if(save)save.onclick=function(){var d={action:'config'};root.querySelectorAll('[data-field]').forEach(function(e){d[e.dataset.field]=e.value;});send(d);};
+ read();
+})();
+</script>

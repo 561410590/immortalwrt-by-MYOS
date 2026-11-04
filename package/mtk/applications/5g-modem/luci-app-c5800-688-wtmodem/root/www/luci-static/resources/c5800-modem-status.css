@@ -1,0 +1,96 @@
+.c5800-modem-status{--cms-card:#fff;--cms-soft:#f4f7fc;--cms-text:#18304d;--cms-muted:#64758c;--cms-line:#dfe7f2;--cms-accent:#3268ed;--cms-good:#008d78;--cms-warn:#b77812;color:var(--cms-text);max-width:1600px;margin:12px auto 28px;font-size:14px;line-height:1.55}
+.c5800-modem-status *{box-sizing:border-box}
+.c5800-modem-status .cms-heading{position:static;display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:24px;background:none;padding:0;border:0;transform:none;width:auto;height:auto;z-index:auto}
+.c5800-modem-status .cms-eyebrow{font-size:12px;letter-spacing:.08em;color:var(--cms-accent);margin:0 0 6px;font-weight:700}
+.c5800-modem-status h2{font-size:28px;line-height:1.25;margin:0 0 8px;color:var(--cms-text);background:none;border:0;padding:0}
+.c5800-modem-status .cms-subtitle,.c5800-modem-status .cms-note{color:var(--cms-muted);margin:0}
+.c5800-modem-status .cms-refresh{display:flex;align-items:center;gap:12px;color:var(--cms-muted);font-size:12px;flex-shrink:0}
+.c5800-modem-status .cms-refresh button{border:1px solid var(--cms-line);border-radius:10px;background:var(--cms-card);color:var(--cms-accent);padding:8px 18px;cursor:pointer}
+.c5800-modem-status .cms-modules{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;align-items:start}
+.c5800-modem-status .cms-card{background:var(--cms-card);border:1px solid var(--cms-line);border-radius:20px;padding:26px;min-width:0;box-shadow:0 8px 28px #19355305}
+.c5800-modem-status .cms-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:22px}
+.c5800-modem-status .cms-slot{font-size:12px;color:var(--cms-muted);margin:0 0 6px}
+.c5800-modem-status h3{font-size:21px;line-height:1.35;margin:0;color:var(--cms-text)}
+.c5800-modem-status .cms-badge{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;padding:5px 10px;border-radius:7px;background:var(--cms-soft);color:var(--cms-muted);font-size:12px}
+.c5800-modem-status .cms-badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.c5800-modem-status .cms-badge.is-online{color:var(--cms-good);background:#008d7812}
+.c5800-modem-status .cms-badge.is-waiting{color:var(--cms-warn);background:#b7781212}
+.c5800-modem-status .cms-network{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin:0 0 18px;color:var(--cms-muted)}
+.c5800-modem-status .cms-network strong{font-size:18px;color:var(--cms-text);margin-right:4px}
+.c5800-modem-status .cms-signal{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 22px}
+.c5800-modem-status .cms-tile{background:var(--cms-soft);border-radius:12px;padding:15px 12px;min-width:0}
+.c5800-modem-status .cms-label{font-size:12px;color:var(--cms-muted);display:block;margin-bottom:4px}
+.c5800-modem-status .cms-value{font-size:23px;font-weight:700;overflow-wrap:anywhere;line-height:1.35}
+.c5800-modem-status .cms-unit{font-size:11px;color:var(--cms-muted);font-weight:400;margin-left:4px}
+.c5800-modem-status .cms-quality{display:block;font-size:11px;color:var(--cms-muted);margin-top:5px}
+.c5800-modem-status dl{margin:0;display:grid;grid-template-columns:100px minmax(0,1fr);gap:10px 14px}
+.c5800-modem-status dt{color:var(--cms-muted);font-weight:400}
+.c5800-modem-status dd{margin:0;overflow-wrap:anywhere;color:var(--cms-text);min-width:0}
+.c5800-modem-status .cms-basic{margin-bottom:6px}
+.c5800-modem-status details{margin-top:22px;border-top:1px solid var(--cms-line);padding-top:16px}
+.c5800-modem-status summary{cursor:pointer;color:var(--cms-accent);font-weight:600;padding:2px 0;list-style:disclosure-closed}
+.c5800-modem-status details[open]>summary{list-style:disclosure-open;margin-bottom:18px}
+.c5800-modem-status .cms-detail-group+.cms-detail-group{margin-top:20px;padding-top:18px;border-top:1px solid var(--cms-line)}
+.c5800-modem-status h4{font-size:12px;color:var(--cms-muted);margin:0 0 12px;font-weight:700;letter-spacing:.04em}
+.c5800-modem-status .cms-empty{padding:25px 8px 30px;text-align:center;color:var(--cms-muted)}
+.c5800-modem-status .cms-extension-icon{width:62px;height:62px;display:grid;place-items:center;border:1px solid var(--cms-line);background:var(--cms-soft);border-radius:18px;margin:0 auto 18px;color:var(--cms-accent)}
+.c5800-modem-status .cms-extension-icon svg{width:32px;height:32px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.c5800-modem-status .cms-empty strong{display:block;font-size:18px;color:var(--cms-text);margin-bottom:8px}
+.c5800-modem-status .cms-empty p{margin:0 auto;max-width:310px}
+.c5800-modem-status .cms-note{font-size:12px;margin-top:18px}
+.c5800-modem-status .cms-radio{margin-top:22px}
+.c5800-modem-status .cms-radio [hidden]{display:none!important}
+.c5800-modem-status .cms-radio-heading{display:flex;justify-content:space-between;align-items:center;gap:20px;padding-bottom:22px;border-bottom:1px solid var(--cms-line)}
+.c5800-modem-status .cms-radio-heading .cms-note{margin-top:6px}
+.c5800-modem-status .cms-radio-tabs{display:flex;flex:none;gap:4px;background:var(--cms-soft);border:1px solid var(--cms-line);padding:4px;border-radius:12px}
+.c5800-modem-status .cms-radio-tabs button{border:0;border-radius:8px;background:transparent;color:var(--cms-muted);padding:10px 16px;font-size:14px;cursor:pointer}
+.c5800-modem-status .cms-radio-tabs button[aria-selected="true"]{background:var(--cms-card);color:var(--cms-accent);font-weight:700;box-shadow:0 2px 8px #1935530d}
+.c5800-modem-status .cms-radio-tabs button:focus-visible{outline:2px solid var(--cms-accent);outline-offset:2px}
+.c5800-modem-status .cms-radio-toolbar{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:20px 0 16px}
+.c5800-modem-status .cms-radio-toolbar strong{font-size:15px}
+.c5800-modem-status .cms-radio-message{margin:4px 0 0;font-size:12px;color:var(--cms-muted)}
+.c5800-modem-status .cms-radio-active{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;background:var(--cms-soft);border-radius:12px;padding:16px 18px}
+.c5800-modem-status .cms-radio-active>div{min-width:0}
+.c5800-modem-status .cms-radio-active span{display:block;font-size:11px;color:var(--cms-muted);margin-bottom:4px}
+.c5800-modem-status .cms-radio-active strong{display:block;font-size:13px;font-weight:500;overflow-wrap:anywhere}
+.c5800-modem-status .cms-radio-actions{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+.c5800-modem-status .cms-radio-form{display:grid;gap:20px;margin:22px 0 0;padding:0;border:0}
+.c5800-modem-status .cms-radio-field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.c5800-modem-status .cms-radio-parameter-note{grid-column:1/-1}
+.c5800-modem-status .cms-radio-form label{display:grid;gap:5px;color:var(--cms-muted);font-size:13px}
+.c5800-modem-status .cms-radio-form label[hidden]{display:none}
+.c5800-modem-status .cms-radio-form input:not([type=checkbox]),.c5800-modem-status .cms-radio-form select{min-width:0;width:100%;max-width:none;border:1px solid var(--cms-line);background:var(--cms-soft);color:var(--cms-text);border-radius:8px;padding:9px;font-size:14px;height:auto}
+.c5800-modem-status .cms-radio-submit{display:flex;align-items:center;justify-content:space-between;gap:20px;border-top:1px solid var(--cms-line);padding-top:20px}
+.c5800-modem-status .cms-radio-form .cms-radio-confirm{display:flex;align-items:flex-start;gap:8px;line-height:1.7}
+.c5800-modem-status .cms-radio-confirm input{flex:none;margin-top:4px}
+.c5800-modem-status .cms-radio-submit>button{flex:none;min-width:150px;padding:11px 20px}
+.c5800-modem-status .cms-radio-scroll{overflow-x:auto}
+.c5800-modem-status .cms-radio-scroll table{width:100%;font-size:12px;white-space:nowrap;border-collapse:collapse}
+.c5800-modem-status .cms-radio-scroll td,.c5800-modem-status .cms-radio-scroll th{padding:8px;border-bottom:1px solid var(--cms-line);text-align:left}
+.c5800-modem-status .cms-radio pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--cms-soft);border:1px solid var(--cms-line);border-radius:8px;padding:12px;color:var(--cms-text);font-size:12px}
+.c5800-modem-status .cms-radio button{height:auto;white-space:normal;line-height:1.4}
+.c5800-modem-status .cms-radio-result{margin:0;color:var(--cms-accent)}
+.c5800-modem-status .cms-radio-bands{border:1px solid var(--cms-line);border-radius:12px;padding:18px;margin:0;min-width:0}
+.c5800-modem-status .cms-radio-bands[hidden]{display:none}
+.c5800-modem-status .cms-radio-bands legend{width:auto;margin:0;padding:0 6px;font-size:13px;border:0;color:var(--cms-muted)}
+.c5800-modem-status .cms-radio-band-options{display:flex;flex-wrap:wrap;gap:10px}
+.c5800-modem-status .cms-radio-band-options label{display:flex;align-items:center;justify-content:center;gap:8px;min-width:88px;border:1px solid var(--cms-line);border-radius:8px;padding:10px 14px;cursor:pointer;color:var(--cms-text)}
+.c5800-modem-status .cms-radio-band-options label:has(input:checked){border-color:var(--cms-accent);background:var(--cms-soft)}
+.c5800-modem-status .cms-radio-band-options input{margin:0;flex:none}
+.c5800-modem-status .cms-radio-form .cms-note{margin:0;font-size:12px}
+.c5800-modem-status .cms-radio-bands .cms-note{margin-top:12px}
+.c5800-modem-status .cms-radio-group-fields{margin-top:16px}
+.c5800-modem-status .cms-radio-groups{align-items:start}
+.c5800-modem-status .cms-radio-form details{margin:0;padding:16px 0 0}
+.c5800-modem-status .cms-radio-form summary{font-size:13px}
+.c5800-modem-status .cms-radio-options>summary>span,.c5800-modem-status .cms-radio-cell-count{font-size:12px;color:var(--cms-muted);font-weight:400;margin-left:8px}
+.c5800-modem-status .cms-radio-options .cms-note{margin-top:14px}
+.c5800-modem-status .cms-radio-options .cms-radio-advanced{margin-top:18px}
+.c5800-modem-status .cms-radio-advanced{margin:0;padding:10px 0}
+@media(max-width:900px){.c5800-modem-status .cms-radio-heading{align-items:flex-start;flex-direction:column;gap:16px}.c5800-modem-status .cms-radio-tabs{width:100%}.c5800-modem-status .cms-radio-tabs button{flex:1}.c5800-modem-status .cms-radio-active{grid-template-columns:1fr;gap:12px}.c5800-modem-status .cms-radio-active>div{display:grid;grid-template-columns:90px minmax(0,1fr);gap:12px}.c5800-modem-status .cms-radio-active span{margin:0}}
+@media(max-width:600px){.c5800-modem-status .cms-radio-field-grid{grid-template-columns:1fr;gap:14px}.c5800-modem-status .cms-radio-tabs button{font-size:12px;padding:10px 6px}.c5800-modem-status .cms-radio-toolbar{align-items:flex-start}.c5800-modem-status .cms-radio-toolbar>button{flex:none}.c5800-modem-status .cms-radio-submit{align-items:stretch;flex-direction:column;gap:14px}.c5800-modem-status .cms-radio-band-options{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.c5800-modem-status .cms-radio-band-options label{min-width:0;padding:10px 5px;gap:5px}.c5800-modem-status .cms-radio-options>summary>span{display:block;margin:4px 0 0 16px}}
+@media(prefers-color-scheme:dark){.c5800-modem-status{--cms-card:#151a27;--cms-soft:#1d2434;--cms-text:#e4ecfa;--cms-muted:#91a0ba;--cms-line:#2b3548;--cms-accent:#8ba9ff;--cms-good:#3ed3ad;--cms-warn:#e9b65a}}
+html[data-darkmode="true"] .c5800-modem-status{--cms-card:#151a27;--cms-soft:#1d2434;--cms-text:#e4ecfa;--cms-muted:#91a0ba;--cms-line:#2b3548;--cms-accent:#8ba9ff;--cms-good:#3ed3ad;--cms-warn:#e9b65a}
+html[data-darkmode="false"] .c5800-modem-status{--cms-card:#fff;--cms-soft:#f4f7fc;--cms-text:#18304d;--cms-muted:#64758c;--cms-line:#dfe7f2;--cms-accent:#3268ed;--cms-good:#008d78;--cms-warn:#b77812}
+@media(max-width:1100px){.c5800-modem-status .cms-modules{grid-template-columns:1fr}.c5800-modem-status .cms-card{padding:22px}}
+@media(max-width:600px){.c5800-modem-status .cms-heading{align-items:flex-start;flex-direction:column;gap:14px}.c5800-modem-status h2{font-size:25px}.c5800-modem-status .cms-refresh{justify-content:space-between;width:100%}.c5800-modem-status .cms-card{padding:18px;border-radius:16px}.c5800-modem-status .cms-card-head{gap:8px}.c5800-modem-status h3{font-size:19px}.c5800-modem-status .cms-signal{gap:7px}.c5800-modem-status .cms-tile{padding:12px 9px}.c5800-modem-status .cms-value{font-size:21px}.c5800-modem-status dl{grid-template-columns:86px minmax(0,1fr);gap:9px 10px}}

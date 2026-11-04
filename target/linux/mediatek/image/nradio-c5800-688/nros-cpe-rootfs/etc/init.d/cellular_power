@@ -1,0 +1,22 @@
+#!/bin/sh /etc/rc.common
+
+START=05
+STOP=75
+
+start() {
+	cpetools.sh -i cpe -k &
+	# Restore the saved secondary-5G choice, without probing the modem.
+	# A manually disabled interface or an ordinary WAN must remain unpowered.
+	if [ "$(uci -q get network.cpe1.proto)" = "wwan" ] &&
+	   [ "$(uci -q get network.cpe1.mode)" = "odu" ] &&
+	   [ "$(uci -q get network.cpe1.disabled)" != "1" ] &&
+	   [ "$(uci -q get network.cpe1.auto)" != "0" ]; then
+		cpetools.sh -i cpe1 -k &
+	else
+		cpetools.sh -i cpe1 -d &
+	fi
+}
+
+shutdown() {
+	cpetools.sh -d 
+}

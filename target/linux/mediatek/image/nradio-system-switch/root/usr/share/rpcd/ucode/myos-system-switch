@@ -1,0 +1,26 @@
+'use strict';
+import { connect } from 'ubus';
+const connection = connect();
+function run(req, action) {
+	return connection.defer('file', 'exec', {
+		command: '/usr/libexec/myos-boot-system', params: [action]
+	}, function(code, reply) {
+		if (code || !reply) {
+			req.reply({ error: '系统切换服务调用失败：' + code });
+			return;
+		}
+		let result;
+		try { result = json(reply.stdout || ''); }
+		catch (e) { result = { error: trim(reply.stderr || '') || '系统切换服务未返回结果，退出码 ' + reply.code }; }
+		req.reply(result);
+	});
+}
+return {
+	'myos.system': {
+		status: { call: function(req) { return run(req, 'status'); } },
+		official: { args: { confirmed: false }, call: function(req) {
+			if (req.args.confirmed !== true) return { error: '请确认返回官方系统并重启' };
+			return run(req, 'official');
+		} }
+	}
+};

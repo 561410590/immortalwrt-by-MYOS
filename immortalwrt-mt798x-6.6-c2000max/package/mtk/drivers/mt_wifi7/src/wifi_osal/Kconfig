@@ -1,4 +1,0 @@
-config MTK_WIFI_OSAL
-        bool "MediaTek WiFi OS Abstraction Layer"
-        default y
-

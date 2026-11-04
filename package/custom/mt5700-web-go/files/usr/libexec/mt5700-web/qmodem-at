@@ -1,0 +1,128 @@
+#!/usr/bin/lua
+local json = require "luci.jsonc"
+local util = require "luci.util"
+local iface, command = arg[1], arg[3] or ""
+if iface == "cpe" then
+    local pipe = io.popen("/usr/bin/cpetools.sh -i cpe -t 0 -c " .. util.shellquote(command))
+    local output = pipe:read("*a") or ""
+    pipe:close()
+    io.write(output)
+    return
+end
+local native = require "c5800_secondary"
+local operation = json.parse(command)
+if operation then
+    local state = native.status(true)
+    local result, err = true, nil
+    if operation.action == "radio" then
+        result, err = native.radio_profiles(operation.profiles, "keep", state)
+    elseif operation.action == "apn" then
+        local input = operation.input or {}
+        result, err = native.request("apn", {index="1",action=1,sim=state.cur,
+            profile="app",sim_profile="app",apn=input.apn or "",
+            username=input.username or "",password=input.password or "",
+            auth=tostring(input.authType or 0),pdptype=tostring(input.protocol and input.protocol ~= "" and input.protocol or "ipv4v6"):lower(),
+            enabled=input.apn and input.apn ~= "" and "1" or "0"})
+    elseif operation.action and operation.action ~= "status" then
+        result, err = nil, "原厂操作类型无效"
+    end
+    if not result then io.write(json.stringify({ok=false,error=err})); return end
+    if operation.action ~= "status" then state = native.status(true) end
+    state.radio = {}
+    local p, cap = state.profile or {}, state.capability or {}
+    local any_cell = tostring((p.freq5 or {}).enabled)=="1" or tostring((p.freq4 or {}).enabled)=="1"
+    for _, item in ipairs({{"nr","5"},{"lte","4"}}) do
+        local key, n = item[1], item[2]
+        local cell, band = p["freq"..n] or {}, p.band or {}
+        local lock = {kind="0",policy=tostring(p.mobility or "1"),bands="",arfcn="",pci=""}
+        if tostring(cell.enabled)=="1" then
+            lock.kind = tostring(cell.pci or "") ~= "" and "2" or "1"
+            lock.bands,lock.arfcn,lock.pci = cell.band or "",cell.earfcn or "",cell.pci or ""
+        elseif tostring(band.enabled)=="1" then
+            local bands = tostring(band.freq or ""):match(key.."%-([^,]+)")
+            if bands then lock.kind,lock.bands = "3",bands:gsub(":",",") end
+        end
+        if lock.kind=="0" and not any_cell and (lock.policy=="0" or lock.policy=="1") then
+            local defaults = {}
+            local skip = ":"..tostring(cap.blacklist_band or ""):gsub(",",":")..":"
+            for b in (tostring(cap.freq_val or ""):match(key.."%-([^,]+)") or ""):gmatch("%d+") do
+                if not (key=="nr" and tostring(cap.compatibility)=="1" and tostring(p.compatibility or "0")=="0" and skip:find(":"..b..":",1,true)) then defaults[#defaults+1]=b end
+            end
+            if #defaults>0 then lock.kind,lock.bands,lock.factory_default="3",table.concat(defaults,","),true end
+        end
+        state.radio[key] = lock
+    end
+    io.write(json.stringify({ok=true,state=state,result=result}))
+    return
+end
+command = command:gsub("[\r\n]+$", "")
+local readers = {}
+local function value(s, key) return tostring(s[key] or "") end
+local function encoded(n, offset, scale)
+    n = tonumber(n)
+    return n and math.floor((n + offset) * (scale or 1) + 0.5) or 255
+end
+local function hex(n)
+    n = tonumber(n)
+    return n and string.format("%X", n) or ""
+end
+local function nr_frequency(n)
+    n = tonumber(n)
+    if not n then return "" end
+    if n < 600000 then return tostring(n * 5) end
+    if n < 2016667 then return tostring(3000000 + (n - 600000) * 15) end
+    return tostring(24250080 + (n - 2016667) * 60)
+end
+readers["ATI"] = function(s)
+    return "Model: " .. value(s,"model") .. "\r\nRevision: " .. value(s,"revision")
+end
+readers["AT+CGMM"] = function(s) return value(s,"model") end
+readers["AT+CGMR"] = function(s) return value(s,"revision") end
+readers["AT+CGSN"] = function(s) return value(s,"imei") end
+readers["AT+CIMI"] = function(s) return value(s,"imsi") end
+readers["AT^ICCID?"] = function(s) return "^ICCID: " .. value(s,"iccid") end
+readers["AT+ICCID"] = function(s) return "+ICCID: " .. value(s,"iccid") end
+readers["AT+CPIN?"] = function(s)
+    return "+CPIN: " .. (tostring(s.CPIN)=="0" and "READY" or value(s,"CPIN"))
+end
+readers["AT^HCSQ?"] = function(s)
+    local rat = value(s,"mode"):find("NR",1,true) and "NR" or value(s,"mode")
+    local fields = {encoded(s.rsrp,140),encoded(s.sinr,20,5),encoded(s.rsrq,19.5,2)}
+    if rat == "LTE" then table.insert(fields,1,encoded(s.rssi,121)) end
+    return '^HCSQ: "' .. rat .. '",' .. table.concat(fields,",")
+end
+readers["AT^MONSC"] = function(s)
+    local nr = value(s,"mode"):find("NR",1,true)
+    local plmn = value(s,"isp")
+    local fields = {nr and "NR" or value(s,"mode"),plmn:sub(1,3),plmn:sub(4),value(s,"earfcn")}
+    if nr then fields[#fields+1] = "" end
+    for _, field in ipairs({value(s,"cellid"),hex(s.pci),value(s,"tac"),value(s,"rsrp"),value(s,"rsrq"),value(s,"sinr")}) do fields[#fields+1] = field end
+    return "^MONSC: " .. table.concat(fields,",")
+end
+readers["AT^HFREQINFO?"] = function(s)
+    if not value(s,"mode"):find("NR",1,true) then error("原厂API未提供LTE载波频率") end
+    local down, up = value(s,"dl_fcn"), value(s,"ul_fcn")
+    return "^HFREQINFO: 0,7," .. table.concat({value(s,"band"),down,nr_frequency(down),value(s,"DLBW"),up,nr_frequency(up),value(s,"ULBW")},",")
+end
+readers["AT^EONS=2"] = function(s)
+    local name = value(s,"isp_company")
+    return '^EONS: 1,' .. value(s,"isp") .. ',"' .. name .. '","' .. name .. '",3'
+end
+readers["AT+CGEQOSRDP=1"] = function(s) return "+CGEQOSRDP: 1," .. value(s,"QCI") end
+readers["AT+CGEQOSRDP=8"] = function(s) return "+CGEQOSRDP: 8," .. value(s,"QCI") end
+for _, cid in ipairs({1,8}) do
+    local current = cid
+    readers["AT^DSAMBR="..cid] = function(s)
+        return '^DSAMBR: ' .. current .. ',' .. value(s,"NR5G_AMBR_DL") .. ',' .. value(s,"NR5G_AMBR_UL") .. ',"' .. value(s,"apn") .. '"'
+    end
+end
+local reader = readers[command]
+if not reader then
+    io.write("ERROR: AK原厂API未提供此AT操作：" .. command .. "\r\n")
+    return
+end
+local reply, err = native.request("signal", {})
+if not reply then error(err) end
+local ok, output = pcall(reader, reply.result or {})
+if not ok then error(output) end
+io.write(output .. "\r\nOK\r\n")

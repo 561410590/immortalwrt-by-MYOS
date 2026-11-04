@@ -1,4 +1,0 @@
-#!/bin/sh
-
-exec lua /usr/lib/lua/mt5311/ebm-read.lua "$@"
-

@@ -1,5 +1,0 @@
-config uuplugin
-	option enabled '0'
-	option model 'OpenWrt'
-	option addfw '0'
-

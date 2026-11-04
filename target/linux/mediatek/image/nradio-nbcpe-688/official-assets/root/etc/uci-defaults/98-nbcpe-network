@@ -1,0 +1,252 @@
+#!/bin/sh
+# Repair the NBCPE LAN fallback and use the original WWAN/ODU network owner.
+
+. /lib/functions.sh
+. /lib/functions/system.sh
+. /lib/functions/nbcpe.sh
+
+nbcpe_board="$(board_name)"
+case "$nbcpe_board" in
+    HCMT7981-emmc-NB68) ;;
+    ""|generic)
+        compatible="$(tr '\000' '\n' < /proc/device-tree/compatible 2>/dev/null)"
+        printf '%s\n' "$compatible" | grep -qx HCMT7981-emmc-NB68 || exit 0
+        ;;
+    *) exit 0 ;;
+esac
+
+lan_type="$(uci -q get network.lan)"
+lan_device="$(uci -q get network.lan.device)"
+lan_ifname="$(uci -q get network.lan.ifname)"
+bridge_section=""
+bridge_ports=""
+index=0
+while [ "$(uci -q get "network.@device[$index]")" = "device" ]; do
+    section="@device[$index]"
+    if [ "$(uci -q get "network.$section.name")" = "br-lan" ]; then
+        bridge_section="$section"
+        bridge_ports="$(uci -q get "network.$section.ports")"
+        break
+    fi
+    index=$((index + 1))
+done
+
+repair=0
+[ "$lan_type" = "interface" ] || repair=1
+[ "$lan_device" = "eth0" ] && repair=1
+[ -z "$lan_device" ] && [ "$lan_ifname" = "eth0" ] && repair=1
+[ "$lan_device" = "br-lan" ] && [ "$bridge_ports" = "eth0" ] && repair=1
+[ "$lan_device" = "br-lan" ] && [ "$bridge_ports" = "lan1 lan2 lan3" ] && repair=1
+[ "$lan_device" = "br-lan" ] && [ "$bridge_ports" = "lan1 lan2 lan3 lan4" ] && repair=1
+if [ "$repair" = "1" ]; then
+lan_ip="$(uci -q get network.lan.ipaddr)"
+lan_mask="$(uci -q get network.lan.netmask)"
+[ -n "$lan_ip" ] || lan_ip="192.168.66.1"
+[ -n "$lan_mask" ] || lan_mask="255.255.255.0"
+
+[ -n "$bridge_section" ] || bridge_section="$(uci add network device)"
+uci set "network.$bridge_section.name=br-lan"
+uci set "network.$bridge_section.type=bridge"
+uci -q delete "network.$bridge_section.ports"
+for port in port1 port2 port3; do
+    uci add_list "network.$bridge_section.ports=$port"
+done
+uci set network.lan=interface
+uci set network.lan.device=br-lan
+uci set network.lan.proto=static
+uci set "network.lan.ipaddr=$lan_ip"
+uci set "network.lan.netmask=$lan_mask"
+uci -q delete network.lan.ifname
+uci -q delete network.lan.type
+
+uci set dhcp.lan=dhcp
+uci set dhcp.lan.interface=lan
+uci set dhcp.lan.ignore=0
+uci set dhcp.lan.dynamicdhcp=1
+uci set dhcp.lan.dhcpv4=server
+for option in start limit leasetime; do
+    [ -n "$(uci -q get "dhcp.lan.$option")" ] && continue
+    case "$option" in
+        start) value=100 ;;
+        limit) value=150 ;;
+        leasetime) value=12h ;;
+    esac
+    uci set "dhcp.lan.$option=$value"
+done
+uci commit dhcp
+fi
+
+# port5 is the 2.5G PoE/ODU link. WWAN owns its management and cellular IPv4.
+was_nbcpe="$(uci -q get network.globals.nbcpe)"
+uci set network.globals=globals
+uci set network.globals.nbcpe=1
+uci set network.globals.ipv6=1
+uci set network.globals.default_cellular=cpe
+uci set network.nrswitch=nrswitch
+uci set network.nrswitch.dsa=1
+uci set 'network.nrswitch.label=3 2 1 4'
+uci set network.nrswitch.ovlan=NmLLNMC
+uci set network.nrswitch.nvlan=NLLLNWC
+uci set network.nrswitch.disable_wan=1
+uci set network.cpe=interface
+uci set network.cpe.proto=wwan
+uci set network.cpe.device=port5
+uci set network.cpe.phyifname=port5
+uci set network.cpe.ifname=port5
+uci set network.cpe.phycap=2500
+uci set network.cpe.odu_interface=nbdevice
+uci set network.cpe.mode=odu
+uci set network.cpe.forcephy=1
+uci set network.cpe.defaultroute=1
+for setting in auto_sniffer=192.168.8.1 odu_model=MT5700M-CN ippass=1 sms=1; do
+    option="${setting%%=*}"
+    [ -n "$(uci -q get "network.cpe.$option")" ] || uci set "network.cpe.$setting"
+done
+uci set network.nbdevice=interface
+uci set network.nbdevice.proto=none
+uci set network.nbdevice.phyifname=port5
+uci set network.nbdevice.ifname=port5
+uci set network.nbdevice.device=port5
+uci set network.nbdevice.disabled=1
+for interface in wan wan6; do
+    [ "$was_nbcpe" = 1 ] && [ "$(uci -q get "network.$interface")" = "interface" ] && continue
+    uci set "network.$interface=interface"
+    uci set "network.$interface.device=port5"
+    uci set "network.$interface.disabled=1"
+    uci set "network.$interface.defaultroute=0"
+    uci -q delete "network.$interface.ifname"
+done
+for interface in BLUE4WAN BLUE4WANV6; do
+    [ "$(uci -q get "network.$interface")" = "interface" ] || continue
+    uci set "network.$interface.disabled=1"
+done
+
+# Native cpetools consumes slot -> GPIO/USIM mappings and per-slot IP passthrough.
+for config in cpesel cpecfg; do
+    [ -f "/etc/config/$config" ] || : > "/etc/config/$config"
+done
+current="$(uci -q get cpesel.sim.cur)"
+case "$current" in 1|2) ;; *) current=1 ;; esac
+uci set cpesel.sim=cpesel
+uci set "cpesel.sim.cur=$current"
+uci set cpesel.sim.max=2
+uci set cpesel.sim.gval=1-1,1-2
+uci set cpesel.sim.stype=0,4
+uci set cpesel.sim.mode=1
+[ -n "$(uci -q get cpesel.sim.default)" ] || uci set "cpesel.sim.default=$current"
+uci set cpecfg.config=cpecfg
+for slot in 1 2; do
+    section="cpesim$slot"
+    uci set "cpecfg.$section=cpesim"
+    for setting in mode=auto ippass=1 nrrc=1 mobility=2; do
+        option="${setting%%=*}"
+        [ -n "$(uci -q get "cpecfg.$section.$option")" ] || uci set "cpecfg.$section.$setting"
+    done
+done
+uci commit cpesel
+uci commit cpecfg
+
+# Merge old anonymous/named duplicates without changing bridge membership.
+# The first LuCI device section remains authoritative; retain missing options.
+lua -e '
+local u = require("uci").cursor()
+local devices, first = {}, {}
+u:foreach("network", "device", function(s) devices[#devices + 1] = s end)
+for _, s in ipairs(devices) do
+    local name = s.name
+    if name == "br-lan" or name == "port1" or name == "port2" or name == "port3" or name == "port5" then
+        local keep = first[name]
+        if keep then
+            for key, value in pairs(s) do
+                if key:sub(1, 1) ~= "." and u:get("network", keep, key) == nil then
+                    u:set("network", keep, key, value)
+                end
+            end
+            u:delete("network", s[".name"])
+        else
+            first[name] = s[".name"]
+        end
+    end
+end
+u:commit("network")
+-- Remove only the empty legacy include; retain any user firewall commands.
+local f = io.open("/etc/firewall.user", "r")
+local has_commands = false
+if f then
+    for line in f:lines() do
+        if line:match("%S") and not line:match("^%s*#") then has_commands = true; break end
+    end
+    f:close()
+end
+if not has_commands then
+    local includes = {}
+    u:foreach("firewall", "include", function(s)
+        if s.path == "/etc/firewall.user" then includes[#includes + 1] = s[".name"] end
+    end)
+    for _, name in ipairs(includes) do u:delete("firewall", name) end
+    u:commit("firewall")
+end
+'
+
+# Match the original switch owner: LAN/base MAC, PoE port/base MAC + 1.
+# Existing valid device or user LAN MAC selections retain precedence.
+nbcpe_default_device_mac() {
+    local name="$1" fallback="$2" section="" index=0
+    while [ "$(uci -q get "network.@device[$index]")" = "device" ]; do
+        if [ "$(uci -q get "network.@device[$index].name")" = "$name" ]; then
+            section="@device[$index]"
+            break
+        fi
+        index=$((index + 1))
+    done
+    if [ -z "$section" ]; then
+        section="$(uci add network device)"
+        uci set "network.$section.name=$name"
+    fi
+    nbcpe_valid_mac "$(uci -q get "network.$section.macaddr")" ||
+        uci set "network.$section.macaddr=$fallback"
+}
+factory_mac="$(nbcpe_factory_mac)"
+if [ -n "$factory_mac" ]; then
+    bridge_mac="$(uci -q get network.lan.macaddr)"
+    nbcpe_valid_mac "$bridge_mac" || bridge_mac="$factory_mac"
+    nbcpe_default_device_mac br-lan "$bridge_mac"
+    for port in port1 port2 port3; do
+        nbcpe_default_device_mac "$port" "$factory_mac"
+    done
+    nbcpe_default_device_mac port5 "$(macaddr_add "$factory_mac" 1)"
+else
+    echo "NBCPE: no valid bdinfo MAC; retaining current network MAC configuration" > /dev/kmsg
+fi
+
+# Keep LAN forwarding/NAT attached to the cellular owner.
+wan_zone=""
+index=0
+while [ "$(uci -q get "firewall.@zone[$index]")" = "zone" ]; do
+    if [ "$(uci -q get "firewall.@zone[$index].name")" = "wan" ]; then
+        wan_zone="@zone[$index]"
+        break
+    fi
+    index=$((index + 1))
+done
+if [ -n "$wan_zone" ]; then
+    uci -q del_list "firewall.$wan_zone.network=cpe"
+    uci add_list "firewall.$wan_zone.network=cpe"
+    uci set "firewall.$wan_zone.masq=1"
+    uci set "firewall.$wan_zone.mtu_fix=1"
+    uci commit firewall
+fi
+
+# ODU extends its on-link /64 to LAN (RFC 7278). Keep NDP relay paired with
+# that prefix extension so the upstream modem can resolve LAN clients.
+# odhcpd follows cpe's ubus l3_device (port5), including dynamic child updates.
+uci set dhcp.cpe=dhcp
+uci set dhcp.cpe.interface=cpe
+uci set dhcp.cpe.ignore=1
+uci set dhcp.cpe.ndp=relay
+uci set dhcp.cpe.master=1
+uci set dhcp.lan.ndp=hybrid
+uci set dhcp.lan.ra_default=1
+uci commit dhcp
+uci commit network
+exit 0

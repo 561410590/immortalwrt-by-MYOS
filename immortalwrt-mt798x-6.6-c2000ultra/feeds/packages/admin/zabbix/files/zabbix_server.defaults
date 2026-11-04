@@ -1,3 +1,0 @@
-#!/bin/sh
-
-chown zabbix-server:zabbix-server /etc/zabbix_server.conf

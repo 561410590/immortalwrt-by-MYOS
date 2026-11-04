@@ -1,0 +1,73 @@
+<div class="cms-radio" data-snapshot="<%=luci.dispatcher.build_url('admin','modem','radio_snapshot')%>"
+     data-lock-status="<%=luci.dispatcher.build_url('admin','modem','radio_lock_status')%>"
+     data-lock-set="<%=luci.dispatcher.build_url('admin','modem','radio_lock_set')%>"
+     data-token="<%=luci.dispatcher.context.authtoken%>">
+  <section id="radio-settings" class="cms-card cms-radio-workspace" aria-labelledby="cms-radio-title">
+    <div class="cms-radio-heading">
+      <div><h3 id="cms-radio-title">频段与小区锁定</h3><p class="cms-note">选择模组，再设置驻网方式。锁定由所选模组保存。</p></div>
+      <div class="cms-radio-tabs" role="tablist" aria-label="选择模组">
+        <button type="button" id="cms-radio-tab-cpe" role="tab" aria-selected="true" aria-controls="cms-radio-panel-cpe" data-radio-tab="cpe">主模组 · 内置 5G</button>
+        <button type="button" id="cms-radio-tab-cpe1" role="tab" aria-selected="false" aria-controls="cms-radio-panel-cpe1" tabindex="-1" data-radio-tab="cpe1">副模组 · PoE 5G</button>
+      </div>
+    </div>
+    <% for index, modem in ipairs({{"cpe", "主模组 · 内置 5G"}, {"cpe1", "副模组 · PoE 5G"}}) do %>
+    <div class="cms-radio-panel" id="cms-radio-panel-<%=modem[1]%>" data-iface="<%=modem[1]%>" role="tabpanel" aria-labelledby="cms-radio-tab-<%=modem[1]%>"<% if index > 1 then %> hidden<% end %>>
+        <div class="cms-radio-toolbar">
+          <div><strong><%=modem[2]%></strong><p class="cms-radio-message" role="status">正在读取模组状态…</p></div>
+          <button type="button" class="cbi-button" data-radio-refresh>刷新状态</button>
+        </div>
+        <div class="cms-radio-active" aria-label="模组当前设置">
+          <div><span>5G NR</span><strong class="cms-radio-active-nr">未读取</strong></div>
+          <div><span>4G LTE</span><strong class="cms-radio-active-lte">未读取</strong></div>
+          <div><span>当前网络模式</span><strong class="cms-radio-active-mode">未读取</strong></div>
+        </div>
+        <form class="cms-radio-form">
+          <div class="cms-radio-field-grid">
+            <label>网络模式<select name="mode"><option value="keep">保持当前模式</option><option value="auto">自动 · 5G / 4G / 3G</option><option value="sa_only">仅 5G SA</option><option value="lte">仅 4G LTE</option></select></label>
+            <label>驻网方式<select name="kind"><option value="0">自动选网 · 解除锁定</option><option value="3">锁频段</option><option value="2">锁小区</option><option value="1">锁频点</option></select></label>
+            <label data-field="policy">锁频策略<select name="policy"><option value="1">智能模式</option><option value="0">锁定模式</option><option value="2">无偏好模式</option></select></label>
+          </div>
+          <p class="cms-note cms-radio-policy-note"></p>
+          <p class="cms-radio-auto cms-note">解除 5G 与 4G 的锁定，由模组按网络模式自主选网。</p>
+          <div class="cms-radio-field-grid cms-radio-groups" hidden>
+            <% for _, radio in ipairs({{"nr", "5G NR"}, {"lte", "4G LTE"}}) do %>
+            <fieldset class="cms-radio-bands" data-radio-group="<%=radio[1]%>">
+              <legend><%=radio[2]%></legend>
+              <label class="cms-radio-confirm"><input type="checkbox" name="<%=radio[1]%>_enabled"><span>启用<%=radio[2]%>锁定</span></label>
+              <div class="cms-radio-group-fields" hidden>
+                <div class="cms-radio-band-options" data-field="bandchoice"></div>
+                <div class="cms-radio-field-grid cms-radio-parameters" hidden>
+                  <label data-field="bands">频段编号<input name="<%=radio[1]%>_bands" placeholder="填写实际频段编号" inputmode="numeric" maxlength="240" autocomplete="off"></label>
+                  <label data-field="arfcn"><%=radio[1] == 'nr' and 'SSB ARFCN' or 'EARFCN'%><input name="<%=radio[1]%>_arfcn" placeholder="填写模组上报的实际频点" inputmode="numeric" maxlength="240" autocomplete="off"></label>
+                  <label data-field="scs">SCS Type<input name="<%=radio[1]%>_scs" placeholder="0=15，1=30，2=60，3=120，4=240 kHz" inputmode="numeric" maxlength="240" autocomplete="off"></label>
+                  <label data-field="pci">PCI（十进制）<input name="<%=radio[1]%>_pci" placeholder="<%=radio[1] == 'nr' and '0–1007' or '0–503'%>" inputmode="numeric" maxlength="240" autocomplete="off"></label>
+                </div>
+              </div>
+              <p class="cms-note cms-radio-group-note"></p>
+            </fieldset>
+            <% end %>
+          </div>
+          <details class="cms-radio-cell-section">
+            <summary>驻留与邻区小区 <span class="cms-radio-cell-count"></span></summary>
+            <div class="cms-radio-actions"><button type="button" class="cbi-button" data-radio-current>选择当前驻留小区</button><span class="cms-note">选择小区后填入下方参数，点击应用才会生效。</span></div>
+            <div class="cms-radio-cells"></div>
+          </details>
+          <details class="cms-radio-options">
+            <summary>模组参数与原始响应</summary>
+            <p class="cms-note cms-radio-supported"></p>
+            <pre class="cms-radio-preview"></pre><pre class="cms-radio-raw"></pre>
+          </details>
+          <div class="cms-radio-submit">
+            <label class="cms-radio-confirm"><input type="checkbox" name="reselect"><span>确认应用到<%=modem[2]%>，此模组将短暂离线并重新驻网。</span></label>
+            <button type="submit" class="cbi-button cbi-button-apply">应用到<%=index == 1 and '主模组' or '副模组'%></button>
+          </div>
+          <p class="cms-radio-result" role="status"></p>
+        </form>
+        <% if index == 2 then %>
+        <div class="cms-radio-native" hidden><%+zmode/secondary_control%></div>
+        <% end %>
+    </div>
+    <% end %>
+  </section>
+</div>
+<script src="<%=resource%>/c5800-radio.js?v=20261103-r10"></script>

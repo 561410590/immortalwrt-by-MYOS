@@ -1,0 +1,58 @@
+#!/usr/bin/python3
+"""Apply MT5700 settings with the documented CFUN=0/1 sequence."""
+import os
+import re
+import subprocess
+import sys
+import time
+
+
+def log(message):
+    subprocess.run(["logger", "-t", "nbcpe-radio", message], check=False)
+
+
+def at(command):
+    try:
+        result = subprocess.run(
+            ["/usr/sbin/atsd_cli", "-i", "cpe", "-c", command, "-w", "2000"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, timeout=4,
+        )
+        output = result.stdout.replace("\r", "")
+        return (result.returncode == 0
+                and not re.search(r"(?m)^\s*(?:ERROR|\+CME ERROR:|\+CMS ERROR:)", output)
+                and bool(re.search(r"(?m)^\s*OK\s*$", output)))
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def main():
+    action = sys.argv[1] if len(sys.argv) > 1 else "start"
+    if action == "start":
+        # The paired online command must survive netifd's link-down cleanup.
+        subprocess.Popen(
+            [sys.executable, os.path.abspath(__file__), "run"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, start_new_session=True,
+            close_fds=True,
+        )
+        return 0
+    if action != "run":
+        return 2
+
+    # MT5700 AT manual 6.1.2: more than one second between CFUN=0 and CFUN=1.
+    # CFUN readback and the offline acknowledgement never gate restoration.
+    off_ok = False
+    on_ok = False
+    try:
+        off_ok = at("AT+CFUN=0")
+    finally:
+        time.sleep(2)
+        on_ok = at("AT+CFUN=1")
+    log("RF settings commands sent: CFUN=0 acknowledged %d; CFUN=1 acknowledged %d" %
+        (off_ok, on_ok))
+    return 0 if off_ok and on_ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

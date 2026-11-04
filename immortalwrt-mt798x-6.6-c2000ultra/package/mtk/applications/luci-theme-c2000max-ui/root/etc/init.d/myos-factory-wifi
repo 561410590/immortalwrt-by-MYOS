@@ -1,9 +1,0 @@
-#!/bin/sh /etc/rc.common
-
-START=19
-
-boot() {
-	[ -f /tmp/myos-factory-wifi-init ] || return 0
-	. /lib/functions/myos-factory-wifi.sh
-	myos_factory_wifi_apply
-}

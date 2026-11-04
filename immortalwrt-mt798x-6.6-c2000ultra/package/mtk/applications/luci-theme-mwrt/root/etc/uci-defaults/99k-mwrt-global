@@ -1,6 +1,0 @@
-#!/bin/sh
-/usr/bin/install-mwrt-global.sh >/dev/null 2>&1 || exit 1
-if ! grep -q install-mwrt-global.sh /etc/crontabs/root 2>/dev/null; then
- echo '31 * * * * /usr/bin/install-mwrt-global.sh >/dev/null 2>&1' >> /etc/crontabs/root
-fi
-exit 0

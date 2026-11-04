@@ -1,8 +1,0 @@
-config sched 'main'
-	option enabled '0'
-	option starttime '23:00'
-	option endtime '07:00'
-	option weekdays ''
-	option gear '0'
-	option pwm '64'
-	option tempmax '80'

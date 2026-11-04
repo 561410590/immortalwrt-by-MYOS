@@ -1,5 +1,0 @@
-#!/bin/sh
-
-uci batch <<EOF
-set msad.msad.mode=0
-EOF

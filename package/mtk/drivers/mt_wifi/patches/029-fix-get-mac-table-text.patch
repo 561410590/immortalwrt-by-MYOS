@@ -1,0 +1,20 @@
+--- a/mt_wifi/embedded/common/cmm_info.c
++++ b/mt_wifi/embedded/common/cmm_info.c
+@@ -7173,6 +7173,1 @@
+-	wrq->u.data.length = sizeof(RT_802_11_MAC_TABLE);
+-
+-	if (copy_to_user(wrq->u.data.pointer, pMacTab, wrq->u.data.length))
+-		MTWF_DBG(pAd, DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_INFO, "copy_to_user() fail\n");
+-
+ 	os_alloc_mem(NULL, (UCHAR **)&msg, TotalLen);
+@@ -7267,2 +7262,9 @@
+-	/* for compatible with old API just do the printk to console*/
++	/* get_mac_table advertises a 1024-byte text result. The binary
++	 * station table is provided by GET_MAC_TABLE_STRUCT instead.
++	 */
++	wrq->u.data.length = min_t(size_t, strlen(msg), 1023);
++	if (copy_to_user(wrq->u.data.pointer, msg, wrq->u.data.length))
++		MTWF_DBG(pAd, DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_INFO,
++			 "copy_to_user() fail\n");
++
+ 	MTWF_DBG(pAd, DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_INFO, "%s", msg);

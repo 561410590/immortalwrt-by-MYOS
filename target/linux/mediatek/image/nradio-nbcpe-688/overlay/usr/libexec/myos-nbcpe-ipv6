@@ -1,0 +1,81 @@
+#!/bin/sh
+# Start the IPv6 child independently of IPv4 and AT diagnostics.
+. /usr/share/libubox/jshn.sh
+
+ensure_odu_ipv6() {
+	local parent child device pdptype slot apn_cfg key value zone
+	local addresses mac1 mac2 mac3 mac4 mac5 mac6 linklocal
+	[ "$(uci -q get network.globals.nbcpe)" = 1 ] || return 0
+	[ "$(uci -q get network.cpe.mode)" = odu ] || return 0
+	[ "$(uci -q get network.cpe.disabled)" != 1 ] || return 0
+	[ "$(uci -q get network.globals.ipv6)" != 0 ] || return 0
+	[ "$(uci -q get network.cpe.ipv6)" != 0 ] || return 0
+	[ "$(uci -q get cpebr.config.enable)" != 1 ] || return 0
+	[ "$(uci -q get network.cpe_6.disabled)" != 1 ] || return 0
+	[ "$(uci -q get network.cpe_6.auto)" != 0 ] || return 0
+
+	device=$(uci -q get network.cpe.device)
+	[ -n "$device" ] || device=$(uci -q get network.cpe.phyifname)
+	[ -n "$device" ] || return 1
+	parent=$(ubus call network.interface.cpe status 2>/dev/null)
+	pdptype=$(printf '%s' "$parent" | jsonfilter -e '@.data.pdptype')
+	if [ -z "$pdptype" ]; then
+		slot=$(uci -q get cpesel.sim.cur)
+		pdptype=$(uci -q get "cpecfg.cpesim$slot.pdptype")
+		apn_cfg=$(uci -q get "cpecfg.cpesim$slot.apn_cfg")
+		[ -z "$apn_cfg" ] || pdptype=$(uci -q get "apn.$apn_cfg.pdptype")
+	fi
+	pdptype=$(printf '%s' "${pdptype:-ipv4v6}" | tr 'A-Z' 'a-z')
+	case "$pdptype" in ipv6|ipv4v6) ;; *) return 0 ;; esac
+
+	child=$(ubus call network.interface.cpe_6 status 2>/dev/null)
+	if [ -n "$child" ]; then
+		[ "$(printf '%s' "$child" | jsonfilter -e '@.up')" != true ] || return 0
+		[ "$(printf '%s' "$child" | jsonfilter -e '@.pending')" != true ] || return 0
+	fi
+
+	sysctl -q -w "net.ipv6.conf.$device.disable_ipv6=0" ||
+		logger -t nbcpe-ipv6 "Could not enable IPv6 on $device; requesting DHCPv6"
+	addresses=$(ip -6 address show dev "$device" scope link)
+	if ! printf '%s\n' "$addresses" | grep -q 'inet6 '; then
+		# Restore the existing MAC-derived link-local address, without making
+		# its presence or DAD result a condition for starting DHCPv6.
+		IFS=: read -r mac1 mac2 mac3 mac4 mac5 mac6 < "/sys/class/net/$device/address"
+		case "$mac1$mac2$mac3$mac4$mac5$mac6" in
+			????????????)
+				case "$mac1$mac2$mac3$mac4$mac5$mac6" in
+					*[!0-9a-fA-F]*) ;;
+					*)
+						linklocal=$(printf 'fe80::%02x%s:%sff:fe%s:%s%s' "$((0x$mac1 ^ 2))" "$mac2" "$mac3" "$mac4" "$mac5" "$mac6")
+						ip -6 address add "$linklocal/64" dev "$device" scope link ||
+							logger -t nbcpe-ipv6 "Could not add link-local address on $device; requesting DHCPv6"
+						;;
+				esac
+				;;
+		esac
+	fi
+
+	if [ -n "$child" ]; then
+		[ "$(printf '%s' "$child" | jsonfilter -e '@.proto')" = dhcpv6 ] || return 0
+		ubus call network.interface.cpe_6 up >/dev/null || return 1
+	else
+		json_init
+		json_add_string name cpe_6
+		json_add_string device @cpe
+		json_add_string proto dhcpv6
+		json_add_boolean auto 1
+		json_add_boolean extendprefix 1
+		for key in defaultroute peerdns; do
+			value=$(uci -q get "network.cpe.$key")
+			[ -z "$value" ] || json_add_boolean "$key" "$value"
+		done
+		value=$(uci -q get network.cpe.metric)
+		case "$value" in ''|*[!0-9]*) ;; *) json_add_int metric "$value" ;; esac
+		zone=$(fw4 -q network cpe 2>/dev/null)
+		[ -z "$zone" ] || json_add_string zone "$zone"
+		ubus call network add_dynamic "$(json_dump)" >/dev/null || return 1
+	fi
+	logger -t nbcpe-ipv6 "Requested cpe_6 startup on $device"
+}
+
+ensure_odu_ipv6
