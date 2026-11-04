@@ -14,6 +14,13 @@ s.addremove = false
 o = s:option(Flag, "enabled", translate("启用"))
 o.default = 0
 
+o = s:option(ListValue, "platform", translate("核心平台"))
+o:value("h3c-nx30pro", translate("H3C NX30 Pro（现有兼容核心）"))
+o:value("openwrt-aarch64", translate("OpenWrt aarch64（官方通用核心）"))
+o.default = "h3c-nx30pro"
+o.rmempty = false
+o.description = translate("切换后下载所选网易官方核心并重启 UU；默认保留现有 H3C 模式。")
+
 o = s:option(Value, "model", translate("设备型号"),
         translate("本机设备型号，在APP里方便区分不同路由器，绑定后修改型号需要解绑后重新绑定才生效"))
 o.placeholder = "OpenWrt"

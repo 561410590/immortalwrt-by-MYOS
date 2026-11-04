@@ -16,7 +16,8 @@ LUCI_DEPENDS:= \
 	+luci-app-firewall \
 	+luci-mod-admin-full \
 	+luci-proto-ppp \
-	+luci-theme-bootstrap \
+	+TARGET_mediatek_filogic_DEVICE_nradio_c2000-ultra:luci-theme-myos-new \
+	+!TARGET_mediatek_filogic_DEVICE_nradio_c2000-ultra:luci-theme-bootstrap \
 	+rpcd-mod-rrdns \
 	+uhttpd \
 	+uhttpd-mod-ubus

@@ -47,22 +47,7 @@ reload_service()
 }
 
 
-sim_ready(){
-    local ready
-    case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
-        nradio,c2000-max) ready=/var/run/c2000max-sim-select.ready ;;
-        nradio,c2000-ultra) ready=/var/run/c2000ultra-sim-select.ready ;;
-        *) return 0 ;;
-    esac
-    if [ ! -e "$ready" ]; then
-        logger -t qmodem_network "defer dial until SIM selection completes"
-        return 1
-    fi
-    return 0
-}
-
 update_modem(){
-    [ "$force_stop" = "1" ] || sim_ready || return 0
     config_load qmodem
     config_get g_enabled main enable_dial
     config_foreach _update_modem modem-device
@@ -70,7 +55,6 @@ update_modem(){
 
 dial()
 {
-    sim_ready || return 1
     _dial "$1"
     start_led_service $1
 }
@@ -88,7 +72,6 @@ modem_status()
 
 redial()
 {
-    sim_ready || return 1
     hang $1
     dial $1
 }

@@ -28,6 +28,7 @@
 	local node = disp.context.dispatched
 
 	local fs = require "nixio.fs"
+	local _pv = fs.stat("/usr/lib/opkg/status", "mtime") or 0  -- mwrt-perf: pv
 	local nutil = require "nixio.util"
 	local uci = require 'luci.model.uci'.cursor()
 
@@ -86,11 +87,11 @@
 	<meta name="msapplication-TileColor" content="<%=bar_color%>">
 	<meta name="msapplication-TileImage" content="<%=media%>/icon/ms-icon-144x144.png">
 	<meta name="theme-color" content="<%=bar_color%>">
-	<link rel="stylesheet" href="<%=media%>/css/cascade.css?v=2.3.1">
-	<link rel="stylesheet" href="<%=media%>/css/argon-menu-custom.css?v=2">
+	<link rel="stylesheet" href="<%=media%>/css/cascade.css?v=2.3.1-<%=_pv%>">
+	<link rel="stylesheet" href="<%=media%>/css/argon-menu-custom.css?v=2-<%=_pv%>">
 	<% if mode == 'dark' then %>
 	<% else %>
-	<link rel="stylesheet" href="<%=media%>/css/argon-global-custom.css?v=2" media="(prefers-color-scheme: light)">
+	<link rel="stylesheet" href="<%=media%>/css/argon-global-custom.css?v=2-<%=_pv%>" media="(prefers-color-scheme: light)">
 	<% end %>
 	<style title="text/css">
 		<% if mode ~= 'dark' then %>
@@ -132,11 +133,24 @@
 		<%=css %>
 	</style>
 	<% end -%>
-	<script src="<%=media%>/js/polyfill.min.js?v=2.3.1"></script>
-	<script src="<%=url('admin/translations', luci.i18n.context.lang)%>?v=<%=ver.luciversion%>"></script>
-	<script src="<%=resource%>/cbi.js?v=<%=ver.luciversion%>"></script>
-	<script src="<%=resource%>/luci.js?v=<%=ver.luciversion%>"></script>
-	<script src="<%=media%>/js/jquery.min.js?v=3.5.1"></script>
+	<script src="<%=media%>/js/polyfill.min.js?v=2.3.1-<%=_pv%>"></script>
+	<%# mwrt-perf: trans:begin —— 原来这里直挂 /cgi-bin/luci/admin/translations/<lang>,
+	    走 CGI(223KB / 58ms)且 cache-control: no-cache,每次导航都重下。
+	    改用 mwrt-gen-translations 预渲染的静态文件:0.7ms + 304 可缓存。
+	    ?v= 取文件 mtime,重新生成时才失效。文件不在就回退原端点。 %>
+	<%-
+		local _fs   = require "nixio.fs"
+		local _lang = luci.i18n.context.lang or "en"
+		local _st   = _fs.stat("/www/luci-static/resources/trans-" .. _lang .. ".js")
+	-%>
+	<% if _st then -%>
+	<script src="<%=resource%>/trans-<%=_lang%>.js?v=<%=_st.mtime%>"></script>
+	<% else -%>
+	<script src="<%=url('admin/translations', _lang)%>?v=<%=ver.luciversion%>"></script>
+	<% end -%>
+	<%# mwrt-perf: trans:end %>
+	<script src="<%=resource%>/cbi.js?v=<%=ver.luciversion%>-<%=_pv%>"></script>
+	<script src="<%=media%>/js/jquery.min.js?v=3.5.1-<%=_pv%>"></script>
 </head>
 
 <body

@@ -7,7 +7,7 @@
 	include(`themes/${theme}/header`);
 -%}
 
-<script src="{{ resource }}/luci.js?v={# PKG_VERSION #}-{{ pkgs_update_time }}"></script>
+<script src="{{ resource }}/luci.js?v={# PKG_VERSION #}-20261101-ultra-ui-{{ pkgs_update_time }}"></script>
 <script>
 	L = new LuCI({{ replace(`${ {
 		media          : media,
@@ -29,8 +29,3 @@
 		rollback_token : rollback_token
 	} }`, '/', '\\/') }});
 </script>
-{% if (media == '/luci-static/argon'): %}
-<script src="{{ resource }}/mwrt-aurora-boot.js?v=19"></script>
-<link rel="stylesheet" href="{{ resource }}/mwrt-aurora-full.css?v=19">
-<link rel="stylesheet" href="{{ resource }}/mwrt-aurora-chrome.css?v=19">
-{% endif %}

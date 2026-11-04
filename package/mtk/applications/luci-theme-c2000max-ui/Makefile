@@ -5,8 +5,8 @@ LUCI_DEPENDS:=+luci-base +luci-theme-bootstrap +rpcd-mod-luci +uclient-fetch +ca
 LUCI_MINIFY_CSS:=0
 LUCI_MINIFY_JS:=0
 PKG_LICENSE:=Apache-2.0
-PKG_VERSION:=1.0.17
-PKG_RELEASE:=4
+PKG_VERSION:=1.0.18
+PKG_RELEASE:=202611011200
 
 define Package/luci-theme-c2000max-ui/description
  MYOS theme for nradio,c2000-ultra, with model-specific home navigation.

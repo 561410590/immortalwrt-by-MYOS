@@ -1,0 +1,11 @@
+#!/bin/sh
+# Migrate a retained LuCI configuration to the sole Ultra theme.
+uci -q delete luci.themes
+uci set luci.themes=internal
+uci set luci.themes.MYOS_NEW='/luci-static/myos-new'
+uci set luci.main.mediaurlbase='/luci-static/myos-new'
+uci commit luci
+if [ -f /etc/crontabs/root ]; then
+    sed -i '/install-mwrt-global\.sh/d; /install-luci-perf\.sh/d' /etc/crontabs/root
+fi
+exit 0

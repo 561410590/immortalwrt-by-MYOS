@@ -9,7 +9,11 @@
     <label class="menu-search"><svg class="icon"><use href="#search"/></svg><input id="menu-search" type="search" placeholder="搜索菜单或插件" aria-label="搜索菜单或插件" autocomplete="off"></label>
     <nav class="navigation" id="menu-tree" aria-label="OpenWrt 分类与插件"></nav>
     <p class="menu-empty" hidden>未找到匹配的菜单或插件</p>
-    <div class="sidebar-footer"><span><i></i> {{ entityencode(myos_board.release?.description || 'MYOS by ImmortalWrt') }}</span><small id="menu-source">LuCI · {{ entityencode(myos_board.model || 'NRadio C2000') }}</small></div>
+    <div class="sidebar-footer">
+      <div class="sidebar-release"><span class="sidebar-myos">MYOS</span> <span class="sidebar-version" style="margin-left: 6px;">{{ entityencode(myos_board.release?.version || '') }}</span></div>
+      <div class="sidebar-support" aria-label="MYOS 支持与合作"><a href="https://nradio.mayebano.shop/" target="_blank" rel="noopener noreferrer">打赏支持</a> <a style="margin-left: 16px;" href="https://laoshenshiwo.cn/" target="_blank" rel="noopener noreferrer">冠名支持</a></div>
+      <small id="menu-source">LuCI · {{ entityencode(myos_board.model || 'NRadio C2000') }}</small>
+    </div>
   </aside>
 
   <main class="main" id="home">

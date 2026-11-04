@@ -9,6 +9,13 @@
 .device-scene { position: relative; min-width: 0; width: 100%; max-width: 360px; justify-self: center; display: grid; place-items: center; padding-bottom: 22px; }
 .device-art { display: block; position: relative; z-index: 2; width: 100%; height: auto; object-fit: contain; filter: drop-shadow(0 14px 12px #243e5520); }
 [data-device-model*="ultra" i] .device-art { max-height: 420px; }
+[data-device-model*="ultra" i] .device-scene[data-skin="788"] .device-art { filter:sepia(.22) saturate(1.25) drop-shadow(0 14px 16px #a8783d44); }
+[data-device-model*="ultra" i] .device-scene[data-skin="mid-autumn"] .device-art { filter:sepia(.15) drop-shadow(0 14px 20px #c8a34e66); }
+[data-device-model*="ultra" i] .device-scene[data-skin="national-day"] .device-art { filter:sepia(.2) saturate(1.4) drop-shadow(0 14px 20px #c9473c66); }
+[data-device-model*="ultra" i] .device-scene:not([data-skin="max"])::after { position:absolute; top:8%; right:2%; z-index:3; padding:7px 12px; border-radius:18px; font-size:13px; pointer-events:none; background:var(--surface); box-shadow:0 4px 18px #243e5520; }
+[data-device-model*="ultra" i] .device-scene[data-skin="788"]::after { content:'马到成功'; color:#986927; }
+[data-device-model*="ultra" i] .device-scene[data-skin="mid-autumn"]::after { content:'☾ 花好月圆'; color:#a27720; }
+[data-device-model*="ultra" i] .device-scene[data-skin="national-day"]::after { content:'★ 山河锦绣'; color:#bf4335; }
 .device-shadow { position: absolute; width: 66%; height: 7%; bottom: 16%; left: 17%; border-radius: 50%; background: #1e3955; opacity: .15; filter: blur(10px); }
 .rings { position: absolute; left: -5%; width: 110%; height: 23%; bottom: 12%; }
 .rings i { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); border: 1px solid var(--ring); border-radius: 50%; width: 100%; height: 100%; }

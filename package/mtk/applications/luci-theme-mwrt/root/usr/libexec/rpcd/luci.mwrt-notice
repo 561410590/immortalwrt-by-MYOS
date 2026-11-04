@@ -153,6 +153,28 @@ add_notice() {
 	json_close_object
 }
 
+# Ultra physical Ethernet status only; this never changes interfaces or routing.
+port_status_json() {
+	local d n wan car cnt sp role
+	wan="$(uci -q get network.wan.device)"; [ -n "$wan" ] || wan=eth0
+	json_add_array ports
+	for d in /sys/class/net/eth*; do
+		[ -e "$d/phydev" ] || continue
+		grep -q 'OF_NAME=mac' "$d/uevent" 2>/dev/null || continue
+		n="${d##*/}"; role=LAN; [ "$n" = "$wan" ] && role=WAN
+		car="$(cat "$d/carrier" 2>/dev/null)"; cnt="$(cat "$d/carrier_up_count" 2>/dev/null)"
+		sp="$(cat "$d/speed" 2>/dev/null)"
+		case "$car" in 0|1) ;; *) car=0 ;; esac
+		case "$cnt" in ''|*[!0-9]*) cnt=0 ;; esac
+		case "$sp" in ''|*[!0-9]*) sp=0 ;; esac
+		json_add_object ""
+		json_add_string id "$n"; json_add_string role "$role"
+		json_add_int carrier "$car"; json_add_int cnt "$cnt"; json_add_int speed "$sp"
+		json_close_object
+	done
+	json_close_array
+}
+
 m_list() {
 	local v p
 	json_init
@@ -165,6 +187,7 @@ m_list() {
 		[ -n "$v" ] && add_notice "ota-$v" info 1 "发现新固件 v$v" ota
 	fi
 	json_close_array
+	port_status_json
 	json_dump
 }
 

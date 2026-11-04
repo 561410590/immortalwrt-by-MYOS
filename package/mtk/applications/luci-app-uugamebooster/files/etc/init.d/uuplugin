@@ -9,6 +9,7 @@ PROG="/var/tmp/uu/uuplugin"
 UU_CONF="/var/tmp/uu/uu.conf"
 UU_INFO="/var/tmp/uu/h3c_info"
 UU_SN="/tmp/haiapi"
+UU_PLATFORM="/var/tmp/uu/.platform"
 armuurl="https://router.uu.163.com/api/plugin?type=h3c-bx54"
 #armuurl="https://router.uu.163.com/api/plugin?type=h3c-ne36"
 aarch64uurl="https://router.uu.163.com/api/plugin?type=h3c-nx30pro"
@@ -132,7 +133,11 @@ start_service() {
           uci -q set uuplugin.@uuplugin[0].enabled=0
           exit 1
         fi
-        local model
+        local model platform installed_platform
+	platform="$(uci -q get uuplugin.@uuplugin[0].platform)"
+	[ -n "$platform" ] || platform="h3c-nx30pro"
+	installed_platform="$(cat "$UU_PLATFORM" 2>/dev/null)"
+	[ -n "$installed_platform" ] || installed_platform="h3c-nx30pro"
 	#config_get model "uuplugin" "model" "OpenWrt"
 	model="$(uci -q get uuplugin.@uuplugin[0].model)"
 	echo "model=$model"
@@ -153,7 +158,7 @@ start_service() {
 		echo "bootversion=100" >>$UU_INFO
 		echo "manucode=$SN" >>$UU_INFO
 	fi
-	if [ ! -e "$PROG" ] || [ ! -e "$UU_CONF" ] ; then
+	if [ ! -e "$PROG" ] || [ ! -e "$UU_CONF" ] || [ "$installed_platform" != "$platform" ]; then
 	  echo "开始下载主程序..."
 	  local uuurl=""
 	  case "$cpucore" in
@@ -162,6 +167,7 @@ start_service() {
 	      ;;
 	    aarch64)
 	      uuurl="$aarch64uurl"
+	      [ "$platform" != openwrt-aarch64 ] || uuurl="https://router.uu.163.com/api/plugin?type=openwrt-aarch64"
 	      ;;
 	    mipsel)
 	      uuurl="$mipseluurl"
@@ -171,8 +177,8 @@ start_service() {
 	      return 1
 	      ;;
 	  esac
-	  UU_url=$(curl -L -s -k -H "Accept:text/plain" "$uuurl" | wget --header=Accept:text/plain -q --no-check-certificate -O - "$uuurl" | curl -s -k -H "Accept:text/plain" "$uuurl")
-	  if [ -z "$UU_url" ]; then
+	  UU_url=$(curl -fL --connect-timeout 10 --max-time 45 -s -H "Accept:text/plain" "$uuurl" || wget --header=Accept:text/plain -q -O - "$uuurl")
+	  if [ -z "$UU_url" ] && [ "$platform" != openwrt-aarch64 ]; then
 	    case "$cpucore" in
 	      arm)
 	        UU_url="http://uu.gdl.netease.com/uuplugin/h3c-bx54/v6.3.12/uu.tar.gz,56c6a0a5ed99c05d933091fc0b1c7d8c"
@@ -196,17 +202,26 @@ start_service() {
             return 1
           else
             echo "下载完成，开始解压到$PROG"
-            tar zxf /tmp/uu.tar.gz -C /var/tmp/uu
+            tar zxf /tmp/uu.tar.gz -C /var/tmp/uu || return 1
+		    printf "%s\n" "$platform" > "$UU_PLATFORM"
           fi
 	  
 	fi
-	chmod u+x $PROG
+	chmod 0755 "$PROG"
+	[ ! -f /var/tmp/uu/xuplugin-guardian ] || chmod 0755 /var/tmp/uu/xuplugin-guardian
+	if [ -f /var/tmp/uu/xtables-nft-multi ]; then
+		chmod 0755 /var/tmp/uu/xtables-nft-multi
+		for command in iptables iptables-nft iptables-save iptables-restore ip6tables ip6tables-nft ip6tables-save ip6tables-restore; do
+			ln -sf /usr/libexec/uuplugin-xtables /var/tmp/uu/$command
+		done
+	fi
+	ln -sf /usr/libexec/ip-full /var/tmp/uu/ip
 	[ "$cpucore" = "mipsel" ] && chmod u+x /usr/bin/haiapi 2>/dev/null
         uu_ver=$($PROG -v | awk -F 'version:' '{print $2}' | tr -d ' \n')
         echo "开始启动 ${PROG}-${uu_ver}"
 	procd_open_instance uuplugin
 
-	procd_set_param command "$PROG" "$UU_CONF"
+	procd_set_param command /usr/libexec/uuplugin-launcher
 
 	procd_set_param limits core="unlimited"
 	procd_set_param respawn

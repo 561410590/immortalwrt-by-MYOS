@@ -34,10 +34,9 @@ UPTIME=$(cut -d. -f1 /proc/uptime 2>/dev/null)
 is_num "$UPTIME" || UPTIME=0
 
 # --- firmware --------------------------------------------------------------
-FW=$(sed -n "s/^DISTRIB_DESCRIPTION='\(.*\)'/\1/p" /etc/openwrt_release 2>/dev/null)
+FW=$(sed -n "s/^DISTRIB_RELEASE='\(.*\)'/\1/p" /etc/openwrt_release 2>/dev/null)
 [ -n "$FW" ] || FW=$(rd /etc/openwrt_version)
 [ -n "$FW" ] || FW="OpenWrt"
-FW="${FW%% by *}"        # 去掉 "... by Padavanonly's ..." 冗长后缀,保留版本号
 
 # --- cpu (load + cores) ----------------------------------------------------
 # NCPU 已在上面 model 区块算过(用于机型判定),此处复用。
@@ -76,11 +75,37 @@ is_num "$CLIENTS" || CLIENTS=0
 # --- wan ip (effective default-route source addr, no AT) -------------------
 WANIP=$(ip -4 route get 8.8.8.8 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p' | head -1)
 [ -n "$WANIP" ] || WANIP=""
+# 子网前缀位数(/24 这种)。首页卡片把它做成一枚小徽章挂在 IP 末尾(内容美化,不另发请求)。
+# WANIP 是实际出口的源地址,从各接口的 inet 行里反查它的 /NN;取不到就留 0,前端不显示徽章。
+WANPFX=0
+if [ -n "$WANIP" ]; then
+    WANPFX=$(ip -4 addr show 2>/dev/null | sed -n "s#.*inet $WANIP/\([0-9][0-9]*\).*#\1#p" | head -1)
+    is_num "$WANPFX" || WANPFX=0
+fi
 
 # --- unique premium fields (与下方蜂窝模组区块不重复) -----------------------
 KERNEL=$(uname -r 2>/dev/null)
 LANIP=$(uci -q get network.lan.ipaddr)
 [ -n "$LANIP" ] || LANIP=$(ip -4 addr show br-lan 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -1)
+# LAN 前缀: 先看 netmask(uci 配置里就是点分形式),换算成位数;netmask 空就从 br-lan 的 inet /NN 取
+LANPFX=0
+LANMASK=$(uci -q get network.lan.netmask)
+if [ -n "$LANMASK" ]; then
+    oIFS=$IFS; IFS=.; set -- $LANMASK; IFS=$oIFS
+    for o in "$@"; do
+        case "$o" in
+            255) LANPFX=$((LANPFX+8)) ;;
+            254) LANPFX=$((LANPFX+7)) ;; 252) LANPFX=$((LANPFX+6)) ;;
+            248) LANPFX=$((LANPFX+5)) ;; 240) LANPFX=$((LANPFX+4)) ;;
+            224) LANPFX=$((LANPFX+3)) ;; 192) LANPFX=$((LANPFX+2)) ;;
+            128) LANPFX=$((LANPFX+1)) ;;
+        esac
+    done
+fi
+if [ "$LANPFX" = "0" ] && [ -n "$LANIP" ]; then
+    LANPFX=$(ip -4 addr show br-lan 2>/dev/null | sed -n "s#.*inet $LANIP/\([0-9][0-9]*\).*#\1#p" | head -1)
+    is_num "$LANPFX" || LANPFX=0
+fi
 CONNS=$(rd /proc/sys/net/netfilter/nf_conntrack_count); is_num "$CONNS" || CONNS=0
 
 # --- ports (eth carrier/speed) --------------------------------------------
@@ -104,9 +129,19 @@ for dev in /sys/class/net/eth*; do
     [ "$car" = "1" ] || spd=-1
     up=$(rd "$dev/operstate"); [ "$up" = "up" ] && upv=1 || upv=0
     if [ "$name" = "$WANDEV" ]; then role="WAN"; else role="LAN"; fi
+    # cnt = 开机以来插线次数, 前端据此判断"刚插上"(放一次接入动画), 不靠自己记上一轮
+    cnt=$(rd "$dev/carrier_up_count"); is_num "$cnt" || cnt=0
+    # s74 悬停浮层用: 本口累计收发、双工、MAC(都是 sysfs 单文件)
+    prx=$(rd "$dev/statistics/rx_bytes"); is_num "$prx" || prx=0
+    ptx=$(rd "$dev/statistics/tx_bytes"); is_num "$ptx" || ptx=0
+    dup=""; [ "$car" = "1" ] && dup=$(rd "$dev/duplex")
+    mac=$(rd "$dev/address")
     [ -n "$port_json" ] && port_json="$port_json,"
-    port_json="$port_json{\"id\":\"$name\",\"role\":\"$role\",\"carrier\":$car,\"speed\":$spd,\"up\":$upv}"
+    port_json="$port_json{\"id\":\"$name\",\"role\":\"$role\",\"carrier\":$car,\"speed\":$spd,\"up\":$upv,\"cnt\":$cnt,\"rx\":$prx,\"tx\":$ptx,\"dup\":\"$(json_str "$dup")\",\"mac\":\"$(json_str "$mac")\"}"
 done
+
+# Ultra 的 USB-C 为供电口，不作为外接数据接口展示。
+usb_json=""
 
 # --- wan traffic (累计收发字节,单次读取) -----------------------------------
 # 计数取【实际出口】,不取 network.wan.device: 后者是物理 WAN 口(eth0),
@@ -114,12 +149,39 @@ done
 # 出口和上面 WANIP 用同一条 route get,两格永远对应同一个接口;
 # 没有默认路由时回落到物理 WAN 口。
 TRDEV=$(ip -4 route get 8.8.8.8 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -1)
+# s74 当前上网方式(产品图左上角徽章): 按实际出口网卡归类, 没有默认路由就是 none。
+#   apcli*/wlan* = WiFi 桥接; 物理 WAN 口 / pppoe-* / 其他物理 GMAC 口 = 有线;
+#   其余(模组数据口 eth2、usb0、wwan0 等) = 蜂窝
+EGDEV=$TRDEV; EGKIND=none
+if [ -n "$EGDEV" ]; then
+    case "$EGDEV" in
+        apcli*|wlan*) EGKIND=wifi ;;
+        pppoe-*|"$WANDEV") EGKIND=wired ;;
+        *) if grep -q 'OF_NAME=mac' "/sys/class/net/$EGDEV/uevent" 2>/dev/null; then EGKIND=wired; else EGKIND=cell; fi ;;
+    esac
+fi
+EGW=$(ip -4 route get 8.8.8.8 2>/dev/null | sed -n 's/.* via \([0-9.]*\).*/\1/p' | head -1)
+# 物理 WAN 口自己的协议和地址(不管它是不是当前出口; pppoe 时地址在 pppoe-wan 上)
+WANPROTO=$(uci -q get network.wan.proto)
+WANL3=$WANDEV; [ "$WANPROTO" = "pppoe" ] && WANL3=pppoe-wan
+WANADDR=$(ip -4 addr show dev "$WANL3" 2>/dev/null | sed -n 's/.*inet \([0-9.]*\/[0-9]*\).*/\1/p' | head -1)
 [ -n "$TRDEV" ] && [ -e "/sys/class/net/$TRDEV/statistics" ] || TRDEV=$WANDEV
 WRX=$(rd "/sys/class/net/$TRDEV/statistics/rx_bytes"); is_num "$WRX" || WRX=0
 WTX=$(rd "/sys/class/net/$TRDEV/statistics/tx_bytes"); is_num "$WTX" || WTX=0
 
 # --- modem (no AT!) --------------------------------------------------------
-MODCONF=$(rd /tmp/modconf.conf)
+# MYOS uses qmodem; the legacy MWRT temporary file may never be created.
+# This describes the configured module only and does not control networking.
+MODCONF=""
+. /lib/functions.sh
+read_modem_config() {
+    local modem_name
+    config_get modem_name "$1" name
+    [ -n "$MODCONF" ] || MODCONF="$modem_name"
+}
+config_load qmodem
+config_foreach read_modem_config modem-device
+[ -n "$MODCONF" ] || MODCONF=$(rd /tmp/modconf.conf)
 SIMSEL=$(rd /tmp/sim_sel); [ -n "$SIMSEL" ] || SIMSEL=$(uci -q get mwrt.@ndis[0].simsel)
 [ -n "$SIMSEL" ] || SIMSEL="0"
 present=0
@@ -129,8 +191,9 @@ for cf in /tmp/modem_csq /tmp/run/modem_csq; do
     v=$(rd "$cf"); if is_num "$v"; then CSQ="$v"; fi
 done
 
-printf '{"model":"%s","board":"%s","fw":"%s","kernel":"%s","uptime":%s,"cpu":{"load1":%s,"ncpu":%s},"mem":{"total":%s,"avail":%s},"temp":%s,"storage":{"total":%s,"used":%s},"clients":%s,"conns":%s,"wan_ip":"%s","lan_ip":"%s","wan_rx":%s,"wan_tx":%s,"ports":[%s],"modem":{"present":%s,"modconf":"%s","sim_sel":"%s","csq":%s}}\n' \
+printf '{"model":"%s","board":"%s","fw":"%s","kernel":"%s","uptime":%s,"cpu":{"load1":%s,"ncpu":%s},"mem":{"total":%s,"avail":%s},"temp":%s,"storage":{"total":%s,"used":%s},"clients":%s,"conns":%s,"wan_ip":"%s","wan_pfx":%s,"lan_ip":"%s","lan_pfx":%s,"wan_rx":%s,"wan_tx":%s,"ports":[%s],"usb":[%s],"egress":{"dev":"%s","kind":"%s","gw":"%s"},"wan_proto":"%s","wan_addr":"%s","modem":{"present":%s,"modconf":"%s","sim_sel":"%s","csq":%s}}\n' \
     "$MODEL" "$(json_str "$BOARD")" "$(json_str "$FW")" "$(json_str "$KERNEL")" "$UPTIME" \
     "$LOAD1" "$NCPU" "$MEM_T" "$MEM_A" "$TEMP" "$ST_T" "$ST_U" "$CLIENTS" "$CONNS" \
-    "$(json_str "$WANIP")" "$(json_str "$LANIP")" "$WRX" "$WTX" "$port_json" \
+    "$(json_str "$WANIP")" "$WANPFX" "$(json_str "$LANIP")" "$LANPFX" "$WRX" "$WTX" "$port_json" "$usb_json" \
+    "$(json_str "$EGDEV")" "$EGKIND" "$EGW" "$(json_str "$WANPROTO")" "$WANADDR" \
     "$present" "$(json_str "$MODCONF")" "$(json_str "$SIMSEL")" "$CSQ"

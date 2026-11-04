@@ -1,21 +1,22 @@
-<script type="text/javascript">//<![CDATA[
-XHR.poll(3, '<%=url([[admin]], [[services]], [[uuplugin]], [[status]])%>', null,
-	function(x, data) {
-		var tb = document.getElementById('uuplugin_status');
-		if (data && tb) {
-			if (data.running) {
-				tb.innerHTML = '<em><b><font color=green>UU GameAcc <%:运行中%></font></b></em>';
-			} else {
-				tb.innerHTML = '<em><b><font color=red>UU GameAcc <%:未运行%></font></b></em>';
-			}
-		}
-	}
-);
-//]]>
+<script type="text/javascript">
+XHR.poll(3, '<%=url([[admin]], [[services]], [[uuplugin]], [[status]])%>', null, function(x, data) {
+ var root = document.getElementById('uuplugin_status');
+ if (!root || !data) return;
+ root.replaceChildren();
+ var rows = [
+  ['UU 核心', data.running ? '运行中' : '未运行'],
+  ['guardian', data.guardian ? '运行中' : '未运行'],
+  ['所选平台', data.configured_platform],
+  ['已安装平台', data.platform],
+  ['APP 加速状态', data.uu_status == null ? '尚未读取到 APP 下发状态' : 'uu_status=' + data.uu_status],
+  ['加速规则', data.rules_present ? '已检测到 UU 规则表' : '尚未检测到 UU 规则表'],
+  ['局域网 DHCP 租约', String(data.dhcp_leases || 0) + ' 条（不代表 UU APP 已识别）']
+ ];
+ rows.forEach(function(row) {
+  var line = document.createElement('p');
+  line.textContent = row[0] + '：' + row[1];
+  root.appendChild(line);
+ });
+});
 </script>
-<style>.mar-10 {margin-left: 50px; margin-right: 10px;}</style>
-<fieldset class="cbi-section">
-	<p id="uuplugin_status">
-		<em><%:Collecting data...%></em>
-	</p>
-</fieldset>
+<fieldset class="cbi-section"><div id="uuplugin_status"><em><%:Collecting data...%></em></div></fieldset>

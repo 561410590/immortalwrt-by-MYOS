@@ -41,6 +41,17 @@
 #myos-simple-wifi .wifi-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 #myos-simple-wifi .wifi-badge.is-on { color: #079483; background: rgba(0, 157, 131, .09); }
 #myos-simple-wifi .wifi-hint { margin: 6px 0 0; color: var(--wifi-muted); font-size: 12px; line-height: 1.65; }
+#myos-simple-wifi .wifi-card-intro { position: relative; min-width: 0; flex: 1; }
+#myos-simple-wifi .wifi-card-subtitle { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+#myos-simple-wifi .wifi-card-subtitle > .wifi-hint { margin: 0; }
+#myos-simple-wifi .wifi-qr { display: inline-flex; }
+#myos-simple-wifi .wifi-qr-button { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; min-height: 0; margin: 0; padding: 7px; color: var(--wifi-accent); background: transparent; border: 1px solid var(--wifi-border); border-radius: 7px; box-shadow: none; cursor: pointer; }
+#myos-simple-wifi .wifi-qr-button > svg { display: block; width: 24px; height: 24px; }
+#myos-simple-wifi .wifi-qr-popup { position: absolute; z-index: 30; top: 100%; left: 0; width: 272px; max-width: calc(100vw - 84px); padding: 15px; color: #182536; background: #fff; border: 1px solid var(--wifi-border); border-radius: 12px; box-shadow: 0 8px 28px rgba(12,31,60,.18); text-align: center; }
+#myos-simple-wifi .wifi-qr-popup[hidden] { display: none; }
+#myos-simple-wifi .wifi-qr-popup > svg { display: block; width: 240px; max-width: 100%; height: auto; margin: 8px auto 0; background: #fff; }
+#myos-simple-wifi .wifi-qr-name { display: block; font-size: 14px; color: #182536; overflow-wrap: anywhere; }
+#myos-simple-wifi .wifi-qr-popup .wifi-hint { color: #596579; }
 #myos-simple-wifi .wifi-field { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 16px; align-items: start; margin-bottom: 20px; }
 #myos-simple-wifi .wifi-label { padding-top: 11px; color: var(--text, #1b2d46); font-size: 14px; line-height: 20px; }
 #myos-simple-wifi .wifi-control { min-width: 0; max-width: 32rem; }

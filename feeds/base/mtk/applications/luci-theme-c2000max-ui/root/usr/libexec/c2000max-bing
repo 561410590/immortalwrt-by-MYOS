@@ -1,0 +1,38 @@
+#!/bin/sh
+# Cache Bing's daily wallpaper in RAM. No login request performs network I/O.
+. /usr/share/libubox/jshn.sh
+cache=/tmp/c2000max-ui
+mkdir -p "$cache"
+chmod 755 "$cache"
+today="$(date +%Y%m%d)"
+[ -s "$cache/bing.jpg" ] && [ "$(cat "$cache/day" 2>/dev/null)" = "$today" ] && exit 0
+mkdir "$cache/fetch.lock" 2>/dev/null || exit 0
+trap 'rm -f "$cache/metadata.tmp" "$cache/image.tmp" "$cache/info.tmp"; rmdir "$cache/fetch.lock" 2>/dev/null' EXIT HUP INT TERM
+for host in cn.bing.com www.bing.com; do
+ uclient-fetch -q -T 12 -O "$cache/metadata.tmp" "https://$host/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=zh-CN" || continue
+ pic="$(jsonfilter -i "$cache/metadata.tmp" -e '@.images[0].url')"
+ # Accept only the documented Bing image endpoint, never arbitrary URLs.
+ case "$pic" in /th?id=OHR.*) ;; *) continue ;; esac
+ case "$pic" in *' '*|*'"'*|*"'"*|*'<'*|*'>'*|*'\'*|*'
+'*) continue ;; esac
+ uclient-fetch -q -T 25 -O "$cache/image.tmp" "https://$host$pic" || continue
+ size="$(wc -c < "$cache/image.tmp")"
+ [ "$size" -gt 4096 ] && [ "$size" -lt 8388608 ] || continue
+ # Bing serves JPEG at the archive endpoint; reject error documents.
+ magic="$(od -An -tx1 -N3 "$cache/image.tmp" | tr -d ' \n')"
+ [ "$magic" = ffd8ff ] || continue
+ credit="$(jsonfilter -i "$cache/metadata.tmp" -e '@.images[0].copyright')"
+ image_day="$(jsonfilter -i "$cache/metadata.tmp" -e '@.images[0].startdate')"
+ json_init
+ json_add_string copyright "$credit"
+ json_add_string date "$image_day"
+ json_add_string provider "Bing"
+ json_dump > "$cache/info.tmp"
+ chmod 644 "$cache/image.tmp" "$cache/info.tmp"
+ mv -f "$cache/image.tmp" "$cache/bing.jpg"
+ mv -f "$cache/info.tmp" "$cache/bing.json"
+ printf '%s\n' "$today" > "$cache/day"
+ exit 0
+done
+exit 1
+

@@ -1,6 +1,9 @@
 module("luci.controller.zz_mwrt_modem", package.seeall)
 
 function index()
+    for _, action in ipairs({"simstat", "simslots", "simset", "wlbridge_scan", "wlbridge_status", "wlbridge_join", "wlbridge_leave"}) do
+        entry({"admin", "modem", action}, call("action_" .. action)).leaf = true
+    end
     entry({"admin", "modem", "wifi_get"}, call("action_wifi_get")).leaf = true
     entry({"admin", "modem", "wifi_set"}, call("action_wifi_set")).leaf = true
     local mwrt = require("luci.model.uci").cursor():get("luci", "main", "mediaurlbase") == "/luci-static/argon"
@@ -13,7 +16,6 @@ function index()
     local data = entry({"admin", "modeminfo", "router3d"}, call("action_router3d"))
     data.leaf = true
     data.sysauth = false
-    entry({"admin", "modem", "simstat"}, call("action_simstat")).leaf = true
 end
 
 function action_router3d()
@@ -409,18 +411,60 @@ function action_cellx()
 	luci.http.write_json(data)
 end
 
+local ULTRA_SELECTOR = "/etc/init.d/c2000ultra-sim-select"
+local ULTRA_SIM_LABELS = { ["1"] = "外置SIM1卡槽", ["2"] = "外置SIM2卡槽", ["3"] = "内置卡" }
+local function ultra_sim_status()
+    local raw = luci.sys.exec(ULTRA_SELECTOR .. " status_json 2>/dev/null") or ""
+    local state = require("luci.jsonc").parse(raw)
+    return type(state) == "table" and state or {}
+end
+
 function action_simstat()
-	local out = luci.sys.exec("/usr/share/modem/simstat.sh 2>/dev/null") or ""
-	luci.http.prepare_content("application/json")
-	if out:match("^%s*{") then
-		luci.http.write(out)
-	else
-		-- 脚本缺失或异常时给个结构一致的兜底,前端不用做特判
-		luci.http.write_json({
-			busy = 0, code = "", slot = "",
-			iccid = "", text = "状态接口无响应"
-		})
-	end
+    local state = ultra_sim_status()
+    local selected = state.actual or require("luci.model.uci").cursor():get("cpesel", "sim", "cur") or ""
+    local ready = state.cpin == "READY"
+    luci.http.prepare_content("application/json")
+    luci.http.write_json({
+        busy = state.busy and 1 or 0,
+        code = ready and "12" or "",
+        slot = ULTRA_SIM_LABELS[selected] or "",
+        text = state.busy and "正在切换卡槽，请稍候" or ready and "SIM卡正常工作" or state.message or "正在读取卡状态",
+        iccid = "",
+        error = state.stage == "error" and state.message or nil
+    })
+end
+
+function action_simslots()
+    local state = ultra_sim_status()
+    luci.http.prepare_content("application/json")
+    luci.http.write_json({
+        supported = require("nixio.fs").access(ULTRA_SELECTOR),
+        is_c2000 = true,
+        current = state.actual or require("luci.model.uci").cursor():get("cpesel", "sim", "cur") or "",
+        slots = {
+            { v = "1", label = ULTRA_SIM_LABELS["1"] },
+            { v = "2", label = ULTRA_SIM_LABELS["2"] },
+            { v = "3", label = ULTRA_SIM_LABELS["3"] }
+        }
+    })
+end
+
+function action_simset()
+    if not require("luci.dispatcher").test_post_security() then return end
+    luci.http.prepare_content("application/json")
+    local target = luci.http.formvalue("slot") or ""
+    if not ULTRA_SIM_LABELS[target] then
+        return luci.http.write_json({ ok = false, error = "该卡槽在本机不可用" })
+    end
+    local state = ultra_sim_status()
+    if state.busy then
+        return luci.http.write_json({ ok = false, error = "正在切卡，请等待当前任务完成" })
+    end
+    if state.actual == target then
+        return luci.http.write_json({ ok = true, noop = true, current = target })
+    end
+    local rc = os.execute(ULTRA_SELECTOR .. " select_sim " .. target .. " >/dev/null 2>&1")
+    luci.http.write_json({ ok = rc == 0, current = target, error = rc ~= 0 and "切卡任务提交失败" or nil })
 end
 
 local function wifi_find(band)
@@ -557,3 +601,359 @@ function action_wifi_set()
 	luci.http.write_json({ ok = true, band = band, device = dev, ssid = ssid })
 end
 
+local WLB_NET = "wwan"
+local WLB_SID = "mwrt_wlbridge"
+-- 无线网桥事件文件: 写 "<epoch>|up|<ssid>" / "<epoch>|down|<ssid>", 供右上角
+-- 通知中心(rpcd luci.mwrt-notice)当"一次性事件"读出来显示一小会儿。两边路径一致。
+local WLB_EVENT = "/tmp/mwrt-wlbridge.event"
+
+-- 写一条桥接事件。kind = "up" / "down"。ssid 里的竖线/换行剔掉(分隔符安全),
+-- 用 nixio.fs.writefile 直接落地(不 fork、不经 shell, 免注入)。
+local function wlb_write_event(kind, ssid)
+	local fs = require "nixio.fs"
+	local s = tostring(ssid or ""):gsub("[|\r\n]", " ")
+	local ts = os.time()
+	fs.writefile(WLB_EVENT, string.format("%d|%s|%s\n", ts, kind, s))
+end
+
+-- 按 band('2g'/'5g')拿 { device=wifi-device名, phy=ra0/rai0, netdev=apcli0/apclii0 }。
+-- netdev 由 phy 推: ra0→apcli0, rai0→apclii0(prefix + idx0, 和 l1util apcli_ifname 一致)。
+local function wlb_radio(band)
+	local uci = require "luci.model.uci".cursor()
+	local dev, phy
+	uci:foreach("wireless", "wifi-device", function(s)
+		if not dev and s.band == band then dev = s[".name"]; phy = s.phy end
+	end)
+	if not dev then return nil end
+	-- ra0 → apcli0 ; rai0 → apclii0(把 phy 里 ra 后面那段插 "cli")
+	local netdev
+	if phy == "ra0" then netdev = "apcli0"
+	elseif phy == "rai0" then netdev = "apclii0"
+	else
+		-- 兜底: raX → apcliX、raiX → apcliiX
+		local base, idx = (phy or ""):match("^(ra[i]?)(%d+)$")
+		if base then netdev = base .. "cli" .. idx else netdev = "apcli0" end
+	end
+	return { device = dev, phy = phy, netdev = netdev }
+end
+
+-- 把 iwinfo scan 的 encryption 对象映射成 uci encryption 值(与 mtwifi enc2dat / wireless.js 同口径)。
+local function wlb_enc(e)
+	if type(e) ~= "table" or not e.enabled then return "none" end
+	local auth = e.authentication or {}
+	local has = function(t, v) for _, x in ipairs(t) do if x == v then return true end end return false end
+	if has(auth, "sae") then
+		-- 对端是 WPA3(或 WPA2/WPA3 过渡), 都用 sae(mtwifi sae 能连过渡 AP)
+		return "sae"
+	end
+	if has(auth, "psk") then
+		local wpa = e.wpa or {}
+		local w1, w2 = has(wpa, 1), has(wpa, 2)
+		if w1 and w2 then return "psk-mixed" end
+		if w2 then return "psk2" end
+		if w1 then return "psk" end
+		return "psk2"
+	end
+	-- 只有 WEP 或未知加密: 不支持桥接(返回空让前端标"不支持")
+	if e.wep then return "wep" end
+	return "unknown"
+end
+
+-- 字符串是否是「干净可显示」的 UTF-8 SSID(过滤隐藏/乱码 AP)。
+-- 严格校验 UTF-8: ASCII 可见字符直接过; 多字节必须是合法 UTF-8 续字节序列。
+-- 非法字节(单独的 0x80-0xBF、0xFE/0xFF、DEL 0x7F、控制符)→ 判脏。
+local function wlb_utf8_ok(s)
+	if not s or s == "" then return false end
+	if s:find("\239\191\189") then return false end  -- U+FFFD 替换符
+	local i, n = 1, #s
+	while i <= n do
+		local c = s:byte(i)
+		if c < 0x20 or c == 0x7F then
+			return false  -- 控制字符 / DEL
+		elseif c < 0x80 then
+			i = i + 1     -- ASCII 可见
+		elseif c >= 0xC2 and c <= 0xDF then
+			-- 2 字节: 后面 1 个 0x80-0xBF
+			local c2 = s:byte(i + 1)
+			if not c2 or c2 < 0x80 or c2 > 0xBF then return false end
+			i = i + 2
+		elseif c >= 0xE0 and c <= 0xEF then
+			-- 3 字节(含中文): 后面 2 个 0x80-0xBF
+			local c2, c3 = s:byte(i + 1), s:byte(i + 2)
+			if not c2 or c2 < 0x80 or c2 > 0xBF or not c3 or c3 < 0x80 or c3 > 0xBF then return false end
+			i = i + 3
+		elseif c >= 0xF0 and c <= 0xF4 then
+			-- 4 字节: 后面 3 个 0x80-0xBF
+			local c2, c3, c4 = s:byte(i + 1), s:byte(i + 2), s:byte(i + 3)
+			if not c2 or c2 < 0x80 or c2 > 0xBF or not c3 or c3 < 0x80 or c3 > 0xBF or not c4 or c4 < 0x80 or c4 > 0xBF then return false end
+			i = i + 4
+		else
+			return false  -- 0x80-0xC1 单独出现、0xF5-0xFF 非法
+		end
+	end
+	return true
+end
+
+function action_wlbridge_scan()
+	local band = luci.http.formvalue("band")
+	luci.http.prepare_content("application/json")
+	if band ~= "2g" and band ~= "5g" then
+		luci.http.write_json({ ok = false, error = "频段参数不合法" })
+		return
+	end
+	local r = wlb_radio(band)
+	if not r then
+		luci.http.write_json({ ok = false, error = "找不到 " .. band .. " 频段的无线设备" })
+		return
+	end
+
+	-- ubus call iwinfo scan {"device":"ra0"} —— 返回结构化结果, 不用解析 iwpriv。
+	local jsonc = require "luci.jsonc"
+	local out = luci.sys.exec("ubus call iwinfo scan '{\"device\":\"" .. r.phy .. "\"}' 2>/dev/null") or ""
+	local parsed = jsonc.parse(out)
+	local results = (type(parsed) == "table" and parsed.results) or {}
+
+	local list = {}
+	for _, b in ipairs(results) do
+		local enc = wlb_enc(b.encryption)
+		local ssid = b.ssid
+		local ok = wlb_utf8_ok(ssid)
+		-- 保留能连的(psk/psk2/psk-mixed/sae/none); wep/unknown 标出来但置灰不可点
+		list[#list + 1] = {
+			ssid = ok and ssid or "",
+			hidden = (not ok),
+			bssid = b.bssid,
+			signal = b.signal,
+			quality = b.quality,
+			quality_max = b.quality_max,
+			channel = b.channel,
+			enc = enc,
+			joinable = ok and (enc ~= "wep" and enc ~= "unknown"),
+		}
+	end
+	-- 按信号质量降序
+	table.sort(list, function(a, bb) return (a.quality or 0) > (bb.quality or 0) end)
+	luci.http.write_json({ ok = true, band = band, netdev = r.netdev, list = list })
+end
+
+-- 读当前桥接状态: 有没有 sta iface、apcli 关联到哪、拿没拿到 IP、是否已设为主路由。
+local function wlb_read_status()
+	local uci = require "luci.model.uci".cursor()
+	local fs = require "nixio.fs"
+	local st = { bridged = false, band = "", ssid = "", bssid = "", ip = "",
+		signal = nil, associated = false, primary_on = false, netdev = "" }
+
+	-- 找我们建的 sta iface
+	local sid
+	uci:foreach("wireless", "wifi-iface", function(s)
+		if s.mode == "sta" then sid = s[".name"]; return false end
+	end)
+	if not sid then return st end
+	local dev = uci:get("wireless", sid, "device")
+	st.ssid = uci:get("wireless", sid, "ssid") or ""
+	-- device → band → netdev
+	local band = uci:get("wireless", dev or "", "band") or ""
+	st.band = band
+	local r = band ~= "" and wlb_radio(band) or nil
+	local netdev = r and r.netdev or "apcli0"
+	st.netdev = netdev
+	st.bridged = true
+
+	-- 关联状态: iwconfig 的 Access Point(Not-Associated 为未连)
+	local iw = luci.sys.exec("iwconfig " .. netdev .. " 2>/dev/null") or ""
+	local ap = iw:match("Access Point:%s*([%x:]+)")
+	st.associated = (ap ~= nil and ap:upper() ~= "NOT-ASSOCIATED" and ap ~= "00:00:00:00:00:00")
+	if st.associated then st.bssid = ap:upper() end
+	local essid = iw:match('ESSID:"([^"]*)"')
+	if essid and essid ~= "" then st.ssid = essid end
+
+	-- 拿到 IP 没(apcli netdev 上的 ipv4)
+	local ipout = luci.sys.exec("ip -4 addr show dev " .. netdev .. " 2>/dev/null") or ""
+	st.ip = ipout:match("inet%s+([%d%.]+)") or ""
+
+	-- 是否已设为主路由(Mwrt-Assurance)
+	local pif = uci:get("Mwrt-Assurance", "wan_failover", "primary_if") or ""
+	local en = uci:get("Mwrt-Assurance", "wan_failover", "enabled") or "0"
+	st.primary_on = (pif == netdev and en == "1")
+	return st
+end
+
+function action_wlbridge_status()
+	luci.http.prepare_content("application/json")
+	luci.http.write_json(wlb_read_status())
+end
+
+function action_wlbridge_join()
+	local dsp = require "luci.dispatcher"
+	if not dsp.test_post_security() then return end
+	luci.http.prepare_content("application/json")
+
+	local band = luci.http.formvalue("band")
+	local ssid = luci.http.formvalue("ssid") or ""
+	local bssid = luci.http.formvalue("bssid") or ""
+	local key = luci.http.formvalue("key") or ""
+	local enc = luci.http.formvalue("enc") or ""
+	local as_primary = (luci.http.formvalue("primary") == "1")
+
+	if band ~= "2g" and band ~= "5g" then
+		luci.http.write_json({ ok = false, error = "频段参数不合法" }); return
+	end
+	if ssid == "" or #ssid > 32 then
+		luci.http.write_json({ ok = false, error = "上游网络名称不合法" }); return
+	end
+	local ENC_OK = { ["none"]=true, ["psk"]=true, ["psk2"]=true, ["psk-mixed"]=true, ["sae"]=true }
+	if not ENC_OK[enc] then
+		luci.http.write_json({ ok = false, error = "该网络的加密方式暂不支持桥接" }); return
+	end
+	if enc ~= "none" and (#key < 8 or #key > 63) then
+		luci.http.write_json({ ok = false, error = "上游 WiFi 密码需要 8 - 63 个字符" }); return
+	end
+
+	local r = wlb_radio(band)
+	if not r then
+		luci.http.write_json({ ok = false, error = "找不到 " .. band .. " 频段的无线设备" }); return
+	end
+
+	local uci = require "luci.model.uci".cursor()
+
+	-- 幂等: 先删掉所有已存在的 sta iface(本功能固定单桥接), 避免叠加 / 换频段残留。
+	local to_del = {}
+	uci:foreach("wireless", "wifi-iface", function(s)
+		if s.mode == "sta" then to_del[#to_del + 1] = s[".name"] end
+	end)
+	for _, n in ipairs(to_del) do uci:delete("wireless", n) end
+
+	-- 建 STA 客户端 iface
+	uci:section("wireless", "wifi-iface", WLB_SID, {
+		device = r.device,
+		mode = "sta",
+		network = WLB_NET,
+		ssid = ssid,
+		encryption = enc,
+	})
+	if enc ~= "none" then uci:set("wireless", WLB_SID, "key", key) end
+	if bssid ~= "" and bssid:match("^[%x:]+$") then uci:set("wireless", WLB_SID, "bssid", bssid) end
+	uci:commit("wireless")
+
+	-- network.wwan = dhcp 接口(apcli netdev 由 netifd 自动挂进来)
+	uci:delete("network", WLB_NET)
+	uci:section("network", "interface", WLB_NET, { proto = "dhcp" })
+	uci:commit("network")
+
+	-- 把 wwan 加进 wan 防火墙区域(只增不删其它成员)
+	uci:foreach("firewall", "zone", function(s)
+		if s.name == "wan" then
+			local nets = s.network or {}
+			if type(nets) == "string" then nets = { nets } end
+			local seen = false
+			for _, n in ipairs(nets) do if n == WLB_NET then seen = true end end
+			if not seen then nets[#nets + 1] = WLB_NET; uci:set("firewall", s[".name"], "network", nets) end
+			return false
+		end
+	end)
+	uci:commit("firewall")
+
+	-- 设为主路由 + 开网关存活(可选, 默认开)。
+	-- ⚠ 只改 primary_if, **不动 secondary_if** —— secondary 是原来的故障兜底口
+	-- (通常是蜂窝 eth2)。早期版本把旧 primary 塞进 secondary, 结果把蜂窝兜底口
+	-- 覆盖成了宽带口 eth1, 断开后"路由切换状态"里蜂窝一直显示离线(它在探 eth1)。
+	-- 现在:桥接前的 primary_if / secondary_if / enabled 全存到 sta 节点, 断开时三者
+	-- 原样还原, 谁都不越权覆盖。
+	if as_primary then
+		local old_pif = uci:get("Mwrt-Assurance", "wan_failover", "primary_if") or ""
+		local old_sif = uci:get("Mwrt-Assurance", "wan_failover", "secondary_if") or ""
+		local old_en  = uci:get("Mwrt-Assurance", "wan_failover", "enabled") or "0"
+		uci:set("wireless", WLB_SID, "wlb_old_en", old_en)
+		uci:set("wireless", WLB_SID, "wlb_old_pif", old_pif)
+		uci:set("wireless", WLB_SID, "wlb_old_sif", old_sif)
+		uci:commit("wireless")
+		uci:set("Mwrt-Assurance", "wan_failover", "primary_if", r.netdev)
+		uci:set("Mwrt-Assurance", "wan_failover", "enabled", "1")
+		uci:set("Mwrt-Assurance", "wan_failover", "force_primary", "1")
+		uci:commit("Mwrt-Assurance")
+	end
+
+	-- 异步应用: wifi reload 建 apcli + 关联, ifup wwan 起 DHCP。放后台, 不阻塞本响应
+	-- (用户可能正用本机 WiFi 连着这页, 同步跑会把响应闷死)。
+	os.execute("( wifi reload; sleep 2; /sbin/ifup " .. WLB_NET .. " ) >/dev/null 2>&1 &")
+
+	-- 发一条"已接入"事件给右上角通知中心
+	wlb_write_event("up", ssid)
+
+	luci.http.write_json({ ok = true, netdev = r.netdev, band = band })
+end
+
+function action_wlbridge_leave()
+	local dsp = require "luci.dispatcher"
+	if not dsp.test_post_security() then return end
+	luci.http.prepare_content("application/json")
+
+	local uci = require "luci.model.uci".cursor()
+
+	-- 记下当前桥接网卡, 好把网关存活主口还原
+	local st = wlb_read_status()
+
+	-- 删 sta iface 前, 先读出桥接时存下的"桥接前网关存活状态", 用于精确还原
+	local old_en, old_pif, old_sif = nil, nil, nil
+	uci:foreach("wireless", "wifi-iface", function(s)
+		if s.mode == "sta" then
+			old_en = s.wlb_old_en; old_pif = s.wlb_old_pif; old_sif = s.wlb_old_sif
+		end
+	end)
+
+	-- 删 sta iface
+	local dels = {}
+	uci:foreach("wireless", "wifi-iface", function(s)
+		if s.mode == "sta" then dels[#dels + 1] = s[".name"] end
+	end)
+	for _, n in ipairs(dels) do uci:delete("wireless", n) end
+	uci:commit("wireless")
+
+	-- 从 wan 区域移除 wwan + 删 network.wwan
+	uci:foreach("firewall", "zone", function(s)
+		if s.name == "wan" then
+			local nets = s.network or {}
+			if type(nets) == "string" then nets = { nets } end
+			local keep = {}
+			for _, n in ipairs(nets) do if n ~= WLB_NET then keep[#keep + 1] = n end end
+			uci:set("firewall", s[".name"], "network", keep)
+			return false
+		end
+	end)
+	uci:commit("firewall")
+	uci:delete("network", WLB_NET)
+	uci:commit("network")
+
+	-- 网关存活还原: 只有当前主口确实是桥接网卡时才动它(别人手动改过就不越权)。
+	-- 把桥接前存下的 primary_if / secondary_if / enabled 三者原样还原 —— 尤其
+	-- secondary_if 必须还原, 否则蜂窝兜底口会一直停在错的网卡上, 状态页显示离线。
+	local pif = uci:get("Mwrt-Assurance", "wan_failover", "primary_if") or ""
+	if pif == st.netdev and st.netdev ~= "" then
+		local changed = false
+		if old_pif and old_pif ~= "" and old_pif ~= st.netdev then
+			uci:set("Mwrt-Assurance", "wan_failover", "primary_if", old_pif); changed = true
+		else
+			-- 存不到桥接前主口: 回落到 secondary 兜底口(不把 primary 留在已删的桥接网卡上)
+			local sif = uci:get("Mwrt-Assurance", "wan_failover", "secondary_if") or ""
+			if sif ~= "" and sif ~= st.netdev then
+				uci:set("Mwrt-Assurance", "wan_failover", "primary_if", sif); changed = true
+			end
+		end
+		-- secondary_if 原样还原(桥接时本不该动它, 这里兜底把早期版本搞乱的也纠回来)
+		if old_sif and old_sif ~= "" and old_sif ~= st.netdev then
+			uci:set("Mwrt-Assurance", "wan_failover", "secondary_if", old_sif); changed = true
+		end
+		-- 桥接前是关着的, 就还原成关(桥接是唯一把它打开的原因)
+		if old_en ~= nil then
+			uci:set("Mwrt-Assurance", "wan_failover", "enabled", old_en); changed = true
+		end
+		if changed then uci:commit("Mwrt-Assurance") end
+	end
+
+	os.execute("( wifi reload ) >/dev/null 2>&1 &")
+
+	-- 发一条"已断开"事件给右上角通知中心(用拆桥前记下的 ssid)
+	wlb_write_event("down", st.ssid)
+
+	luci.http.write_json({ ok = true })
+end

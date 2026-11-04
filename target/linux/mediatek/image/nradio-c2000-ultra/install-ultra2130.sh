@@ -22,10 +22,9 @@ install -D -m 0755 "$SD/ubenv-snsd" "$ROOT/usr/libexec/myos-ultra-ubenv"
 install -D -m 0644 "$SIM/c2000ultra-upgrade.platform" "$ROOT/lib/upgrade/platform.sh"
 install -D -m 0644 "$SRC/package/base-files/files/lib/upgrade/emmc.sh" "$ROOT/lib/upgrade/emmc.sh"
 install -D -m 0644 "$SIM/web/luci.locations" "$ROOT/etc/nginx/conf.d/luci.locations"
+install -D -m 0755 "$SIM/c2000ultra-webui-defaults.uci-default" "$ROOT/etc/uci-defaults/37-c2000ultra-webui"
 install -D -m 0644 "$SIM/web/luci-cgi_io.ini" "$ROOT/etc/uwsgi/vassals/luci-cgi_io.ini"
 install -D -m 0755 "$SIM/c2000ultra-board-defaults.uci-default" "$ROOT/etc/uci-defaults/36-c2000ultra-board-defaults"
-# Copy the reviewed mobile navigation even when the theme package cache is reused.
-install -D -m 0644 "$SRC/package/mtk/applications/luci-theme-mwrt/root/usr/lib/lua/luci/view/themes/argon/footer.htm" "$ROOT/usr/lib/lua/luci/view/themes/argon/footer.htm"
 install -D -m 0755 "$SD/myos-ultra-boot" "$ROOT/usr/libexec/myos-ultra-boot"
 install -D -m 0755 "$SD/c2000ultra-sd-extroot.preinit" "$ROOT/lib/preinit/79_c2000ultra_sd_extroot"
 install -D -m 0755 "$SD/ultra-firstboot" "$ROOT/sbin/firstboot"
@@ -55,9 +54,7 @@ install -D -m 0755 "$WEB/etc/init.d/ubus-at-daemon" "$ROOT/etc/init.d/ubus-at-da
 install -D -m 0755 "$WEB/usr/bin/ubus-at-daemon" "$ROOT/usr/bin/ubus-at-daemon"
 install -D -m 0755 "$SRC/package/mtk/applications/c2000max-5g/files/luci-app-embed/etc/init.d/embed_simcard" "$ROOT/etc/init.d/embed_simcard"
 install -D -m 0644 "$WEB/www/luci-static/resources/view/embed/htmlview.js" "$ROOT/www/luci-static/resources/view/embed/htmlview.js"
-for asset in index.html myos-entry.js t__plugin-layout__Layout.e0c9df77.async.js; do
-  install -D -m 0644 "$WEB/www/5700/$asset" "$ROOT/www/5700/$asset"
-done
+ln -sf ../init.d/mt5700-web "$ROOT/etc/rc.d/S97mt5700-web"
 rm -f "$ROOT/etc/rc.d/S99ubus-at-daemon"
 ln -sf ../init.d/ubus-at-daemon "$ROOT/etc/rc.d/S18ubus-at-daemon"
 rm -f "$ROOT"/etc/rc.d/S??embed_simcard "$ROOT"/etc/rc.d/S??c2000ultra-sim-select "$ROOT"/etc/rc.d/S??qmodem_network

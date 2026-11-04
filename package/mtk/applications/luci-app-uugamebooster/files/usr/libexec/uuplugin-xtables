@@ -1,0 +1,7 @@
+#!/bin/sh
+command=${0##*/}
+case "$command" in
+  iptables) command=iptables-nft ;;
+  ip6tables) command=ip6tables-nft ;;
+esac
+exec /var/tmp/uu/xtables-nft-multi "$command" "$@"

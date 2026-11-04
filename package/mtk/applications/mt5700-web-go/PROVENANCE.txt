@@ -1,0 +1,30 @@
+Imported from the user-supplied C2000MAX-V37.5-Beta-20261001-R2-sysupgrade.bin.
+Only /usr/bin/mt5700-web-go and the MT5700 WebUI package text resources are used.
+No MAX kernel, drivers, board configuration or network configuration is imported.
+
+The program contains the modern MT5700M-CN V3.0.0 WebUI and its upstream notice:
+https://github.com/inotdream/mt5700webui-openwrt-server
+feat/go-backend, commit f0223e619d24a5b4dff41f2db894e96f8c62ed65.
+The inst multi-modem backend is retained. Its embedded legacy frontend is no
+longer selected by LuCI; nginx serves the upstream frontend below instead.
+
+MYOS Ultra integration, 202610271600:
+- Native aarch64 musl program, linked with libc and libgcc_s.
+- Explicit executable/data permissions in the package install rules.
+- qmodem-at uses Ultra's existing tom_modem -u serialized AT service.
+- The modern internal instance is enabled by default; local/network instances
+  remain selectable in the control panel.
+- LuCI links and nginx proxy keep the WebUI on the current router origin.
+
+MYOS Ultra frontend update, 20261101:
+- Upstream feat/go-backend commit 6f70d1deb3d6ac666c54f91596a857aab6fd65a0,
+  at-webserver package version 3.0.3; index.html and its compiled JS/CSS assets.
+- Assets are installed under /www/mt5700-modern and served at each instance's
+  /modem/<path>/5700/ URL. Asset and configuration URLs are instance-relative;
+  WebSocket connections use the page origin and its HTTP/HTTPS protocol.
+- Shared ubus AT daemon is packaged separately as myos-ubus-at. Ultra no
+  longer selects the old luci-app-5700webui package or AT WebServer menu.
+- No raw-serial upstream backend is substituted for the serialized QModem
+  backend. The 3.0.3 version here identifies the frontend integration.
+- Signal-page loading keeps displayed readings at full opacity and leaves
+  the page interactive; the small loading indicator remains visible.

@@ -1,0 +1,4 @@
+#!/bin/sh
+cd /var/tmp/uu || exit 1
+export PATH=/var/tmp/uu:/usr/sbin:/usr/bin:/sbin:/bin
+exec ./uuplugin ./uu.conf

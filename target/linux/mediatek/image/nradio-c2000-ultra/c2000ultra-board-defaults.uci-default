@@ -65,7 +65,7 @@ if [ -f /etc/smartd.conf ] && {
 	fi
 fi
 
-if [ ! -e /www/favicon.ico ] && [ -f /www/luci-static/argon/favicon.ico ]; then
-	ln -snf luci-static/argon/favicon.ico /www/favicon.ico
+if [ -f /www/luci-static/myos-new/brand.png ]; then
+	ln -snf luci-static/myos-new/brand.png /www/favicon.ico
 fi
 exit 0

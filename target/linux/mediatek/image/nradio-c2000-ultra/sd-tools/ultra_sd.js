@@ -26,7 +26,6 @@ return view.extend({
   var nativeLayout=data.layout==='official';
   var button=E('button',{
    'class':'cbi-button cbi-button-action important',
-   'disabled':!data.ready || data.mode!=='myos' || this.readonly,
    'click':function() {
     ui.showModal('回官方系统',[
      E('p',{},'切换 SD 启动状态并重启，官方系统配置保留。'),

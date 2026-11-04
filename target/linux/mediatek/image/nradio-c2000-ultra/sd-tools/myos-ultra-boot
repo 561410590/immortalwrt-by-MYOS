@@ -10,9 +10,6 @@ if [ "$action" = status ]; then
 	exit 0
 fi
 if [ "$layout" = official ]; then
-	[ "$(printf '%s' "$state" | jsonfilter -e '@.ready')" = true ] || {
-		printf '%s\n' '{"ok":false,"error":"overlay_not_ready"}'; exit 1
-	}
 	/usr/libexec/myos-ultra-ubenv -o 0 -s boot_from_sd -v 0 >/dev/null || exit 1
 	mode="$(/usr/libexec/myos-ultra-ubenv -o 1 -s boot_from_sd)" || exit 1
 	printf '%s' "$mode" | grep -q 'boot_from_sd = 0' || exit 1

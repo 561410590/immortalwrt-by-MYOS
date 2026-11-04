@@ -1,0 +1,2001 @@
+
+/* 移动端底部:深色底改由 html/body 承担(而非 .P 的 min-height:100vh)。
+   原先 .P 强制 100vh,叠加主题顶部导航栏后总高超出视口,滚到底会多出一段空隙;
+   去掉 100vh、把 html/body 刷深色,既不露白也不再有导航栏与内容间的空隙。 */
+html,body{background:#0b0d14 !important}
+/* Override Argon theme containers */
+#maincontent{background:transparent !important;padding-top:0 !important;margin-top:0 !important}
+#maincontent>.container{background:transparent !important;padding:0 !important;margin:0 !important}
+.main-right{background:transparent !important}
+.main-right>.container{background:transparent !important;padding-top:0 !important}
+.cbi-map{border:none !important;box-shadow:none !important;background:transparent !important;margin:0 !important;padding:0 !important}
+/* 抹平主题给内容套的那圈圆角边框卡片(.cbi-section / .cbi-section-node),
+   否则移动端框底与导航栏之间会留出一段(容器 flex-grow 撑高的)空隙看着像缝。 */
+#maincontent .cbi-section,#maincontent .cbi-section-node,#maincontent [data-tab-title]{border:none !important;border-radius:0 !important;box-shadow:none !important;background:transparent !important;margin:0 !important;padding:0 !important}
+/* 容器别再靠 flex-grow 撑高留白,底部外边距也去掉,让深色内容一直贴到底 */
+.main-right>#maincontent>.container{flex-grow:0 !important;margin-bottom:0 !important}
+.container>.main>.main-right>.container{padding-top:0 !important}
+.main-right .container h2,.main-right .container h3{display:none !important}
+
+*{margin:0;padding:0;box-sizing:border-box}
+.P{--bg:#0b0d14;--c1:rgba(18,21,32,0.94);--c2:rgba(26,30,44,0.9);--bd:rgba(255,255,255,0.04);--t1:#eef0f6;--t2:#8891a5;--t3:#3d4455;--ac:#7c5cfc;--gn:#34d399;--og:#fbbf24;--rd:#f87171;--bl:#60a5fa;--cy:#22d3ee;--pk:#f472b6;--r:14px;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:var(--t1);padding:14px 20px 40px;max-width:1200px;margin:0 auto;position:relative;z-index:1;background:var(--bg) !important}
+.P::before{content:'';position:fixed;inset:0;z-index:-1;background:var(--bg);background-image:radial-gradient(ellipse at 10% 40%,rgba(124,92,252,0.07),transparent 55%),radial-gradient(ellipse at 90% 20%,rgba(34,211,238,0.05),transparent 45%),radial-gradient(ellipse at 50% 95%,rgba(244,114,182,0.04),transparent 40%)}
+/* Light mode */
+.P.L{--bg:#f4f5fa;--c1:rgba(255,255,255,0.96);--c2:rgba(246,247,252,0.95);--bd:rgba(0,0,0,0.05);--t1:#1a1d2e;--t2:#6b7185;--t3:#d4d7e0}
+.P.L::before{background:var(--bg);background-image:radial-gradient(ellipse at 10% 40%,rgba(124,92,252,0.03),transparent 55%),radial-gradient(ellipse at 90% 20%,rgba(34,211,238,0.02),transparent 45%)}
+.P #modem_selector_select{display:none}
+.P .H{display:none !important}
+
+/* === 白天/夜间切换键 .tbtn ===
+   原来挂在设备总览卡标题行的右端。标题行(fa-server 图标 + 「设备总览 · Device Overview」)
+   已经删掉, 这个键和「设置向导」一起挪到右栏第一行、「系统状态」小标题的右边(见 HTML 侧注释)。
+   描边也取消了: 底色 c2 和卡片的 c1 本来就差一档亮度, 不画线也分得清;
+   hover 从"描边变紫"改成"淡紫底 + 紫字"。
+   它已经不在 .cd-t 里, `.P .cd-t i{color:var(--ac)}` 管不到这里, 图标颜色直接继承按钮。 */
+.P .tbtn{width:26px;height:26px;flex-shrink:0;border-radius:50%;border:0;background:var(--c2);color:var(--t2);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:11px;transition:color 0.3s,background 0.3s}
+.P .tbtn:hover{color:var(--ac);background:rgba(124,92,252,0.12)}
+.P .tbtn:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.P .tbtn i{color:inherit;font-size:11px}
+
+/* Traffic chart */
+.P .chart-card{background:var(--c1);border:1px solid var(--bd);border-radius:var(--r);padding:18px 20px;margin-bottom:14px;transition:border-color 0.3s}
+.P .chart-card:hover{border-color:rgba(124,92,252,0.12)}
+.P .chart-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.P .chart-hd .cd-t{margin-bottom:0}
+.P .chart-legend{display:flex;gap:14px}
+.P .chart-legend span{font-size:10px;color:var(--t2);display:flex;align-items:center;gap:4px}
+.P .chart-legend span::before{content:'';width:8px;height:3px;border-radius:2px}
+.P .chart-legend .lg-rx::before{background:var(--gn)}
+.P .chart-legend .lg-tx::before{background:var(--og)}
+.P .chart-vals{display:flex;gap:20px;margin-bottom:10px}
+.P .chart-vals .cv{display:flex;align-items:baseline;gap:4px}
+.P .chart-vals .cv-n{font-size:20px;font-weight:800;color:var(--t1)}
+.P .chart-vals .cv-u{font-size:10px;color:var(--t2)}
+.P .chart-vals .cv-l{font-size:9px;color:var(--t2);margin-right:4px}
+.P .chart-wrap{width:100%;height:100px;position:relative;overflow:hidden;border-radius:8px;background:var(--c2)}
+.P .chart-wrap canvas{width:100%;height:100%;display:block}
+
+/* === 实时指标圆环(按用户要求还原) ===
+   三个 SVG 圆环: 处理器占用 / 内存剩余 / 设备温度。原样恢复, 一个像素没改。
+
+   这块在 #hero-w **外面**(独立的 .gauges 容器), 所以不受"读不到模组数据"那条
+   .hid 门控影响 —— 不会重演 .hero-qs 的那个缺陷(系统指标跟着蜂窝一起消失)。
+
+   和设备总览 dv-stats 磁贴的分工, 这样同一个数不会出现两次:
+     圆环  → 瞬时百分比(CPU 占用% / 内存剩余% / 温度℃), 三个环并排能一眼比高低
+     磁贴  → 圆环给不了的绝对量(存储已用/总量) 和不同量纲的指标(load1 负载均值)
+   原来磁贴里的"内存占用"和"SoC 温度"和圆环是同一个数, 已经从磁贴那侧撤掉。 */
+/* s44 二轮: 圆环卡并入磁贴语言 —— 同一组 --tn(罩色) / --tb(徽章底) / --tc(强调色) 变量, c2 实底、无描边。
+   三个环各占一档色相: CPU=紫(.mp) 内存=绿(.mg) 温度=青(.mcy, 偏热时 JS 换成 .mo 琥珀 / .mr 红)。
+   深色: 罩色从环心往外晕开(径向); 浅色: 整卡 135° 线性着色, 见上方浅色块(.P.L .ga)。
+   环色不再由 JS 写死: .ga-fg 吃 var(--tc), 深浅两套自动换深一档, JS 只管 dashoffset(rng 不传色) */
+.P .gauges{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}
+.P .ga{--tn:rgba(124,92,252,0.20);--tb:rgba(124,92,252,0.16);--tc:#a78bfa;
+ --gb:rgba(96,165,250,0.20);position:relative;overflow:hidden;background:linear-gradient(180deg,rgba(255,255,255,0) 0%,rgba(255,255,255,0) 30%,var(--gb) 100%),var(--c2);border:0;border-radius:var(--r);
+ padding:18px 12px 16px;display:flex;flex-direction:column;align-items:center;box-shadow:none;transition:transform 0.2s}
+.P .ga:hover{transform:translateY(-1px)}
+.P .ga-w{position:relative;width:92px;height:92px}
+.P .ga-w svg{width:92px;height:92px;transform:rotate(-90deg);display:block;overflow:visible}
+.P .ga-bg{fill:none;stroke:var(--tc);stroke-width:5;opacity:0.16}
+.P .ga-fg{fill:none;stroke:var(--tc);stroke-width:5;stroke-linecap:round;transition:stroke-dashoffset 1.2s cubic-bezier(0.4,0,0.2,1)}
+.P .ga-c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+/* 环内的"表盘": 一块比环内沿再缩一圈的同色淡盘, 数字压在上面 */
+.P .ga-c::before{content:"";position:absolute;inset:17%;border-radius:50%;background:radial-gradient(circle at 50% 35%,var(--tb),transparent 80%);z-index:0}
+.P .ga-v,.P .ga-s{position:relative;z-index:1}
+.P .ga-v{font-size:20px;font-weight:800;color:var(--t1);line-height:1.1}
+.P .ga-s{font-size:9px;color:var(--t2);margin-top:1px}
+.P .ga-n{display:inline-flex;align-items:center;gap:5px;margin-top:12px;padding:3px 10px;border-radius:999px;background:rgba(127,127,140,0.12);color:var(--t2);font-size:11px;font-weight:500;white-space:nowrap}
+.P .ga-n i{font-size:10px}
+.P .ga.mr{--tn:rgba(248,113,113,0.20);--tb:rgba(248,113,113,0.17);--tc:#f87171}
+.P.L .ga-bg{opacity:0.22}
+/* s49: 内存卡的内环 = 虚拟内存(swap)。外环不变, 仍是物理内存剩余%;
+   内环是虚拟内存已用% = (zram 压缩内存 + SD swapfile 已用) / 两者总量。绝对值和 zram/SD 各自用量
+   不占卡片地方(三张卡高度不动), 放在悬停浮层 #ga-pop 里, 见下面 .gp 那段。
+   内环细一号(r=31, 描边 3, 外环 r=38/5), 用 --tc2 蓝和外环的绿错开一档色相; SD 上有已换出的页
+   (说明 zram 满过, 那部分换回来慢)时 JS 加 .sd 换成琥珀, 和温度环的"偏热"同一个琥珀。
+   页面换回内存或被释放后 SD 用量归零, 自动变回蓝。
+   .sw 没打上(机型没挂 swap)时内环 display:none, 卡片和原来逐像素一致。
+   打上 .sw 时环内那块淡盘缩一圈(17%→22%), 不然会压到内环。 */
+.P .ga.mg{--tc2:#60a5fa}
+.P .ga.mg.sd{--tc2:#fbbf24}
+.P .ga-sbg,.P .ga-sfg{display:none}
+.P .ga.sw .ga-sbg,.P .ga.sw .ga-sfg{display:inline}
+.P .ga-sbg{fill:none;stroke:var(--tc2);stroke-width:3;opacity:0.16}
+.P .ga-sfg{fill:none;stroke:var(--tc2);stroke-width:3;stroke-linecap:round;transition:stroke-dashoffset 1.2s cubic-bezier(0.4,0,0.2,1)}
+.P .ga.sw .ga-c::before{inset:22%}
+.P.L .ga.mg{--tc2:#2563eb}
+.P.L .ga.mg.sd{--tc2:#d97706}
+.P.L .ga-sbg{opacity:0.22}
+/* s49: 三个圆环 + 设备总览"在线设备"格子的悬停浮层(一个共用的 #ga-pop, 行为见 MRT_POP 那段 JS)。
+   扁平: 实色底 + 1px 描边, 不加阴影; 只淡入淡出, 不做位移动画(位移会让定位测量和视觉都发飘)。
+   主色跟目标卡走: JS 把目标卡算好的 --tc/--tb/--tc2 抄到浮层上, 温度卡变琥珀/红时浮层跟着变。
+   深浅两套只换底色/描边/分隔线, 文字色仍吃 .P 的 --t1/--t2。 */
+.P .gp{--gpl:rgba(255,255,255,0.07);position:fixed;left:0;top:0;z-index:10040;width:264px;max-width:calc(100vw - 16px);box-sizing:border-box;
+ padding:12px 14px;border-radius:12px;background:#171b29;border:1px solid rgba(255,255,255,0.10);box-shadow:none;
+ color:var(--t1);font-size:12px;line-height:1.4;text-align:left;
+ opacity:0;visibility:hidden;pointer-events:none;transition:opacity .12s ease,visibility 0s linear .12s}
+.P .gp.on{opacity:1;visibility:visible;pointer-events:auto;transition:opacity .12s ease}
+.P .gp.gp-wide{width:304px}
+.P.L .gp{--gpl:rgba(20,24,40,0.07);background:#fff;border-color:rgba(20,24,40,0.12)}
+.P .gp-h{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:12px;font-weight:700}
+.P .gp-h>i{width:22px;height:22px;border-radius:7px;flex:none;display:flex;align-items:center;justify-content:center;font-size:10px;background:var(--tb);color:var(--tc)}
+.P .gp-h>span{margin-left:auto;font-weight:600;color:var(--tc);font-variant-numeric:tabular-nums;white-space:nowrap}
+.P .gp-g{display:grid;grid-template-columns:auto minmax(36px,1fr) auto;gap:7px 10px;align-items:center}
+.P .gp-k{color:var(--t2);white-space:nowrap}
+.P .gp-k small{margin-left:5px;font-size:10px;font-weight:500;color:var(--t2);opacity:.8}
+.P .gp-v{text-align:right;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.P .gp-v small{margin-left:6px;font-size:10px;font-weight:500;color:var(--t2)}
+.P .gp-k2,.P .gp-v2{font-size:11px;font-weight:500;color:var(--t2)}
+/* s63 活动连接 TOP5: 专用行布局, IP 长(尤其 IPv6)也能换行/省略, 不撑破浮层 */
+.P .gp-conn{display:flex;flex-direction:column;gap:9px}
+.P .gp-conn .gc{display:flex;flex-direction:column;gap:4px;min-width:0}
+.P .gp-conn .gc-top{display:flex;align-items:baseline;gap:8px;min-width:0}
+.P .gp-conn .gc-ip{flex:1;min-width:0;font-size:12px;color:var(--t1);font-variant-numeric:tabular-nums;word-break:break-all;overflow-wrap:anywhere;line-height:1.3}
+.P .gp-conn .gc-ip small{margin-left:6px;font-size:9px;font-weight:600;color:var(--ac);background:rgba(34,211,238,0.12);padding:1px 5px;border-radius:5px;white-space:nowrap}
+.P .gp-conn .gc-n{flex-shrink:0;font-size:12px;font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums}
+.P .gp-conn .gc-n small{margin-left:2px;font-size:9px;font-weight:500;color:var(--t2)}
+.P .gp-k2{padding-left:10px}
+.P .gp-b{display:block;height:4px;border-radius:2px;background:var(--tb);overflow:hidden}
+.P .gp-b>i{display:block;height:100%;border-radius:2px;background:var(--tc)}
+.P .gp-b.c2>i{background:var(--tc2,var(--tc))}
+.P .gp-b.t-ok>i{background:#22d3ee}
+.P .gp-b.t-warm>i{background:#fbbf24}
+.P .gp-b.t-hot>i{background:#f87171}
+.P.L .gp-b.t-ok>i{background:#0891b2}
+.P.L .gp-b.t-warm>i{background:#d97706}
+.P.L .gp-b.t-hot>i{background:#dc2626}
+.P .gp-f{margin-top:10px;padding-top:8px;border-top:1px solid var(--gpl);font-size:11px;color:var(--t2)}
+.P .gp-f.warn{color:#fbbf24}
+.P.L .gp-f.warn{color:#b45309}
+.P .gp-n{color:var(--t2);font-size:11px}
+/* s64: HNAT 详情浮层里「智能 HQoS」那行的「配置」按钮 */
+.P .gp-cfgbtn{flex-shrink:0;font-size:10px;font-weight:700;font-family:inherit;color:var(--ac);background:rgba(124,92,252,0.14);border:0;padding:3px 10px;border-radius:999px;cursor:pointer;transition:background 0.15s,color 0.15s}
+.P .gp-cfgbtn:hover{background:var(--ac);color:#fff}
+.P .gp-l{margin:0 -6px;max-height:min(320px,55vh);overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.P .gp-d{display:flex;align-items:center;gap:9px;padding:5px 6px}
+.P .gp-d+.gp-d{border-top:1px solid var(--gpl)}
+.P .gp-d>i{width:26px;height:26px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;background:var(--tb);color:var(--tc)}
+.P .gp-dt{flex:1;min-width:0;display:flex;flex-direction:column}
+.P .gp-dt b{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.P .gp-dt b.un{font-weight:500;color:var(--t2)}
+.P .gp-dt span{font-size:10.5px;color:var(--t2);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.P .gp-tag{flex:none;padding:1px 7px;border:1px solid transparent;border-radius:999px;font-size:10px;font-weight:600;background:var(--tb);color:var(--tc)}
+.P .gp-tag.wd{background:transparent;color:var(--t2);border-color:var(--gpl)}
+/* s74 产品图网口 / USB 浮层: 顶部一行大号速率(主色) + 状态标签, 下面键值表; USB 每台一块: 类型图标块 + 名称/厂商 + 一排小标签 */
+.P .gp-sp{display:flex;align-items:baseline;gap:8px;margin:-2px 0 10px;min-width:0}
+.P .gp-sp b{font-size:22px;font-weight:700;line-height:1.1;color:var(--tc);font-variant-numeric:tabular-nums;letter-spacing:0.2px;white-space:nowrap}
+.P .gp-sp b.off{font-size:15px;color:var(--t2)}
+.P .gp-sp small{font-size:11px;color:var(--t2);white-space:nowrap}
+.P .gp-sp .gp-tag{margin-left:auto;align-self:center}
+.P .gp-io{display:inline-flex;align-items:center;gap:4px;font-variant-numeric:tabular-nums}
+.P .gp-io+.gp-io{margin-left:10px}
+.P .gp-io i{font-size:9px;color:var(--tc)}
+.P .gp-mono{font-family:'SF Mono','JetBrains Mono','Consolas',monospace;font-size:11px;font-weight:500}
+.P .gp-ud{display:flex;align-items:center;gap:10px;margin-bottom:9px;min-width:0}
+.P .gp-ud>i{width:34px;height:34px;border-radius:10px;flex:none;display:flex;align-items:center;justify-content:center;font-size:14px;background:var(--tb);color:var(--tc)}
+.P .gp-chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:9px}
+.P .gp-chip{padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;background:var(--tb);color:var(--tc);white-space:nowrap}
+.P .gp-chip.n{background:transparent;border:1px solid var(--gpl);color:var(--t2);padding:1px 7px}
+.P .gp-sep{height:1px;margin:10px 0;background:var(--gpl)}
+
+/* === 固件版本横幅 + 规格卡片(按用户要求还原原版设计) ===
+   我先后试过两版替代设计, 用户都不满意, 现在恢复成改动前的样子:
+     第一版: 渐变强调条 + 彩色图标方块  → "太丑"
+     第二版: 细分隔线表格(照 cpe37 的 Apple 风格) → "原来的卡片式设计很好看"
+   结论很清楚, 这页的视觉基调本来就是彩色玻璃卡片(hero-sig、dv-stat 磁贴、
+   蜂窝的 cell-item 都是这一套), 规格区换成素表反而和周围割裂。
+   下面这几条 CSS 和改动前逐字一致, 没有"改进"。
+
+   保留的唯一一处调整: .feat 网格仍只放五块(型号/处理器/核心数/内核/主机名),
+   内存容量和存储空间两块不放回来 —— 内存剩余在圆环里、存储已用/总量在 dv-stats
+   磁贴里, 再列一遍就是用户最初指出的"和设备总览冲突"。详见 HTML 侧注释。 */
+
+/* === 设备规格: 一张外层 .cd 卡装三个分区 ===
+   之前这里是三块各自裸在页面上的东西(固件横幅 + 两排彩色磁贴), 没有外壳也没有
+   标题, 和上下文的 .cd 卡(网络通道、广域网、设备总览)摆在一起就显得是散落的碎片。
+   现在收进一张标准 .cd 卡, 内部按语义分三个区: 固件 / 硬件 / 无线,
+   每区一条 .sp-h 小标题带一条到行尾的细引导线。
+
+   外层卡沿用 .cd 的全部基准(背景 --c1、圆角 var(--r)、padding 16/18), 所以它和
+   相邻卡片天然对齐; 分区标题沿用 .dv-sub 那套 9px 大写的语言(设备总览右栏在用),
+   不新造字号。这样"卡中卡"读起来是同一套设计, 不是又加了一层壳。
+
+   固件那块保留横幅式的整行摆法(.fw-banner) —— 版本号是一长串
+   "Mwrt @Manper-5.1.1139-24 by Padavanonly's ... r33382-861b29b0a9",
+   塞进半列宽的磁贴里会折成四五行, 整排磁贴跟着被拉高。 */
+.P .spec-wrap{display:flex;flex-direction:column;gap:5px}
+/* 分区小标题: 文字 + 一条延伸到行尾的细线。线用 flex:1 的空 i 撑,
+   不用 ::after 的 border —— 这页的 i 标签全是 FontAwesome 图标, 这里给个
+   不带 fas 类的裸 i 当装饰条, 比再引入一层 span 干净。 */
+.P .sp-h{display:flex;align-items:center;gap:8px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.9px;color:var(--t2);margin-top:9px}
+.P .sp-h:first-child{margin-top:0}
+.P .sp-h>i.fas{font-size:9px;color:var(--ac);opacity:0.85}
+/* em 只是个不带语义的内联壳(和 .dv-cell .ck em 同一个用法), 去掉默认斜体 */
+.P .sp-h>em{font-style:normal;flex-shrink:0}
+.P .sp-h>i.ln{flex:1;height:1px;background:var(--bd);border-radius:1px}
+
+/* Firmware banner —— 规格卡里的固件分区, 整行摆放。
+   **无边框**: 规格区这七块(固件 + 六块磁贴)一律只靠色块本身划界, 不描边。
+   色罩因此要比带边框时稍浓一点才立得住 —— 边框原本承担了一部分"这里是一块"
+   的交代, 去掉之后全压在底色上。 */
+.P .fw-banner{background:linear-gradient(135deg,rgba(124,92,252,0.13),rgba(34,211,238,0.08));border-radius:14px;padding:18px 18px;display:flex;align-items:center;gap:14px;min-height:78px;box-sizing:border-box;transition:transform 0.2s}
+.P .fw-banner:hover{transform:translateY(-1px)}
+/* 固件图标给个徽章底板 —— 和下面磁贴的 .fc-i 一样是"分类标识"的角色,
+   裸图标在整行横幅里会显得孤零零一个点 */
+.P .fw-banner>i{width:36px;height:36px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--ac);background:rgba(124,92,252,0.13);flex-shrink:0}
+.P .fw-banner>div{min-width:0}
+.P .fw-banner .fw-lbl{font-size:9px;text-transform:uppercase;letter-spacing:0.5px;color:var(--t2);line-height:1.15}
+/* 版本号是等宽字体: 一长串 r33382-861b29b0a9 这种构建号用等宽读起来才像版本号。
+   字号比磁贴的值小一档(12px vs 13px) —— 它最长, 同档会显得比别的都重。 */
+.P .fw-banner .fw-val{font-size:12px;font-weight:700;color:var(--t1);margin-top:2px;line-height:1.35;font-family:'SF Mono','JetBrains Mono','Consolas',monospace;word-break:break-all}
+
+/* 固件横幅右端: 「检查更新」键 + 有新版时的 NEW 标。
+   横幅允许折行: 窄屏时版本号那栏占满一行, 操作区掉到下一行靠右, 不挤压版本号。
+   NEW 标是一个 <a>, 直接跳在线更新页; 读的是后端缓存(latest), 打开首页不联网。 */
+.P .fw-banner{flex-wrap:wrap}
+.P .fw-banner>.fw-txt{flex:1 1 220px}
+.P .fw-act{display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0}
+.P .fw-chk{height:28px;padding:0 12px;border-radius:14px;border:1px solid var(--bd);background:var(--c2);color:var(--t2);font-size:11px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:color 0.2s,border-color 0.2s}
+.P .fw-chk:hover:not(:disabled){color:var(--ac);border-color:var(--ac)}
+.P .fw-chk:disabled{cursor:default;opacity:0.7}
+.P .fw-chk:focus-visible,.P .fw-new:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.P .fw-new{height:28px;padding:0 10px 0 4px;border-radius:14px;display:inline-flex;align-items:center;gap:6px;text-decoration:none;font-size:11px;font-weight:600;color:#ef4444;background:rgba(239,68,68,0.10)}
+.P .fw-new[hidden]{display:none}
+.P .fw-new b{height:20px;padding:0 7px;border-radius:10px;display:inline-flex;align-items:center;font-size:10px;font-weight:800;letter-spacing:0.5px;color:#fff;background:linear-gradient(135deg,#f43f5e,#f97316);animation:fw-new-pulse 2s ease-in-out infinite}
+.P .fw-new:hover{background:rgba(239,68,68,0.16)}
+@keyframes fw-new-pulse{0%,100%{box-shadow:0 0 0 0 rgba(244,63,94,0.45)}50%{box-shadow:0 0 0 5px rgba(244,63,94,0)}}
+@media(prefers-reduced-motion:reduce){.P .fw-new b{animation:none}}
+
+/* 设备总览右栏第一行右端: 「设置向导」+ 白天/夜间键并排。和 .tbtn 一样不描边、hover 淡紫底 */
+.P .dv-acts{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.P .wz-btn{height:26px;padding:0 11px;border-radius:13px;border:0;background:var(--c2);color:var(--t2);font-size:11px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:6px;transition:color 0.3s,background 0.3s}
+.P .wz-btn:hover{color:var(--ac);background:rgba(124,92,252,0.12)}
+.P .wz-btn:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+
+/* Feature cards */
+.P .feat{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+/* 磁贴高度: min-height 64px + padding 15/16。
+   原先是 padding 12px 13px、实高约 54px —— 内容只有两行小字, 色块裹得很紧,
+   看着像"被压扁的标签行"而不是一块卡。扁平化靠的是色块本身有体量(没有边框和
+   阴影来交代边界), 所以这里用 min-height 顶住下限: 不管标签多短、值多短,
+   每块的高都一样, 两列并排时不会一高一矮。
+   用 min-height 而不是写死 height: 处理器型号那种长值折行时还得撑开。
+   配 box-sizing:border-box, 否则 min-height 不含 padding, 实高会多出 30px。
+   第二轮又抬了一档(64 -> 78px, padding 15/16 -> 18/18): 64px 那档两行小字
+   仍显紧, 色块还是像"加了底色的标签行"。扁平化没有边框和阴影来交代边界,
+   只能靠色块自己有体量, 所以留白要比带边框时更舍得给。
+   78px 这个数不是随手取的 —— 和右栏 .dv-stat 那排磁贴的实高同档,
+   两处隔着一张卡上下相邻, 高度对不上会看出是两套东西。 */
+.P .fc{border-radius:14px;padding:18px 18px;min-height:78px;box-sizing:border-box;position:relative;overflow:hidden;transition:transform 0.2s;display:flex;align-items:center;gap:14px;min-width:0}
+.P .fc:hover{transform:translateY(-1px)}
+/* 图标进 30px 圆角徽章, 和固件横幅、连接信息的 .ck i 同一个做法。
+   原先是 18px 的裸图标压在值上面(竖排三层: 图标/值/标签), 磁贴因此偏高,
+   而图标那一层只是分类提示, 不值一整行。改成横排之后同样内容矮一截,
+   标签和值贴在一起读作一组。 */
+.P .fc .fc-i{width:36px;height:36px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+/* 值和标签竖排的那一栏 */
+.P .fc .fc-c{min-width:0;display:flex;flex-direction:column}
+/* 标签在**上**、值在**下** —— 和连接信息的 .dv-cell 同序。
+   原版是值在上标签在下, 两处顺序相反会让人以为是两种不同的东西。 */
+.P .fc .fc-l{font-size:9px;text-transform:uppercase;letter-spacing:0.5px;color:var(--t2);line-height:1.15}
+.P .fc .fc-v{font-size:13px;font-weight:700;color:var(--t1);line-height:1.3;margin-top:2px;word-break:break-all}
+/* 六套配色。**全部无边框** —— 扁平化就是让色块自己划界, 不再描一圈线。
+   去掉边框后色罩从 .1/.04 提到 .13/.07: 原先那圈 rgba(…,0.12) 的描边承担了
+   一部分"这是一块独立磁贴"的交代, 现在全压在底色上, 不提浓度会散。
+   徽章底板同步从 13% 提到 16%, 保持它和磁贴底色之间原有的层差。 */
+.P .fc.fp{background:linear-gradient(135deg,rgba(124,92,252,0.13),rgba(167,139,250,0.07))}.P .fc.fp .fc-i{color:#a78bfa;background:rgba(124,92,252,0.16)}
+.P .fc.fb{background:linear-gradient(135deg,rgba(96,165,250,0.13),rgba(59,130,246,0.07))}.P .fc.fb .fc-i{color:#60a5fa;background:rgba(96,165,250,0.16)}
+.P .fc.fcy{background:linear-gradient(135deg,rgba(34,211,238,0.13),rgba(6,182,212,0.07))}.P .fc.fcy .fc-i{color:#22d3ee;background:rgba(34,211,238,0.16)}
+.P .fc.fg{background:linear-gradient(135deg,rgba(52,211,153,0.13),rgba(16,185,129,0.07))}.P .fc.fg .fc-i{color:#34d399;background:rgba(52,211,153,0.16)}
+.P .fc.fo{background:linear-gradient(135deg,rgba(251,191,36,0.13),rgba(245,158,11,0.07))}.P .fc.fo .fc-i{color:#fbbf24;background:rgba(251,191,36,0.16)}
+.P .fc.fpk{background:linear-gradient(135deg,rgba(244,114,182,0.13),rgba(236,72,153,0.07))}.P .fc.fpk .fc-i{color:#f472b6;background:rgba(244,114,182,0.16)}
+.P .fc.full{grid-column:1/-1}
+/* === 浅色模式: 规格区的渐变同样要重配 ===
+   和 .dv-cell 那边一模一样的问题(详见那段注释): 浅色底 --c1 是 rgba(255,255,255,.96),
+   在它上面叠 .13/.07 的色罩几乎看不见, 七块会糊成一片白。
+   浅色这边提到 .16/.08, 图标换成深一档的同色系(亮色是配深底的, 白底上对比度不够)。
+
+   **这里也不描边**, 和深色一致走扁平。浅色少了边框更容易发飘, 所以保留那条
+   极淡投影(0 2px 8px /.04)当唯一的立体交代 —— 它不是一圈线, 不破坏扁平观感,
+   这页其它浅色覆盖(.ca-c / .nb-c / .sr-i)也都是这个做法。 */
+.P.L .fw-banner{background:linear-gradient(135deg,rgba(124,92,252,0.16),rgba(34,211,238,0.1))}
+.P.L .fw-banner>i{background:rgba(124,92,252,0.16);color:#6d4df6}
+.P.L .fc.fp{background:linear-gradient(135deg,rgba(124,92,252,0.16),rgba(167,139,250,0.08))}.P.L .fc.fp .fc-i{color:#6d4df6;background:rgba(124,92,252,0.16)}
+.P.L .fc.fb{background:linear-gradient(135deg,rgba(37,99,235,0.16),rgba(59,130,246,0.08))}.P.L .fc.fb .fc-i{color:#2563eb;background:rgba(37,99,235,0.16)}
+.P.L .fc.fcy{background:linear-gradient(135deg,rgba(8,145,178,0.16),rgba(6,182,212,0.08))}.P.L .fc.fcy .fc-i{color:#0891b2;background:rgba(8,145,178,0.16)}
+.P.L .fc.fg{background:linear-gradient(135deg,rgba(5,150,105,0.16),rgba(16,185,129,0.08))}.P.L .fc.fg .fc-i{color:#059669;background:rgba(5,150,105,0.16)}
+.P.L .fc.fo{background:linear-gradient(135deg,rgba(217,119,6,0.16),rgba(245,158,11,0.08))}.P.L .fc.fo .fc-i{color:#d97706;background:rgba(217,119,6,0.16)}
+.P.L .fc.fpk{background:linear-gradient(135deg,rgba(219,39,119,0.16),rgba(236,72,153,0.08))}.P.L .fc.fpk .fc-i{color:#db2777;background:rgba(219,39,119,0.16)}
+
+/* === WiFi 磁贴右上角的编辑按钮 ===
+   只有无线那两块 .fc 带这个按钮(规格区别的磁贴都是纯展示, 没有可改的东西)。
+   绝对定位在磁贴右上角 —— .fc 本来就是 position:relative(为了 overflow:hidden
+   裁掉渐变), 所以不用额外加定位上下文。
+   尺寸 22px: 比整机图右上角那两个工具按钮(.dv-imgtools, 26px)小一档,
+   因为它贴在一块只有 64px 高的磁贴里, 26px 会显得压在值上面。
+   平时 opacity .45 —— 它是次要操作, 不该和磁贴里的值抢注意力; 鼠标移到磁贴上
+   才完全显形(:hover 在 .fc 上而不是按钮上, 整块都是"可编辑"的提示区)。
+   触屏没有 hover, 所以 .45 这个底线必须保证能看见、能点 —— 不用 opacity:0。 */
+.P .fc-edit{position:absolute;top:7px;right:7px;width:22px;height:22px;padding:0;border-radius:7px;border:0;background:rgba(255,255,255,0.08);color:var(--t2);font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0.45;backdrop-filter:blur(3px);transition:opacity 0.2s,background 0.2s,color 0.2s;z-index:2}
+.P .fc:hover .fc-edit{opacity:1}
+.P .fc-edit:hover{background:rgba(255,255,255,0.16);color:var(--t1)}
+.P .fc-edit:focus-visible{opacity:1;outline:2px solid var(--ac);outline-offset:1px}
+.P.L .fc-edit{background:rgba(0,0,0,0.05)}
+.P.L .fc-edit:hover{background:rgba(0,0,0,0.1)}
+/* 按钮占了右上角, 值的最后一行不能钻到它底下。内容栏右侧留 20px 让位 ——
+   只有带按钮的磁贴需要, 所以挂在 .fc.has-edit 上而不是全局 .fc-c。 */
+.P .fc.has-edit .fc-c{padding-right:20px}
+
+/* === WiFi 设置浮窗 ===
+   这页原先没有任何 modal/overlay 结构(整机图的截图预览是内嵌的), 所以这是新建的
+   一套。做法照向导(.qsw-root)那条已经验证过的路子: 一层固定定位的罩 + 罩上
+   backdrop-filter 模糊背后内容, 窗口作为子节点照常清晰渲染。
+
+   z-index 10050: 要压过 .toast 的 10000 —— 保存结果是用 toast 报的, 浮窗关掉前
+   也可能弹, 那条提示得在窗口上面。
+   罩色比向导淡一点(.45/.55 对 .5/.62): 这个浮窗只盖住一页内容而不是整个管理界面,
+   模糊本身已经把背景推远了, 罩太浓会糊成一团看不出是毛玻璃。 */
+/* 左边界用变量, 由 JS 在打开时按内容区的实际左沿写进来(见 wfmOpen)。
+   默认 0 兜底: 变量没写上(JS 没跑到、取不到内容区)时退化成全屏居中,
+   也就是改之前的行为 —— 不会变成一条贴在左边的窄条。
+   为什么不写死侧边栏宽度: 这个主题的侧边栏有展开/折叠两态(body.mwrt-sb-collapsed)
+   还带 .28s 的宽度过渡, 写死数值在另一态下就偏了。 */
+.P .wfm{position:fixed;top:var(--mwrt-ov-t,0px);right:var(--mwrt-ov-r,0px);bottom:var(--mwrt-ov-b,0px);left:var(--mwrt-ov-l,var(--wfm-l,0px));z-index:10050;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(6,8,14,0.55);backdrop-filter:blur(14px) saturate(130%);-webkit-backdrop-filter:blur(14px) saturate(130%)}
+.P .wfm.open{display:flex}
+.P.L .wfm{background:rgba(226,230,240,0.45)}
+/* 窗口本身不透明(--c1), 不叠第二层毛玻璃: 两层模糊套起来文字会发虚。 */
+.P .wfm-win{position:relative;width:100%;max-width:380px;max-height:calc(100vh - 40px);overflow-y:auto;background:var(--c1);border:1px solid var(--bd);border-radius:16px;padding:18px 20px 20px;box-shadow:0 24px 60px rgba(0,0,0,0.45);animation:wfm-in 0.22s ease-out}
+.P.L .wfm-win{box-shadow:0 24px 60px rgba(0,0,0,0.16)}
+@keyframes wfm-in{from{opacity:0;transform:translateY(10px) scale(0.98)}to{opacity:1;transform:none}}
+.P .wfm-hd{display:flex;align-items:flex-start;gap:11px;margin-bottom:16px;padding-right:30px}
+.P .wfm-hd>i{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--ac);background:rgba(124,92,252,0.16);flex-shrink:0}
+.P .wfm-hd .wfm-t{font-size:14px;font-weight:700;color:var(--t1);line-height:1.3}
+.P .wfm-hd .wfm-s{font-size:10px;color:var(--t2);margin-top:3px;line-height:1.3}
+/* s63 第2项: 载波聚合浮窗比 WiFi 窗宽(要容 ca-grid 的 260px 载波卡), 单独放宽上限。 */
+.P .caw-win{max-width:720px}
+.P .caw-body{margin-top:2px}
+.P .caw-body .clb-tall{overflow:visible}
+.P .caw-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:34px 10px;color:var(--t2);font-size:12px;text-align:center}
+.P .caw-empty>i{font-size:26px;opacity:0.5}
+.P .caw-empty.sim-prog small{font-size:10px;color:var(--t3)}
+/* s63 第1项: 卡槽切换浮窗 —— 窄一点(选项是竖排按钮, 不像 CA 那样要宽表格)。 */
+.P .sim-win{max-width:420px}
+.P .sim-list{display:flex;flex-direction:column;gap:9px;margin-top:4px}
+.P .sim-opt{display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box;padding:13px 14px;border-radius:12px;border:1px solid var(--bd);background:var(--c2);color:var(--t1);font-family:inherit;cursor:pointer;text-align:left;transition:border-color 0.18s,background 0.18s,transform 0.12s}
+.P .sim-opt:hover{border-color:var(--ac);background:rgba(124,92,252,0.07)}
+.P .sim-opt:active{transform:scale(0.99)}
+.P .sim-opt:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+.P .sim-opt.cur{border-color:var(--ac);background:rgba(124,92,252,0.1)}
+.P .sim-opt .sim-ic{width:34px;height:34px;flex-shrink:0;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;background:rgba(124,92,252,0.16);color:#c4b5fd;font-size:15px}
+.P .sim-opt.cur .sim-ic{background:var(--ac);color:#fff}
+.P .sim-opt .sim-tx{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.P .sim-opt .sim-tx b{font-size:14px;font-weight:600}
+.P .sim-opt .sim-tx small{font-size:10px;color:var(--t3)}
+.P .sim-opt .sim-ck{flex-shrink:0;font-size:16px;color:var(--t3)}
+.P .sim-opt.cur .sim-ck{color:var(--ac)}
+/* s63 无线网桥: WiFi 小标题行右端的「无线网桥」按钮 */
+.P .sp-act{flex-shrink:0;display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:8px;border:1px solid var(--bd);background:var(--c2);color:var(--t2);font-size:10px;font-weight:600;font-family:inherit;letter-spacing:0;text-transform:none;cursor:pointer;transition:background 0.18s,color 0.18s,border-color 0.18s}
+.P .sp-act>i{font-size:10px}
+.P .sp-act:hover{border-color:var(--ac);background:rgba(124,92,252,0.1);color:var(--t1)}
+.P .sp-act:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+.P .sp-act.on{border-color:transparent;background:linear-gradient(135deg,#22d3ee,#0891b2);color:#fff}
+.P .sp-act.on:hover{filter:brightness(1.08);color:#fff}
+/* 无线网桥浮窗: 频段切换 + 扫描列表 + 加入表单。复用 .wfm/.caw 壳。 */
+.P .wlb-win{max-width:460px}
+.P .wlb-tabs{display:flex;gap:6px;margin:2px 0 10px}
+.P .wlb-tab{flex:1;padding:8px;border-radius:9px;border:1px solid var(--bd);background:var(--c2);color:var(--t2);font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;transition:all 0.16s}
+.P .wlb-tab.on{border-color:transparent;background:rgba(34,211,238,0.14);color:var(--ac)}
+.P .wlb-tab:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+.P .wlb-list{display:flex;flex-direction:column;gap:7px;max-height:48vh;overflow-y:auto}
+.P .wlb-ap{display:flex;align-items:center;gap:11px;width:100%;box-sizing:border-box;padding:11px 12px;border-radius:11px;border:1px solid var(--bd);background:var(--c2);color:var(--t1);font-family:inherit;cursor:pointer;text-align:left;transition:border-color 0.16s,background 0.16s}
+.P .wlb-ap:hover{border-color:var(--ac);background:rgba(34,211,238,0.07)}
+.P .wlb-ap:disabled{opacity:0.5;cursor:default}
+.P .wlb-ap:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+.P .wlb-sig{flex:0 0 auto;width:30px;display:flex;align-items:flex-end;justify-content:center;gap:2px;height:22px}
+.P .wlb-sig>i{width:3px;border-radius:1px;background:var(--bd)}
+.P .wlb-sig>i.on{background:var(--ac)}
+.P .wlb-apx{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.P .wlb-apx b{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.P .wlb-apx small{font-size:10px;color:var(--t3)}
+.P .wlb-tag{flex:0 0 auto;font-size:9px;font-weight:600;padding:2px 7px;border-radius:999px;background:var(--c3,rgba(127,127,127,0.12));color:var(--t2)}
+.P .wlb-join{flex:0 0 auto;font-size:10px;font-weight:600;color:var(--ac)}
+/* 已桥接徽章(广域网卡片 + hero 可用) */
+.P .wlb-badge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:rgba(34,211,238,0.14);color:var(--ac);font-size:11px;font-weight:600}
+.P .wlb-badge>i{font-size:11px}
+/* 无线网桥加入表单 */
+.P .wlb-cur{margin-bottom:10px}
+.P .wlb-back{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:8px;border:1px solid var(--bd);background:var(--c2);color:var(--t2);font-size:11px;font-family:inherit;cursor:pointer;transition:color 0.15s,border-color 0.15s}
+.P .wlb-back:hover{color:var(--ac);border-color:var(--ac)}
+.P .wlb-sel{display:flex;align-items:center;gap:9px;padding:11px 12px;border-radius:10px;border:1px solid var(--bd);background:var(--c2)}
+.P .wlb-sel>i{color:var(--ac);font-size:15px}
+.P .wlb-sel>b{font-size:14px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.P .wlb-sel>span{font-size:10px;color:var(--t3)}
+.P .wlb-ro{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;background:var(--c2);color:var(--t2);font-size:12px}
+.P .wlb-ro>i{color:var(--ac);font-size:13px}
+.P .wlb-chk{display:flex;align-items:flex-start;gap:9px;margin:13px 0 3px;cursor:pointer}
+.P .wlb-chk>input{margin-top:2px;flex-shrink:0;width:16px;height:16px;accent-color:var(--ac)}
+.P .wlb-chk>span{font-size:12px;color:var(--t1);font-weight:600;line-height:1.4}
+.P .wlb-chk>span>small{display:block;font-size:10px;color:var(--t3);font-weight:400;margin-top:2px}
+.P .wfm-act button.pri.danger{background:linear-gradient(135deg,#f87171,#dc2626)}
+/* 已桥接视图 */
+.P .wlb-done{display:flex;align-items:center;gap:13px;padding:15px 14px;border-radius:12px;border:1px solid var(--bd);background:var(--c2);margin-bottom:4px}
+.P .wlb-done.ok{border-color:rgba(34,211,238,0.4);background:rgba(34,211,238,0.07)}
+.P .wlb-done.warn{border-color:rgba(251,191,36,0.4);background:rgba(251,191,36,0.07)}
+.P .wlb-done-ic{width:42px;height:42px;flex-shrink:0;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:18px}
+.P .wlb-done.ok .wlb-done-ic{background:var(--ac);color:#fff}
+.P .wlb-done.warn .wlb-done-ic{background:#fbbf24;color:#3a2e05}
+.P .wlb-done-x{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.P .wlb-done-x>b{font-size:15px;font-weight:600}
+.P .wlb-done-x>small{font-size:11px;color:var(--t3)}
+.P .wlb-done-p{color:var(--ac)!important;display:flex;align-items:center;gap:5px;margin-top:2px}
+/* s63: 可点击的 hero 指标卡(频段/卡槽), 悬停微亮。(s75 用户要求去掉右下角的淡角标, 别加回) */
+.P .h-m-tap{cursor:pointer;position:relative;transition:background 0.18s,border-color 0.18s}
+.P .h-m-tap:hover{border-color:var(--ac);background:rgba(124,92,252,0.08)}
+.P .h-m-tap:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+/* s63 第3项: 内存圆环可双击释放。平时鼠标给个 pointer 暗示; 清理进行中(mem-cleaning)
+   中心数字轻微呼吸 + 圆环描边加一层流光, 读作"正在处理"。 */
+.P .ga-dbl{cursor:pointer}
+/* s75 内存卡左上角一行淡字「双击清理」, 不抢眼: 次级字色 + 半透明, 悬停才稍微提亮; 清理进行中先藏起来 */
+.P .ga-tip{position:absolute;top:10px;left:12px;z-index:1;font-size:10px;line-height:1;color:var(--t2);opacity:0.55;pointer-events:none;white-space:nowrap;transition:opacity 0.2s}
+.P .ga-dbl:hover .ga-tip{opacity:0.85}
+.P .ga-dbl.mem-cleaning .ga-tip{opacity:0}
+@media(max-width:600px){.P .ga-tip{top:7px;left:8px;font-size:9px}}
+.P .ga-dbl.mem-cleaning .ga-c .ga-v{animation:mempulse 0.9s ease-in-out infinite}
+.P .ga-dbl.mem-cleaning .ga-fg{filter:drop-shadow(0 0 4px rgba(52,211,153,0.6));transition:stroke-dashoffset 0.28s ease,stroke 0.3s}
+@keyframes mempulse{0%,100%{opacity:1}50%{opacity:0.45}}
+/* 关闭键: 用户点名"右上角可以关闭"。贴窗口右上角, 和 .fc-edit 同一种摆法。 */
+.P .wfm-x{position:absolute;top:13px;right:13px;width:26px;height:26px;padding:0;border-radius:8px;border:0;background:rgba(255,255,255,0.07);color:var(--t2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.2s,color 0.2s}
+.P .wfm-x:hover{background:rgba(248,113,113,0.16);color:#f87171}
+.P.L .wfm-x{background:rgba(0,0,0,0.05)}
+.P.L .wfm-x:hover{background:rgba(220,38,38,0.1);color:#dc2626}
+.P .wfm-f{display:flex;flex-direction:column;gap:5px;margin-bottom:13px}
+.P .wfm-f>label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--t2)}
+/* 输入框沿用页面变量, 不引新色。font-size 必须 ≥16px 才能避免 iOS Safari
+   聚焦时自动放大整页 —— 这页在手机上会被访问(有 600px 的断点)。 */
+.P .wfm-f input,.P .wfm-f select{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid var(--bd);background:var(--c2);color:var(--t1);font-size:16px;font-family:inherit;transition:border-color 0.2s}
+.P .wfm-f input:focus,.P .wfm-f select:focus{outline:0;border-color:var(--ac)}
+.P .wfm-f .wfm-hint{font-size:9px;color:var(--t3);line-height:1.35}
+/* 密码框和"显示密码"按钮并排 */
+.P .wfm-pw{position:relative}
+.P .wfm-pw input{padding-right:38px}
+.P .wfm-pw button{position:absolute;top:0;right:0;height:100%;width:36px;padding:0;border:0;background:none;color:var(--t2);font-size:11px;cursor:pointer}
+.P .wfm-pw button:hover{color:var(--t1)}
+.P .wfm-act{display:flex;gap:8px;margin-top:17px}
+.P .wfm-act button{flex:1;padding:11px;border-radius:10px;border:1px solid var(--bd);background:var(--c2);color:var(--t2);font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;transition:background 0.2s,color 0.2s,opacity 0.2s}
+.P .wfm-act button.pri{border-color:transparent;background:linear-gradient(135deg,#7c5cfc,#a78bfa);color:#fff}
+.P .wfm-act button:hover{color:var(--t1)}
+.P .wfm-act button.pri:hover{color:#fff;filter:brightness(1.08)}
+.P .wfm-act button:disabled{opacity:0.5;cursor:default;filter:none}
+/* 改无线会断开当前连接 —— 如果用户正用 WiFi 连着路由器改。这条警告必须在
+   点保存之前就看得见, 不能等保存完再 toast。 */
+.P .wfm-warn{display:flex;gap:8px;padding:10px 12px;border-radius:10px;background:rgba(251,191,36,0.1);color:var(--og);font-size:10px;line-height:1.45;margin-top:3px}
+.P .wfm-warn i{font-size:11px;flex-shrink:0;margin-top:1px}
+.P.L .wfm-warn{background:rgba(217,119,6,0.1);color:#b45309}
+
+/* === 网口 WAN/LAN 切换: 网口格里的按钮(只有 C2000 MAX 输出) ===
+   s76 重做(用户嫌原来"⇄ 切换 WAN/LAN"彩色长条又丑又长): 改成跟在角色名(WAN/LAN)后面的一枚小按钮,
+   高 20px、中性灰底、次级字色, 只写"⇄ 切换"; 悬停才提亮成正文色。不再吃网口格的绿/蓝, 页面不花。
+   点开的浮窗在全局的 mwrt-portsw.js 里(和"接入检测"提示一套, 所有页面都有)。 */
+.P .dv-port .psw{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px;border-radius:6px;border:0;background:rgba(127,127,140,0.14);color:var(--t2);font-size:10px;font-weight:500;font-family:inherit;letter-spacing:0;line-height:1;cursor:pointer;flex-shrink:0;transition:background 0.18s,color 0.18s}
+.P .dv-port .psw i{font-size:9px}
+.P .dv-port .psw:hover{background:rgba(127,127,140,0.22);color:var(--t1)}
+.P .dv-port .psw:active{transform:scale(0.96)}
+.P .dv-port .psw:focus-visible{outline:2px solid var(--t2);outline-offset:2px}
+
+/* === Hero · 蜂窝信号 ===
+   上一版的问题: 左上两颗徽章、左下一个 64px 小环 + 一行 dBm, 右边远远地挂着制式和小区号,
+   中间一大片空着; 运营商名(.h-op-name)整个 display:none, logo 也只在拨号成功那一轮出现。
+   读起来像"几个零件散落在一条横幅里", 没有主次。
+
+   现在分三块, 用 grid-template-areas 排:
+     id   身份: 运营商品牌块(logo 裁成方形 app 图标) + 运营商名 19px/800 + 制式胶囊,
+          下一行是状态点 + 已拨号 · 制式原文
+     mx   四格指标: RSRQ / SINR(带四档判据的色条) + 频段 / 小区(PCI 为主值, CID 为副)
+     sig  右侧信号舱: 96px 刻度环, 环心是 RSRP 数值, 旁边是档位字(优秀/良好/…)和五格信号柱
+   桌面上 sig 跨两行站在右边, 窄屏(≤860)三块竖排。
+
+   和设备总览卡一样不画线(没有外框, 也去掉了左侧 3px 渐变竖条): 卡片是 c1 + 两团紫/青
+   径向光, 格子和信号舱是 c2 实底, 界线靠亮度差; 浅色下 c2 跟白太近, 补极淡投影。
+   信号舱的光晕颜色跟着信号档位走(--lvr 由 heroUp 写), 一眼就能看出好坏。 */
+/* s67: hero 顶部扁平化 —— 去紫青光斑/同心波纹, 底色改设计稿(pc.svg)的蓝青线性渐变 #29365c->#1b3444, 信号舱去档位光晕 */
+.P .hero{margin-bottom:14px}
+.P .hero-sig{--lvr:124,92,252;position:relative;overflow:hidden;border-radius:var(--r);padding:14px 18px;display:grid;grid-template-columns:minmax(0,1fr) minmax(250px,290px);grid-template-areas:"id sig" "mx sig";column-gap:20px;row-gap:11px;align-items:center;background:var(--c1);border:1px solid var(--bd)}
+/* s74: 夜间 hero 和下面所有 .cd 卡片同一张深底(var(--c1) + 1px var(--bd)), 不再用白天那条蓝青渐变 */
+/* 信号舱后面一圈圈很淡的同心波纹, 往外渐隐 —— 只是"无线电"的暗示, 不是线框 */
+.P .hero-sig::before{display:none}
+/* s41 白天模式: 用户要求 hero 和夜间一样是深色卡, 但比夜间浅一档 ——
+   底色从夜间的 c1(≈#12151f) 抬到石板靛(#2b3150→#232838), 紫/青两团光也加浓一点,
+   落在浅灰页面上再补一条靛色投影把它托起来。
+   卡片变深之后, 里面的文字/格子必须换回深色那套变量, 否则 .P.L 的深字(#1a1d2e)
+   会印在深底上看不见: 这里就地把 --t1/--t2/--t3/--c2 重定义回深色值(c2 用半透明白,
+   在更浅的底上仍比卡片亮一档)。原先专为白底压深的绿/黄/红(#059669 等)和白底投影也一并撤掉。 */
+.P.L .hero-sig{--t1:#f1f2f8;--t2:#a7aec2;--t3:#535b72;--c2:rgba(255,255,255,0.065);background:linear-gradient(135deg,#29365c 0%,#223a52 55%,#1b3444 100%);border-color:transparent;box-shadow:none}
+.P.L .hero-sig::before{display:none}
+.P .h-id{grid-area:id;display:flex;align-items:center;gap:14px;min-width:0;position:relative;z-index:1}
+/* 品牌块: 没 logo 时是中性浅色块 + 基站图标(图标与卡片标题同色, s74 用户嫌紫青渐变太花); 有 logo 时透明无底, logo 由 showLogo() 裁出图形部分 */
+.P .h-brand{position:relative;width:38px;height:38px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.07);color:var(--t1);font-size:15px;box-shadow:none}
+/* 有 logo 时不垫底色: logo 本身是透明 PNG, 直接站在卡片上(用户要求去掉白底) */
+.P .h-brand.has-logo{background:transparent;box-shadow:none}
+.P .h-brand-clip{position:relative;overflow:hidden;display:none;width:28px;height:28px}
+.P .h-brand.has-logo .h-brand-clip{display:block}
+.P .h-brand.has-logo .h-brand-ph{display:none}
+.P .h-brand-clip img{position:absolute;max-width:none;display:block}
+.P .h-id-t{min-width:0;flex:1}
+.P .h-op-row{display:flex;align-items:center;gap:10px;min-width:0}
+.P .h-op-name{font-size:19px;font-weight:800;color:var(--t1);letter-spacing:0.3px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.P .h-op-sub{display:flex;align-items:center;gap:7px;margin-top:6px;font-size:11px;color:var(--t2);min-width:0;white-space:nowrap}
+.P .h-dot{position:relative;width:7px;height:7px;border-radius:50%;background:var(--t3);flex-shrink:0}
+.P .hero-sig.is-up .h-dot{background:var(--gn)}
+.P .hero-sig.is-up .h-dot::after{content:'';position:absolute;inset:0;border-radius:50%;background:var(--gn);animation:ripple 1.8s ease-out infinite}
+.P .hero-sig.is-down .h-dot{background:var(--rd)}
+.P .hero-sig.is-up #h-op-status{color:var(--gn);font-weight:600}
+.P .hero-sig.is-down #h-op-status{color:var(--rd);font-weight:600}
+/* s75 蜂窝版身份区压成一行: [logo] 运营商名 [5G SA] ● 已拨号。原先第二行的制式原文(NR5G-SA)和徽章重复, 已删;
+   品牌块跟着从 54px 缩到 38px, 整张 hero 矮一截。系统版(.hero-sys)仍是两行, 不受影响。 */
+.P .h-op-st{display:flex;align-items:center;gap:6px;flex-shrink:0;font-size:11px;color:var(--t2);white-space:nowrap}
+.P .h-bdg{display:flex;gap:6px;flex-shrink:0}
+.P .bdg{height:22px;padding:0 10px;border-radius:11px;font-size:10px;font-weight:800;letter-spacing:0.5px;color:#fff;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.P .bdg i{font-size:9px}
+.P .bdg-5g{background:linear-gradient(135deg,#6366f1,#3b82f6);box-shadow:none}.P .bdg-4g{background:linear-gradient(135deg,#0891b2,#06b6d4);box-shadow:none}
+/* 四格指标, 尺寸和设备总览右栏的 .dv-stat 同一档(c2 实底、圆角 12) */
+.P .h-mx{grid-area:mx;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;position:relative;z-index:1}
+/* s56 字重整体退一档, 字体栈单列出来(连接信息六格 .dv-cell 用同一套)。
+   原先值 800、标签 700/600, 在 Windows 上全都是粗体: 页面字体落到微软雅黑, 雅黑只有
+   细/常规/粗三档, 600 和 800 一样取粗体; 卡槽格的值是"机身卡槽"这种中文, 18px 粗体压在
+   格子里最显重。数字和拉丁字母先走 Segoe UI(雅黑的西文本来就是照它做的, 换过去字形不跳),
+   它有真正的 600 半粗; Win11 的 Segoe UI Variable 连 500 都有。中文仍回落到苹方/雅黑。
+   于是 值 600 = 数字半粗; 标签和单位 500 = 雅黑常规, 中文不再发粗。 */
+.P .h-m,.P .dv-cell{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}
+.P .h-m{background:var(--c2);border-radius:12px;padding:8px 11px 9px;min-width:0;display:flex;flex-direction:column;gap:4px}
+.P .h-mk{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:10px;font-weight:500;letter-spacing:0.4px;text-transform:uppercase;color:var(--t2);white-space:nowrap;min-height:16px}
+.P .h-mk i{font-size:10px;margin-right:5px;color:inherit}
+.P .h-mk b{font-size:9px;font-weight:600;letter-spacing:0;padding:2px 6px;border-radius:6px;background:rgba(127,127,140,0.14)}
+.P .h-mv{font-size:18px;font-weight:600;color:var(--t1);line-height:1.15;font-variant-numeric:tabular-nums;letter-spacing:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.P .h-mv small{font-size:10px;font-weight:500;color:var(--t2);margin-left:3px;letter-spacing:0}
+/* 卡槽格的值是中文名(机身卡槽 / 切换中), 600 在雅黑上照样是粗体, 单独降到 500(雅黑常规)、小一号;
+   行高钉在 18px × 1.15: 和旁边频段格的副标题行对齐(480px 以下同理按 16px 算) */
+.P .h-mv.h-mv-t{font-size:16px;font-weight:500;letter-spacing:0.3px;line-height:20.7px}
+.P .h-ms{font-size:10px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums;line-height:1.2}
+.P .h-mb{display:block;height:4px;border-radius:2px;background:rgba(127,127,140,0.18);overflow:hidden;margin:3px 0 4px}
+.P .h-mb>span{display:block;height:100%;border-radius:2px;background:var(--t3);transition:width 0.6s ease}
+.P .h-m.lv-good .h-mb>span{background:linear-gradient(90deg,#10b981,#34d399)}.P .h-m.lv-fair .h-mb>span{background:linear-gradient(90deg,#f59e0b,#fbbf24)}.P .h-m.lv-poor .h-mb>span{background:linear-gradient(90deg,#ef4444,#f87171)}
+.P .h-m.lv-good .h-mk b{background:rgba(52,211,153,0.14);color:#34d399}.P .h-m.lv-fair .h-mk b{background:rgba(251,191,36,0.14);color:#fbbf24}.P .h-m.lv-poor .h-mk b{background:rgba(248,113,113,0.14);color:#f87171}
+/* (原先这里有浅色模式下把档位字压深成 #059669/#d97706/#dc2626 的覆盖 —— s41 起 hero 在白天也是深底, 亮色字原样用, 覆盖已删) */
+/* s41 频段格右上角的成分载波数(5700 才有): 单载波淡紫, 聚合时紫→青渐变 */
+.P .h-mk b.h-ca{background:rgba(124,92,252,0.18);color:#c4b5fd}
+.P .h-mk b.h-ca.on{background:linear-gradient(135deg,rgba(124,92,252,0.55),rgba(34,211,238,0.45));color:#fff}
+/* s41 卡槽格右上角的切卡小图标 → 蜂窝 › 卡槽/UI。.h-mk i 的 margin/紫色是给标签图标的, 这里要撤掉 */
+.P .h-swap{width:18px;height:18px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:rgba(127,127,140,0.14);color:var(--t2);text-decoration:none;transition:background 0.2s,color 0.2s,transform 0.15s}
+.P .h-mk .h-swap i{margin:0;font-size:9px;color:inherit}
+.P .h-swap:hover{background:var(--ac);color:#fff}
+.P .h-swap:active{transform:scale(0.9)}
+.P .h-swap:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+/* s41 SIM 状态行: 前面一颗状态点, 正常=绿 / 异常=红 / 切卡中=黄(闪) */
+.P .h-sim::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px;vertical-align:1px;background:var(--t3)}
+.P .h-sim.ok::before{background:var(--gn)}
+.P .h-sim.bad::before{background:var(--rd)}
+.P .h-sim.busy::before{background:var(--og);animation:mp-blink 1s infinite}
+/* 信号舱 */
+.P .h-sig{grid-area:sig;align-self:stretch;position:relative;z-index:1;display:flex;align-items:center;gap:16px;padding:13px 16px;border-radius:16px;background:var(--c2);transition:background 0.6s}
+/* 环的半径必须是 38: rng() 按 C=2π·38 算 dasharray */
+.P .sig-rg{position:relative;width:86px;height:86px;flex-shrink:0}
+.P .sig-rg svg{width:100%;height:100%;transform:rotate(-90deg);display:block}
+.P .sr-tk{fill:none;stroke:var(--t2);stroke-width:1.4;stroke-dasharray:0.8 4.02;opacity:0.35}
+.P .sr-bg{fill:none;stroke:rgba(127,127,140,0.16);stroke-width:7}
+.P .sr-fg{fill:none;stroke-width:7;stroke-linecap:round;transition:stroke-dashoffset 1s ease,stroke 0.5s}
+.P .sig-rg .ct{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.P .sig-rg .ct .v{font-size:24px;font-weight:800;color:var(--t1);line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-0.5px}
+.P .sig-rg .ct .l{font-size:9px;color:var(--t2);margin-top:4px;letter-spacing:0.6px}
+.P .sig-nfo{min-width:0;display:flex;flex-direction:column;gap:5px}
+.P .sig-k{font-size:9px;font-weight:700;letter-spacing:0.9px;text-transform:uppercase;color:var(--t2);white-space:nowrap}
+.P .sig-lv{font-size:22px;font-weight:800;line-height:1.1;color:var(--t1)}
+.P .sig-lv.good{color:#34d399}.P .sig-lv.fair{color:#fbbf24}.P .sig-lv.poor{color:#f87171}
+.P .sig-bars{display:flex;align-items:flex-end;gap:3px;height:25px}
+.P .sig-bars span{width:5px;border-radius:2px;background:rgba(127,127,140,0.22)}
+.P .sig-bars span.g{background:var(--gn)}.P .sig-bars span.o{background:var(--og)}.P .sig-bars span.r{background:var(--rd)}
+.P .sig-nfo .sl{font-size:10px;color:var(--t2);white-space:nowrap}
+@media(max-width:860px){.P .hero-sig{grid-template-columns:minmax(0,1fr);grid-template-areas:"id" "sig" "mx";padding:18px 16px}.P .hero-sig::before{display:none}.P .h-mx{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* 861~1040px: 视口还没到上面的单列断点, 但左侧菜单栏占掉了宽度, hero 实际只有 ~650-800px, 右边信号舱又固定 290px,
+   四个磁贴被挤到每个 ~100px(文字全是省略号)→ 改 2×2。(蜂窝版/系统版共用 .h-mx) */
+@media(min-width:861px) and (max-width:1040px){.P .h-mx{grid-template-columns:repeat(2,minmax(0,1fr))}.P .hero-sys .h-sep{display:none}}
+@media(max-width:480px){.P .hero-sig{padding:16px 14px;row-gap:14px}.P .h-id{gap:10px}.P .h-brand{width:32px;height:32px;border-radius:10px;font-size:13px}.P .h-brand-clip{width:24px;height:24px}.P .h-op-name{font-size:17px}.P .h-mx{gap:8px}.P .h-m{padding:9px 10px 10px}.P .h-mv{font-size:16px}.P .h-mv.h-mv-t{font-size:15px;line-height:18.4px}.P .h-sig{padding:14px}.P .sig-rg{width:84px;height:84px}.P .sig-rg .ct .v{font-size:21px}.P .sig-lv{font-size:19px}}
+/* s64: 移动端 hero 卡片太高(约 389px 一大坨), 这里专门压扁。不删任何数据, 重排 + 缩尺寸:
+   · 关键重排: 运营商身份(id)和信号舱(sig)挤到**同一行**(左身份右信号), 省掉整块独占的信号舱;
+   · 信号舱 .h-sig 收成紧凑竖条(小圆环 56px + RSRP + 档位), 隐藏五根装饰信号柱(和圆环重复);
+   · 四格指标 .h-mx 下面铺满一行(2×2), padding / 行距全收紧。
+   断点 600px(手机), 平板(601-860)仍走上面那套竖排。 */
+@media(max-width:600px){
+ .P .hero-sig{padding:12px;column-gap:12px;row-gap:11px;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"id sig" "mx mx";align-items:center}
+ .P .h-brand{width:32px;height:32px;border-radius:10px;font-size:13px}
+ .P .h-brand-clip{width:24px;height:24px}
+ .P .h-id{gap:10px}
+ /* 手机上右边还挤着信号舱, 一行放不下时状态换到下一行(名字和徽章仍同行) */
+ .P #hero-sig .h-op-row{flex-wrap:wrap;row-gap:3px;column-gap:8px}
+ .P .h-op-st{font-size:10px}
+ .P .h-op-name{font-size:15px}
+ .P .h-op-sub{font-size:10px}
+ /* 信号舱做成右上角一枚紧凑胶囊: 小圆环 + 右侧两行(档位大字 + 读数小字), 横向并排、垂直居中,
+    和左边身份块对齐。去掉大内边距和背景, 让它轻巧地贴在右上角。 */
+ .P .h-sig{flex-direction:row;align-items:center;gap:9px;padding:0;background:none;align-self:center;width:auto}
+ .P .sig-rg{width:56px;height:56px}
+ .P .sig-rg .ct .v{font-size:15px;letter-spacing:-0.3px}
+ .P .sig-rg .ct .l{font-size:7px;margin-top:2px}
+ .P .sr-bg,.P .sr-fg{stroke-width:8}
+ .P .sig-bars{display:none}
+ .P .sig-nfo{align-items:flex-start;text-align:left;gap:2px}
+ .P .sig-nfo .sig-k{display:none}
+ .P .sig-lv{font-size:15px;line-height:1.1}
+ .P .sig-nfo .sl{font-size:9px;line-height:1.2;max-width:76px;white-space:normal}
+ .P .h-mx{gap:7px}
+ .P .h-m{padding:8px 9px}
+ .P .h-mv{font-size:15px}
+ .P .h-mv.h-mv-t{font-size:14px;line-height:17px}
+ .P .h-mk{font-size:9px}
+}
+
+/* ---- s44 二轮: 无蜂窝模组时的 hero ——「系统信息」模式 ----
+   原先读不到模组数据就把整个 #hero-w 藏掉(.hid), 页面最上面凭空少一大块, 也没有任何位置说明"为什么没有蜂窝信息"。
+   现在这个区域永远保留: 有模组数据 → #hero-sig(蜂窝); 没有 → #hero-sys(本块, 系统信息), 两块互斥, 由 MRT_HERO.set() 切换。
+   骨架完全复用 .hero-sig(同一套 grid / 深色卡 / 光斑 / 同心波纹)和 .h-id / .h-mx / .h-m / .h-sig 的样式, 只补三样:
+     ① 四格各吃一组色调变量(--tn 罩色 / --tc 图标色), 和设备总览的 .dv-cell 同一语言(hero 白天夜间都是深卡, 所以只需要一套深色值);
+     ② 状态行(.st)和两种徽章: 「未安装蜂窝模组」灰、「蜂窝读取中」琥珀;
+     ③ 右侧信号舱改装成「CPU 负载」舱: 环=load1/核数, 环心=load1, 档位字=轻松/适中/繁忙。
+   节点只在原位改文字和样式(不重写 innerHTML), 环的 dashoffset 过渡才有动画。 */
+.P .hero-sys .st{font-weight:600}
+.P .hero-sys.is-up .st{color:var(--gn)}.P .hero-sys.is-down .st{color:var(--rd)}
+.P .hero-sys.is-up .h-dot{background:var(--gn)}
+.P .hero-sys.is-up .h-dot::after{content:'';position:absolute;inset:0;border-radius:50%;background:var(--gn);animation:ripple 1.8s ease-out infinite}
+.P .hero-sys .h-op-row{flex-wrap:wrap;row-gap:4px}
+.P .hero-sys .h-op-sub{flex-wrap:wrap;white-space:normal;row-gap:3px}
+.P .hero-sys .h-op-name{overflow:visible;text-overflow:clip}
+/* s71 扁平化(用户: 无模组时 hero 不够扁平、不够专业; 去掉"蜂窝读取中"徽章和左边的服务器图标):
+   · 整卡改纯色深底, 不要渐变; 四格和右侧舱是同一种纯色块 + 1px 细边, 不要径向光斑;
+   · 颜色只留在小方块图标、状态胶囊和进度条上, 大面积都是中性色;
+   · 机型名拆成 品牌(细) + 型号(粗), 和下面设备总览的 dv-name 同一写法;
+   · 状态点 + 文字合成一枚胶囊(已联网=绿 / 未联网=红), 固件串跟在后面用等宽小字。 */
+.P .hero-sig.hero-sys,.P.L .hero-sig.hero-sys{background:var(--c1);padding:16px 18px;row-gap:14px}
+.P.L .hero-sig.hero-sys{background:#253049}
+.P .hero-sys .h-id{gap:0}
+.P .hero-sys .h-op-name{font-size:20px;font-weight:700;letter-spacing:0.2px}
+.P .hero-sys .h-op-name .b{font-weight:400;color:var(--t2);margin-right:7px}
+.P .hero-sys .h-op-sub{margin-top:8px;gap:10px}
+.P .hero-sys .hs-pill{display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 9px 0 8px;border-radius:10px;background:rgba(148,158,184,0.16);color:var(--t2);font-size:11px;flex-shrink:0}
+.P .hero-sys.is-up .hs-pill{background:rgba(52,211,153,0.14)}
+.P .hero-sys.is-down .hs-pill{background:rgba(248,113,113,0.14)}
+.P .hero-sys.is-down .h-dot{background:var(--rd)}
+/* s72 固件串(原来是一行等宽小字「Mwrt @Manper-5.1.1151-24 · Linux 6.6.94」)拆成两枚分段徽章 + 作者:
+   [▤ Mwrt | 5.1.1151-24]  [🐧 Linux | 6.6.94]  @Manper —— 左半段中性底写名称, 右半段着色底写版本号(等宽)。
+   和状态胶囊同高(20px)、同圆角, 只用半透明色块 + 1px 内描边, 不加阴影。拆不开(格式不认识)就整串放进一枚徽章。 */
+.P .hero-sys .h-fw{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0;font-size:11px;color:var(--t2)}
+.P .hero-sys .fw-b{display:inline-flex;align-items:stretch;height:20px;border-radius:10px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.08);font-size:10.5px;line-height:20px;white-space:nowrap}
+.P .hero-sys .fw-b>span{display:inline-flex;align-items:center}
+.P .hero-sys .fw-b .k{gap:5px;padding:0 7px 0 9px;background:rgba(255,255,255,0.06);color:#dfe5f1;font-weight:600;letter-spacing:0.3px}
+.P .hero-sys .fw-b .k i{font-size:10px;color:#9aa8ff}
+.P .hero-sys .fw-b .v{padding:0 9px 0 7px;background:rgba(124,141,255,0.2);color:#c3cbff;font-family:'SF Mono','JetBrains Mono','Consolas',monospace;font-variant-numeric:tabular-nums;letter-spacing:0.2px}
+.P .hero-sys .fw-k .k i{color:#7fe3d2}
+.P .hero-sys .fw-k .v{background:rgba(45,212,191,0.17);color:#8ff0df}
+.P .hero-sys .fw-a{font-size:11px;color:var(--t2);letter-spacing:0.2px;opacity:0.85}
+.P .hero-sys .h-m{--tn:rgba(167,139,250,0.16);--tc:#b4a2fb;background:rgba(255,255,255,0.045);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.06);border-radius:10px;padding:10px 12px 11px;gap:5px}
+.P .hero-sys .h-m.t-g{--tn:rgba(52,211,153,0.15);--tc:#4ade9f}
+.P .hero-sys .h-m.t-o{--tn:rgba(251,191,36,0.15);--tc:#fbc84a}
+.P .hero-sys .h-m.t-c{--tn:rgba(56,189,248,0.15);--tc:#5cc8f5}
+.P .hero-sys .h-mk{text-transform:none;letter-spacing:0.2px;font-size:11px}
+.P .hero-sys .h-mk>span{display:inline-flex;align-items:center}
+.P .hero-sys .h-mk i{width:20px;height:20px;border-radius:6px;margin-right:8px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:inherit;background:rgba(255,255,255,0.06)}
+.P .hero-sys .h-mv{font-size:19px}
+.P .hero-sys .h-m .h-mb{background:rgba(255,255,255,0.08)}
+.P .hero-sys .h-m .h-mb>span{background:var(--tc)}
+.P .hero-sys .h-m.lv-good .h-mb>span{background:#34d399}.P .hero-sys .h-m.lv-fair .h-mb>span{background:#fbbf24}.P .hero-sys .h-m.lv-poor .h-mb>span{background:#f87171}
+.P .hero-sys .h-sig{background:rgba(255,255,255,0.045);box-shadow:inset 0 0 0 1px rgba(255,255,255,0.06);border-radius:12px}
+.P .hero-sys .sr-tk{display:none}
+.P .hero-sys .sr-bg{stroke:rgba(255,255,255,0.08)}
+@media(max-width:600px){.P .hero-sig.hero-sys{padding:13px 12px}.P .hero-sys .h-op-name{font-size:16px}.P .hero-sys .h-op-sub{margin-top:6px;gap:8px}.P .hero-sys .h-mv{font-size:15px}.P .hero-sys .h-m{padding:8px 9px}.P .hero-sys .h-sig{background:none;box-shadow:none}}
+
+/* .hero-qs / .qs-* 的样式已删 —— 那排快捷统计(运行时间/在线设备/存储占用/系统负载)
+   和设备总览的 dv-stats 磁贴讲的是同一组数, 而且当时它嵌在 #hero-w 里, 无模组时会连带整块隐藏。
+   (s44 二轮起 #hero-w 无模组时不再隐藏, 改显示 #hero-sys 系统信息版, 但那四项仍不还原, 免得和总览重复。) */
+
+/* Card, channels, rows, collapse */
+.P .cd{background:var(--c1);border:1px solid var(--bd);border-radius:var(--r);padding:16px 18px;margin-bottom:12px;transition:border-color 0.3s}
+.P .cd:hover{border-color:rgba(124,92,252,0.1)}
+.P .cd-t{font-size:11px;font-weight:600;color:var(--t2);margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.P .cd-t i{color:var(--ac);font-size:10px}
+.P .chs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.P .ch{display:flex;align-items:center;gap:9px;padding:11px;background:var(--c2);border-radius:10px;border:1px solid var(--bd)}
+.P .ch-ic{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff}
+.P .ch-ic.w{background:linear-gradient(135deg,#3b82f6,#6366f1)}.P .ch-ic.c{background:linear-gradient(135deg,#10b981,#059669)}
+.P .ch-n{font-size:9px;color:var(--t2)}.P .ch-s{font-size:11px;font-weight:600;margin-top:1px}.P .ch-s.on{color:var(--gn)}.P .ch-s.off{color:var(--rd)}
+.P .ch-d{width:6px;height:6px;border-radius:50%;margin-left:auto}.P .ch-d.on{background:var(--gn);animation:pls 2s infinite}.P .ch-d.off{background:var(--rd)}
+@keyframes pls{0%,100%{opacity:1}50%{opacity:0.3}}
+
+/* === Device Overview panel (设备总览 + 图片 + 指示灯 + 网口) === */
+/* === 扁平化: 整张卡和卡内所有格子都不画线 ===
+   卡片外框(.cd 的 1px 描边 + hover 变紫)、左侧 3px 紫青渐变竖条、标题行(图标 + 「设备总览 ·
+   Device Overview」)全部去掉。卡里本来就有整机图和机型名, 标题只是重复一遍"这是哪台设备"。
+   卡内的舞台、磁贴、网口格、图片工具键、E87N 屏幕预览也一并去掉描边, 和连接信息 .dv-cell
+   那次的做法一样: 格子是 c2 实底、缝隙露出卡片的 c1, 两者本来就差一档亮度, 界线靠亮度差;
+   浅色下 c2 和白底太接近, 再各补一条极淡投影(投影不是线)。
+   网口原来靠描边表达状态(接通=绿边, 断开=虚线框), 线没了之后改成底色: 接通叠一层淡绿渐变,
+   断开退成更淡的灰底, 加上本来就有的速率胶囊和状态点, 一眼仍能分清。 */
+.P .cd.dv-card{position:relative;overflow:hidden;border:0;padding:18px 20px}
+.P .dv-head{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:28px}
+/* s44 标题前一粒紫→青渐变小圆点(和左侧机型名下的紫青短线同一组颜色, 圆点不是线, 不违反"不画线") */
+.P .dv-head .dv-sub{margin-top:0;display:flex;align-items:center;gap:8px}
+.P .dv-head .dv-sub::before{content:'';width:7px;height:7px;border-radius:50%;flex-shrink:0;background:linear-gradient(135deg,#7c5cfc,#22d3ee)}
+.P .dv-card .empty-hint{border:0}
+/* s41 PC 下产品图和右栏五五开(用户要求占 dv-body 一半), E87N 同样; ≤820px 仍由下方媒体查询叠成单列。
+   minmax(0,1fr) 而不是 1fr: 右栏里有长 IPv4/流量值, 1fr 的最小值是内容宽, 会把左栏挤窄。 */
+.P .dv-body,.P .dv-body.dv-body-e87n{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:stretch}
+/* s76 PC 下展台占 65%(用户要求), 右栏 35%。只在 ≥1241px 生效: 821~1240px 带侧栏时 dv-body 才 ~800px,
+   35% 只剩 260px, 网口格和六格放不下, 那一段仍五五开。展台变宽后产品图封顶也抬一点, 免得两边空太多。 */
+@media(min-width:1241px){.P .dv-body,.P .dv-body.dv-body-e87n{grid-template-columns:minmax(0,65%) minmax(0,1fr)}.P .dv-shot img{max-height:340px}}
+/* s41 产品舞台: 做成"产品发布页"的展台 ——
+   顶部一束很淡的顶光(::after 梯形光柱) + 紫色主光斑, 底部青色地面反光;
+   背景一层点阵(::before)按椭圆渐隐, 只在设备周围隐约可见;
+   设备脚下是 .dv-floor: 一圈细描边的椭圆展台 + 柔和接触阴影, 悬停时设备上浮、阴影随之收缩变淡。
+   isolation 让两个伪元素的 z-index:-1 只沉到舞台自己的底色之上, 不会掉到卡片后面。 */
+.P .dv-stage{position:relative;isolation:isolate;overflow:hidden;border-radius:16px;border:0;padding:24px 22px 20px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-height:300px;
+  background:radial-gradient(55% 50% at 50% 34%,rgba(139,112,255,0.22),transparent 72%),radial-gradient(80% 45% at 50% 100%,rgba(34,211,238,0.10),transparent 72%),linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0) 45%),var(--c2);
+  box-shadow:none}
+.P .dv-stage::before{content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;background-image:radial-gradient(rgba(255,255,255,0.075) 1px,transparent 1.3px);background-size:16px 16px;-webkit-mask-image:radial-gradient(62% 58% at 50% 46%,#000 0,transparent 100%);mask-image:radial-gradient(62% 58% at 50% 46%,#000 0,transparent 100%)}
+.P .dv-stage::after{content:'';position:absolute;top:0;left:50%;width:70%;height:78%;transform:translateX(-50%);z-index:-1;pointer-events:none;background:linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0) 85%);clip-path:polygon(36% 0,64% 0,100% 100%,0 100%)}
+/* 图片框占满宽度, 图片按"高度封顶 + 宽度不超框"等比缩放(竖幅整机图 / 横幅自定义图都放得下) */
+.P .dv-shot{position:relative;width:100%;display:flex;justify-content:center;align-items:flex-end;padding-bottom:10px}
+.P .dv-shot img{position:relative;z-index:1;width:auto;height:auto;max-width:100%;max-height:300px;object-fit:contain;filter:drop-shadow(0 22px 26px rgba(0,0,0,0.45));transition:transform 0.6s cubic-bezier(.2,.8,.2,1)}
+.P .dv-stage:hover .dv-shot img{transform:translateY(-6px)}
+.P .dv-floor{position:absolute;left:50%;bottom:0;width:72%;max-width:320px;height:34px;transform:translateX(-50%);border-radius:50%;pointer-events:none;background:radial-gradient(closest-side,rgba(139,112,255,0.20),transparent);box-shadow:inset 0 0 0 1px rgba(167,139,250,0.20);transition:transform 0.6s cubic-bezier(.2,.8,.2,1),opacity 0.6s}
+.P .dv-floor::after{content:'';position:absolute;left:18%;right:18%;top:30%;height:14px;border-radius:50%;background:rgba(0,0,0,0.55);filter:blur(8px)}
+.P .dv-stage:hover .dv-floor{transform:translateX(-50%) scale(0.94);opacity:0.8}
+/* 机型名: 品牌细(t2) + 型号粗(t1), 下面一道紫青短线收尾 */
+.P .dv-name{position:relative;font-size:17px;font-weight:800;color:var(--t1);letter-spacing:0.3px;text-align:center;line-height:1.25}
+.P .dv-name .dv-brand{font-weight:500;color:var(--t2);margin-right:6px}
+.P .dv-name::after{content:'';display:block;width:28px;height:3px;border-radius:2px;margin:9px auto 0;background:linear-gradient(90deg,#7c5cfc,#22d3ee)}
+/* 浅色: 白→淡灰蓝的展台, 点阵/投影换成深色低透明, 顶光改成白 */
+.P.L .dv-stage{background:radial-gradient(55% 50% at 50% 34%,rgba(124,92,252,0.13),transparent 72%),radial-gradient(80% 45% at 50% 100%,rgba(34,211,238,0.10),transparent 72%),linear-gradient(180deg,#fdfdff 0%,#eff1f8 100%);box-shadow:none}
+.P.L .dv-stage::before{background-image:radial-gradient(rgba(40,46,80,0.10) 1px,transparent 1.3px)}
+.P.L .dv-stage::after{background:linear-gradient(180deg,rgba(255,255,255,0.9),rgba(255,255,255,0) 85%)}
+.P.L .dv-shot img{filter:drop-shadow(0 20px 22px rgba(40,46,80,0.22))}
+.P.L .dv-floor{background:radial-gradient(closest-side,rgba(124,92,252,0.12),transparent);box-shadow:inset 0 0 0 1px rgba(124,92,252,0.16)}
+.P.L .dv-floor::after{background:rgba(40,46,80,0.35)}
+.P .dv-board{position:relative;font-size:10px;color:var(--t2);font-family:'SF Mono','JetBrains Mono','Consolas',monospace;margin-top:-4px}
+.P .dv-badge{margin-left:auto;font-size:10px;font-weight:700;padding:3px 10px;border-radius:12px;display:inline-flex;align-items:center;gap:5px;letter-spacing:0.3px}
+.P .dv-badge.on{background:rgba(52,211,153,0.12);color:#34d399}
+.P .dv-badge.off{background:rgba(248,113,113,0.12);color:#f87171}
+.P .dv-badge .d{width:6px;height:6px;border-radius:50%;background:currentColor}
+.P .dv-badge.on .d{animation:pls 2s infinite}
+/* === s44 设备总览右栏(.dv-side)重做 ===
+   用户两个诉求: ① PC 下右栏要铺满, 不留空隙; ② 配色要和整页的审美一致。
+
+   ① 空隙从哪来: .dv-body 是 align-items:stretch, 右栏被拉到和左边产品展台等高, 但里面的块
+      (系统状态 / 网口 / 连接信息)只按内容高度排, 1440 宽实测右栏内容比展台矮 ~77px,
+      底下就是一条空条。现在三个块都 flex:1 1 auto —— 内容高度做基准, 剩余高度按权重分给三块,
+      块里的 grid 行再平分(auto 行默认 stretch), 格子里的"标签在上、数值贴底"用 space-between
+      托住, 趋势线 flex 吃掉余量。≤820px 是单列、右栏高度由内容决定, 没有余量, 这套权重自然不起作用,
+      所以不需要媒体查询。
+   ② 配色: 整页的光照语言是"深/浅底 + 紫色主光斑 + 青色辅光"(左边展台、hero-sig 都是径向光斑)。
+      以前右栏三种写法并存 —— CPU/存储/网口是白色图标压实心渐变块, 连接信息是淡调徽章 + 线性渐变色罩,
+      看着不是一家人。现在统一成一种磁贴: 左上角一团本色径向辉光(--tn 色罩)压在 c2 实底上,
+      徽章是同色 16% 淡调 + 本色图标(--tc)。系统状态两块直接复用连接信息的 .dv-cell(chip()),
+      网口(.dv-port)也吃同一套 --tn/--tc, 不再另写一套样式。
+      颜色按"类别"而不是"随机": 紫(CPU/运行时间=主品牌色) · 青(存储/网关) · 蓝(WAN) ·
+      绿(网口接通/在线设备) · 粉(连接数) · 橙(流量) —— 取值和下方规格卡 .fc 同一组六色。
+      接通/断开不再靠整块换底色, 只由右端速率胶囊 + 状态点表达, 断开的整块退灰。 */
+.P .dv-side{display:flex;flex-direction:column;gap:8px;min-width:0}
+.P .dv-side>.dv-stats,.P .dv-side>.dv-ports,.P .dv-side>.dv-meta{flex:1 1 auto}
+.P .dv-side>.dv-meta{flex-grow:2.4}
+.P .dv-sub{font-size:9px;text-transform:uppercase;letter-spacing:0.9px;color:var(--t2);font-weight:700;margin-top:5px}
+.P .dv-sub:first-child{margin-top:0}
+.P .dv-leds{display:flex;flex-wrap:wrap;gap:7px}
+.P .dv-led{display:flex;align-items:center;gap:8px;padding:8px 11px;border-radius:10px;background:var(--c2);border:0;flex:1 1 118px;min-width:0}
+.P .dv-led .lamp{width:11px;height:11px;border-radius:50%;background:var(--t3);flex-shrink:0;transition:background 0.4s,box-shadow 0.4s}
+.P .dv-led.on .lamp{animation:pls 1.8s infinite}
+.P .dv-led .lt{min-width:0}
+.P .dv-led .lb{display:block;font-size:11px;color:var(--t1);font-weight:600;line-height:1.2}
+.P .dv-led .st{display:block;font-size:9px;color:var(--t2);margin-top:1px;line-height:1.1}
+.P .dv-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.P .dv-stats>.dv-cell:only-child{grid-column:1/-1}
+.P .dv-bar{display:block;height:5px;border-radius:3px;background:rgba(127,127,140,0.20);margin-top:6px;overflow:hidden;width:100%}
+.P .dv-bar>i{display:block;height:100%;border-radius:3px;transition:width 0.6s ease}
+/* 网口: 和 .dv-cell 同一套"c2 实底 + 左上本色径向辉光 + 软调徽章"。
+   --tn 辉光 / --tb 徽章底 / --tc 图标与强调色: 接通(LAN=绿, 其它口=蓝徽章+绿辉光), 断开整块退灰 */
+.P .dv-ports{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.P .dv-ports.single{grid-template-columns:1fr}
+.P .dv-port{--tn:rgba(52,211,153,0.17);--tb:rgba(52,211,153,0.16);--tc:#34d399;
+ display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:12px;border:0;position:relative;overflow:hidden;
+ background:var(--cardbg),var(--c2);box-shadow:none}
+.P .dv-port:not(.lan){--tb:rgba(96,165,250,0.16);--tc:#60a5fa}
+.P .dv-port.down{--tn:transparent;--tb:rgba(127,127,140,0.16);--tc:var(--t2)}
+.P .dv-port .pic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--tc);background:var(--tb);flex-shrink:0}
+.P .dv-port.down .pic{opacity:0.7}
+.P .dv-port.down .prole,.P .dv-port.down .pname{color:var(--t3)}
+.P .dv-port .pm{min-width:0;flex:1}
+.P .dv-port .prole{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800;color:var(--t1);line-height:1.2;letter-spacing:0.2px}
+.P .dv-port .pname{display:block;font-size:10px;color:var(--t2);font-family:'SF Mono','JetBrains Mono','Consolas',monospace;line-height:1.1;margin-top:3px}
+.P .dv-port .ps{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0}
+.P .dv-port .pspeed{font-size:13px;font-weight:800;line-height:1;padding:5px 10px;border-radius:8px;letter-spacing:0.2px;background:rgba(52,211,153,0.16);color:var(--gn)}
+.P .dv-port.down .pspeed{background:rgba(127,127,140,0.12);color:var(--t3)}
+.P .dv-port .pstat{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:600;color:var(--t2);line-height:1}
+.P .dv-port .pdot{width:7px;height:7px;border-radius:50%;background:var(--t3);flex-shrink:0}
+.P .dv-port.link .pstat{color:var(--gn)}
+.P .dv-port.link .pdot{position:relative;background:var(--gn)}
+.P .dv-port.link .pdot::after{content:'';position:absolute;left:50%;top:50%;width:7px;height:7px;margin:-3.5px 0 0 -3.5px;border-radius:50%;background:var(--gn);animation:ripple 1.8s ease-out infinite}
+@keyframes ripple{0%{transform:scale(1);opacity:0.7}100%{transform:scale(3);opacity:0}}
+/* === 连接信息 · Connectivity ===
+   这块前后改了三轮, 把为什么落在现在这版记下来:
+
+     第一版  flex-wrap 的一排扁平 chip(.dv-chip): 10px 字把图标、标签、值挤在同一行,
+             项目一多就只剩一片灰色小胶囊, 值和标签分不出主次。
+     第二版  去掉图标底板的素色小格: 层级是拉开了, 但太素 —— 和这页其余区块
+             (hero-sig、dv-stat 磁贴、规格卡的 .fc)那套彩色玻璃卡片不像一家人。
+     现在    按 .fc 的语言来做, 一格一张彩色玻璃卡。
+
+   三件事让它不再是"一片小胶囊":
+
+     1) **一格一个专属强调色**(mb/mp/mg/mpk/mcy/mo 六套, 取值和规格卡 .fc 的
+        fp/fb/fcy/fg/fo/fpk 同一组)。六格六色是关键 —— 第二版之所以把图标底板
+        整个去掉, 是因为当时六格共用同一块紫, 堆在一起就是"色块墙";
+        各自一色之后底板读作"分类标识", 扫视时能按颜色记住哪格在哪。
+     2) **图标回到 24px 圆角徽章里**, 但底色是本格强调色的 14% 淡调, 不是实心块。
+     3) **值 18px/800 当主角**, 标签 9px 大写退到图标旁边, 层级一眼分明。
+
+   **尺寸跟住右栏的邻居, 不自己起一档。** 我上一版做成 padding 12/13、值 18px、
+   徽章 24px, 结果在右栏里比上面的系统状态磁贴(.dv-stat: padding 9/11、值 15px)
+   和网口格(.dv-port: padding 10/12)都大一号 —— 六格一起放大, 整块就从"概览"
+   变成了压过磁贴和网口的主角, 显得突兀。现在三项全部对齐 .dv-stat 那一档:
+   padding 9px 11px、值 15px/800、圆角 10px, 徽章缩到 20px。
+   渐变底色也跟着从 .1/.04 压到 .06/.025 —— 格子变小后同样的浓度会显得更重,
+   而这块的作用是让六格各自可辨, 不是抢注意力。
+
+   **固定三列**, 不用 auto-fit: 右栏在 1200px 下约 876px 宽, auto-fit minmax(132px)
+   会排到 6 列、每格只剩 136px(IPv4 都快放不下); 放宽到 minmax(152px) 又变 5 列,
+   6 个格子就成了"第一行 5 个 + 第二行 1 个带 4 个空洞"。固定三列时 6 格正好两行
+   填满, 每格约 292px —— 没有空洞, 也够放完整 IPv4 和并排的双向流量。
+
+   整块每 1.8 秒 innerHTML 重写一次(render() 里), 所以值用 tabular-nums 等宽数字,
+   否则数字换位会让整格宽度来回抖。 */
+.P .dv-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+/* === 边框线全部取消 ===
+   原先这里留着一道 6% 的淡灰边, 理由是: 六格**等宽紧贴**、间距只有 8px,
+   纯渐变半透明底会和相邻格连成一片, 读不出"六格"。
+   取消边框后那个问题要靠别的手段解决, 不能只是把 border 删掉了事 ——
+   做法是让每格保住这里的 `background:var(--c2)` 实底, 六套强调色只覆盖
+   `background-image`(见下面), 不再用 `background` 简写把实底冲掉。
+   于是格内是 c2、格间 8px 缝隙露出外层 .cd 的 c1, 两者本来就差一档亮度
+   (深色 c2 比 c1 亮, 浅色 c2 比 c1 暗), 界线由这个亮度差来划, 不用画线。
+   浅色那边再额外保留一条极淡投影做浮起(投影不是线, 不在取消范围内)。
+   transition 里的 border-color 跟着去掉, 改成跟 box-shadow —— 浅色 hover
+   现在只有投影在变。 */
+.P .dv-cell{--tn:rgba(124,92,252,0.20);--tb:rgba(124,92,252,0.18);--tc:#a78bfa;
+ position:relative;overflow:hidden;padding:11px 13px;border-radius:12px;border:0;min-width:0;display:flex;flex-direction:column;gap:6px;
+ background:var(--cardbg),var(--c2);box-shadow:none;transition:transform 0.2s}
+/* 抬起量比规格卡 .fc 的 -2px 小一档 —— 格子本身小, -2px 在这个尺寸上晃得过头 */
+.P .dv-cell:hover{transform:translateY(-1px)}
+/* 顶行: 图标徽章 + 分类标签 */
+.P .dv-cell .ck{display:flex;align-items:center;gap:7px;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.5px;color:var(--t2);line-height:1.15;min-width:0;margin-bottom:auto}
+.P .dv-cell .ck i{width:24px;height:24px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0;background:var(--tb);color:var(--tc)}
+/* em 只是个不带语义的内联壳, 去掉默认斜体; 标签过长时省略号收尾 */
+.P .dv-cell .ck em{font-style:normal;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* s56 值 800 → 600、负字距取消, 标签/单位 600 → 500(原因见 .h-m 那段字体栈的说明) */
+.P .dv-cell .cv2{font-size:17px;font-weight:600;color:var(--t1);line-height:1.25;font-variant-numeric:tabular-nums;word-break:break-all;letter-spacing:0}
+.P .dv-cell .cv2 small{font-size:10px;font-weight:500;color:var(--t2);letter-spacing:0;margin-left:2px}
+/* === 地址型的值(WAN IP / 内网网关)单独一档 ===
+   这两格原先跟"14 台""386 条"共用 15px/800 的大号粗体, 显得过重 ——
+   那一档是给**数量**用的: 数字要一眼读到, 字少、位数短, 粗体正好。
+   IP 是**标识**, 用户是来核对一串字符而不是感知量级的, 四段十二位数字顶着
+   800 的字重铺满整格, 就成了整排六格里最抢眼的东西, 而它并不最重要。
+   改成 12.5px / 600 + 等宽字体: 字号退一档让它不再抢视线, 等宽让四段数字
+   纵向对齐、点分位置固定, 核对时好读得多(页面里固件版本号 .fw-val 用的
+   是同一个字体栈, 同样是"一长串标识"的角色, 这里保持一致)。
+   letter-spacing 回 0 —— 负字距是给大号粗体收紧用的, 等宽小字上会糊成一团。 */
+/* s56 二轮: 地址格由分段式 .is-ipx 接管(见下), 原先那套 Consolas 等宽 + 整串缩放的
+   .is-addr 规则连同它的容器声明一起删掉 —— 不再有格子带 .is-addr 类。 */
+/* 三张单值卡自己当容器, --sc(格宽派生的字号)用 cqi 算; 不支持容器单位的老内核丢掉 clamp
+   里的 var(--sc), 退回 clamp 的下限字号, 照样不换行。 */
+.P .dv-cell.is-ipx{container-type:inline-size}
+/* s56 连接信息六格的数值居中(单值三格由 .is-lead 覆回左对齐); 顶行图标 + 标签照旧靠左,
+   环比 / 合计角标照旧在顶行右端(CPU / 存储那两格在 #dv-stats 里, 不受影响)。
+   WAN 流量的上下行两栏各自居中, 原先分栏用的 12px 左留白一并去掉(两栏之间有 grid 的 8px 间距)。 */
+.P .dv-meta .dv-cell .cv2{text-align:center}
+.P .dv-meta .dv-cell .cvp{align-items:center}
+.P .dv-meta .dv-cell .cvp+.cvp{padding-left:0}
+/* === s56 二轮: 三张单值卡(WAN IP / 内网网关 / 运行时间)重新设计 ===
+   前两版的毛病是只在"字体/字重/对齐"上来回调, 内容本身还是一行干巴巴的字符串,
+   等宽体更让 IP 看着像日志不像信息。这一版改成按**内容结构**排版(由 .is-lead 限定,
+   另外三格 在线设备/活动连接/WAN 流量 原样):
+
+   地址格(.is-ipx): 把一个 IP 拆成「四段数字 + 三个分隔点 + 末尾一枚子网前缀徽章」。
+     · 四段数字是主体: 界面字体 600 半粗、等高数字(tabular-nums), 四段笔画一样粗、
+       字宽一致, 读起来是四个独立的数而不是一长串;
+     · 分隔点单独做成一颗弱化的小圆点(•), 比句点轻、不抢数字, 四段之间留等距气口;
+     · 末尾 /24 这类前缀做成格子强调色的小胶囊徽章(--tb 底 / --tc 字), 和图标徽章同
+       一种语言, 一眼能认出"这是子网掩码"而不是地址的一部分;
+     · 整组按基线对齐、随格宽等比缩放(--sc), 窄栏自动缩小, 到底不换行。
+   运行时间格(.is-dur): 同一套语言 —— 天/时/分的数字走同一档大号半粗等高数字,
+     单位(天/时/分)弱化成小一号的淡色, 和地址格的分隔点/徽章一样属于"弱化附属",
+     让三张卡的主体数字排在同一视觉档位上。
+   行高钉 26px: 内容随格宽缩放时行高不动, 三格等高、也和另外三格的首行对齐。 */
+.P .dv-meta .dv-cell.is-lead .cv2{text-align:center;line-height:26px;letter-spacing:0;white-space:nowrap;overflow:hidden}
+.P .dv-meta .dv-cell.is-lead .cv2 small{font-size:11px;font-weight:500;color:var(--t2);margin-left:1px}
+/* 地址: 四段数字 + 分隔点 + 前缀徽章, 整组垂直居中。
+   **整组由一个字号 --sc 驱动, 圆点和徽章都用 em 相对这个字号**: 这样数字、点、徽章一起缩放,
+   不会出现"数字按格宽缩了、徽章还是固定像素顶出格子被切成 /2"的毛病(前一版就是这样)。
+   --sc 由 render() 按较长地址的字符数算(见 JS), clamp 封顶 19px、封底 11px。 */
+.P .dv-cell.is-ipx .ipx{display:inline-flex;align-items:baseline;font-weight:700;color:var(--t1);
+ font-size:clamp(11px,var(--sc),19px);font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;letter-spacing:0.3px;
+ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}
+.P .dv-cell.is-ipx .ipx .seg{font-size:1em}
+/* 分隔点: 就用真正的句点字符, 落在文本基线上 —— 这才是 IP 地址该有的样子(更早一版把点
+   做成垂直居中的实心小圆, 既不在基线、又像项目符号, 不像地址)。
+   跟数字同一个文本色(不另染强调色, 用户要求), 字号比数字略大一点让点更实,
+   两侧只留很小的气口把四段连成一个整体。 */
+.P .dv-cell.is-ipx .ipx .dot{font-weight:700;font-size:1.1em;margin:0 0.06em;flex-shrink:0}
+/* 子网前缀小胶囊: 和 .ck i 图标徽章同一套色(--tb 底/--tc 字), 认成"掩码"不认成地址。
+   字号 0.62em、尺寸全用 em, 跟着整组一起缩, 永远容得下。 */
+.P .dv-cell.is-ipx .ipx .pfx{align-self:center;margin-left:0.55em;padding:0.15em 0.55em;border-radius:999px;background:var(--tb);color:var(--tc);
+ font-size:0.62em;font-weight:700;letter-spacing:0.3px;line-height:1.5;flex-shrink:0}
+/* 运行时间: 大号半粗等高数字 + 弱化单位 */
+.P .dv-cell.is-dur .cv2{font-size:19px;font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+/* s64 硬件加速 HNAT 卡 ——
+   高度和运行时间卡一致: 顶行(图标+标签+右角类型), 值行放 PPE0/PPE1 两条占比线条(主视觉)。
+   图标做成帅气加速徽标: 紫青渐变实心圆角块 + 白色闪电, 发一点同色辉光。 */
+.P .dv-cell.is-hnat .ck i{background:linear-gradient(135deg,#7c5cfc,#22d3ee)!important;color:#fff!important;box-shadow:0 2px 10px -2px rgba(124,92,252,0.6)}
+/* 右角类型小字(全锥·游戏加速), 顶到标签行右端 */
+.P .dv-cell.is-hnat .ck em{flex-shrink:0}
+.P .dv-cell.is-hnat .hn-tag{margin-left:auto;flex-shrink:0;font-size:9px;font-weight:700;letter-spacing:0.1px;color:var(--ac);background:rgba(124,92,252,0.14);padding:2px 7px;border-radius:999px;text-transform:none;white-space:nowrap}
+/* 值行: 两条 PPE 占比线条, 紧凑堆叠占满原本大数字那一行, 不加卡高 */
+.P .dv-cell.is-hnat .cv2{display:block;line-height:26px}
+.P .dv-cell.is-hnat .hn-lines{display:flex;flex-direction:column;justify-content:center;gap:2px;line-height:1;height:26px}
+.P .dv-cell.is-hnat .hn-ln{display:flex;align-items:center;gap:6px;line-height:1}
+.P .dv-cell.is-hnat .hn-ln>em{font-style:normal;font-size:9px;font-weight:700;color:var(--t2);letter-spacing:0.3px;flex-shrink:0;width:20px;text-align:left;line-height:1}
+.P .dv-cell.is-hnat .hn-ln>.hn-tk{flex:1;height:4px;border-radius:2px;background:rgba(124,92,252,0.16);overflow:hidden}
+.P .dv-cell.is-hnat .hn-ln>.hn-tk>i{display:block;height:100%;border-radius:2px;background:linear-gradient(90deg,#7c5cfc,#22d3ee);transition:width 0.6s ease}
+.P .dv-cell.is-hnat .hn-ln>b{font-size:9px;font-weight:700;color:var(--t2);font-variant-numeric:tabular-nums;flex-shrink:0;width:28px;text-align:right;line-height:1}
+/* 六套强调色。底色是 .fc 那套渐变玻璃压淡后的版本, 徽章用同色 13%。
+   **不描边** —— 原先每格描一圈 rgba(同色,0.1), 六格就是六圈彩色轮廓,
+   这正是"边框太明显"的来源; 后来退到统一的 6% 淡灰线, 现在连那道也取消。
+
+   这六条**必须写 background-image, 不能写 background 简写**: 渐变本身只是
+   2.5%~6% 的半透明色罩, 简写会把基准那条 `background:var(--c2)` 的实底一起
+   重置成 transparent, 格子就露出外层 .cd 的 c1、和卡片底连成一片 —— 从前
+   有那道边框看不出来, 边框取消后这就是六格能不能分辨的唯一依靠。
+   只覆盖 background-image 的话 c2 实底留着, 格内 c2 / 格缝 c1 的亮度差划界。 */
+.P .dv-cell.mp,.P .ga.mp{--tn:rgba(124,92,252,0.20);--tb:rgba(124,92,252,0.18);--tc:#a78bfa}
+.P .dv-cell.mb,.P .ga.mb{--tn:rgba(96,165,250,0.17);--tb:rgba(96,165,250,0.16);--tc:#60a5fa}
+.P .dv-cell.mcy,.P .ga.mcy{--tn:rgba(34,211,238,0.15);--tb:rgba(34,211,238,0.15);--tc:#22d3ee}
+.P .dv-cell.mg,.P .ga.mg{--tn:rgba(52,211,153,0.15);--tb:rgba(52,211,153,0.15);--tc:#34d399}
+.P .dv-cell.mo,.P .ga.mo{--tn:rgba(251,191,36,0.14);--tb:rgba(251,191,36,0.15);--tc:#fbbf24}
+.P .dv-cell.mpk{--tn:rgba(244,114,182,0.15);--tb:rgba(244,114,182,0.15);--tc:#f472b6}
+/* s44 上面六条不再是 background-image 渐变, 改成三个变量(--tn 左上辉光 / --tb 徽章底 / --tc 图标色),
+   底板统一由 .dv-cell 的 radial-gradient(var(--tn)) + var(--c2) 实底生成, 网口 .dv-port 吃同一组变量。
+   实底仍然是 c2(格内)/ c1(格缝)的亮度差在划界, 没有任何描边。 */
+/* WAN 流量这一格特殊: 一格里要放两个方向的量。并排两栏 + 中间一条分隔线,
+   下面压一条按 下行/上行 比例分段的细条 —— 复用 dv-stat 的 .dv-bar, 不另开一套。
+   .dv-bar 的子元素原本是 block(单段进度条), 这里要两段并排, 所以父级改 flex。 */
+.P .dv-cell .cv-split{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-width:0}
+.P .dv-cell .cvp{display:flex;flex-direction:column;min-width:0}
+/* 这道竖分隔线也一并取消(边框线一个不留)。改用 12px 的留白分栏 ——
+   下行/上行本来就各有方向箭头和各自的方向色(--gn/--og), 不靠线也分得开。 */
+.P .dv-cell .cvp+.cvp{padding-left:12px}
+.P .dv-cell .cvp-k{display:flex;align-items:center;gap:3px;font-size:9px;font-weight:500;color:var(--t2);letter-spacing:0.3px;line-height:1.1}
+/* 双向那格一格放两个数, 每个比单值格再小一档, 免得这格比邻居高出一截 */
+.P .dv-cell .cvp .cv2{font-size:14px}
+/* 上下行各给一个方向色, 一眼能分开(和实时流量图的图例同色) */
+.P .dv-cell .cv-dl{color:var(--gn)}
+.P .dv-cell .cv-ul{color:var(--og)}
+/* 比例条压到 3px: 它是个辅助提示, 5px 的 .dv-bar 原值在这个小格里偏重 */
+.P .dv-cell .dv-bar{display:flex;height:4px;margin-top:2px;border-radius:2px}
+.P .dv-cell .dv-bar>i{border-radius:0}
+/* === 迷你趋势线 ===
+   在线设备 / 活动连接 这两格原来只有一个光秃秃的数字 —— "386 条"这种数,
+   单看一眼是看不出任何东西的, 要有个参照才有意义(刚才是多少? 在涨还是在落?)。
+   所以给它们加一条最近 40 个采样点的趋势线和一枚环比增减标记, 数据是客户端
+   自己按 1.8 秒一轮攒的, 不新增任何后端请求。
+
+   preserveAspectRatio="none" 让 100×24 的 viewBox 横向拉满整格宽度, 配
+   vector-effect:non-scaling-stroke —— 不加这条, 描边会跟着横向缩放一起拉粗,
+   线会变成一条歪斜的胖带子。
+   刻意**不加** transition: 整块每 1.8 秒 innerHTML 重写一次, 元素是新建的,
+   补间动画每轮都会从头开始, 只会看到一条反复抽搐的线。 */
+.P .dv-cell .spk{display:block;width:100%;flex:1 1 20px;min-height:20px;max-height:52px;margin-top:2px}
+.P .dv-cell .spk polyline,.P .dv-cell .spk polygon{vector-effect:non-scaling-stroke}
+/* 环比增减跟在标签行右端。颜色一律用 --t2 不分涨跌着色: 连接数变多既不是
+   好事也不是坏事, 染成绿/红会凭空给它加上一层褒贬。方向只由箭头表达。 */
+.P .dv-cell .ck .dl{margin-left:auto;display:flex;align-items:center;gap:2px;font-size:9px;font-weight:600;letter-spacing:0;color:var(--t2);flex-shrink:0;font-variant-numeric:tabular-nums}
+.P .dv-cell .ck .dl i{width:auto;height:auto;border-radius:0;background:none;font-size:8px}
+.P .dv-cell .ck .dl-f{opacity:0.55}
+/* === 浅色模式: 六套渐变必须重配浓度, 不能和深色共用 ===
+   深色底(--c2 ≈ rgba(26,30,44,.9) 的近黑)上叠 .06 的色罩是"提亮", 看得出来;
+   浅色底(--c2 ≈ rgba(246,247,252,.95) 的近白)上叠同样的 .06 几乎等于没加 ——
+   这就是白天模式下六个格子看着一片白、分不出彩色的原因。
+   浅色这边提到 .13/.06, 再补一条极淡投影做浮起, 和这页其它浅色覆盖
+   (.ca-c / .nb-c / .sr-i)是同一个做法。
+   图标和方向色也要换成深一档的同色系: #a78bfa、#fbbf24 这类亮色是配深底的,
+   放到白底上对比度不够(方向色还承担"哪个是上行"的区分职责, 不能靠猜)。
+
+   **边框线全部取消**(深浅两色都是)。浅色这边界线本来就主要靠那条投影在撑,
+   去掉描边的影响比深色更小; 投影保留并略微加深一点(.04 → .05), 补上
+   原先那道 6% 黑线让出的一点轮廓感。 */
+/* s44 三轮: 系统状态小卡(六格 + 网口)统一用产品展台 .dv-stage 的底色配方(用户: 渐变参考产品图的背景色, 不是产品照片) ——
+   深色 = 顶部紫辉 + 底部青辉 + 极淡顶光; 白天 = 白 → 淡灰蓝 竖向渐变 + 同样的紫/青辉(略比展台深一档, 免得在白卡上"不见了")。
+   六格不再按色相着色, 图标/徽章/趋势线/上下行色(--tb/--tc/--gn/--og)全部保持原样。--cardbg 只放渐变图层, 实底仍是 c2。 */
+.P{--cardbg:radial-gradient(90% 75% at 50% 0%,rgba(139,112,255,0.13),transparent 72%),radial-gradient(90% 55% at 50% 100%,rgba(34,211,238,0.07),transparent 72%),linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0) 50%)}
+.P.L{--cardbg:radial-gradient(90% 75% at 50% 0%,rgba(124,92,252,0.07),transparent 72%),radial-gradient(90% 55% at 50% 100%,rgba(34,211,238,0.09),transparent 72%),linear-gradient(180deg,#fafbff 0%,#e7eaf5 100%)}
+/* 浅色(s44 二轮): 原来是"左上一团辉光压在近白底上", 辉光边缘衰减到透明 → 左上深、右下白, 整张卡看着是半张。
+   改成整卡着色: 135° 线性罩色 --tn(起点)→ --tw(终点, 约 70% 浓度)铺满全卡, 终点仍有明确底色;
+   再叠一圈同色淡内描边(--tw)把四边封住, 整块读起来是一张完整的卡。--tb/--tc 仍是徽章底与图标色, 色系不变。
+   .ga(圆环卡)吃同一组变量, 见 .gauges 注释。 */
+/* 圆环卡(白天): 三张共用同一个底色(--gb, 浅蓝; 用户: 底部用偏浅蓝色, 不要紫), 环/徽章各自保留自己的色相; 自上而下渐变, 顶部 30% 留白, 其后逐步转浅蓝 */
+.P.L .ga{--gb:rgba(96,165,250,0.32);background:linear-gradient(180deg,rgba(255,255,255,0) 0%,rgba(255,255,255,0) 30%,var(--gb) 100%),var(--c2)}
+.P.L .dv-cell.mp,.P.L .ga.mp{--tn:rgba(124,92,252,0.22);--tw:rgba(124,92,252,0.16);--tb:rgba(124,92,252,0.15);--tc:#6d4df6}
+.P.L .dv-cell.mb,.P.L .ga.mb{--tn:rgba(37,99,235,0.20);--tw:rgba(37,99,235,0.15);--tb:rgba(37,99,235,0.14);--tc:#2563eb}
+.P.L .dv-cell.mcy,.P.L .ga.mcy{--tn:rgba(8,145,178,0.21);--tw:rgba(8,145,178,0.16);--tb:rgba(8,145,178,0.15);--tc:#0891b2}
+.P.L .dv-cell.mg,.P.L .ga.mg{--tn:rgba(5,150,105,0.21);--tw:rgba(5,150,105,0.16);--tb:rgba(5,150,105,0.15);--tc:#059669}
+.P.L .dv-cell.mo,.P.L .ga.mo{--tn:rgba(217,119,6,0.21);--tw:rgba(217,119,6,0.16);--tb:rgba(217,119,6,0.15);--tc:#d97706}
+.P.L .dv-cell.mpk{--tn:rgba(219,39,119,0.19);--tw:rgba(219,39,119,0.14);--tb:rgba(219,39,119,0.13);--tc:#db2777}
+.P.L .ga.mr{--tn:rgba(220,38,38,0.20);--tw:rgba(220,38,38,0.15);--tb:rgba(220,38,38,0.14);--tc:#dc2626}
+.P.L .dv-port{--tn:rgba(5,150,105,0.21);--tw:rgba(5,150,105,0.16);--tb:rgba(5,150,105,0.15);--tc:#059669}
+.P.L .dv-port:not(.lan){--tn:rgba(37,99,235,0.20);--tw:rgba(37,99,235,0.15);--tb:rgba(37,99,235,0.14);--tc:#2563eb}
+.P.L .dv-port.down{--tn:rgba(127,127,140,0.13);--tw:rgba(127,127,140,0.09);--tb:rgba(127,127,140,0.14);--tc:var(--t2)}
+.P.L .dv-port.link .pspeed{background:rgba(5,150,105,0.14);color:#059669}
+.P.L .dv-port.link .pstat{color:#059669}
+/* --gn/--og 在 .P.L 里没有重定义(浅色只换了 bg/c1/c2/bd/t1/t2/t3),
+   所以 #34d399、#fbbf24 会原样用在白底上, 对比度不够。这里单独压深。 */
+.P.L .dv-cell .cv-dl{color:#059669}
+.P.L .dv-cell .cv-ul{color:#d97706}
+/* 三列在 600px 以下每格只剩 ~130px, 退成两列; 双向流量那格改成上下叠,
+   分栏的左侧留白跟着换成上方留白(原先这里是竖线换横线, 现在线已取消)。 */
+/* s41 产品图占半宽后, 右栏在 1100px 左右只剩 ~370px, 三列每格 ~118px: 「WAN 流量」标签会被右端的合计角标挤成 "WAN …"。
+   右栏宽度取决于 argon 侧栏, 用容器查询按 .dv-meta 自身宽度判断, 窄了就收起合计角标(合计仍可由下方两栏数字看出)。 */
+.P .dv-meta{container-type:inline-size}
+@container (max-width:430px){.P .dv-cell .ck .dl.dl-tot{display:none}}
+/* s76: 门槛 470px —— PC 65/35 后右栏常在 380~460px, 三列每格 <150px 一样挤。
+   s44 再窄(900px 上下, 右栏 ~300px)三列每格不到 95px: WAN IP 换行、标签被省略成 "WAN…"、上行数值折行。
+   这里按 .dv-side 的宽度退成两列(不能用 .dv-meta 自己当容器 —— 容器查询改不了容器本身), 3 行 × 2 列,
+   总高度变高由左边展台同步拉伸吸收; 奇数格时末格横跨两列, 不留空位。 */
+.P .dv-side{container-type:inline-size}
+@container (max-width:470px){.P .dv-meta{grid-template-columns:1fr 1fr}.P .dv-meta>.dv-cell:last-child:nth-child(odd){grid-column:1/-1}}
+/* 不支持容器查询的老内核(Chromium<105/Safari<16)按视口兜底: 821~1240px 双栏时右栏都偏窄 */
+@supports not (container-type:inline-size){@media(min-width:821px) and (max-width:1240px){.P .dv-cell .ck .dl.dl-tot{display:none}}}
+@media(max-width:600px){.P .dv-meta{grid-template-columns:1fr 1fr}.P .dv-meta>.dv-cell:last-child:nth-child(odd){grid-column:1/-1}.P .dv-cell .cv2{font-size:14px}.P .dv-cell .cv-split{grid-template-columns:1fr;gap:5px}.P .dv-cell .cvp+.cvp{padding-left:0;padding-top:6px}}
+@media(max-width:820px){.P .dv-body,.P .dv-body.dv-body-e87n{grid-template-columns:1fr}.P .dv-ports{grid-template-columns:1fr 1fr}.P .dv-stage{min-height:250px}.P .dv-shot img{max-height:230px}}
+@media(max-width:480px){.P .dv-ports{grid-template-columns:1fr}}
+/* --- E87N: 整机图下方屏幕实时预览(按真实 428:142 比例,贴近图片框边缘留小缝) --- */
+.P .mp-mini{position:relative;margin:8px -8px 0;width:calc(100% + 16px)}
+/* 封顶宽度取 PC 模式下的实际渲染宽(左栏 380px 轨道 - 舞台内边距 + mp-mini 微溢 ≈ 364px):
+   以 PC 正常观感为最大值,页面放大或移动端换行到整行时也不超过它;窗口变窄可等比缩小。
+   用 aspect-ratio(相对元素自身已封顶的宽度算高)而非 padding-top(相对父宽,封顶后会算高过大变形)。 */
+.P .mp-preview{position:relative;background:#080a0e;border-radius:8px;overflow:hidden;width:100%;max-width:364px;aspect-ratio:428/142;margin:0 auto;border:0;box-shadow:0 3px 14px rgba(0,0,0,0.5)}
+/* 用 ID 选择器压过 .P .dv-stage img{max-width:200px}(同特指度,靠 ID 决胜),
+   否则整机图的限宽会漏到这张预览图,被钉死 200px 居中留黑边、且不随容器缩放 */
+.P #mp-screen-img{position:absolute;top:0;left:0;width:100%;height:100%;max-width:none;display:block;object-fit:fill;image-rendering:pixelated}
+.P .mp-ph{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#5a6d8a}
+.P .mp-ph i{font-size:20px;opacity:0.4}
+.P .mp-refresh-btn{position:absolute;top:4px;right:4px;width:22px;height:22px;padding:0;border-radius:6px;border:0;background:rgba(8,10,14,0.62);color:#cbd5e1;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px);transition:background 0.2s}
+.P .mp-refresh-btn:hover{background:rgba(31,111,235,0.55);color:#fff}
+.P .mp-refresh-btn:active{transform:scale(0.9)}
+/* 自定义整机图工具:图片框右上角(相机=上传替换 / 撤销=恢复默认) */
+.P .dv-imgtools{position:absolute;top:10px;right:10px;display:flex;gap:6px;z-index:3}
+.P .dv-imgtools button{width:26px;height:26px;padding:0;border-radius:7px;border:0;background:rgba(8,10,14,0.6);color:#cbd5e1;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px);transition:background 0.2s,color 0.2s,transform 0.15s;opacity:0.55}
+.P .dv-stage:hover .dv-imgtools button{opacity:1}
+.P .dv-imgtools button:hover{background:rgba(31,111,235,0.6);color:#fff}
+.P .dv-imgtools button:active{transform:scale(0.9)}
+.P .dv-edit.busy{opacity:0.7;pointer-events:none}
+.P .dv-edit.busy i{animation:mp-blink 0.9s infinite}
+/* s63 无线网桥标识 → s74 「当前上网方式」标识(产品图左上角), 按实际出口(router3d-data 的 egress)分三态:
+   WiFi 桥接 / 有线 WAN / 蜂窝, 没有默认路由时「未联网」。WiFi 态可点, 打开无线网桥窗口。
+   用户要求极简: 只有 图标 + 类型名, 不要边框、不要底色块、不要分态彩色和扩散/扫光动画,
+   图标和文字同一个中性色(未联网退成次级灰); 不显示 SSID / 速率 / 运营商 / 制式。别加回。 */
+.P .dv-wlb{--tc:var(--t1);--tb:rgba(127,127,140,0.14);position:absolute;top:14px;left:16px;z-index:3;display:flex;align-items:center;gap:6px;color:var(--t1);font-size:12px;font-weight:500;line-height:1;white-space:nowrap;cursor:default;transition:opacity 0.2s;animation:dvwlb-in 0.45s cubic-bezier(.2,.8,.2,1)}
+.P .dv-wlb.k-none{color:var(--t2)}
+.P .dv-wlb.k-wifi{cursor:pointer}
+.P .dv-wlb.k-wifi:hover{opacity:0.75}
+.P .dv-wlb:focus-visible{outline:2px solid var(--ac);outline-offset:3px;border-radius:4px}
+.P .dv-wlb-ic{font-size:12px;width:14px;text-align:center;flex-shrink:0}
+@keyframes dvwlb-in{0%{opacity:0;transform:translateY(-4px)}100%{opacity:1;transform:translateY(0)}}
+@media (prefers-reduced-motion:reduce){.P .dv-wlb{animation:none}}
+/* s71/s72 产品图接口联动(目前只有 N5000 有坐标表 PORTMAP)。
+   · 接上的口: 画一个插在里面的插头(网口 = 透明水晶头 + 绿色护套 + 绿色网线, USB = 白色插头壳 + 青色线),
+     线从尾端出来往下垂、渐变淡出; 右侧一枚信息胶囊, 细引线连到插头。没接的口什么都不画(就是产品图本身的开口)。
+   · 刚插上(.in, 约 1.3 秒, 只放一次): 插头带着模糊从右下方顺插入轴滑过来 → 停一下往回收(蓄力) →
+     猛地插到底、略过冲再回弹; 后面跟一层更糊、慢半拍的拖影当运动模糊; 到位那一下接口处炸开一圈冲击波 +
+     放射短线(动画片里"咔哒"的感觉), 然后引线画出去、胶囊滑进来。
+   · 刚拔掉(.out): 先往里按一下(按卡扣) → 弹出来一点停住 → 加速顺插入轴飞走, 越飞越糊直到消失;
+     胶囊往右模糊淡出、引线收回, 接口处一圈灰色波纹。
+   · 插入方向由 --mx/--my(插入轴 × 52 原图像素 × 缩放)给出, 关键帧里按比例走, 所以哪个口、多大的图都对得上。
+   · 覆盖层和图片同一个悬停上浮(translateY -6px)、同一条过渡曲线。扁平: 不加投影。 */
+.P .dv-pts{position:absolute;inset:0;z-index:2;pointer-events:none;transition:transform 0.6s cubic-bezier(.2,.8,.2,1)}
+.P .dv-stage:hover .dv-pts{transform:translateY(-6px)}
+.P .dv-pts svg{position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible}
+.P .pt-pl{pointer-events:none}
+.P .pt-pl.in{animation:pt-plugin 0.95s both}
+.P .pt-pl.gh{animation:pt-trail 0.95s 0.05s both}
+.P .pt-pl.out{animation:pt-unplug 0.9s both}
+.P .pt-fx{position:absolute;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;pointer-events:none;opacity:0}
+.P .pt-fx::before{content:'';position:absolute;inset:0;border-radius:50%;border:1.5px solid var(--pc);background:radial-gradient(circle,var(--pc) 0,rgba(255,255,255,0) 62%)}
+.P .pt-fx svg path{fill:none;stroke:var(--pc);stroke-width:2.2;stroke-linecap:round}
+.P .pt-fx.in{animation:pt-flash 0.7s cubic-bezier(.2,.8,.3,1) 0.64s both}
+.P .pt-fx.in svg{animation:pt-rays 0.55s cubic-bezier(.2,.8,.3,1) 0.64s both}
+.P .pt-fx.out{--pc:#94a3b8;animation:pt-flash 0.6s ease-out 0.1s both}
+.P .pt-ln{fill:none;stroke:var(--pc);stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round;opacity:0.85}
+.P .pt-ln.in{stroke-dasharray:1;stroke-dashoffset:1;animation:pt-draw 0.5s ease-out 0.66s forwards}
+.P .pt-ln.out{stroke-dasharray:1;animation:pt-undraw 0.35s ease-in forwards}
+.P .pt-ld.in{animation:pt-fade 0.3s ease-out 0.66s both}
+.P .pt-ld.out{animation:pt-fade 0.3s ease-in reverse forwards}
+.P .pt-c{--pc:#34d399;--pi:#10b981;position:absolute;height:24px;margin-top:-12px;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding:0 9px 0 3px;border-radius:12px;white-space:nowrap;font-size:11px;line-height:1;color:#e8ecf4;background:rgba(14,19,31,0.74);border:1px solid rgba(52,211,153,0.5);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);pointer-events:auto}
+.P .pt-c.f0{animation:pt-fade 0.35s ease-out both}
+.P .pt-c.u{--pc:#22d3ee;--pi:#0891b2;border-color:rgba(34,211,238,0.5);cursor:default}
+/* s74 悬停浮层: 胶囊和插头热区(.pt-hs, 透明圆, 盖在插头上)都打 data-pop, 浮层抄这里的 --tc/--tb 当主色 */
+.P .pt-c,.P .pt-hs{--tc:#34d399;--tb:rgba(52,211,153,0.15)}
+.P .pt-c.u,.P .pt-hs.u{--tc:#22d3ee;--tb:rgba(34,211,238,0.15)}
+.P.L .pt-c,.P.L .pt-hs{--tc:#059669;--tb:rgba(16,185,129,0.12)}
+.P.L .pt-c.u,.P.L .pt-hs.u{--tc:#0891b2;--tb:rgba(8,145,178,0.12)}
+.P .pt-hs{position:absolute;border-radius:50%;pointer-events:auto;cursor:default}
+.P .pt-c[data-pop]{cursor:default}
+.P .pt-c .ic{width:18px;height:18px;border-radius:9px;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;background:var(--pi);color:#fff;font-size:9px}
+.P .pt-c b{font-weight:600;letter-spacing:0.3px;max-width:118px;overflow:hidden;text-overflow:ellipsis}
+.P .pt-c small{font-size:10px;color:#9ba6bb;font-variant-numeric:tabular-nums}
+.P .pt-c em{font-style:normal;font-size:9px;font-weight:600;padding:2px 5px;border-radius:6px;background:rgba(34,211,238,0.2);color:var(--pc)}
+.P .pt-c.in{animation:pt-in 0.55s cubic-bezier(.2,.8,.2,1) 0.72s both}
+.P .pt-c.in .ic{animation:pt-pop 0.5s cubic-bezier(.3,1.6,.5,1) 1s both}
+.P .pt-c.out{pointer-events:none;animation:pt-cout 0.45s cubic-bezier(.4,0,1,1) both}
+.P.L .pt-c{color:#1f2937;background:rgba(255,255,255,0.86)}
+.P.L .pt-c small{color:#64748b}
+@keyframes pt-plugin{
+ 0%{transform:translate(var(--mx),var(--my));opacity:0;filter:blur(8px);animation-timing-function:cubic-bezier(.2,.7,.3,1)}
+ 40%{transform:translate(calc(var(--mx)*.3),calc(var(--my)*.3));opacity:1;filter:blur(1.4px);animation-timing-function:cubic-bezier(.45,0,.55,1)}
+ 55%{transform:translate(calc(var(--mx)*.42),calc(var(--my)*.42));filter:blur(0);animation-timing-function:cubic-bezier(.6,0,.9,.4)}
+ 69%{transform:translate(calc(var(--mx)*-.05),calc(var(--my)*-.05));filter:blur(.9px);animation-timing-function:cubic-bezier(.2,.6,.4,1)}
+ 81%{transform:translate(calc(var(--mx)*.025),calc(var(--my)*.025));filter:blur(0);animation-timing-function:ease-in-out}
+ 100%{transform:none;opacity:1;filter:blur(0)}}
+@keyframes pt-trail{
+ 0%{transform:translate(var(--mx),var(--my));opacity:0;filter:blur(10px)}
+ 28%{opacity:.42}
+ 45%{transform:translate(calc(var(--mx)*.5),calc(var(--my)*.5));filter:blur(5px)}
+ 70%{transform:translate(calc(var(--mx)*.06),calc(var(--my)*.06));opacity:0;filter:blur(4px)}
+ 100%{transform:none;opacity:0;filter:blur(4px)}}
+@keyframes pt-unplug{
+ 0%{transform:none;opacity:1;filter:blur(0);animation-timing-function:cubic-bezier(.4,0,.6,1)}
+ 14%{transform:translate(calc(var(--mx)*-.04),calc(var(--my)*-.04));animation-timing-function:cubic-bezier(.2,.8,.3,1)}
+ 32%{transform:translate(calc(var(--mx)*.2),calc(var(--my)*.2));filter:blur(.6px);animation-timing-function:cubic-bezier(.45,0,.55,1)}
+ 46%{transform:translate(calc(var(--mx)*.16),calc(var(--my)*.16));opacity:1;filter:blur(0);animation-timing-function:cubic-bezier(.55,0,.9,.5)}
+ 100%{transform:translate(calc(var(--mx)*1.5),calc(var(--my)*1.5));opacity:0;filter:blur(9px)}}
+@keyframes pt-flash{0%{opacity:.95;transform:scale(.3)}100%{opacity:0;transform:scale(1.9)}}
+@keyframes pt-rays{0%{opacity:1;transform:scale(.55)}100%{opacity:0;transform:scale(1.3)}}
+@keyframes pt-draw{to{stroke-dashoffset:0}}
+@keyframes pt-undraw{from{stroke-dashoffset:0}to{stroke-dashoffset:-1;opacity:0}}
+@keyframes pt-fade{from{opacity:0}to{opacity:1}}
+@keyframes pt-in{0%{opacity:0;transform:translateX(18px);filter:blur(4px)}100%{opacity:1;transform:none;filter:blur(0)}}
+@keyframes pt-cout{to{opacity:0;transform:translateX(16px);filter:blur(4px)}}
+@keyframes pt-pop{0%{transform:scale(0.6)}100%{transform:scale(1)}}
+@media(max-width:600px){.P .pt-c{height:22px;margin-top:-11px;font-size:10px;padding-right:7px}.P .pt-c b{max-width:84px}.P .pt-c .ic{width:16px;height:16px}}
+@media (prefers-reduced-motion:reduce){.P .pt-pl.in,.P .pt-c.f0,.P .pt-c.in,.P .pt-c.in .ic,.P .pt-ld.in{animation:none}.P .pt-ln.in{animation:none;stroke-dashoffset:0}.P .pt-pl.gh,.P .pt-pl.out,.P .pt-fx,.P .pt-c.out,.P .pt-ln.out,.P .pt-ld.out{display:none}}
+.P .mp-cap{font-size:10px;color:var(--t2);display:flex;align-items:center;justify-content:center;gap:5px;letter-spacing:0.5px;margin-top:6px}
+.P .mp-dot{width:7px;height:7px;border-radius:50%;background:#34d399;box-shadow:0 0 6px #34d399;animation:mp-blink 2s infinite;flex-shrink:0}
+@keyframes mp-blink{0%,100%{opacity:1}50%{opacity:0.35}}
+/* === Cellular Dashboard Styles === */
+.P .sig-panel{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.P .sig-gauge{background:var(--c2);border:1px solid var(--bd);border-radius:12px;padding:14px 8px;text-align:center;position:relative;overflow:hidden;transition:all 0.3s}
+.P .sig-gauge:hover{border-color:rgba(124,92,252,0.3);transform:translateY(-1px)}
+.P .sig-gauge::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 50% 0,rgba(124,92,252,0.06),transparent 70%);opacity:0;transition:opacity 0.3s;pointer-events:none}
+.P .sig-gauge:hover::before{opacity:1}
+.P .sg-w{position:relative;width:60px;height:60px;margin:0 auto 6px}
+.P .sg-w svg{width:60px;height:60px;transform:rotate(-90deg);display:block}
+.P .sg-w svg circle{fill:none}
+.P .sg-w .sg-bg{stroke:var(--c1);stroke-width:6}
+.P .sg-w .sg-fg{stroke-width:6;stroke-linecap:round;transition:stroke-dashoffset 0.8s ease,stroke 0.3s}
+.P .sg-c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.P .sg-c .sv{font-size:13px;font-weight:800;color:var(--t1);line-height:1}
+.P .sg-c .su{font-size:8px;color:var(--t2);margin-top:2px}
+.P .sg-name{font-size:10px;color:var(--t1);font-weight:600;margin-top:3px}
+.P .sg-sub{font-size:8px;color:var(--t2);margin-top:1px}
+.P .sg-desc{font-size:9px;font-weight:700;margin-top:4px;padding:1px 6px;border-radius:6px;display:inline-block}
+.P .sg-desc.good{background:rgba(52,211,153,0.12);color:#34d399}
+.P .sg-desc.fair{background:rgba(251,191,36,0.12);color:#fbbf24}
+.P .sg-desc.poor{background:rgba(248,113,113,0.12);color:#f87171}
+.P .net-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;padding:0 2px}
+.P .net-tag{padding:5px 11px;border-radius:14px;font-size:10px;font-weight:600;border:1px solid;display:inline-flex;align-items:center;gap:4px;letter-spacing:0.3px}
+.P .net-tag.t-5g{background:rgba(124,92,252,0.1);color:#a78bfa;border-color:rgba(124,92,252,0.25)}
+.P .net-tag.t-4g{background:rgba(34,211,238,0.1);color:#22d3ee;border-color:rgba(34,211,238,0.25)}
+.P .net-tag.t-mode{background:rgba(99,102,241,0.1);color:#818cf8;border-color:rgba(99,102,241,0.25)}
+.P .net-tag.t-band{background:rgba(168,85,247,0.1);color:#c084fc;border-color:rgba(168,85,247,0.25)}
+.P .net-tag.t-on{background:rgba(52,211,153,0.1);color:#34d399;border-color:rgba(52,211,153,0.25)}
+.P .net-tag.t-off{background:rgba(248,113,113,0.1);color:#f87171;border-color:rgba(248,113,113,0.25)}
+.P .net-tag.t-on .pulse{width:6px;height:6px;border-radius:50%;background:#34d399;animation:tagPulse 2s infinite}
+@keyframes tagPulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(52,211,153,0.6)}50%{opacity:0.8;box-shadow:0 0 0 4px rgba(52,211,153,0)}}
+.P .cell-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px}
+.P .cell-item{padding:11px 12px;background:var(--c2);border-radius:10px;border:1px solid var(--bd);transition:all 0.2s;position:relative}
+.P .cell-item:hover{border-color:rgba(124,92,252,0.25);background:rgba(124,92,252,0.04)}
+.P .ci-label{font-size:9px;color:var(--t2);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.6px;font-weight:600;display:flex;align-items:center;gap:4px}
+.P .ci-label i{font-size:8px;opacity:0.6}
+.P .ci-value{font-size:14px;font-weight:700;color:var(--t1);font-family:'SF Mono','JetBrains Mono','Consolas',monospace;word-break:break-all}
+.P .ci-note{font-size:9px;color:var(--t3);margin-top:2px;font-weight:500}
+.P .sim-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.P .sim-grid .ir{margin-bottom:0}
+.P .conn-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:14px;font-size:10px;font-weight:700;letter-spacing:0.3px;border:1px solid}
+.P .conn-pill .dot{width:7px;height:7px;border-radius:50%;animation:pls 2s infinite}
+.P .conn-pill.on{background:rgba(52,211,153,0.10);color:#34d399;border-color:rgba(52,211,153,0.28)}
+.P .conn-pill.on .dot{background:#34d399;box-shadow:0 0 8px rgba(52,211,153,0.6)}
+.P .conn-pill.off{background:rgba(248,113,113,0.10);color:#f87171;border-color:rgba(248,113,113,0.25)}
+.P .conn-pill.off .dot{background:#f87171}
+.P .mod-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.P .mod-cell{padding:11px 13px;background:var(--c2);border-radius:10px;border:1px solid var(--bd);transition:all 0.2s;position:relative;overflow:hidden}
+.P .mod-cell:hover{border-color:rgba(124,92,252,0.25);background:rgba(124,92,252,0.04)}
+.P .mod-cell-l{font-size:9px;color:var(--t2);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;display:flex;align-items:center;gap:5px;margin-bottom:5px}
+.P .mod-cell-l i{font-size:9px;opacity:0.7;color:var(--ac)}
+.P .mod-cell-v{font-size:13px;font-weight:700;color:var(--t1);font-family:'SF Mono','JetBrains Mono','Consolas',monospace;word-break:break-all;line-height:1.2}
+.P .mod-cell-v.lg{font-size:15px}
+.P .mod-cell-sub{font-size:10px;color:var(--t2);font-weight:600}
+.P .temp-bar{margin-top:7px}
+.P .temp-bar-track{height:6px;border-radius:3px;background:linear-gradient(90deg,#34d399 0%,#34d399 35%,#fbbf24 55%,#fb923c 75%,#f87171 95%);position:relative;overflow:visible}
+.P .temp-bar-mark{position:absolute;top:-3px;width:3px;height:12px;background:var(--t1);border-radius:2px;transition:left 0.6s ease;box-shadow:0 0 0 2px var(--c2),0 0 8px rgba(0,0,0,0.4)}
+.P .temp-bar-scale{display:flex;justify-content:space-between;font-size:8px;color:var(--t3);margin-top:4px;font-family:'SF Mono','JetBrains Mono','Consolas',monospace;font-weight:600}
+.P .mod-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--bd)}
+.P .at-port-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:8px;font-size:10px;font-weight:600;background:var(--c2);color:var(--t2);border:1px solid var(--bd);font-family:'SF Mono','JetBrains Mono','Consolas',monospace}
+.P .at-port-chip i{font-size:8px;color:var(--ac)}
+@media(max-width:768px){.P .mod-grid{grid-template-columns:1fr 1fr}}
+
+@media(max-width:768px){.P .sig-panel{grid-template-columns:repeat(2,1fr)}.P .cell-grid{grid-template-columns:1fr 1fr}.P .sim-grid{grid-template-columns:1fr}}
+@media(max-width:480px){.P .sig-panel{grid-template-columns:1fr 1fr}.P .cell-grid{grid-template-columns:1fr}}
+.P .ir{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;margin-bottom:3px;border-radius:8px;background:var(--c2);border-bottom:none;transition:background 0.2s}.P .ir:last-child{margin-bottom:0}
+.P .ir:hover{background:rgba(124,92,252,0.05)}
+.P .ik{font-size:11px;color:var(--t2);font-weight:500}.P .iv{font-size:12px;font-weight:600;color:var(--t1);max-width:58%;text-align:right;word-break:break-all}
+.P .empty-hint{display:flex;align-items:center;gap:10px;padding:14px 16px;border-radius:10px;background:var(--c2);border:1px dashed var(--t3);color:var(--t2);font-size:12px}.P .empty-hint i{font-size:16px;opacity:0.5}
+
+/* Fan card - premium */
+.P .fan-card{background:var(--c1);border:1px solid var(--bd);border-radius:var(--r);padding:22px;margin-bottom:14px;transition:border-color 0.5s,box-shadow 0.5s;overflow:hidden;position:relative}
+.P .fan-card::before{content:'';position:absolute;inset:0;opacity:0;transition:opacity 0.8s;pointer-events:none}
+.P .fan-card.fan-cool{border-color:rgba(34,211,238,0.12)}.P .fan-card.fan-cool::before{opacity:1;background:radial-gradient(circle at 50px 50px,rgba(34,211,238,0.04),transparent 50%)}
+.P .fan-card.fan-warm{border-color:rgba(251,191,36,0.12)}.P .fan-card.fan-warm::before{opacity:1;background:radial-gradient(circle at 50px 50px,rgba(251,191,36,0.04),transparent 50%)}
+.P .fan-card.fan-hot{border-color:rgba(248,113,113,0.12)}.P .fan-card.fan-hot::before{opacity:1;background:radial-gradient(circle at 50px 50px,rgba(248,113,113,0.05),transparent 50%)}
+/* Wind particles */
+.P .fan-wind{position:absolute;inset:0;overflow:hidden;pointer-events:none;opacity:0;transition:opacity 0.6s}
+.P .fan-card.blowing .fan-wind{opacity:1}
+.P .fan-wind i{position:absolute;font-style:normal;font-size:10px;color:rgba(34,211,238,0.6);opacity:0;animation:windMove var(--wd,4s) linear infinite;animation-delay:var(--dd,0s);text-shadow:0 0 3px currentColor}
+.P.L .fan-wind i{color:rgba(8,145,178,0.5);text-shadow:0 0 2px currentColor}
+.P .fan-card.fan-warm .fan-wind i{color:rgba(251,191,36,0.6)}
+.P.L .fan-card.fan-warm .fan-wind i{color:rgba(217,119,6,0.5)}
+.P .fan-card.fan-hot .fan-wind i{color:rgba(248,113,113,0.6)}
+.P.L .fan-card.fan-hot .fan-wind i{color:rgba(220,38,38,0.5)}
+@keyframes windMove{0%{transform:translateX(-10px) translateY(0);opacity:0}10%{opacity:0.5}80%{opacity:0.3}100%{transform:translateX(calc(100vw)) translateY(-8px);opacity:0}}
+/* Wave bar at bottom */
+.P .fan-wave{position:absolute;bottom:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,rgba(34,211,238,0.6),transparent);opacity:0;animation:waveSlide 3s linear infinite;transition:opacity 0.5s}
+.P .fan-card.blowing .fan-wave{opacity:0.5}
+.P.L .fan-wave{background:linear-gradient(90deg,transparent,rgba(8,145,178,0.5),transparent)}
+.P .fan-card.fan-warm .fan-wave{background:linear-gradient(90deg,transparent,rgba(251,191,36,0.6),transparent)}
+.P .fan-card.fan-hot .fan-wave{background:linear-gradient(90deg,transparent,rgba(248,113,113,0.6),transparent)}
+@keyframes waveSlide{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+/* Speed streaks - moving background lines */
+.P .fan-streaks{position:absolute;inset:0;overflow:hidden;pointer-events:none;opacity:0;transition:opacity 0.6s}
+.P .fan-card.blowing .fan-streaks{opacity:1}
+.P .fan-streak{position:absolute;height:1px;border-radius:1px;background:linear-gradient(90deg,transparent,var(--cy),transparent);animation:streakMove var(--sd,3s) linear infinite;opacity:0.4}
+.P .fan-card.fan-warm .fan-streak{background:linear-gradient(90deg,transparent,var(--og),transparent)}
+.P .fan-card.fan-hot .fan-streak{background:linear-gradient(90deg,transparent,var(--rd),transparent)}
+.P.L .fan-streak{background:linear-gradient(90deg,transparent,rgba(8,145,178,0.6),transparent)}
+.P.L .fan-card.fan-warm .fan-streak{background:linear-gradient(90deg,transparent,rgba(217,119,6,0.5),transparent)}
+.P.L .fan-card.fan-hot .fan-streak{background:linear-gradient(90deg,transparent,rgba(220,38,38,0.5),transparent)}
+@keyframes streakMove{0%{transform:translateX(100%)}100%{transform:translateX(-200%)}}
+
+.P .fan-top{display:flex;align-items:center;gap:20px;margin-bottom:16px;position:relative;z-index:1}
+.P .fan-visual{position:relative;width:88px;height:88px;flex-shrink:0}
+.P .fan-svg{width:88px;height:88px;animation:fspin 2s linear infinite;transition:filter 0.5s}
+.P .fan-svg.off{animation-play-state:paused;filter:grayscale(0.6) opacity(0.4)}
+.P .fan-svg.fast{filter:drop-shadow(0 0 8px rgba(34,211,238,0.5))}
+.P .fan-svg.hot{filter:drop-shadow(0 0 8px rgba(248,113,113,0.5))}
+@keyframes fspin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.P .fan-ring-wrap{position:absolute;inset:-4px}
+.P .fan-ring-wrap svg{width:96px;height:96px;transform:rotate(-90deg)}
+.P .fsr-bg{fill:none;stroke:var(--t3);stroke-width:2.5;opacity:0.2}
+.P .fsr-fg{fill:none;stroke-width:2.5;stroke-linecap:round;transition:stroke-dashoffset 1s ease,stroke 0.5s}
+.P .fan-meta{flex:1;position:relative;z-index:1}
+.P .fan-meta .fm-title{font-size:14px;font-weight:700;color:var(--t1);display:flex;align-items:center;gap:6px}
+.P .fan-meta .fm-title i{color:var(--cy)}
+.P .fan-meta .fm-sub{font-size:10px;color:var(--t2);margin-top:2px}
+.P .fan-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px;position:relative;z-index:1}
+.P .fan-stat{background:var(--c2);border-radius:8px;padding:10px 8px;text-align:center}
+.P .fan-stat .fs-v{font-size:14px;font-weight:700;color:var(--t1)}
+.P .fan-stat .fs-l{font-size:9px;color:var(--t2);margin-top:2px}
+.P .fan-ctrl{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px;position:relative;z-index:1}
+.P .fan-ctrl .fc-btn{padding:7px 12px;border-radius:8px;border:1px solid var(--bd);background:var(--c2);color:var(--t2);font-size:10px;font-weight:600;cursor:pointer;transition:all 0.2s;display:inline-flex;align-items:center;gap:4px}
+.P .fan-ctrl .fc-btn:hover{border-color:var(--cy);color:var(--cy);background:rgba(34,211,238,0.06)}
+.P .fan-ctrl .fc-btn.active{border-color:var(--cy);color:#fff;background:linear-gradient(135deg,#0891b2,#06b6d4)}
+.P .fan-ctrl .fc-btn.fc-link{border-color:rgba(124,92,252,0.2);color:var(--ac);margin-left:auto}
+.P .fan-ctrl .fc-btn.fc-link:hover{background:rgba(124,92,252,0.08)}
+/* Slider - premium */
+.P .fan-slider{display:flex;align-items:center;gap:12px;margin-top:12px;padding:12px 16px;background:linear-gradient(135deg,var(--c2),rgba(34,211,238,0.03));border:1px solid rgba(34,211,238,0.08);border-radius:12px;position:relative;z-index:1}
+.P .fan-slider label{font-size:10px;color:var(--cy);font-weight:600;white-space:nowrap}
+.P .fan-slider .slider-track{flex:1;position:relative;height:20px;display:flex;align-items:center}
+.P .fan-slider input[type=range]{width:100%;height:6px;-webkit-appearance:none;appearance:none;background:linear-gradient(90deg,rgba(34,211,238,0.15),rgba(34,211,238,0.3));border-radius:3px;outline:none;cursor:pointer}
+.P .fan-slider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,#22d3ee,#0891b2);cursor:pointer;box-shadow:0 0 8px rgba(34,211,238,0.4);border:2px solid rgba(255,255,255,0.2);transition:box-shadow 0.2s}
+.P .fan-slider input[type=range]::-webkit-slider-thumb:hover{box-shadow:0 0 14px rgba(34,211,238,0.6)}
+.P .fan-slider .fs-val{font-size:14px;font-weight:800;color:var(--cy);min-width:32px;text-align:center}
+.P .clh{display:flex;justify-content:space-between;align-items:center;cursor:pointer}.P .clh .cd-t{margin-bottom:0}
+.P .cla{font-size:9px;color:var(--t3);transition:transform 0.3s}.P .cla.shut{transform:rotate(-90deg)}
+.P .clb{max-height:600px;overflow:hidden;transition:max-height 0.3s,opacity 0.2s;opacity:1;margin-top:12px}.P .clb.shut{max-height:0;opacity:0;margin-top:0}
+.P .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%) translateY(60px);background:var(--c1);border:1px solid var(--bd);color:var(--t1);padding:10px 18px;border-radius:8px;font-size:12px;z-index:10000;opacity:0;transition:all 0.3s}.P .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+/* s64: 移动端屏幕底部有固定导航栏(约 51px), toast 的 bottom:16px 会被它挡住。
+   窄屏下把 toast 抬到导航栏之上(叠加安全区)。桌面端无底栏, 不受影响。 */
+@media (max-width:768px){.P .toast{bottom:calc(64px + env(safe-area-inset-bottom,0px))}}
+.P .hid{display:none!important}
+
+/* ============================ 5700 专属板块 ============================
+   载波聚合 / 附近小区 / 签约速率+QCI。数据来自 admin/modeminfo/cellx
+   (读 /tmp/mwrt_cellinfo.json 缓存,不碰 AT 口)。
+   这些板块只在 MT5700 上出现 —— 其他模组没有 ^HFREQINFO / ^MONNC。
+
+   视觉:卡片分层。外层 .cd 是容器,里面每个实体(成分载波、邻区)自己是一张
+   有底色、有阴影、有强调色的卡,层级靠阴影和亮度差拉开而不是靠边框。
+   字号阶梯固定为 9/10/11/13/15/26 六档,等宽字体只用在真正的机读数值上
+   (频点、PCI、速率),标签一律用系统字 —— 之前整卡都上等宽就是"字看着怪"
+   的来源。 */
+
+/* .clb 原本 max-height:600px,载波聚合 + 邻区都可能超,单独放宽。 */
+.P .clb-tall{max-height:1600px}
+.P .clb-tall.shut{max-height:0}
+
+/* 板块标题右侧的数据时效提示 */
+.P .cx-age{font-size:9px;font-weight:600;color:var(--og);background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.2);padding:3px 8px;border-radius:6px;margin-left:auto;letter-spacing:0.2px}
+
+/* ---------------------------- 载波聚合 ---------------------------- */
+/* 顶部汇总:左边一个大号 CC 计数,右边聚合带宽。用渐变+内发光做"主平面"。 */
+.P .ca-hd{display:flex;align-items:center;gap:18px;padding:18px 20px;border-radius:16px;
+ background:linear-gradient(135deg,rgba(124,92,252,0.16) 0%,rgba(124,92,252,0.05) 45%,rgba(34,211,238,0.07) 100%);
+ border:1px solid rgba(124,92,252,0.2);
+ margin-bottom:12px;flex-wrap:wrap}
+.P .ca-big{display:flex;align-items:baseline;gap:5px;line-height:0.9}
+.P .ca-big .n{font-size:38px;font-weight:800;letter-spacing:-2px;
+ background:linear-gradient(135deg,#a78bfa,#7c5cfc 60%,#22d3ee);-webkit-background-clip:text;background-clip:text;
+ -webkit-text-fill-color:transparent;font-variant-numeric:tabular-nums}
+.P .ca-big .u{font-size:12px;font-weight:700;color:var(--ac);opacity:0.75;letter-spacing:0.5px}
+.P .ca-hd-meta{display:flex;flex-direction:column;gap:4px;min-width:0}
+.P .ca-hd-t{font-size:14px;font-weight:700;color:var(--t1);letter-spacing:-0.1px}
+.P .ca-hd-s{font-size:11px;color:var(--t2);font-weight:500;letter-spacing:0.3px}
+.P .ca-sum{margin-left:auto;display:flex;gap:10px;flex-wrap:wrap}
+.P .ca-sum-i{padding:9px 15px;border-radius:11px;background:rgba(255,255,255,0.045);
+ border:1px solid rgba(255,255,255,0.06);text-align:left;min-width:90px;backdrop-filter:blur(6px)}
+.P.L .ca-sum-i{background:rgba(255,255,255,0.75);border-color:rgba(0,0,0,0.05)}
+.P .ca-sum-i .l{font-size:9px;color:var(--t2);font-weight:600;letter-spacing:0.4px;display:block;margin-bottom:3px}
+.P .ca-sum-i .v{font-size:17px;font-weight:700;color:var(--t1);font-variant-numeric:tabular-nums;letter-spacing:-0.3px}
+.P .ca-sum-i .v small{font-size:10px;font-weight:600;color:var(--t2);margin-left:2px;letter-spacing:0}
+
+/* 成分载波:每个一张浮起的卡。主载波比辅载波亮一档,层级一眼可辨。 */
+.P .ca-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.P .ca-c{padding:0;border-radius:14px;background:var(--c2);border:1px solid var(--bd);
+ overflow:hidden;transition:transform 0.2s}
+.P .ca-c:hover{transform:translateY(-2px)}
+/* 卡头带色:主载波紫,辅载波青 */
+.P .ca-c-hd{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px;
+ background:linear-gradient(135deg,rgba(34,211,238,0.1),transparent 70%);border-bottom:1px solid var(--bd)}
+.P .ca-c.pcc .ca-c-hd{background:linear-gradient(135deg,rgba(124,92,252,0.13),transparent 70%)}
+.P .ca-band{font-size:22px;font-weight:800;color:var(--t1);letter-spacing:-0.8px;line-height:1;
+ font-variant-numeric:tabular-nums;display:flex;flex-direction:column;gap:3px}
+.P .ca-band .fr{font-size:10px;font-weight:600;color:var(--t2);letter-spacing:0.3px}
+.P .ca-role{font-size:9px;font-weight:700;padding:5px 10px;border-radius:7px;letter-spacing:0.4px;
+ background:rgba(34,211,238,0.12);color:var(--cy);border:1px solid rgba(34,211,238,0.24);white-space:nowrap}
+.P .ca-c.pcc .ca-role{background:rgba(124,92,252,0.14);color:#a78bfa;border-color:rgba(124,92,252,0.28)}
+.P.L .ca-c.pcc .ca-role{color:var(--ac)}
+/* 带宽:两个并排的度量块,下行绿上行蓝,配一条占比细条 */
+.P .ca-bw{display:flex;gap:1px;background:var(--bd)}
+.P .ca-bw-i{flex:1;padding:12px 16px;background:var(--c1);min-width:0}
+.P .ca-bw-i .l{font-size:9px;color:var(--t2);font-weight:600;letter-spacing:0.4px;display:flex;align-items:center;gap:5px;margin-bottom:5px}
+.P .ca-bw-i .v{font-size:19px;font-weight:700;color:var(--t1);font-variant-numeric:tabular-nums;letter-spacing:-0.5px;line-height:1}
+.P .ca-bw-i .v small{font-size:10px;color:var(--t2);font-weight:600;margin-left:3px;letter-spacing:0}
+.P .ca-bw-i.dl .l i{color:var(--gn)}
+.P .ca-bw-i.ul .l i{color:var(--bl)}
+.P .ca-bw-t{display:block;height:3px;border-radius:2px;background:rgba(255,255,255,0.06);margin-top:7px;overflow:hidden;font-size:0;line-height:0}
+.P.L .ca-bw-t{background:rgba(0,0,0,0.06)}
+.P .ca-bw-t i{display:block;height:3px;border-radius:2px;font-size:0;line-height:0}
+.P .ca-bw-i.dl .ca-bw-t i{background:linear-gradient(90deg,#34d399,#6ee7b7)}
+.P .ca-bw-i.ul .ca-bw-t i{background:linear-gradient(90deg,#60a5fa,#93c5fd)}
+/* 纯下行载波:上行块整体压暗,并把数值换成"未使用" */
+.P .ca-bw-i.void{opacity:0.4}
+.P .ca-bw-i.void .v{font-size:13px;font-weight:600;color:var(--t2);letter-spacing:0}
+.P .ca-bw-i.void .ca-bw-t{display:none}
+/* 频点等机读值:两列键值,等宽只用在值上 */
+.P .ca-kv{padding:12px 16px 14px;display:grid;grid-template-columns:1fr 1fr;gap:9px 16px}
+.P .ca-kv div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.P .ca-kv .k{font-size:9px;color:var(--t2);font-weight:600;letter-spacing:0.4px}
+.P .ca-kv .v{font-size:13px;color:var(--t1);font-weight:700;font-variant-numeric:tabular-nums;
+ letter-spacing:-0.2px;word-break:break-all}
+
+/* ---------------------------- 附近小区 ---------------------------- */
+/* 前三强用卡片,其余落进紧凑表格 —— 十来个邻区全做成卡会把页面撑得很散。 */
+.P .nb-top{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
+.P .nb-c{padding:0;border-radius:14px;background:var(--c2);border:1px solid var(--bd);
+ overflow:hidden;transition:transform 0.2s}
+.P .nb-c:hover{transform:translateY(-2px)}
+.P .nb-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 15px;
+ border-bottom:1px solid var(--bd);background:linear-gradient(135deg,rgba(124,92,252,0.07),transparent 70%)}
+.P .nb-pci{display:flex;flex-direction:column;gap:2px;min-width:0}
+.P .nb-pci .lb{font-size:9px;font-weight:600;color:var(--t2);letter-spacing:0.5px}
+.P .nb-pci .nv{font-size:20px;font-weight:800;color:var(--t1);letter-spacing:-0.7px;line-height:1;font-variant-numeric:tabular-nums}
+.P .nb-tags{display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+.P .nb-rat{font-size:9px;font-weight:700;padding:3px 8px;border-radius:6px;letter-spacing:0.4px;
+ background:rgba(96,165,250,0.12);color:var(--bl);border:1px solid rgba(96,165,250,0.24)}
+.P .nb-rat.nr{background:rgba(124,92,252,0.13);color:#a78bfa;border-color:rgba(124,92,252,0.26)}
+.P.L .nb-rat.nr{color:var(--ac)}
+.P .nb-same{font-size:8px;font-weight:700;color:var(--gn);background:rgba(52,211,153,0.11);
+ border:1px solid rgba(52,211,153,0.24);padding:3px 7px;border-radius:5px;letter-spacing:0.4px;white-space:nowrap}
+.P .nb-c.same{border-color:rgba(52,211,153,0.26)}
+/* 主指标 RSRP 放大,RSRQ/SINR 做次级 */
+.P .nb-main{padding:13px 15px 11px}
+.P .nb-main .l{font-size:9px;color:var(--t2);font-weight:600;letter-spacing:0.4px;margin-bottom:4px;display:block}
+.P .nb-main .row{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.P .nb-main .nv{font-size:24px;font-weight:800;letter-spacing:-1px;line-height:1;font-variant-numeric:tabular-nums}
+.P .nb-main .u{font-size:10px;color:var(--t2);font-weight:600;margin-left:2px}
+.P .nb-lvl{font-size:9px;font-weight:700;padding:3px 8px;border-radius:5px;letter-spacing:0.3px;white-space:nowrap}
+.P .nb-lvl.good{background:rgba(52,211,153,0.12);color:var(--gn);border:1px solid rgba(52,211,153,0.24)}
+.P .nb-lvl.fair{background:rgba(251,191,36,0.12);color:var(--og);border:1px solid rgba(251,191,36,0.24)}
+.P .nb-lvl.poor{background:rgba(248,113,113,0.12);color:var(--rd);border:1px solid rgba(248,113,113,0.24)}
+.P .nb-bar{display:block;height:4px;border-radius:2px;background:rgba(255,255,255,0.06);margin-top:9px;overflow:hidden;font-size:0;line-height:0}
+.P.L .nb-bar{background:rgba(0,0,0,0.06)}
+.P .nb-bar i{display:block;height:4px;border-radius:2px;font-size:0;line-height:0;transition:width 0.6s}
+.P .nb-sub{display:flex;gap:1px;background:var(--bd);border-top:1px solid var(--bd)}
+.P .nb-sub div{flex:1;padding:9px 12px;background:var(--c1);min-width:0}
+.P .nb-sub .k{font-size:9px;color:var(--t2);font-weight:600;letter-spacing:0.4px;display:block;margin-bottom:2px}
+.P .nb-sub .v{font-size:14px;font-weight:700;color:var(--t1);font-variant-numeric:tabular-nums;letter-spacing:-0.3px}
+.P .nb-fcn{padding:9px 15px;border-top:1px solid var(--bd);display:flex;justify-content:space-between;
+ align-items:center;gap:8px;background:rgba(255,255,255,0.015)}
+.P.L .nb-fcn{background:rgba(0,0,0,0.012)}
+.P .nb-fcn .k{font-size:9px;color:var(--t2);font-weight:600;letter-spacing:0.4px}
+.P .nb-fcn .v{font-size:12px;color:var(--t1);font-weight:700;font-variant-numeric:tabular-nums}
+
+/* 其余邻区:长尾用紧凑行而不是卡片(十几条卡片会把页面撑散),但也不能退成一张
+   裸表格 —— 每行给一条 RSRP 占比条,强弱在纵向上直接成梯度;序号接着上面三张
+   卡往下数,读者知道自己看的是第几强。列宽写在 th 上配合 table-layout:fixed,
+   这样窄屏隐藏某列时它的宽度不会被留成空档。 */
+.P .nb-rest{border-radius:12px;overflow:hidden;border:1px solid var(--bd);background:var(--c2)}
+.P .nb-rest-h{padding:10px 15px;background:rgba(255,255,255,0.025);border-bottom:1px solid var(--bd);
+ display:flex;align-items:center;justify-content:space-between;gap:10px}
+.P.L .nb-rest-h{background:rgba(0,0,0,0.018)}
+.P .nb-rest-t{font-size:10px;font-weight:600;color:var(--t2);letter-spacing:0.4px;
+ display:flex;align-items:center;gap:7px;white-space:nowrap}
+.P .nb-rest-n{font-size:9px;font-weight:500;color:var(--t2);opacity:0.55;letter-spacing:0.3px;white-space:nowrap}
+.P .nb-tb{width:100%;border-collapse:collapse;table-layout:fixed}
+.P .nb-tb th{font-size:9px;font-weight:600;color:var(--t2);text-align:right;padding:9px 10px;
+ letter-spacing:0.4px;border-bottom:1px solid var(--bd);white-space:nowrap}
+.P .nb-tb th:nth-child(-n+3),.P .nb-tb td:nth-child(-n+3){text-align:left}
+.P .nb-tb th:first-child,.P .nb-tb td:first-child{padding-left:15px}
+.P .nb-tb th:last-child,.P .nb-tb td:last-child{padding-right:15px}
+.P .nb-tb td{font-size:11px;font-weight:600;color:var(--t2);text-align:right;padding:7px 10px;
+ border-bottom:1px solid var(--bd);font-variant-numeric:tabular-nums;letter-spacing:-0.2px;
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.P .nb-tb tr:last-child td{border-bottom:none}
+.P .nb-tb tbody tr:hover td{background:rgba(255,255,255,0.03)}
+.P.L .nb-tb tbody tr:hover td{background:rgba(0,0,0,0.02)}
+.P .nb-tb .rk{font-size:10px;font-weight:600;color:var(--t2);opacity:0.5}
+.P .nb-tb .pci{font-size:12px;font-weight:700;color:var(--t1);letter-spacing:-0.2px}
+.P .nb-tb .fcn{font-weight:600;color:var(--t2)}
+.P .nb-tb .sm{font-size:10px;color:var(--t2);font-weight:600}
+.P .nb-rat2{font-size:9px;font-weight:700;padding:2px 7px;border-radius:5px;letter-spacing:0.4px;
+ background:rgba(96,165,250,0.1);color:var(--bl);border:1px solid rgba(96,165,250,0.2)}
+.P .nb-rat2.nr{background:rgba(124,92,252,0.11);color:#a78bfa;border-color:rgba(124,92,252,0.22)}
+.P.L .nb-rat2.nr{color:var(--ac)}
+.P .nb-same2{font-size:8px;font-weight:700;color:var(--gn);background:rgba(52,211,153,0.11);
+ border:1px solid rgba(52,211,153,0.22);padding:2px 5px;border-radius:4px;margin-left:6px;letter-spacing:0.3px}
+/* RSRP 单元格:占比条撑满剩余宽度,数值宽度固定所以各行数字竖着对齐。 */
+.P .nb-sig{display:flex;align-items:center;gap:10px;justify-content:flex-end}
+.P .nb-sb{flex:1;min-width:36px;max-width:220px;display:block;height:3px;border-radius:2px;
+ background:rgba(255,255,255,0.06);overflow:hidden;font-size:0;line-height:0}
+.P.L .nb-sb{background:rgba(0,0,0,0.06)}
+.P .nb-sb i{display:block;height:3px;border-radius:2px;font-size:0;line-height:0;opacity:0.8}
+.P .nb-sv{font-size:11px;font-weight:700;color:var(--t1);min-width:30px;text-align:right;
+ letter-spacing:-0.2px;flex:none;opacity:0.85}
+
+/* ---------------------- 签约速率 + QCI (在 SIM卡信息 里) ---------------------- */
+.P .sub-rate{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.P .sr-i{padding:15px 17px;border-radius:14px;background:var(--c2);border:1px solid var(--bd);
+ position:relative;overflow:hidden}
+/* 角上一团柔光,给卡一点纵深而不抢数值 */
+.P .sr-i::after{content:'';position:absolute;right:-30px;top:-30px;width:96px;height:96px;border-radius:50%;
+ opacity:0.1;filter:blur(6px)}
+.P .sr-i.dl::after{background:var(--gn)}
+.P .sr-i.ul::after{background:var(--bl)}
+.P .sr-l{font-size:10px;font-weight:600;color:var(--t2);letter-spacing:0.4px;display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.P .sr-i.dl .sr-l i{color:var(--gn)}
+.P .sr-i.ul .sr-l i{color:var(--bl)}
+.P .sr-v{display:flex;align-items:baseline;gap:5px}
+.P .sr-v .n{font-size:30px;font-weight:800;color:var(--t1);letter-spacing:-1.4px;line-height:0.95;font-variant-numeric:tabular-nums}
+.P .sr-v .u{font-size:12px;font-weight:700;color:var(--t2);letter-spacing:0.2px}
+.P .sr-s{font-size:10px;color:var(--t2);margin-top:6px;font-weight:500;opacity:0.8}
+/* QCI:徽标 + 含义 + 三个属性 chip */
+.P .qci-row{display:flex;align-items:center;gap:14px;padding:14px 17px;border-radius:14px;
+ background:var(--c2);border:1px solid var(--bd);margin-bottom:10px;flex-wrap:wrap}
+.P .qci-b{display:flex;flex-direction:column;align-items:center;gap:1px;padding:8px 14px;border-radius:11px;
+ background:linear-gradient(135deg,rgba(124,92,252,0.16),rgba(124,92,252,0.06));
+ border:1px solid rgba(124,92,252,0.24);line-height:1}
+.P .qci-b .lb{font-size:9px;font-weight:600;color:var(--t2);letter-spacing:0.6px}
+.P .qci-b .nv{font-size:22px;font-weight:800;color:#a78bfa;letter-spacing:-0.8px;font-variant-numeric:tabular-nums}
+.P.L .qci-b .nv{color:var(--ac)}
+.P .qci-m{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.P .qci-t{font-size:13px;font-weight:700;color:var(--t1);letter-spacing:-0.1px}
+.P .qci-d{font-size:10px;color:var(--t2);font-weight:500}
+.P .qci-x{display:flex;gap:6px;flex-wrap:wrap}
+.P .qci-x span{font-size:9px;font-weight:600;color:var(--t2);background:rgba(255,255,255,0.04);
+ border:1px solid var(--bd);padding:5px 9px;border-radius:7px;letter-spacing:0.3px}
+.P.L .qci-x span{background:rgba(0,0,0,0.025)}
+
+@media(max-width:768px){
+.P .ca-grid{grid-template-columns:1fr}
+.P .nb-top{grid-template-columns:1fr}
+.P .sub-rate{grid-template-columns:1fr}
+.P .ca-sum{margin-left:0;width:100%}
+.P .ca-sum-i{flex:1}
+.P .ca-big .n{font-size:32px}
+.P .nb-tb th:nth-child(1),.P .nb-tb td:nth-child(1){display:none}
+.P .nb-tb th:nth-child(3),.P .nb-tb td:nth-child(3){display:none}
+.P .nb-tb th:nth-child(2),.P .nb-tb td:nth-child(2){padding-left:15px}
+}
+@media(max-width:480px){
+.P .ca-kv{grid-template-columns:1fr 1fr}
+.P .sr-v .n{font-size:26px}
+.P .nb-tb th:nth-child(4),.P .nb-tb td:nth-child(4){display:none}
+.P .nb-tb th:nth-child(7),.P .nb-tb td:nth-child(7){display:none}
+}
+
+
+.P .mod-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:14px 0 12px}
+.P .mod-cell{background:linear-gradient(135deg,rgba(124,92,252,0.05),rgba(255,255,255,0.02));border:1px solid var(--bd);border-radius:10px;padding:11px 12px;display:flex;flex-direction:column;gap:4px;position:relative;overflow:hidden;transition:all .25s}
+.P .mod-cell:hover{border-color:rgba(124,92,252,0.35);transform:translateY(-1px)}
+.P .mod-cell::before{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:linear-gradient(180deg,#7c5cfc,transparent)}
+.P .mod-cell-l{font-size:9.5px;color:var(--t3);text-transform:uppercase;letter-spacing:0.6px;font-weight:600;display:flex;align-items:center;gap:5px}
+.P .mod-cell-l i{font-size:9px;opacity:0.7}
+.P .mod-cell-v{font-size:13px;color:var(--t1);font-weight:700;font-family:'SF Mono',Consolas,monospace;line-height:1.3;word-break:break-all}
+.P .mod-cell-v.lg{font-size:15px}
+.P .mod-cell-sub{font-size:10px;color:var(--t2);font-weight:500}
+.P .conn-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:99px;font-size:11px;font-weight:700;letter-spacing:0.3px}
+.P .conn-pill.on{background:rgba(52,211,153,0.13);color:#34d399;border:1px solid rgba(52,211,153,0.3)}
+.P .conn-pill.off{background:rgba(248,113,113,0.13);color:#f87171;border:1px solid rgba(248,113,113,0.3)}
+.P .conn-pill .dot{width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor;animation:pls 1.8s infinite}
+.P .temp-bar{margin-top:6px}
+.P .temp-bar-track{position:relative;height:8px;border-radius:4px;background:linear-gradient(90deg,#22d3ee 0%,#34d399 30%,#fbbf24 60%,#f87171 90%);overflow:hidden;border:1px solid rgba(255,255,255,0.05)}
+.P .temp-bar-mark{position:absolute;top:-4px;width:3px;height:16px;background:#fff;border-radius:2px;box-shadow:0 0 6px rgba(0,0,0,0.6),0 0 0 1px rgba(0,0,0,0.4);transition:left .6s ease}
+.P .temp-bar-scale{display:flex;justify-content:space-between;font-size:9px;color:var(--t3);margin-top:4px;font-family:'SF Mono',Consolas,monospace}
+.P .at-port-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;background:rgba(124,92,252,0.08);border:1px solid rgba(124,92,252,0.2);font-family:'SF Mono',Consolas,monospace;font-size:11px;color:#a78bfa;font-weight:600}
+.P .at-port-chip i{font-size:9px;color:#7c5cfc}
+.P .mod-meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px}
+@media(max-width:768px){html,body{overflow-x:hidden;max-width:100vw}.P{padding:0 8px 30px;max-width:100%;overflow-x:hidden;box-sizing:border-box}.P *{box-sizing:border-box}.P .gauges{gap:8px}.P .ga{padding:14px 6px}.P .ga-w{width:70px;height:70px}.P .ga-w svg{width:70px;height:70px}.P .ga-v{font-size:16px}.P .feat{grid-template-columns:1fr 1fr}.P .fc.full{grid-column:1/-1}.P .chs{grid-template-columns:1fr}.P .net-tags{flex-wrap:wrap}.P .mod-grid{grid-template-columns:1fr}.P .mod-cell[style*="span 2"]{grid-column:1!important}.P .cell-grid{grid-template-columns:repeat(2,1fr)}.P .sim-grid{grid-template-columns:1fr}}
+@media(max-width:480px){.P .ga-w{width:60px;height:60px}.P .ga-w svg{width:60px;height:60px}.P .ga-v{font-size:14px}}
+/* Screen control card */
+.P .scr-card{background:var(--c1);border:1px solid var(--bd);border-radius:var(--r);padding:22px;margin-bottom:14px;position:relative;overflow:hidden;transition:border-color 0.5s,box-shadow 0.5s}
+.P .scr-card::before{content:'';position:absolute;inset:0;opacity:1;pointer-events:none;background:radial-gradient(ellipse at 30% 50%,rgba(124,92,252,0.03),transparent 60%)}
+.P .scr-top{display:flex;align-items:center;gap:16px;margin-bottom:16px}
+.P .scr-icon{width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,rgba(124,92,252,0.12),rgba(34,211,238,0.08));display:flex;align-items:center;justify-content:center;position:relative;flex-shrink:0}
+.P .scr-icon i{font-size:20px;color:#7c5cfc}
+.P .scr-icon::after{content:'';position:absolute;inset:0;border-radius:12px;border:1px solid rgba(124,92,252,0.15)}
+.P .scr-pulse{position:absolute;top:4px;right:4px;width:8px;height:8px;border-radius:50%;background:#34d399;box-shadow:0 0 6px rgba(52,211,153,0.6);animation:scr-blink 2s ease-in-out infinite}
+@keyframes scr-blink{0%,100%{opacity:1}50%{opacity:0.3}}
+.P .scr-meta .sm-title{font-size:15px;font-weight:700;color:var(--t1);display:flex;align-items:center;gap:6px}
+.P .scr-meta .sm-sub{font-size:11px;color:var(--t2);margin-top:2px}
+.P .scr-stats{display:flex;justify-content:space-around;padding:12px 0;border-top:1px solid var(--bd);border-bottom:1px solid var(--bd);margin-bottom:14px}
+.P .scr-stat{text-align:center}
+.P .scr-stat .ss-v{font-size:14px;font-weight:700;color:var(--t1)}
+.P .scr-stat .ss-l{font-size:10px;color:var(--t2);margin-top:2px}
+.P .scr-ctrl{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.P .sc-btn{padding:7px 12px;border-radius:8px;border:1px solid var(--bd);background:var(--c2);color:var(--t2);font-size:11px;font-weight:500;cursor:pointer;transition:all 0.2s;display:inline-flex;align-items:center;gap:4px;text-decoration:none}
+.P .sc-btn:hover{border-color:rgba(124,92,252,0.3);color:#7c5cfc}
+.P .sc-btn.active{border-color:rgba(124,92,252,0.4);background:rgba(124,92,252,0.08);color:#7c5cfc;box-shadow:0 0 8px rgba(124,92,252,0.12)}
+.P .scr-slider{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--c2);border:1px solid rgba(124,92,252,0.06);border-radius:10px}
+.P .scr-slider label{font-size:10px;color:#7c5cfc;font-weight:600;white-space:nowrap;display:flex;align-items:center;gap:4px}
+.P .scr-slider .slider-track{flex:1}
+.P .scr-slider input[type=range]{width:100%;height:5px;-webkit-appearance:none;appearance:none;background:linear-gradient(90deg,rgba(124,92,252,0.12),rgba(124,92,252,0.25));border-radius:3px;outline:none;cursor:pointer}
+.P .scr-slider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:linear-gradient(135deg,#7c5cfc,#6d28d9);cursor:pointer;box-shadow:0 0 6px rgba(124,92,252,0.35);border:2px solid rgba(255,255,255,0.15)}
+.P .scr-slider .fs-val{font-size:13px;font-weight:700;color:#7c5cfc;min-width:32px;text-align:center}
+
+/* MWRT 1154 首页布局 */
+/* s87 .cd 卡片重做(参照 gauges): 一块底(深色 = gauges 同款 #2a3350 + 左上淡紫光, 浅色 = 白底 + 同位置淡紫光), 无分区标题、无描边线框;
+   里面的信息统一成「胶囊」—— 12px 圆角、无边框、只有一层极淡的底色, 悬停浮出淡紫; 图标是不带底块的淡紫线图标, 标签淡、数值实, 一行一胶囊, 数值靠右。
+   固件 / 硬件 / 无线 / 路由切换状态 / 广域网 五组(.cd-q)按此重做; 其余 .cd(蜂窝卡片、实时流量)只换同款底色。
+   选择器统一带 :not(.dv-card), 设备总览那张渐变卡不受影响。节点 id / class 一个不动(JS 照旧写 ch-s / ch-d 的 on/off)。 */
+.P .cd:not(.dv-card){background:radial-gradient(120% 160% at 0% 0%,rgba(124,92,252,0.10),rgba(124,92,252,0) 55%),#2a3350;border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:14px 16px 8px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.04)}
+.P.L .cd:not(.dv-card){background:radial-gradient(120% 160% at 0% 0%,rgba(124,92,252,0.06),rgba(124,92,252,0) 55%),#fff;border-color:rgba(20,28,60,0.07);box-shadow:0 1px 2px rgba(20,28,60,0.04)}
+.P .cd:not(.dv-card):hover{border-color:rgba(255,255,255,0.07)}
+.P.L .cd:not(.dv-card):hover{border-color:rgba(20,28,60,0.07)}
+.P .cd:not(.dv-card) .cd-t{font-size:12.5px;font-weight:600;letter-spacing:0.2px;color:var(--t1);margin-bottom:8px;gap:8px}
+.P .cd:not(.dv-card) .cd-t>i{width:auto;height:auto;background:none;border-radius:0;color:#a78bfa;font-size:12px}
+.P.L .cd:not(.dv-card) .cd-t>i{color:#6d4df6}
+.P .cd:not(.dv-card) .ir{padding:8px 2px;margin:0;border-radius:0;background:none;border-bottom:1px solid rgba(255,255,255,0.06)}
+.P.L .cd:not(.dv-card) .ir{border-bottom-color:rgba(20,28,60,0.07)}
+.P .cd:not(.dv-card) .ir:last-child{border-bottom:0}
+.P .cd:not(.dv-card) .ir:hover{background:none}
+.P .cd:not(.dv-card) .ik{font-size:11.5px;font-weight:400;color:var(--t2)}
+.P .cd:not(.dv-card) .iv{font-size:12px;font-weight:500;font-variant-numeric:tabular-nums}
+
+/* ---- 合并卡(.cd-q): 固件 / 设备 / 无线 / 路由切换 / 广域网 全部放进同一张统一网格 .q-g ----
+   没有标题、没有线框、没有单格底色: 每格 = 上面一行淡色标签 + 下面一行实色数值, 全部左对齐;
+   分组靠 .q-sp 撑出的更大行距区分(固件 | 设备 + 无线 | 联网)。图标只留状态点: 在线绿、离线红。 */
+.P .cd.cd-q:not(.dv-card){padding:22px 26px 24px}
+.P .cd-q .q-g{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px 28px;align-items:start}
+.P .cd-q .feat,.P .cd-q .chs,.P .cd-q .kv{display:contents}
+.P .cd-q .q-sp{grid-column:1/-1;height:0;margin:0;padding:0}
+.P .cd-q .q-bt{align-self:end;min-width:0}
+.P .cd-q .sp-h.sp-hb{margin:0}
+/* 单格 */
+.P .cd.cd-q .fc:is(.fp,.fb,.fcy,.fg,.fo,.fpk),.P .cd.cd-q .ch,.P .cd.cd-q .ir{display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:5px;min-height:0;margin:0;padding:0;border:0;border-radius:0;background:none;box-shadow:none;transform:none;position:relative;overflow:visible;min-width:0}
+.P .cd.cd-q .fc:is(.fp,.fb,.fcy,.fg,.fo,.fpk):hover,.P .cd.cd-q .ch:hover,.P .cd.cd-q .ir:hover{background:none;transform:none;border:0}
+.P .cd.cd-q .fc.full,.P .cd.cd-q .fc.fcy.full{grid-column:auto}
+.P .cd.cd-q .fc-i,.P .cd.cd-q .ch-ic,.P .cd.cd-q .ch-d,.P .cd.cd-q .fw-banner>i{display:none}
+.P .cd.cd-q .fc-c,.P .cd.cd-q .ch>div:not(.ch-ic):not(.ch-d){display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-width:0;width:100%}
+.P .cd.cd-q .fc .fc-l,.P .cd.cd-q .ch-n,.P .cd.cd-q .ik,.P .cd.cd-q .fw-lbl{display:block;margin:0;font-size:11px;font-weight:400;line-height:1.2;letter-spacing:0.3px;text-transform:none;color:var(--t2);white-space:nowrap}
+.P .cd.cd-q .fc .fc-v,.P .cd.cd-q .ch-s,.P .cd.cd-q .iv{display:block;margin:0;min-width:0;max-width:100%;font-size:13px;font-weight:500;line-height:1.35;text-align:left;color:var(--t1);white-space:normal;overflow-wrap:anywhere;word-break:normal;font-variant-numeric:tabular-nums}
+.P .cd.cd-q .ch-s.on{color:var(--gn)}
+.P .cd.cd-q .ch-s.off{color:var(--rd)}
+.P .cd.cd-q .ch-s.on::before,.P .cd.cd-q .ch-s.off::before{content:"";display:inline-block;width:6px;height:6px;margin:0 7px 1px 0;border-radius:50%;background:currentColor;vertical-align:middle}
+/* 无线: 编辑键贴在格子右上, 平时淡 */
+.P .cd.cd-q .fc.has-edit .fc-c{padding-right:26px}
+.P .cd.cd-q .fc-edit{top:12px;right:-4px;transform:none;width:22px;height:22px;border-radius:7px;background:transparent;backdrop-filter:none;opacity:0.4}
+.P .cd.cd-q .fc-edit:hover{background:rgba(124,92,252,0.2);color:var(--t1);opacity:1}
+/* 固件: 整行, 版本串在左, 按钮在右, 无底 */
+.P .cd.cd-q .fw-banner{grid-column:1/-1;display:flex;flex-wrap:nowrap;align-items:center;gap:16px;min-height:0;margin:0;padding:0;border:0;border-radius:0;background:none;box-shadow:none;transform:none}
+.P .cd.cd-q .fw-banner:hover{background:none;transform:none}
+.P .cd.cd-q .fw-banner>.fw-txt{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:5px}
+.P .cd.cd-q .fw-banner .fw-val{margin:0;font-size:12px;font-weight:500;line-height:1.45}
+.P .cd.cd-q .fw-act{margin-left:auto}
+/* 小药丸按钮(检查更新 / 无线网桥) —— 与 gauges 入口同一种淡紫 */
+.P .cd.cd-q .fw-chk,.P .cd.cd-q .sp-act{height:28px;padding:0 13px;border:0;border-radius:14px;background:rgba(124,92,252,0.14);color:#a78bfa;font-size:11.5px;font-weight:500;gap:6px;white-space:nowrap}
+.P.L .cd.cd-q .fw-chk,.P.L .cd.cd-q .sp-act{color:#6d4df6;background:rgba(124,92,252,0.10)}
+.P .cd.cd-q .fw-chk:hover:not(:disabled),.P .cd.cd-q .sp-act:hover{background:rgba(124,92,252,0.24);border:0}
+.P .cd.cd-q .sp-act.on{background:linear-gradient(135deg,#22d3ee,#0891b2);color:#fff}
+.P .cd-q #wlb-wan-badge{grid-column:1/-1}
+@media(max-width:860px){
+ .P .cd.cd-q:not(.dv-card){padding:18px 18px 20px}
+ .P .cd-q .q-g{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 20px}
+ .P .cd.cd-q .fw-banner{flex-wrap:wrap}
+}
+/* s87 gauges 区(PC): 整块并成一张中间色调的深底卡(#2a3350 + 左上一团淡紫光; 比顶部 hero 的 #141822 浅一档、比上一版 #232a40 深一档, 深浅两套主题都保持深色, 与 hero 同一语言) —— 左边三个细环(处理器 / 内存 / 温度), 右边 3×2 的蜂窝模组入口; 全程没有竖线, 入口只在悬停时浮出一块淡紫底;
+   手机端(≤768px)原样不动(.gx-rings 是 contents, .gx-mod 隐藏, 三张圆环卡照旧在原来的三列网格里, 蜂窝卡片内联显示)。
+   只用页面主色紫一个强调色; 圆环无刻度、辉光、外圈、名称胶囊。
+   面板可见时(MX 脚本给 #P 打 gx-on)把 #mrt-sec 里对应的蜂窝卡片藏起来, 内容改由入口弹窗看。
+   没有模组 / 系统版 hero 时面板不出现(.gx-solo): 整张卡只剩三个环。 */
+.P .gx-rings{display:contents}
+.P .gx-mod{display:none}
+/* s93: 手机也用这套深色面板(原先只有 ≥769px), 手机的排布差异见下方 @media(max-width:768px) 的「s93 手机面板」 */
+@media screen{
+ .P .gauges,.P.L .gauges{--t1:#f1f2f8;--t2:#a7aec2;--t3:#535b72;--c2:rgba(255,255,255,0.06);--bd:rgba(255,255,255,0.07);
+  display:flex;align-items:stretch;gap:0;border:1px solid rgba(255,255,255,0.07);border-radius:14px;overflow:hidden;box-shadow:inset 0 1px 0 rgba(255,255,255,0.04);
+  background:radial-gradient(120% 160% at 0% 0%,rgba(124,92,252,0.11),rgba(124,92,252,0) 55%),#2a3350}
+ .P .gx-rings{display:flex;flex:1 1 0;min-width:0}
+ .P .gx-rings .ga,.P.L .gx-rings .ga{flex:1 1 0;min-width:0;flex-direction:row;justify-content:center;gap:14px;padding:16px 12px;background:none;border-radius:0;box-shadow:none;overflow:visible}
+ .P .gx-rings .ga:hover{transform:none}
+ .P .gx-rings .ga:is(.mp,.mb,.mcy,.mg){--tc:#a78bfa;--tb:rgba(124,92,252,0.16)}
+ .P.L .gx-rings .ga:is(.mp,.mb,.mcy,.mg){--tc:#a78bfa}
+ .P .gx-rings .ga-w{width:60px;height:60px;flex:none}
+ .P .gx-rings .ga-w svg{width:60px;height:60px}
+ .P .gx-rings .ga-bg,.P.L .gx-rings .ga-bg{stroke-width:4;opacity:0.16}
+ .P .gx-rings .ga-fg{stroke-width:4}
+ .P .gx-rings .ga-sbg,.P.L .gx-rings .ga-sbg{stroke-width:2.4;opacity:0.16}
+ .P .gx-rings .ga-sfg{stroke-width:2.4}
+ .P .gx-rings .ga-c::before{display:none}
+ .P .gx-rings .ga-v{font-size:14px;font-weight:600;letter-spacing:-0.3px;font-variant-numeric:tabular-nums}
+ .P .gx-rings .ga-s{display:none}
+ .P .gx-rings .ga-n{margin:0;padding:0;background:none;border:0;border-radius:0;font-size:12px;font-weight:500;letter-spacing:0.2px;color:var(--t2)}
+ .P .gx-rings .ga-n i{font-size:11px;opacity:0.8}
+ .P .gx-rings .ga-tip{display:none;top:8px;left:50%;right:auto;transform:translateX(-50%);font-size:9px}
+ .P .gx-rings .ga-dbl:hover .ga-tip{display:block;opacity:0.6}
+ .P .gx-mod{display:block;flex:0 0 34%;min-width:300px;padding:12px 14px}
+ .P .gx-mod[hidden]{display:none}
+ /* s90 无蜂窝模组的机型: 面板只剩「网络拓扑」一个磁贴(其余四个模组磁贴与短信入口隐藏), 宽度收成内容宽 */
+ .P .gx-mod.gx-nomod{flex:0 0 auto;min-width:0;padding:12px 22px}
+ .P .gx-mod.gx-nomod .gx-t:not([data-k="topo"]){display:none}
+ .P .gx-mod.gx-nomod .gx-grid{grid-template-columns:minmax(120px,1fr);grid-template-rows:none;grid-auto-rows:46px}
+ .P .gx-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(2,minmax(38px,1fr));gap:4px;height:100%}
+ .P .gx-t{appearance:none;-webkit-appearance:none;display:flex;align-items:center;justify-content:center;gap:7px;min-width:0;margin:0;padding:0 8px;border:0;border-radius:10px;background:transparent;color:var(--t1);font:inherit;text-decoration:none;cursor:pointer;transition:background 0.18s}
+ .P a.gx-t,.P a.gx-t:hover{color:var(--t1);text-decoration:none}
+ .P .gx-t:hover{background:rgba(124,92,252,0.10)}
+ .P .gx-t:focus-visible{outline:2px solid #a78bfa;outline-offset:-2px}
+ .P .gx-t:disabled{opacity:0.38;cursor:default}
+ .P .gx-t:disabled:hover{background:transparent}
+ .P .gx-i{display:flex;align-items:center;justify-content:center;flex:none;width:auto;height:auto;background:none;border-radius:0;font-size:12px;color:#a78bfa;transition:color 0.18s}
+ .P .gx-t:hover .gx-i{color:#c4b5fd}
+ .P .gx-t b{display:block;min-width:0;font-size:11.5px;font-weight:500;letter-spacing:0.2px;line-height:1.2;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+}
+.P.gx-on #mrt-sec>.cd[data-mx]{display:none}
+@media(min-width:769px) and (max-width:1100px){
+ .P .gauges{flex-wrap:wrap}
+ .P .gx-rings{flex:1 0 100%}
+ .P .gx-mod{flex:1 0 100%;min-width:0;padding-top:2px}
+ .P .gx-grid{grid-template-columns:repeat(6,minmax(0,1fr));grid-template-rows:none;grid-auto-rows:38px;height:auto}
+ .P .gx-mod.gx-nomod{flex:1 0 100%;padding:2px 14px 12px}
+ .P .gx-mod.gx-nomod .gx-grid{grid-template-columns:minmax(0,1fr);grid-auto-rows:40px}
+}
+/* 弹窗: 复用 .wfm/.caw 壳; 里面是被克隆过来的那张卡, 去掉卡片自己的底色/折叠头, 小节标题交给窗口头 */
+.P .mxm-win{max-width:760px}
+.P .mxm-b>.cd{background:none;border:0;box-shadow:none;padding:0;margin:0}
+.P .mxm-b .clb,.P .mxm-b .clb.shut{max-height:none;overflow:visible;opacity:1;margin-top:0}
+/* 手机(≤768px): 蜂窝卡片同样收起, 六个入口放在三个圆环下面占整行(3×2 的小按钮), 点开走同一个弹窗 */
+@media(max-width:768px){
+ .P .gx-mod:not([hidden]){display:block;grid-column:1/-1;padding:8px;background:var(--c2);border-radius:var(--r)}
+ .P .gx-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:40px;gap:6px}
+ .P .gx-t{appearance:none;-webkit-appearance:none;display:flex;align-items:center;justify-content:center;min-width:0;margin:0;padding:0 6px;border:0;border-radius:10px;background:rgba(124,92,252,0.10);color:var(--t1);font:inherit;text-decoration:none;cursor:pointer}
+ .P a.gx-t,.P a.gx-t:hover{color:var(--t1);text-decoration:none}
+ .P .gx-t:active{background:rgba(124,92,252,0.22)}
+ .P .gx-t:disabled{opacity:0.38}
+ .P .gx-t b{display:block;min-width:0;font-size:12px;font-weight:500;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .P .gx-mod.gx-nomod .gx-t:not([data-k="topo"]){display:none}
+ .P .gx-mod.gx-nomod .gx-grid{grid-template-columns:minmax(0,1fr)}
+}
+/* s93 手机面板: 沿用上面 PC 的深色面板 + 细环 + 入口磁贴, 只改排布 ——
+   窄屏三个环各占 1/3, 环在上、名称在下(PC 是环左名右); 模组入口整行放在环下面, 去掉手机旧版的浅色底卡 */
+@media(max-width:768px){
+ .P .gauges,.P.L .gauges{flex-direction:column;gap:0;padding:0;margin-bottom:12px}
+ .P .gx-rings .ga,.P.L .gx-rings .ga{flex-direction:column;justify-content:flex-start;gap:8px;padding:16px 4px 12px}
+ .P .gx-rings .ga-v{font-size:13px}
+ .P .gx-mod:not([hidden]){grid-column:auto;background:none;border-radius:0;padding:2px 10px 12px}
+ .P .gx-mod.gx-nomod:not([hidden]){display:block;padding:2px 14px 12px}
+ .P .gx-t{background:rgba(255,255,255,0.045)}
+}
+/* s91 无模组机型只剩一个「网络拓扑」磁贴: 去掉图标/副标题, 只留一个精致的胶囊按钮(淡紫渐变底 + 发丝描边), 在整张卡里上下居中。
+   有模组时仍是五格宫格, 这里的规则全部限定在 .gx-nomod 下, 外观不变。 */
+.P .gx-mod.gx-nomod{display:flex;align-items:center}
+.P .gx-mod.gx-nomod .gx-grid{flex:1 1 auto;height:auto;grid-template-columns:minmax(150px,1fr);grid-auto-rows:40px}
+.P .gx-mod.gx-nomod .gx-t[data-k="topo"]{border-radius:12px;background:linear-gradient(135deg,rgba(124,92,252,0.22),rgba(34,211,238,0.09));box-shadow:inset 0 0 0 1px rgba(167,139,250,0.28);transition:background 0.18s,box-shadow 0.18s,transform 0.15s}
+.P .gx-mod.gx-nomod .gx-t[data-k="topo"]:hover{background:linear-gradient(135deg,rgba(124,92,252,0.36),rgba(34,211,238,0.16));box-shadow:inset 0 0 0 1px rgba(196,181,253,0.5),0 4px 14px rgba(124,92,252,0.2);transform:translateY(-1px)}
+.P .gx-mod.gx-nomod .gx-t[data-k="topo"]:active{transform:translateY(0) scale(0.985)}
+.P .gx-mod.gx-nomod .gx-t[data-k="topo"].ld{opacity:0.7;cursor:progress}
+.P .gx-mod.gx-nomod .gx-t[data-k="topo"] b{font-size:13px;font-weight:500;letter-spacing:1px}
+@media(max-width:768px){
+ .P .gx-mod.gx-nomod .gx-grid{grid-template-columns:minmax(0,1fr);grid-auto-rows:42px}
+ .P.L .gx-mod.gx-nomod .gx-t[data-k="topo"]{box-shadow:inset 0 0 0 1px rgba(124,92,252,0.34)}
+}
+@media(min-width:769px) and (max-width:1100px){
+ .P .gx-mod.gx-nomod{padding:8px 14px}
+ .P .gx-mod.gx-nomod .gx-grid{grid-template-columns:minmax(0,1fr);grid-auto-rows:42px}
+}
+/* s87 蜂窝版 hero(所有机型, HERO.apply 给 #hero-sig 打 hc-lite): 照路由器版 .hs-lite 重做 ——
+   同一张 #141822 深底(左上一团淡紫光) + 1px 发丝边 + 14px 圆角, 一行排完: [logo 运营商 制式 ●状态] │ RSRQ │ SINR │ 频段 │ 卡槽 │ [RSRP 小环 + 档位]。
+   四个指标不再是四张带进度条的卡, 改成无底的"小标签 + 数值"并用发丝竖线隔开; 制式徽章改扁平淡色。
+   节点 id / 子元素一个不动(heroUp 照旧填值), 只覆盖样式。≤860px(手机)沿用原来的纵向排法, 只换底色。 */
+.P .hero-sig.hc-lite,.P.L .hero-sig.hc-lite,.P .hero-sig.hero-sys.hs-lite,.P.L .hero-sig.hero-sys.hs-lite{background:radial-gradient(120% 160% at 0% 0%,rgba(124,92,252,0.12),rgba(124,92,252,0) 55%),#141822;border:1px solid rgba(255,255,255,0.07);border-radius:14px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.04)}
+.P .hero-sig.hc-lite .bdg-5g{background:rgba(124,92,252,0.2);color:#b9a6ff}
+.P .hero-sig.hc-lite .bdg-4g{background:rgba(34,211,238,0.16);color:#67e8f9}
+.P .hero-sig.hc-lite .bdg{height:20px;padding:0 8px;border-radius:6px;font-size:10px;letter-spacing:0.3px}
+.P .hero-sig.hc-lite .h-m{background:none}
+.P .hero-sig.hc-lite .h-mb{display:none}
+@media(min-width:861px){
+ .P .hero-sig.hc-lite,.P.L .hero-sig.hc-lite{display:flex;flex-wrap:nowrap;align-items:center;gap:6px 22px;padding:17px 22px}
+ .P .hc-lite .h-id{flex:0 1 auto;gap:11px}
+ .P .hc-lite .h-brand{width:36px;height:36px;border-radius:10px;font-size:14px}
+ .P .hc-lite .h-brand-clip{width:27px;height:27px}
+ .P .hc-lite .h-op-row{gap:9px}
+ .P .hc-lite .h-op-name{font-size:15px;font-weight:600;letter-spacing:0.2px}
+ .P .hc-lite .h-op-st{font-size:12px;color:#9aa3b8}
+ .P .hc-lite .h-mx{flex:1 1 0;min-width:0;grid-template-columns:minmax(0,.8fr) minmax(0,.8fr) minmax(0,1.25fr) minmax(0,1.25fr);gap:0}
+ .P .hc-lite .h-m{display:flex;flex-direction:row;flex-wrap:wrap;align-items:baseline;column-gap:6px;row-gap:3px;padding:6px 18px;border-radius:10px;transition:background 0.2s}
+ .P .hc-lite .h-m+.h-m{box-shadow:inset 1px 0 0 rgba(255,255,255,0.07);border-radius:0 10px 10px 0}
+ .P .hc-lite .h-m-tap:hover{background:rgba(255,255,255,0.045)}
+ .P .hc-lite .h-mk{flex:0 0 100%;justify-content:flex-start;gap:6px;min-height:0;font-size:10px;font-weight:500;letter-spacing:0.5px;color:#7d869c}
+ .P .hc-lite .h-mk i{display:none}
+ .P .hc-lite .h-mk b{font-size:9px;padding:1px 6px;border-radius:5px}
+ .P .hc-lite .h-mk .h-swap{width:16px;height:16px;border-radius:5px}
+ .P .hc-lite .h-mk .h-swap i{display:inline}
+ .P .hc-lite .h-mv{flex:0 1 auto;font-size:16px;font-weight:600;line-height:1.25}
+ .P .hc-lite .h-mv.h-mv-t{font-size:14px;line-height:1.25}
+ .P .hc-lite .h-ms{flex:0 0 100%;min-width:0;font-size:10.5px;color:#7d869c}
+ .P .hc-lite .h-sig{flex:0 0 auto;align-self:center;gap:11px;padding:0 0 0 2px;background:none;border-radius:0}
+ .P .hc-lite .sig-rg{width:54px;height:54px}
+ .P .hc-lite .sr-tk{display:none}
+ .P .hc-lite .sr-bg{stroke-width:6}
+ .P .hc-lite .sr-fg{stroke-width:6}
+ .P .hc-lite .sig-rg .ct .v{font-size:14px;font-weight:700;letter-spacing:-0.3px}
+ .P .hc-lite .sig-rg .ct .l{display:none}
+ .P .hc-lite .sig-k,.P .hc-lite .sig-bars{display:none}
+ .P .hc-lite .sig-nfo{gap:2px}
+ .P .hc-lite .sig-lv{font-size:14px;font-weight:600}
+ .P .hc-lite .sig-nfo .sl{font-size:10.5px;color:#7d869c}
+}
+@media(min-width:861px) and (max-width:1100px){
+ .P .hero-sig.hc-lite,.P.L .hero-sig.hc-lite{flex-wrap:wrap}
+ .P .hc-lite .h-id{flex:1 1 0}
+ .P .hc-lite .h-mx{order:3;flex:1 0 100%;padding-top:8px;border-top:1px solid rgba(255,255,255,0.07)}
+ .P .hc-lite .h-m:first-child{padding-left:2px}
+}
+/* 手机端(≤860px): 压成两行 —— 上行 [logo 运营商 制式 状态 │ RSRP 小环 + 档位], 下行四个指标等分一条(小标签 + 数值), 去掉副标题和进度条。
+   整张约 90px 高(原先纵向排法 250px 左右)。 */
+@media(max-width:860px){
+ .P .hero-sig.hc-lite,.P.L .hero-sig.hc-lite{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"id sig" "mx mx";column-gap:10px;row-gap:8px;padding:10px 14px 9px;border-radius:14px}
+ .P .hc-lite .h-id{gap:8px}
+ .P .hc-lite .h-brand{width:28px;height:28px;border-radius:8px;font-size:11px}
+ .P .hc-lite .h-brand-clip{width:21px;height:21px}
+ .P .hc-lite .h-op-row{gap:7px;flex-wrap:nowrap}
+ .P .hc-lite .h-op-name{font-size:14px;font-weight:600;letter-spacing:0.2px}
+ .P .hc-lite .h-op-st{font-size:11px;color:#9aa3b8;gap:5px}
+ .P .hc-lite .bdg{height:17px;padding:0 6px;font-size:9px}
+ .P .hc-lite .h-mx{grid-template-columns:repeat(4,minmax(0,1fr));gap:0;padding:0;border:0}
+ .P .hc-lite .h-m{display:flex;flex-direction:column;gap:0;padding:0 8px;border-radius:0}
+ .P .hc-lite .h-m:first-child{padding-left:0}
+ .P .hc-lite .h-m+.h-m{box-shadow:inset 1px 0 0 rgba(255,255,255,0.07)}
+ .P .hc-lite .h-mk{justify-content:flex-start;gap:5px;min-height:0;font-size:9px;line-height:1.3;letter-spacing:0.3px;color:#7d869c}
+ .P .hc-lite .h-mk i,.P .hc-lite .h-mk .h-swap{display:none}
+ .P .hc-lite .h-mk b{font-size:8.5px;line-height:1.3;padding:0 5px;border-radius:4px}
+ .P .hc-lite .h-mv{font-size:14px;font-weight:600;line-height:1.25}
+ .P .hc-lite .h-mv small{font-size:9px;margin-left:2px}
+ .P .hc-lite .h-mv.h-mv-t{font-size:13px;line-height:1.3}
+ .P .hc-lite .h-ms{display:none}
+ .P .hc-lite .h-sig{gap:7px;padding:0;background:none;border-radius:0;align-self:center}
+ .P .hc-lite .sig-rg{width:34px;height:34px}
+ .P .hc-lite .sr-tk{display:none}
+ .P .hc-lite .sr-bg,.P .hc-lite .sr-fg{stroke-width:7}
+ .P .hc-lite .sig-rg .ct .v{font-size:11px;font-weight:700;letter-spacing:-0.3px}
+ .P .hc-lite .sig-rg .ct .l,.P .hc-lite .sig-k,.P .hc-lite .sig-bars,.P .hc-lite .sig-nfo .sl{display:none}
+ .P .hc-lite .sig-lv{font-size:13px;font-weight:600}
+}
+/* s87 实时流量: 不再是独立卡, 精简成「方向标 + 数值」一行加一条细曲线, 透明底, 贴在设备总览产品展台(.dv-stage)的左下角。
+   两个方向各用一枚小箭头区分(下行绿 / 上行琥珀); 曲线无网格无底, 左端渐隐。#cv-rx/#cv-tx/#cv-rxu/#cv-txu/#traffic-canvas 的 id 不变, TrafficChart 照旧往里写。 */
+.P .dv-tf{position:absolute;left:22px;bottom:18px;z-index:2;width:176px;display:flex;flex-direction:column;gap:5px;background:none;pointer-events:none}
+.P .dv-tf .tf-v{display:flex;align-items:baseline;gap:14px;white-space:nowrap}
+.P .dv-tf .tf-p{display:inline-flex;align-items:baseline;gap:4px;min-width:0}
+.P .dv-tf .tf-a{align-self:center;flex:none;width:9px;height:9px;display:block}
+.P .dv-tf .tf-a path{fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.P .dv-tf .tf-dn .tf-a{color:var(--gn)}
+.P .dv-tf .tf-up .tf-a{color:var(--og)}
+.P .dv-tf b{font-size:15px;font-weight:600;line-height:1;letter-spacing:-0.2px;color:var(--t1);font-variant-numeric:tabular-nums}
+.P .dv-tf em{font-style:normal;font-size:10px;font-weight:400;color:var(--t2);letter-spacing:0.2px}
+.P .dv-tf .tf-c{width:100%;height:30px;position:relative;-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 38%);mask-image:linear-gradient(90deg,transparent 0,#000 38%)}
+.P .dv-tf .tf-c canvas{display:block;width:100%;height:100%}
+@media(max-width:820px){.P .dv-tf{position:relative;left:auto;bottom:auto;align-self:flex-start;margin-top:2px}}
+/* 手机再缩一档: 宽度 132px, 数字 12px, 箭头 8px, 曲线 20px */
+@media(max-width:820px){
+ .P .dv-tf{width:132px;gap:3px}
+ .P .dv-tf .tf-v{gap:10px}
+ .P .dv-tf .tf-a{width:8px;height:8px}
+ .P .dv-tf b{font-size:12px}
+ .P .dv-tf em{font-size:9px}
+ .P .dv-tf .tf-c{height:20px}
+}
+/* s87 设备总览右下角: 在线设备 + 活动连接 两块, 版式与左下角实时流量一致 —— 无底色无图标徽章。
+   上面一行靠右: 淡色标题(+环比) 和 数值 都挤在曲线的右上角, 趋势曲线放在最下面, 长度铺满、左端渐隐;
+   左右边界对齐上面六张系统状态小卡(.dv-stats / .dv-ifc 各缩进 .dv-fl 的 12px, 这里同样缩进 12px)。
+   WAN 流量已撤; HNAT 不在这里, 在右栏「内网网关」原来的位置(.dv-ips 第二格)。
+   整张 dv-card 的高度由右栏内容撑起, 原来这块是 201px(≤820px 堆叠时按内容), 这里钉住同一高度, 卡片高度不变。
+   用 #P 前缀抬高优先级: 原来的 .dv-cell 规则在样式表更靠后的位置, 同级会盖掉这里。 */
+#P .dv-side>.dv-meta{flex:0 0 auto;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;gap:16px;width:auto;min-height:200.5px;margin:0;padding:0 12px 18px;background:none;border:0;box-shadow:none}
+#P .dv-side>.dv-meta:empty{display:block}
+#P .dv-side>.dv-meta>.dv-cell{display:grid;grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:". k v" "c c c";align-items:baseline;column-gap:10px;row-gap:5px;min-width:0;padding:0;border-radius:0;overflow:visible;background:none!important;box-shadow:none!important;transform:none;color:#a78bfa}
+#P.L .dv-side>.dv-meta>.dv-cell{color:#6d4df6}
+#P .dv-side>.dv-meta>.dv-cell[data-pop="clients"]{color:#34d399}
+#P.L .dv-side>.dv-meta>.dv-cell[data-pop="clients"]{color:#059669}
+#P .dv-side>.dv-meta>.dv-cell:hover{transform:none}
+#P .dv-meta .dv-cell .ck{grid-area:k;display:flex;align-items:baseline;gap:6px;margin:0;font-size:10px;font-weight:400;letter-spacing:0.3px;text-transform:none;color:var(--t2);white-space:nowrap}
+#P .dv-meta .dv-cell .ck>i{display:none}
+#P .dv-meta .dv-cell .ck .dl{margin-left:0;font-size:9px;opacity:0.85}
+#P .dv-meta .dv-cell .cv2{grid-area:v;font-size:15px;font-weight:600;line-height:1.2;letter-spacing:-0.2px;text-align:right;white-space:nowrap;color:var(--t1)}
+#P .dv-meta .dv-cell .cv2 small{font-size:10px;font-weight:400;margin-left:3px;color:var(--t2)}
+#P .dv-meta .dv-cell .spk{grid-area:c;display:block;width:100%;height:30px;min-height:0;max-height:none;margin:0;-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 38%);mask-image:linear-gradient(90deg,transparent 0,#000 38%)}
+#P .dv-meta .dv-cell .spk polyline{stroke-width:1.25px;vector-effect:non-scaling-stroke}
+/* HNAT 搬进 .dv-ips 顶替内网网关格: 值行高度压回和 IP 格一样(21px), 右栏不比原来高 */
+#P .dv-ips .dv-cell.is-hnat .cv2{line-height:21px}
+#P .dv-ips .dv-cell.is-hnat .hn-lines{height:21px}
+/* 手机宽度: 两块并排一行(不再各占一行把左边空着), 高度按内容 */
+@media(max-width:820px){
+ #P .dv-side>.dv-meta{min-height:0;flex-direction:row;align-items:flex-end;gap:22px;padding:4px 12px 14px}
+ #P .dv-side>.dv-meta>.dv-cell{flex:1 1 0;column-gap:7px}
+ #P .dv-meta .dv-cell .cv2{font-size:14px}
+ #P .dv-meta .dv-cell .spk{height:26px}
+ /* s93: 在线设备(左)与活动连接(右)左右镜像成对称:
+    活动连接 = 标题 + 数字靠右、曲线往左淡出(最新点在右);
+    在线设备 = 标题 + 数字靠左、曲线往右淡出(整条 svg 水平翻转, 最新点在左, 蒙版随之翻到右侧) */
+ #P .dv-side>.dv-meta>.dv-cell[data-pop="clients"]{grid-template-columns:auto auto minmax(0,1fr);grid-template-areas:"k v ." "c c c"}
+ #P .dv-meta .dv-cell[data-pop="clients"] .cv2{text-align:left}
+ #P .dv-meta .dv-cell[data-pop="clients"] .spk{transform:scaleX(-1)}
+ #P .dv-ips .dv-cell.is-hnat .cv2{line-height:18px}
+ #P .dv-ips .dv-cell.is-hnat .hn-lines{height:18px}
+}
+/* 网口: 和 .dv-cell 同一套"c2 实底 + 左上本色径向辉光 + 软调徽章"。
+   --tn 辉光 / --tb 徽章底 / --tc 图标与强调色: 接通(LAN=绿, 其它口=蓝徽章+绿辉光), 断开整块退灰 */
+.P .dv-ports{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.P .dv-ports.single{grid-template-columns:1fr}
+.P .dv-port{--tn:rgba(52,211,153,0.17);--tb:rgba(52,211,153,0.16);--tc:#34d399;
+ display:flex;align-items:center;gap:12px;padding:12px 16px 12px 18px;border-radius:12px;border:0;position:relative;overflow:hidden;
+ background:var(--cardbg),var(--c2);box-shadow:none}
+.P .dv-port:not(.lan){--tb:rgba(96,165,250,0.16);--tc:#60a5fa}
+.P .dv-port.down{--tn:transparent;--tb:rgba(127,127,140,0.16);--tc:var(--t2)}
+/* s94: 网口格去掉图标块/亮点/色块徽章, 只留"角色 + 口名"与"速率 + 状态"两列文字; 连通与否只用左缘一道细线表达 */
+.P .dv-port::before{content:'';position:absolute;left:0;top:14px;bottom:14px;width:2px;border-radius:2px;background:var(--tc);opacity:.85}
+.P .dv-port.down::before{opacity:.25}
+.P .dv-port .pic,.P .dv-port .pdot{display:none}
+.P .dv-port .pm{min-width:0;flex:1}
+.P .dv-port .prole{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--t1);line-height:1.2;letter-spacing:0.3px}
+.P .dv-port.down .prole,.P .dv-port.down .pname{color:var(--t3)}
+.P .dv-port .pname{display:block;font-size:10px;color:var(--t3);font-family:'SF Mono','JetBrains Mono','Consolas',monospace;line-height:1.1;margin-top:4px}
+.P .dv-port .ps{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0}
+.P .dv-port .pspeed{font-size:15px;font-weight:700;line-height:1;padding:0;background:none;color:var(--t1);font-variant-numeric:tabular-nums;letter-spacing:0}
+.P .dv-port.down .pspeed{color:var(--t3);font-weight:500}
+.P .dv-port .pstat{display:block;font-size:10px;font-weight:500;color:var(--t3);line-height:1;letter-spacing:.3px}
+.P .dv-port.link .pstat{color:var(--t2)}
+@keyframes ripple{0%{transform:scale(1);opacity:0.7}100%{transform:scale(3);opacity:0}}
+/* s85 设备总览一体化: 展台底色铺满整张卡(.dv-card), 展台自己透明; 右栏小卡改成半透明玻璃, 悬挂在同一片底色的右半边。
+   光斑中心 --dvx/--dvy 对准产品图所在的左栏(65/35 时约 32%; 821~1240 五五开约 25%; 单列时居中靠上)。 */
+.P .cd.dv-card{--dvx:32%;--dvy:34%;background:radial-gradient(38% 55% at var(--dvx) var(--dvy),rgba(139,112,255,0.22),transparent 72%),radial-gradient(70% 45% at var(--dvx) 100%,rgba(34,211,238,0.10),transparent 72%),radial-gradient(45% 50% at 92% 0%,rgba(139,112,255,0.07),transparent 72%),linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0) 45%),var(--c2)}
+.P.L .cd.dv-card{background:radial-gradient(38% 55% at var(--dvx) var(--dvy),rgba(124,92,252,0.13),transparent 72%),radial-gradient(70% 45% at var(--dvx) 100%,rgba(34,211,238,0.10),transparent 72%),linear-gradient(180deg,#fdfdff 0%,#eff1f8 100%)}
+.P .dv-stage,.P.L .dv-stage{background:none}
+.P .dv-side{gap:20px}
+.P .dv-fl{position:relative;isolation:isolate;display:flex;flex-direction:column;gap:8px;min-width:0;padding:12px;border:0;background:none;box-shadow:none}
+/* 毛玻璃底层放伪元素上并用遮罩羽化四边: 边缘渐渐透明、融进卡片背景, 里面的内容不受遮罩影响 */
+.P .dv-fl::before{content:'';position:absolute;inset:-16px;z-index:-1;pointer-events:none;border-radius:34px;background:rgba(8,12,28,0.30);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);-webkit-mask-image:linear-gradient(to right,transparent 0,#000 24px,#000 calc(100% - 24px),transparent 100%),linear-gradient(to bottom,transparent 0,#000 24px,#000 calc(100% - 24px),transparent 100%);mask-image:linear-gradient(to right,transparent 0,#000 24px,#000 calc(100% - 24px),transparent 100%),linear-gradient(to bottom,transparent 0,#000 24px,#000 calc(100% - 24px),transparent 100%);-webkit-mask-composite:source-in;mask-composite:intersect}
+.P .dv-fl{flex:0 0 auto}
+.P .dv-fl>.dv-stats,.P .dv-fl>.dv-head{flex:0 0 auto}
+.P .dv-ifc{display:flex;flex-direction:column;gap:8px;padding:0;border:0}
+.P .dv-ips{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.P .dv-ips:empty{display:none}
+.P .dv-side>.dv-meta{flex:1 1 auto;grid-template-columns:1fr 1fr;gap:6px 8px}
+.P .dv-side>.dv-meta>.dv-cell,.P.L .dv-side>.dv-meta>.dv-cell{background:transparent!important;box-shadow:none!important;-webkit-backdrop-filter:none;backdrop-filter:none;padding:9px 8px}
+.P.L .dv-fl::before{background:radial-gradient(120% 90% at 18% 0%,rgba(124,92,252,0.10),transparent 62%),linear-gradient(160deg,rgba(255,255,255,0.88),rgba(255,255,255,0.50) 75%)}
+@media(min-width:821px) and (max-width:1240px){.P .cd.dv-card{--dvx:25%}}
+@media(max-width:820px){.P .cd.dv-card{--dvx:50%;--dvy:20%}}
+/* s93 风扇卡片紧凑化: 原先 22px 内边距 + 88px 大风扇 + 四个独立方块 + 两行按钮, 竖着占了近 300px。
+   现在 风扇缩到 52px 与标题同排; 四项读数并成一条磨砂带(之间一道淡竖线, 不再是四块小卡);
+   控制按钮改成胶囊, 手机宽度 7 个等分一行放下。 */
+.P .fan-card{padding:14px 16px;margin-bottom:12px}
+.P .fan-top{gap:14px;margin-bottom:10px}
+.P .fan-visual{width:52px;height:52px}
+.P .fan-svg{width:52px;height:52px}
+.P .fan-ring-wrap{inset:-5px}
+.P .fan-ring-wrap svg{width:62px;height:62px}
+.P .fsr-bg,.P .fsr-fg{stroke-width:4}
+.P .fan-meta .fm-sub{font-size:11px;margin-top:3px}
+.P .fan-stats{gap:0;margin-top:0;padding:9px 0;background:var(--c2);border-radius:12px}
+.P .fan-stat{background:none;border-radius:0;padding:2px 4px;position:relative}
+.P .fan-stat+.fan-stat::before{content:"";position:absolute;left:0;top:16%;bottom:16%;width:1px;background:rgba(127,127,140,0.2)}
+.P .fan-stat .fs-v{font-size:15px}
+.P .fan-stat .fs-l{font-size:10px}
+.P .fan-ctrl{margin-top:10px;gap:5px}
+.P .fan-ctrl .fc-btn{padding:6px 11px;font-size:11px;border-radius:999px}
+/* PC: 风扇 + 标题放左、四项读数放右同一行, 控制按钮独占下一行, 整卡再矮一截(约 130px) */
+@media(min-width:821px){
+ .P .fan-card{display:grid;grid-template-columns:minmax(230px,32%) minmax(0,1fr);grid-template-areas:"t s" "c c" "sl sl";column-gap:20px;align-items:center;padding:14px 20px}
+ .P .fan-top{grid-area:t;margin-bottom:0}
+ .P .fan-stats{grid-area:s}
+ .P .fan-ctrl{grid-area:c;margin-top:12px}
+ .P .fan-slider{grid-area:sl}
+}
+@media(max-width:600px){
+ .P .fan-ctrl{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
+ .P .fan-ctrl .fc-btn{justify-content:center;padding:7px 0;gap:0;margin:0!important;white-space:nowrap}
+ .P .fan-ctrl .fc-btn i{display:none}
+}
+/* s93 手机宽度: 产品展台(.dv-stage)与下面的系统状态(.dv-side)之间一道淡淡的分界 ——
+   一根两端渐隐的细线, 压在两块之间 18px 的空隙正中, 不加高度 */
+@media(max-width:820px){
+ .P .dv-side{position:relative}
+ .P .dv-side::before{content:"";position:absolute;left:14%;right:14%;top:-11px;height:5px;pointer-events:none;
+  background:linear-gradient(90deg,transparent,rgba(124,92,252,0.2) 22%,rgba(124,92,252,0.2) 78%,transparent) center/100% 1px no-repeat}
+}
+/* s93 手机宽度: 系统状态里的小卡(CPU 负载 / 存储占用 / LAN / WAN / 出口IP / HNAT)整体收小一档 ——
+   内边距 11/13 → 8/10, 图标徽章 24 → 19, 网口卡 34px 图标 → 28px; LAN / WAN 并成两列(原先 ≤480px 各占一整行),
+   竖向高度约减三分之一; 配色、圆角语言和 PC 完全一致, 只缩尺寸。 */
+@media(max-width:820px){
+ .P .dv-fl{padding:10px;gap:6px}
+ .P .dv-ifc{gap:6px}
+ .P .dv-stats,.P .dv-ips,.P .dv-ports{gap:6px}
+ .P .dv-ports{grid-template-columns:1fr 1fr}
+ .P .dv-ports.single{grid-template-columns:1fr}
+ .P .dv-stats .dv-cell,.P .dv-ips .dv-cell{padding:8px 10px;gap:4px;border-radius:11px}
+ .P .dv-stats .dv-cell .ck,.P .dv-ips .dv-cell .ck{gap:6px;font-size:9.5px;letter-spacing:0.3px}
+ .P .dv-stats .dv-cell .ck i,.P .dv-ips .dv-cell .ck i{width:19px;height:19px;border-radius:6px;font-size:9px}
+ .P .dv-ips .dv-cell .ck .ek i{width:17px;height:17px;border-radius:50%;font-size:8px}
+ .P .dv-stats .dv-cell .cv2,.P .dv-ips .dv-cell .cv2{font-size:14px}
+ .P .dv-port{gap:8px;padding:9px 12px 9px 14px;border-radius:11px}
+ .P .dv-port .prole{font-size:12px;gap:6px}
+ .P .dv-port .pname{font-size:9px;margin-top:2px}
+ .P .dv-port .ps{gap:4px}
+ .P .dv-port .pspeed{font-size:13px}
+ .P .dv-port .pstat{font-size:9px;gap:4px}
+}
+/* s93 设备规格卡(.cd-q)整理, 不加高度:
+   分区之间的 .q-sp 原先是 0 高度空行, 现在画成一根渐隐发丝线(同一行里, 只多 1px);
+   「连接状态 / 公网地址」是第三段的开头, 手机宽度也补一根(用格子自己的 ::before, 不新增行);
+   固件横幅改成「标签 + 检查更新按钮」一行、版本号整行在下, 不再被按钮挤成三四行窄条 */
+.P .cd-q .q-sp{height:1px;background:linear-gradient(90deg,transparent,rgba(127,127,140,0.22) 18%,rgba(127,127,140,0.22) 82%,transparent)}
+@media(max-width:860px){
+ .P .cd-q .ch.ch-sep{position:relative}
+ .P .cd-q .ch.ch-sep::before{content:"";position:absolute;top:-9px;left:-10px;right:-10px;height:1px;background:rgba(127,127,140,0.22)}
+}
+/* s93 固件版本行(PC / 手机都用): 第一行「图标 + 当前固件版本 ……… 检查更新」, 第二行版本号放进一块淡底圆角条, 左侧一道紫色细竖线。
+   图标原先是 15px 的裸图(logo 本身扁, 缩小后更像被压扁了), 现在放进 22px 的淡紫圆角底里、图案留白缩到 78% */
+.P .cd.cd-q .fw-banner{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"l a" "v v";gap:8px 10px;align-items:center}
+.P .cd.cd-q .fw-banner>.fw-txt{display:contents}
+.P .cd.cd-q .fw-banner .fw-lbl{grid-area:l;display:flex;align-items:center;font-size:12px;font-weight:500;color:var(--t1)}
+.P .cd.cd-q .fw-banner.lg-iw .fw-lbl::before{flex:none;width:24px;height:24px;margin:0 9px 0 0;border-radius:8px;background-color:rgba(124,92,252,0.12);background-size:78% auto;background-position:center;background-repeat:no-repeat}
+.P .cd.cd-q .fw-banner .fw-val{grid-area:v;min-width:0;font-size:11px;font-weight:500;line-height:1.5;word-break:break-all;color:var(--t2);padding:7px 10px;border-radius:9px;background:rgba(127,127,140,0.08);box-shadow:inset 2px 0 0 rgba(124,92,252,0.55)}
+.P .cd.cd-q .fw-banner .fw-act{grid-area:a;margin-left:0}
+
+

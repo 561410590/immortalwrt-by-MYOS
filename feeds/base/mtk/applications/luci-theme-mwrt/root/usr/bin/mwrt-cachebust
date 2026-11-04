@@ -1,0 +1,56 @@
+#!/bin/sh
+#
+# mwrt-cachebust —— 让浏览器在刷新固件后自动丢掉旧的 JS/CSS 缓存
+#
+# 病根: 树不是 git 仓库, SOURCE_DATE_EPOCH 每次编译都一样, 于是固件里所有文件
+# (含 /usr/lib/opkg/status)的 mtime 都钉死在同一个时刻。后果有两层:
+#   1) LuCI 给 luci.js 打的版本号是 ?v=<luci版本>-{{ pkgs_update_time }},
+#      pkgs_update_time 就是 opkg/status 的 mtime —— 新旧固件一模一样;
+#      luci.js 又把自己的 ?v= 原样带到每个 view/*.js 上, 所以整站 URL 不变。
+#   2) uhttpd 对静态文件不发 Cache-Control, 只给 Last-Modified(一年前)和
+#      ETag(inode-大小-mtime)。浏览器按"最后修改时间的 10%"启发式缓存,
+#      能一个多月不回源; 就算回源, 大小没变时 ETag 也一样, 照样 304。
+#   用户只能手动清缓存, 新功能(全局消息中心等)才出来。
+#
+# 做法: 对 /www/luci-static 的内容算一个指纹, 映射成一个时间戳, 写成
+# /usr/lib/opkg/status 的 mtime。内容变了 -> 时间戳变 -> pkgs_update_time 变
+# -> luci.js 及所有 view 的 URL 都变, 浏览器只能重新下载。内容没变就不动,
+# 缓存照常命中。
+#   - 只改 mtime, 不碰文件内容; opkg 自己装包时也会改它, 语义一致。
+#   - trans-*.js 不计入: 它由 mwrt-gen-translations 在设备上生成, 有自己的
+#     ?v=<文件mtime>, 计入的话每次重新生成都会白白清一次全站缓存。
+#   - 我们自己注入的 mwrt-*.js、argon 的 css/js 也都改成带 pkgs_update_time
+#     (见 install-mwrt-global.sh / install-luci-perf.sh 等), 一起失效。
+#
+# 由 install-mwrt-global.sh 调用(开机 uci-defaults 99k + 每小时 cron 自愈),
+# 不单独挂 cron。全程 0.2s 左右。
+#
+# 用法:  mwrt-cachebust          按指纹校正(幂等)
+#        mwrt-cachebust --show   只打印指纹和当前/目标时间戳, 不改
+
+set -u
+
+STATUS=/usr/lib/opkg/status
+DIR=/www/luci-static
+
+[ -f "$STATUS" ] && [ -d "$DIR" ] || exit 0
+
+fp=$(find "$DIR" -type f ! -name 'trans-*.js' -exec md5sum {} + 2>/dev/null | sort -k2 | md5sum | cut -c1-7)
+case "$fp" in
+	[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+	*) exit 0 ;;
+esac
+
+# 7 位十六进制最大 2.68 亿秒, 落在 2020-09 ~ 2029-03 之间, 看起来像个正常日期
+want=$(( 1600000000 + 0x$fp ))
+cur=$(date -r "$STATUS" +%s 2>/dev/null)
+
+if [ "${1:-}" = "--show" ]; then
+	echo "指纹 $fp  当前 $cur  目标 $want"
+	exit 0
+fi
+
+[ "$cur" = "$want" ] && exit 0
+touch -d "@$want" "$STATUS" || exit 1
+logger -t mwrt-cachebust "静态资源已变化(指纹 $fp), 页面缓存版本 $cur -> $want"
+exit 0

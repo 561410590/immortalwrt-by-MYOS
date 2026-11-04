@@ -327,6 +327,13 @@ cell_info()
                     lte_rsrp=$(echo "$monsc_response" | awk -F',' '{print $8}')
                     lte_rsrq=$(echo "$monsc_response" | awk -F',' '{print $9}')
                     lte_rxlev=$(echo "$monsc_response" | awk -F',' '{print $10}' | sed 's/\r//g')
+                    # LTE SINR is not carried by MONSC; read the original HCSQ display field.
+                    hcsq_response=$(at $at_port "AT^HCSQ?" | grep "\^HCSQ:" | sed 's/.*HCSQ: //')
+                    hcsq_sinr_raw=$(echo "$hcsq_response" | awk -F',' '{print $5}' | sed 's/[^0-9]//g')
+                    if [ -n "$hcsq_sinr_raw" ]; then
+                        if [ "$hcsq_sinr_raw" -ge 251 ]; then lte_sinr=30
+                        else lte_sinr=$(awk -v raw="$hcsq_sinr_raw" 'BEGIN { printf "%.0f", -20 + raw * 0.2 }'); fi
+                    fi
                     #NR second_cell_response RSRP(12)/RSRQ(13)/SINR(14)
                     second_nr_rsrp=$(echo "$second_cell_response" | awk -F',' '{print $12}')
                     second_nr_rsrq=$(echo "$second_cell_response" | awk -F',' '{print $13}')

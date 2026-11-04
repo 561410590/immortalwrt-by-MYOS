@@ -209,56 +209,14 @@ update_config()
     fi
 }
 
-check_dial_prepare()
+prepare_modem()
 {
-    cpin=$(at "$at_port" "AT+CPIN?")
-    get_sim_status "$cpin"
-    [ "$manufacturer" = "neoway" ] && {
-        local res
-        res=$(at $at_port 'AT+SIMCROSS=1,1;$MYCCID' | grep -q "ERROR")
-        if [ $? -ne 0 ]; then
-            sim_state_code="1"
-        else
-            sim_state_code="0"
-        fi
-    }
-    case $sim_state_code in
-        "0")
-            m_debug "info sim card is miss"
-            ;;
-        "1")
-            m_debug "info sim card is ready"
-            sim_fullfill=1
-            ;;
-        "2")
-            m_debug "pin code required"
-            [ -n "$pincode" ] && unlock_sim $pincode
-            ;;
-        *)
-            m_debug "info sim card state is $sim_state_code"
-            ;;
-    esac
-    
-    if [ "$sim_fullfill" = "1" ];then
-        set_led "sim" $modem_config 255
-    else
-        set_led "sim" $modem_config 0
+    if [ -n "$pincode" ]; then
+        cpin=$(at "$at_port" "AT+CPIN?")
+        get_sim_status "$cpin"
+        [ "$sim_state_code" != "2" ] || unlock_sim "$pincode"
     fi
-    if [ -n "$modem_netcard" ] && [ -d "/sys/class/net/$modem_netcard" ];then
-        netdev_fullfill=1
-    else
-        netdev_fullfill=0
-    fi
-
-    if [ "$enable_dial" = "1" ] && [ "$sim_fullfill" = "1" ] && [ "$state" != "disabled" ] ;then
-        config_fullfill=1
-    fi
-    if [ "$config_fullfill" = "1" ] && [ "$sim_fullfill" = "1" ] && [ "$netdev_fullfill" = "1" ] ;then
-        at "$at_port" "AT+CFUN=1"
-        return 1
-    else
-        return 0
-    fi
+    at "$at_port" "AT+CFUN=1"
 }
 
 parse_pdp_addresses()
@@ -729,12 +687,7 @@ dial(){
         return
     fi
     m_debug "modem_path=$modem_path,driver=$driver,interface=$interface_name,at_port=$at_port,using_sim_slot:$sim_slot,dns_list:$dns_list"
-    while [ "$dial_prepare" != 1 ] ; do
-        update_config
-        check_dial_prepare
-        dial_prepare=$?
-        [ "$dial_prepare" = 1 ] || sleep 5
-    done
+    prepare_modem
     set_if || return 1
     m_debug "dialing $modem_path driver $driver"
     exec_pre_dial $modem_config
@@ -959,21 +912,12 @@ dial_at_logged()
 
 at_dial()
 {
-    dial_setup_pending=1
-    local sim_reply
-    if [ "$(uci -q get qmodem.$modem_config.name)" = "mt5700m-cn" ]; then
-        sim_reply=$(dial_at_logged "AT+CPIN?" sim-ready) || return 1
-        if ! printf '%s\n' "$sim_reply" | grep -q '^+CPIN: *READY'; then
-            m_debug "SIM not ready; dial setup deferred"
-            return 1
-        fi
-    fi
     if [ -z "$pdp_type" ];then
         pdp_type="IP"
     fi
     [ -n "$apn" ] && apn_append=",\"$apn\"" || apn_append=""
     local at_command='AT+COPS=0,0'
-    tmp=$(dial_at_logged "$at_command" operator-select) || return 1
+    tmp=$(dial_at_logged "$at_command" operator-select)
     pdp_type=$(echo $pdp_type | tr 'a-z' 'A-Z')
     case $manufacturer in
         "quectel")
@@ -1128,18 +1072,16 @@ at_dial()
         	umbim -d $mbim_port connect 0 --apn $apn
 		 	;;
 		*)
-  			dial_at_logged "$cgdcont_command" pdp-define || return 1
+  			dial_at_logged "$cgdcont_command" pdp-define
             if [ -n "$ppp_auth_command" ]; then
-                dial_at_logged "$ppp_auth_command" authentication 1 || return 1
+                dial_at_logged "$ppp_auth_command" authentication 1
             fi
             if [ -n "$nat_cfg" ]; then
-                dial_at_logged "$nat_cfg" nat || return 1
+                dial_at_logged "$nat_cfg" nat
             fi
-        	dial_at_logged "$at_command" activate || return 1
+        	dial_at_logged "$at_command" activate
 		 	;;
 	esac
-    dial_setup_pending=0
-    return 0
 }
 
 at_auto_dial()
@@ -1376,21 +1318,28 @@ pdp_monotonic_seconds()
     printf '%s\n' "${uptime_value%%.*}"
 }
 
-pdp_diagnostics()
+refresh_modem_transport()
 {
-    local command reply status
-    for command in 'AT+CGDCONT?' 'AT+CGACT?' 'AT+CGATT?' 'AT+CEREG?' 'AT+COPS?'; do
-        reply=$(fastat "$at_port" "$command" 2>&1)
-        status=$?
-        m_debug "PDP diagnostic: command=$command; exit=$status; reply=$(printf '%s' "$reply" | tr '\r\n' ' ' | cut -c 1-512)"
+    local current_port current_path current_net net_entry
+    current_port=$(uci -q get "qmodem.$modem_config.at_port")
+    current_path=$(uci -q get "qmodem.$modem_config.path")
+    [ -z "$current_port" ] || at_port="$current_port"
+    [ -z "$current_path" ] || modem_path="$current_path"
+    for net_entry in "${modem_path%/}"/*/net/*; do
+        [ -d "$net_entry" ] || continue
+        current_net="${net_entry##*/}"
+        break
     done
+    if [ -n "$current_net" ] && [ "$current_net" != "$modem_netcard" ]; then
+        modem_netcard="$current_net"
+        set_if
+    fi
 }
 
 unexpected_response_count=0
 at_dial_monitor()
 {
     local pdp_wait_since="" pdp_now pdp_retry_seconds=60
-    local dial_setup_pending=0
     #check if support auto dial
     auto_dial_support=0
     at_auto_dial
@@ -1401,28 +1350,8 @@ at_dial_monitor()
             sleep 30
         done
     fi
-    local resume_session="${1:-}" ndis_state
-    if [ "$resume_session" != "resume" ] &&
-        [ "$(uci -q get qmodem.$modem_config.name)" = "mt5700m-cn" ]; then
-        # Manual 16.4: query the requested CID before repeating activation.
-        ndis_state=$(at "$at_port" "AT^NDISSTATQRY?")
-        if [ $? -eq 0 ] && printf '%s\n' "$ndis_state" | awk -F, -v cid="$pdp_index" '
-            { gsub(/\r/, ""); if ($0 == "OK") ok = 1 }
-            /^ERROR|^\+CME ERROR:/ { failed = 1 }
-            /^\^NDISSTATQRY:/ {
-                sub(/^\^NDISSTATQRY:[[:space:]]*/, "")
-                if ($1 == cid)
-                    for (i = 2; i <= NF; i += 4)
-                        if ($i == 1) connected = 1
-            }
-            END { exit !(ok && connected && !failed) }
-        '; then
-            check_ip
-            case "$connection_status" in
-                1|2|3) resume_session="resume" ;;
-            esac
-        fi
-    fi
+    local resume_session="${1:-}"
+    refresh_modem_transport
     if [ "$resume_session" != "resume" ]; then
         at_dial
     else
@@ -1432,16 +1361,7 @@ at_dial_monitor()
     ipv6_cache=$ipv6
     sleep 5
     while true; do
-        if [ "$dial_setup_pending" = "1" ]; then
-            m_debug "Dial setup failed; retry in 5s before activation/address wait"
-            sleep 5
-            at_dial
-            if [ "$dial_setup_pending" = "1" ]; then
-                check_logfile_line
-                continue
-            fi
-            pdp_wait_since=""
-        fi
+        refresh_modem_transport
         check_ip
         case $connection_status in
             0)
@@ -1458,8 +1378,6 @@ at_dial_monitor()
                     m_debug "PDP address pending: command=$pdp_query_command; retry_after=${pdp_retry_seconds}s; reply=$(printf '%s' "$pdp_query_reply" | tr '\r\n' ' ' | cut -c 1-512)"
                 fi
                 if [ $((pdp_now-pdp_wait_since)) -ge "$pdp_retry_seconds" ]; then
-                    m_debug "PDP address still pending; collect read-only state before retry"
-                    pdp_diagnostics
                     at_dial
                     pdp_wait_since=$(pdp_monotonic_seconds)
                 fi

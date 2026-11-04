@@ -30,6 +30,24 @@ endef
 
 define Package/qmodem/install
 	$(CP) ./files/rootfs/. $(1)/
+	$(INSTALL_DIR) $(1)/etc $(1)/etc/init.d $(1)/etc/uci-defaults $(1)/etc/config \
+		$(1)/etc/hotplug.d/iface $(1)/etc/hotplug.d/net $(1)/etc/hotplug.d/usb \
+		$(1)/usr/bin $(1)/usr/libexec/rpcd $(1)/usr/share/rpcd/acl.d \
+		$(1)/usr/share/qmodem/vendor $(1)/usr/share/qmodem/led_scripts \
+		$(1)/usr/lib/lua/luci/view/admin_status/index
+	$(INSTALL_BIN) ./files/rootfs/etc/init.d/* $(1)/etc/init.d/
+	$(INSTALL_BIN) ./files/rootfs/etc/uci-defaults/* $(1)/etc/uci-defaults/
+	$(INSTALL_BIN) ./files/rootfs/usr/libexec/rpcd/* $(1)/usr/libexec/rpcd/
+	$(INSTALL_BIN) ./files/rootfs/usr/share/qmodem/*.sh $(1)/usr/share/qmodem/
+	$(INSTALL_BIN) ./files/rootfs/usr/share/qmodem/vendor/*.sh $(1)/usr/share/qmodem/vendor/
+	$(INSTALL_BIN) ./files/rootfs/usr/share/qmodem/led_scripts/*.sh $(1)/usr/share/qmodem/led_scripts/
+	$(INSTALL_BIN) ./files/rootfs/etc/hotplug.d/iface/* $(1)/etc/hotplug.d/iface/
+	$(INSTALL_BIN) ./files/rootfs/etc/hotplug.d/net/* $(1)/etc/hotplug.d/net/
+	$(INSTALL_BIN) ./files/rootfs/etc/hotplug.d/usb/* $(1)/etc/hotplug.d/usb/
+	$(INSTALL_DATA) ./files/rootfs/usr/share/qmodem/*.json $(1)/usr/share/qmodem/
+	$(INSTALL_DATA) ./files/rootfs/usr/share/qmodem/vendor/*.json $(1)/usr/share/qmodem/vendor/
+	$(INSTALL_DATA) ./files/rootfs/usr/share/rpcd/acl.d/*.json $(1)/usr/share/rpcd/acl.d/
+	$(INSTALL_DATA) ./files/rootfs/usr/lib/lua/luci/view/admin_status/index/*.htm $(1)/usr/lib/lua/luci/view/admin_status/index/
 	rm -rf $(1)/lib/modules
 	rm -f $(1)/usr/bin/quectel-CM-M
 	rm -f $(1)/bin/is-opkg
@@ -60,6 +78,7 @@ endef
 
 define Package/sms-forwarder-next/install
 	$(CP) ./files/sms-forwarder-next/. $(1)/
+	$(INSTALL_BIN) ./files/sms-forwarder-next/etc/init.d/sms_forwarder $(1)/etc/init.d/sms_forwarder
 endef
 
 define Package/luci-app-qmodem-next

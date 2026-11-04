@@ -17,3 +17,44 @@ location ~ /cgi-bin/cgi-(backup|download|upload|exec) {
 location /luci-static {
 		error_log stderr crit;
 }
+
+# Keep the new WebUI and WebSocket on the same router origin, including cloud access.
+location = /5700/ {
+	return 302 /modem/internal/5700/;
+}
+location /5700/ {
+	proxy_pass http://127.0.0.1:9010/modem/internal/5700/;
+	proxy_set_header Host $http_host;
+}
+# The current upstream frontend is separate from the inst multi-modem backend.
+location ~ ^/modem/[^/]+/5700/$ {
+	rewrite ^ /mt5700-modern/index.html last;
+}
+location ~ ^/modem/[^/]+/5700/assets/(.+)$ {
+	alias /www/mt5700-modern/assets/$1;
+}
+location /modem/ {
+	proxy_pass http://127.0.0.1:9010;
+	proxy_http_version 1.1;
+	proxy_set_header Host $http_host;
+	proxy_set_header Upgrade $http_upgrade;
+	proxy_set_header Connection "upgrade";
+	proxy_set_header Accept-Encoding "";
+	sub_filter_types application/json;
+	# The Go service advertises its loopback listener. Give the client a
+	# relative endpoint so HTTP, HTTPS and remote access use the page origin.
+	sub_filter 'ws://127.0.0.1:9010/' '/';
+	sub_filter_once off;
+	proxy_read_timeout 300s;
+	proxy_buffering off;
+}
+location /mt5700/ {
+	proxy_pass http://127.0.0.1:9010/;
+	proxy_set_header Host $http_host;
+}
+
+location /ubus {
+        ubus_interpreter;
+        ubus_socket_path /var/run/ubus/ubus.sock;
+        ubus_parallel_req 2;
+}

@@ -839,6 +839,18 @@ local function set_cellular_record_enabled(v)
 	return tonumber(enabled) or 0
 end
 
+function wifi_app_list(list)
+	local first, second = list[1], list[2]
+	if #list == 2 and first.ssid == second.ssid and
+	   first.password == second.password and first.encryption == second.encryption and
+	   first.hidden == second.hidden and first.disabled == second.disabled then
+		first.rule_name, first.ruleName, first.channel = "t0", "t0", "0"
+		return { first }
+	end
+	return list
+end
+
+
 local function wifi_info()
 	local list, idx = {}, 0
 	uci:foreach("wireless", "wifi-iface", function(s)
@@ -861,7 +873,7 @@ local function wifi_info()
 		}
 	end)
 	if #list == 0 then list[1] = {} end
-	return list
+	return wifi_app_list(list)
 end
 
 local function valid_wifi_text(value, max_len, required)
@@ -874,12 +886,16 @@ end
 local function wifi_item_for_index(list, index)
 	local wanted = "wlan" .. tostring(index - 1)
 	for _, item in ipairs(list or {}) do
-		if type(item) == "table" and trim(item.rule_name or item.ruleName) == wanted then return item end
+		if type(item) == "table" then
+			local rule = trim(item.rule_name or item.ruleName)
+			if rule == wanted or rule == "t0" then return item end
+		end
 	end
 	return list and list[index]
 end
 
-local function apply_wifi(req)
+function apply_wifi(req)
+	uci:load("wireless")
 	if type(req.list) ~= "table" or #req.list == 0 or #req.list > 8 then return false end
 	local sections = {}
 	uci:foreach("wireless", "wifi-iface", function(s)
@@ -894,6 +910,7 @@ local function apply_wifi(req)
 			local password = item.password
 			local encryption = item.encryption
 			local channel = item.channel
+			if tostring(channel or "") == "0" then channel = nil end
 			local hidden = item.hidden
 			local disabled = item.disabled
 			if ssid ~= nil and not valid_wifi_text(ssid, 32, true) then return false end
@@ -1109,6 +1126,7 @@ end
 
 local function set_firewall_block(mac, block)
 	mac = normalize_mac(mac)
+	if not block and #firewall_sections(mac) == 0 then return true end
 	remove_firewall_block(mac)
 	if block then
 		local section = uci:add("firewall", "rule")
@@ -1127,7 +1145,9 @@ local function set_firewall_block(mac, block)
 	return block and present or not present
 end
 
-local function set_client_access(mac, switch, hostname)
+function set_client_access(mac, switch, hostname)
+	uci:load("access_ctl")
+	uci:load("firewall")
 	mac = normalize_mac(mac)
 	if not valid_mac(mac) then return nil end
 	if hostname ~= nil then

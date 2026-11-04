@@ -1,0 +1,3 @@
+#!/bin/sh
+# Use Ultra's existing serialized ubus AT service; do not open a second serial owner.
+exec /usr/bin/tom_modem -u -d "$1" -o a -c "$3" -t "$2"

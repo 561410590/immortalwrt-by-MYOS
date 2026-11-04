@@ -51,6 +51,20 @@ return view.extend({
     });
    })
   }, '应用主题');
+  var border = E('select', { 'class': 'cbi-input-select' }, [
+   E('option', { value: 'round' }, '圆角外框'),
+   E('option', { value: 'mini' }, '窄边外框'),
+   E('option', { value: 'none' }, '无外框')
+  ]);
+  try { border.value = localStorage.getItem('mwrt-border') || 'round'; } catch (e) {}
+  border.addEventListener('change', function() {
+   try { localStorage.setItem('mwrt-border', border.value); } catch (e) {}
+   if (current !== '/luci-static/argon') return;
+   var value = { round: ['5px','14px'], mini: ['3px','7px'], none: ['0px','0px'] }[border.value];
+   document.body.style.setProperty('padding', value[0], 'important');
+   var main = document.querySelector('.main');
+   if (main) main.style.setProperty('border-radius', value[1], 'important');
+  });
   return E('div', {}, [
    E('h2', {}, '主题切换'),
    E('div', { 'class': 'cbi-section' }, [
@@ -60,6 +74,11 @@ return view.extend({
      E('label', { 'class': 'cbi-value-title', 'for': 'myos-theme-choice' }, '界面主题'),
      E('div', { 'class': 'cbi-value-field' }, [select, ' ', button])
     ])
+   ]),
+   E('div', { 'class': 'cbi-section' }, [
+    E('h3', {}, 'MWRT 外框样式'),
+    E('p', {}, '选择后自动记住，使用 MWRT 主题时生效。'),
+    border
    ])
   ]);
  },

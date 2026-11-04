@@ -37,6 +37,19 @@
 	</script>
 {% endif %}
 
+{# mwrt-wizard:begin #}
+{%
+  // 菜单里「向导」的点击拦截器。不做任何自动跳转/自动弹出,
+  // 只在用户点菜单时就地开弹窗。所以这里不判 wizard.done ——
+  // 判了的话配过一次之后菜单里的向导就再也点不开了。
+  // 登录页也会渲染 footer,未登录时拦截器没用(rpc 全 403),不下发。
+  let _qsw_show = false;
+  try { _qsw_show = !!ctx?.authsession; } catch (_e) { _qsw_show = false; }
+%}
+{% if (_qsw_show): %}
+	<script src="{{ resource }}/mwrt-wizard-launch.js?v=1-{{ pkgs_update_time }}"></script>
+{% endif %}
+{# mwrt-wizard:end #}
 {% include(`themes/${theme}/footer`) %}
 
 <!-- Lua compatibility mode active: {{ lua_active ? 'yes' : 'no' }} -->

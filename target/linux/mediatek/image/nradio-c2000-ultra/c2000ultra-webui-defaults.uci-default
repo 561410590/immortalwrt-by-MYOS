@@ -1,0 +1,14 @@
+#!/bin/sh
+# An upgrade may preserve the old generic LuCI locations over the new ROM.
+# Append only the WebUI routes; keep the user's other Nginx settings.
+conf=/etc/nginx/conf.d/luci.locations
+rom=/rom/etc/nginx/conf.d/luci.locations
+[ -f "$conf" ] && [ -f "$rom" ] || exit 0
+grep -q '^location /modem/ {' "$conf" && exit 0
+cp -p "$conf" /etc/nginx/luci.locations.before-webui3 || exit 1
+awk '
+    /^# Keep the new WebUI and WebSocket / { routes = 1 }
+    /^location \/ubus / { routes = 0 }
+    routes { print }
+' "$rom" >> "$conf" || exit 1
+exit 0

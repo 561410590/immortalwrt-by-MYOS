@@ -6,6 +6,7 @@
  *  - 不可关闭的消息(模组切换 USB3.0、SIM 初始化、首次开机建虚拟内存)没有 ×,
  *    条件消失后自动撤掉, 底部带一条流动进度线, 表示"进行中"; 后端给了
  *    progress(0-100) 就换成实心进度条, 标签后跟百分比, 原地更新不重建卡片。
+ * 接口接入(网线/USB)是可关闭的一次性提示, 后端给 icon/title 字段: 换专属图标和标题、绿色。
  * 新固件提示也走这里(id 带版本号, 关掉的是这一版), 替代原来的 mwrt-ota-notify.js。
  * 由全局 footer.ut 注入, 所有主题都有。样式自带(半透明毛玻璃卡片), 按页面底色
  * 自动切深浅; 文字一律 textContent。 */
@@ -28,8 +29,17 @@
 		critical: SVG + '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>' +
 			'<path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
 		warn: SVG + '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
-		info: SVG + '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>'
+		info: SVG + '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>',
+		// 接口接入通知(后端给 icon 字段): 网线水晶头 / USB 插头
+		eth: SVG + '<path d="M7 3h10v7l-2 2v4H9v-4l-2-2z"/><path d="M10 6v2"/><path d="M12 6v2"/><path d="M14 6v2"/><path d="M12 16v5"/></svg>',
+		usb: SVG + '<circle cx="12" cy="20" r="1.6"/><path d="M12 18.4V4"/><path d="m9.5 6.5 2.5-3 2.5 3"/><path d="M12 14 7.5 11V8.5"/><path d="M12 12.5 16.5 10V8"/>' +
+			'<rect x="6.5" y="7" width="2" height="2" rx=".4"/><circle cx="16.5" cy="7.6" r="1"/></svg>'
 	};
+	// 断开 / 移除: 同一个图标加一道斜杠
+	ICON['eth-off'] = ICON.eth.replace('</svg>', '<path d="M3 3l18 18"/></svg>');
+	ICON['usb-off'] = ICON.usb.replace('</svg>', '<path d="M3 3l18 18"/></svg>');
+	// 有专属图标的通知: 接入 = 绿色, 断开 = 石板灰(不是故障, 不用红/黄), 都和 info 的蓝色区分开
+	var ICON_LEVEL = { eth: 'link', usb: 'link', 'eth-off': 'unlink', 'usb-off': 'unlink' };
 	var CLOSE = SVG.replace('width="18" height="18"', 'width="14" height="14"') +
 		'<path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
 
@@ -49,6 +59,10 @@
 		'box-shadow:0 16px 36px -10px rgba(15,23,42,.34),0 2px 8px rgba(15,23,42,.1),inset 0 1px 0 rgba(255,255,255,.7)}',
 		'#mwrt-notice .mwrt-notice-item[data-level="critical"]{--c:#e5484d;--ct:#c62828;--cs:rgba(229,72,77,.13);--cb:rgba(229,72,77,.24);--cf:rgba(229,72,77,.35)}',
 		'#mwrt-notice .mwrt-notice-item[data-level="warn"]{--c:#f59e0b;--ct:#b45309;--cs:rgba(245,158,11,.15);--cb:rgba(245,158,11,.28);--cf:rgba(245,158,11,.4)}',
+		'#mwrt-notice .mwrt-notice-item[data-kind="link"]{--c:#10b981;--ct:#047857;--cs:rgba(16,185,129,.13);--cb:rgba(16,185,129,.26);--cf:rgba(16,185,129,.38)}',
+		'#mwrt-notice .mwrt-notice-item[data-kind="link"] .mwrt-notice-icon svg{animation:mwrt-notice-plug .6s cubic-bezier(.2,.8,.2,1) .15s both}',
+		'#mwrt-notice .mwrt-notice-item[data-kind="unlink"]{--c:#64748b;--ct:#475569;--cs:rgba(100,116,139,.13);--cb:rgba(100,116,139,.26);--cf:rgba(100,116,139,.38)}',
+		'#mwrt-notice .mwrt-notice-item[data-kind="unlink"] .mwrt-notice-icon svg{animation:mwrt-notice-unplug .7s cubic-bezier(.3,.7,.3,1) .15s both}',
 		'#mwrt-notice .mwrt-notice-item.mwrt-leave{animation:mwrt-notice-out .22s ease-in both}',
 
 		// 左侧细色条
@@ -88,6 +102,8 @@
 		'#mwrt-notice.mwrt-dark .mwrt-notice-item{--ct:#93c5fd}',
 		'#mwrt-notice.mwrt-dark .mwrt-notice-item[data-level="critical"]{--ct:#ff9b9b}',
 		'#mwrt-notice.mwrt-dark .mwrt-notice-item[data-level="warn"]{--ct:#fcd34d}',
+		'#mwrt-notice.mwrt-dark .mwrt-notice-item[data-kind="link"]{--ct:#6ee7b7}',
+		'#mwrt-notice.mwrt-dark .mwrt-notice-item[data-kind="unlink"]{--c:#94a3b8;--ct:#cbd5e1}',
 		'#mwrt-notice.mwrt-dark button.mwrt-notice-close{color:#9ca3af}',
 		'#mwrt-notice.mwrt-dark button.mwrt-notice-close:hover{background:rgba(255,255,255,.08);color:#f3f4f6}',
 
@@ -101,8 +117,11 @@
 		'@keyframes mwrt-notice-in{from{opacity:0;transform:translateX(24px) scale(.98)}to{opacity:1;transform:none}}',
 		'@keyframes mwrt-notice-out{to{opacity:0;transform:translateX(24px) scale(.98)}}',
 		'@keyframes mwrt-notice-busy{from{left:-40%}to{left:100%}}',
+		'@keyframes mwrt-notice-plug{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:none}}',
+		// 拔出: 往上一提再掉下来停住, 最后变淡
+		'@keyframes mwrt-notice-unplug{0%{transform:none}30%{transform:translateY(-3px)}100%{transform:translateY(3px);opacity:.6}}',
 		'@media (prefers-reduced-motion:reduce){#mwrt-notice .mwrt-notice-item,#mwrt-notice .mwrt-notice-item.mwrt-leave,',
-		'#mwrt-notice .mwrt-notice-busy::after{animation:none}#mwrt-notice .mwrt-notice-item:hover{transform:none}}'
+		'#mwrt-notice .mwrt-notice-busy::after,#mwrt-notice .mwrt-notice-item .mwrt-notice-icon svg{animation:none}#mwrt-notice .mwrt-notice-item:hover{transform:none}}'
 	].join('');
 
 	var box = null, listFn = null, timer = null;
@@ -195,18 +214,20 @@
 		c.setAttribute('data-id', n.id);
 		c.setAttribute('data-level', level);
 		c.setAttribute('data-text', n.text || '');
+		var kind = ICON[n.icon] && ICON_LEVEL[n.icon];
+		if (kind) c.setAttribute('data-kind', kind);
 		// critical/warn 用 alert 让读屏软件立即播报, info 用 status 不打断
 		c.setAttribute('role', level === 'info' ? 'status' : 'alert');
 
 		var ic = document.createElement('span');
 		ic.className = 'mwrt-notice-icon';
-		ic.innerHTML = ICON[level];
+		ic.innerHTML = ICON[kind ? n.icon : level];
 
 		var body = document.createElement('div');
 		body.className = 'mwrt-notice-body';
 		var lb = document.createElement('span');
 		lb.className = 'mwrt-notice-label';
-		lb.textContent = LABEL[level];
+		lb.textContent = (kind && n.title) || LABEL[level];
 		var t = document.createElement('span');
 		t.className = 'mwrt-notice-text';
 		t.textContent = n.text || '';
@@ -288,10 +309,36 @@
 		if (want.length) b.style.display = 'flex';
 	}
 
+	// Only compare observed physical link state; never probe or switch a port.
+	var portPrev = null, portEvents = {};
+	function portNotices(ports) {
+		var now = Date.now(), next = {};
+		if (Array.isArray(ports)) {
+			ports.forEach(function (p) {
+				var old = portPrev && portPrev[p.id], on = +p.carrier === 1;
+				next[p.id] = p;
+				if (!old) return;
+				if ((on && (!+old.carrier || +p.cnt > +old.cnt)) || (!on && +old.carrier)) {
+					var role = p.role === 'WAN' ? 'WAN' : 'LAN', speed = +p.speed || 0;
+					portEvents[p.id] = { expires: now + 150000, id: 'port-' + p.id + '-' + now,
+						level: 'info', closable: true, icon: on ? 'eth' : 'eth-off',
+						title: role + (on ? ' 口接入' : ' 口断开'),
+						text: role + ' 口（' + p.id + '）' + (on ? '已接入网线' : '网线已断开') +
+							(on && speed > 0 ? '，协商速率 ' + (speed >= 1000 ? speed / 1000 + ' Gbps' : speed + ' Mbps') : '') + '。' };
+				}
+			});
+			portPrev = next;
+		}
+		return Object.keys(portEvents).filter(function (id) {
+			if (portEvents[id].expires > now) return true;
+			delete portEvents[id]; return false;
+		}).map(function (id) { return portEvents[id]; });
+	}
+
 	function tick() {
 		if (!listFn) return;
 		listFn().then(function (r) {
-			render(r && Array.isArray(r.notices) ? r.notices : []);
+			render((r && Array.isArray(r.notices) ? r.notices : []).concat(portNotices(r && r.ports)));
 		}).catch(function () { /* 没权限或后端没装: 什么都不显示 */ });
 	}
 

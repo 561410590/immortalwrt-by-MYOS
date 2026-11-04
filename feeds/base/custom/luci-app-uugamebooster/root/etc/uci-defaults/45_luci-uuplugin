@@ -1,0 +1,17 @@
+#!/bin/sh
+
+ROOT="${IPKG_INSTROOT:-}"
+# Image-root post-install must never operate on the build host's UCI database.
+[ -z "$ROOT" ] || exit 0
+
+uci -q batch <<-EOF >/dev/null
+	delete ucitrack.@uuplugin[-1]
+	add ucitrack uuplugin
+	set ucitrack.@uuplugin[-1].init=uuplugin
+	commit ucitrack
+EOF
+chmod 0755 /etc/init.d/uuplugin /usr/libexec/uuplugin-service \
+	/usr/libexec/uuplugin-launcher
+/etc/init.d/uuplugin enable
+rm -f /tmp/luci-indexcache
+exit 0

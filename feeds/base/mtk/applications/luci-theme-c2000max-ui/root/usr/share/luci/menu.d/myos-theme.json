@@ -1,0 +1,13 @@
+{
+  "admin/system/myos_theme": {
+    "title": "主题切换",
+    "order": 15,
+    "action": {
+      "type": "view",
+      "path": "myos/theme"
+    },
+    "depends": {
+      "acl": ["myos-theme"]
+    }
+  }
+}

@@ -19,18 +19,18 @@
 <meta name="theme-color" content="#eef3f8">
 <meta name="darkreader-lock">
 <title>{{ entityencode(boardinfo.hostname ?? 'MYOS') }} · {{ entityencode(node?.title ? _(node.title) : 'MYOS') }}</title>
-<script src="{{ media }}/theme.js?v=1.0.17-r2-ultra"></script>
+<script src="{{ media }}/theme.js?v=1.0.18-202610271600-ultra"></script>
 <link rel="stylesheet" href="/luci-static/bootstrap/cascade.css">
 {% for (let file in ['tokens','components','styles','c2000max','luci-adapter']): %}
-<link rel="stylesheet" href="{{ media }}/{{ file }}.css?v=1.0.17-r2-ultra">
+<link rel="stylesheet" href="{{ media }}/{{ file }}.css?v=1.0.18-20261101-footer">
 {% endfor %}
 {% if (node?.css): %}<link rel="stylesheet" href="{{ resource }}/{{ node.css }}">{% endif %}
 {% if (css): %}<style>{{ css }}</style>{% endif %}
-<link rel="stylesheet" href="{{ media }}/density.css?v=1.0.17-r2-ultra">
+<link rel="stylesheet" href="{{ media }}/density.css?v=1.0.18-202610271600-ultra">
 <script src="{{ dispatcher.build_url('admin/translations', dispatcher.lang) }}"></script>
 <script src="{{ resource }}/cbi.js"></script>
-<script src="{{ media }}/data.js?v=1.0.17-r2-ultra"></script>
-<script src="{{ media }}/dashboard.js?v=1.0.17-r2-ultra"></script>
+<script src="{{ media }}/data.js?v=1.0.18-202610271600-ultra"></script>
+<script src="{{ media }}/dashboard.js?v=1.0.18-202610271600-ultra"></script>
 </head>
 <body class="c2000-ui lang_{{ dispatcher.lang }}" data-page="{{ entityencode(join('-', ctx.request_path), true) }}" data-home-url="{{ entityencode(homeurl, true) }}" data-device-model="{{ entityencode(boardinfo.model ?? 'NRadio C2000', true) }}">
 {% if (!blank_page): %}

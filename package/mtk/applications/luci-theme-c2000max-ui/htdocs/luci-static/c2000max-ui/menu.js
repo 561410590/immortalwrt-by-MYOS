@@ -190,8 +190,6 @@
     if (window.L && typeof L.require === 'function') {
       try {
         const ui = await L.require('ui');
-        ui.menu.flushCache();
-        ui.menu.menu = null;
         const tree = await ui.menu.load();
         mount(tree, { getChildren: node => ui.menu.getChildren(node), url: path => L.url(...path), translate: value => typeof window._ === 'function' ? window._(value) : value, homeUrl: document.body.dataset.homeUrl });
         return tree;

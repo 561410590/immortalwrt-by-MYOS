@@ -1,0 +1,6 @@
+#!/bin/sh
+
+# S10 may still run mtwifi detection after this defaults script. Apply only
+# from S19, once every defaults script has finished creating the primary APs.
+/etc/init.d/myos-factory-wifi enable
+exit 0

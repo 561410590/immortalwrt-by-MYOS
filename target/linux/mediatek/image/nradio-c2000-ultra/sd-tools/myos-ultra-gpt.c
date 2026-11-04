@@ -357,7 +357,7 @@ int main(int argc,char **argv) {
          "\"rootfs_data_offset\":%llu,\"rootfs_data_bytes\":%llu,"
          "\"filesystem_bytes\":%llu,\"filesystem\":\"%s\","
          "\"backup_gpt_valid\":%s}\n",
-         board_sd()&&g.backup_ok&&overlay&&(g.native?native_mode==1:g.p7)?"true":"false",
+         (g.native || (board_sd()&&g.backup_ok&&overlay&&g.p7))?"true":"false",
          g.native&&native_mode<0?"unknown":stock?"stock":"myos",(unsigned long long)(g.sectors*SECTOR),
          g.native?"official":"legacy",(unsigned long long)data,
          (unsigned long long)p7,(unsigned long long)bytes,

@@ -195,7 +195,10 @@ function getModemConfig(config_section) {
 		return null;
 	
 	let at_port = cfg.override_at_port || cfg.sms_at_port || cfg.at_port;
-	let use_ubus = cfg.use_ubus == '1';
+	let use_ubus_setting = cfg.use_ubus;
+	if (use_ubus_setting == null || use_ubus_setting == '')
+		use_ubus_setting = ctx.get('qmodem', 'main', 'use_ubus');
+	let use_ubus = use_ubus_setting == '1';
 	let sms_db_path = cfg.sms_db_path || DEFAULT_SMS_DB_DIR;
 	let sms_auto_delete_from_sim = cfg.sms_auto_delete_from_sim != '0'; // Default to true
 	
@@ -798,7 +801,8 @@ return {
 				config_section: "",
 				recipient: "",
 				pdu: "",
-				content: ""
+				content: "",
+				pdus: []
 			},
 			call: function(request) {
 				let config_section = request.args.config_section;
@@ -808,7 +812,7 @@ return {
 					return { error: 'Failed to get modem configuration' };
 				}
 				
-				if (!request.args.pdu) {
+				if (!request.args.pdu && !length(request.args.pdus)) {
 					warn("send_sms: Missing PDU parameter\n");
 					return { error: 'Missing PDU parameter' };
 				}
@@ -823,18 +827,19 @@ return {
 					return { error: 'Missing content parameter' };
 				}
 				
-				warn(`send_sms: Sending to ${request.args.recipient}, PDU length: ${length(request.args.pdu)}\n`);
-				
-				// Send SMS via tom_modem
-				let result = execTomModem(config.at_port, config.use_ubus, 's', {
-					pdu: request.args.pdu
-				});
-				
-			warn(`send_sms: Result: ${sprintf('%J', result)}\n`);
-			
-			// Check status field from tom_modem output
-			// tom_modem returns {"status":"success"} on success or {"status":"failed","reason":"..."} on failure
-			let is_success = (result?.status === 'success');				// Read sent database
+				// Keep single-PDU callers compatible; send all parts in order.
+				let pdus = length(request.args.pdus) ? request.args.pdus : [request.args.pdu];
+				let result = null;
+				let sent_parts = 0;
+				for (let pdu in pdus) {
+					result = execTomModem(config.at_port, config.use_ubus, 's', { pdu: pdu });
+					if (result?.status !== 'success')
+						break;
+					sent_parts++;
+				}
+				let is_success = (sent_parts == length(pdus));
+				let reason = is_success ? null : (result?.reason || result?.error || result?.raw || 'No response from tom_modem');
+
 				let db = readSmsDb(config.sms_db_path, config_section);
 				if (!db.sent)
 					db.sent = [];
@@ -850,8 +855,11 @@ return {
 					recipient: request.args.recipient,
 					content: request.args.content,
 					timestamp: msg_timestamp,
-					pdu: request.args.pdu,
-					is_success: is_success
+					pdu: pdus[0],
+					is_success: is_success,
+					sent_parts: sent_parts,
+					total_parts: length(pdus),
+					error: reason
 				});
 				
 				// Keep only last 1000 sent messages
@@ -863,15 +871,15 @@ return {
 				
 				// Return error if send failed
 				if (!is_success) {
-					if (result?.error) {
-						warn(`send_sms: Modem error: ${result.error}\n`);
-						return { error: 'Modem error: ' + result.error, id: msg_id };
-					} else {
-						warn(`send_sms: tom_modem failed with code: ${ret_code}\n`);
-						return { error: 'Failed to send SMS - modem returned error code ' + ret_code, id: msg_id };
-					}
+					warn("send_sms: " + sent_parts + "/" + length(pdus) + " parts sent: " + reason + "\n");
+					return {
+						error: (sent_parts ? "Sent " + sent_parts + "/" + length(pdus) + " parts; " : "") + reason,
+						id: msg_id,
+						sent_parts: sent_parts,
+						total_parts: length(pdus)
+					};
 				}
-				
+
 				return {
 					success: true,
 					id: msg_id,

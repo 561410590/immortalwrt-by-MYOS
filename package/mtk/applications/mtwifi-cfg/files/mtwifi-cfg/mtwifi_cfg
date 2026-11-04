@@ -176,8 +176,9 @@ function set_mac_dat(dats, apidx, macaddr)
     end
 end
 
-function c2000_5g_mac(cfg, apidx)
-    if cfg.config.band ~= "5g" then return nil end
+function c2000_ap_mac(cfg, apidx)
+    local band = cfg.config.band
+    if band ~= "2g" and band ~= "5g" then return nil end
     local board = utils.trim(utils.read_pipe("cat /tmp/sysinfo/board_name 2>/dev/null"))
     if board ~= "nradio,c2000-max" and board ~= "nradio,c2000-ultra" then return nil end
     local ok, identity = pcall(require, "myos_nradio_data")
@@ -187,7 +188,8 @@ function c2000_5g_mac(cfg, apidx)
     local bytes = {}
     for byte in id:gmatch("%x%x") do bytes[#bytes + 1] = tonumber(byte, 16) end
     -- Use the board identity, not the shared EEPROM template or a random Ethernet MAC.
-    local carry = 4 + apidx
+    -- Preserve 5 GHz addresses and reserve a separate range for 2.4 GHz VIFs.
+    local carry = 4 + (band == "2g" and defs.max_mbssid or 0) + apidx
     for i = 6, 2, -1 do
         local value = bytes[i] + carry
         bytes[i], carry = value % 256, math.floor(value / 256)
@@ -737,7 +739,7 @@ end
             set_dat(dats, apidx, "MldGroup", use_mlo and "1" or "0")
             if not use_mlo then
                 local mac = v.config.macaddr
-                if not valid_macaddr(mac) then mac = c2000_5g_mac(cfg, apidx - 1) end
+                if not valid_macaddr(mac) then mac = c2000_ap_mac(cfg, apidx - 1) end
                 set_mac_dat(dats, apidx - 1, mac)
             end
             set_dat(dats, apidx, "WmmCapable", v.config.wmm)

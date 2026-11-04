@@ -1,0 +1,11 @@
+<svg width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+ <g>
+  <title>background</title>
+  <rect x="-1" y="-1" width="258" height="258" id="canvas_background" fill="none"/>
+ </g>
+
+ <g>
+  <title>Layer 1</title>
+  <text transform="matrix(1.01102, 0, 0, 1.26591, -62.2974, -79.2879)" fill="#ff7f00" stroke="#000" stroke-width="0" x="63.621789" y="202.814285" id="svg_1" font-size="91" font-family="'Urbanist'" text-anchor="start" xml:space="preserve" font-weight="bold" font-style="italic">Mwrt</text>
+ </g>
+</svg>

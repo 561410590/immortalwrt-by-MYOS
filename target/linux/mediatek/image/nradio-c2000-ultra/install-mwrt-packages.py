@@ -77,7 +77,10 @@ def install(name):
     info.mkdir(parents=True, exist_ok=True)
     for key, value in control.items():
         if key != 'control':
-            (info / (meta['Package'] + '.' + key)).write_bytes(value)
+            control_path = info / (meta['Package'] + '.' + key)
+            control_path.write_bytes(value)
+            if key in ('preinst', 'postinst', 'prerm', 'postrm'):
+                control_path.chmod(0o755)
     (info / (meta['Package'] + '.control')).write_bytes(control['control'])
     (info / (meta['Package'] + '.list')).write_text('\n'.join(listing) + '\n')
     rec = control['control'].decode().rstrip()

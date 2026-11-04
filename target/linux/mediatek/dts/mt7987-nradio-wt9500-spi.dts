@@ -144,6 +144,17 @@
 
 &spi2 {
 	spi_nor@0 {
+		/* Preserve factory data and FIP; u-boot-env stays writable for boot selection. */
+		partition@50000 {
+			read-only;
+		};
+		partition@150000 {
+			read-only;
+		};
+		partition@1D0000 {
+			read-only;
+		};
+
 		/* Preserve factory firmware without exposing its rootfs_data as overlay. */
 		partition@2D0000 {
 			label = "factory-firmware";

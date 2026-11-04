@@ -28,7 +28,7 @@ FOOTER=/usr/share/ucode/luci/template/footer.ut
 RES=/www/luci-static/resources
 MARK_BEGIN="{# mwrt-global:begin #}"
 MARK_END="{# mwrt-global:end #}"
-VER=4
+VER=20261101-1154
 PV='{{ pkgs_update_time }}'
 
 strip_block() {
@@ -80,7 +80,9 @@ else
 		print "%}"
 		print "{% if (_mg_show): %}"
 		print "{% if (theme == " q "argon" q "): %}"
-		print "\t<script src=\"{{ resource }}/mwrt-unlock.js?v=" ver "\" data-url=\"{{ dispatcher.build_url(" q "admin/Outofnetwork" q ") }}\"></script>"
+		print "\t<script src=\"{{ resource }}/mwrt-unlock.js?v=" ver "\" data-url=\"{{ dispatcher.build_url(" q "admin/modem/cat_adopt" q ") }}\"></script>"
+		print "\t<script defer src=\"{{ resource }}/mwrt-cat-art.js?v=20261101-1154\"></script>"
+		print "\t<script defer src=\"{{ resource }}/mwrt-catcage.js?v=20261101-1154\" data-state=\"{{ dispatcher.build_url(" q "admin/modem/unlock_state" q ") }}\"></script>"
 		print "{% endif %}"
 		print "\t<script src=\"{{ resource }}/mwrt-notice.js?v=" ver "\" data-ota=\"{{ dispatcher.build_url(" q "admin/system/myos_update" q ") }}\"></script>"
 		print "{% endif %}"

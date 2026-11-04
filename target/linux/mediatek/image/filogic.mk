@@ -221,8 +221,6 @@ define Build/prepare-c2000ultra-app-rootfs
 	sh $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-ultra/install-ultra2130.sh \
 		$(KDIR)/root-c2000ultra-$(1)-app $(TOPDIR) "$(VERSION_NUMBER)" "$(REVISION)" \
 		$(KDIR)/root-c2000ultra-$(1)-app.myos-ultra-gpt
-	python3 $(TOPDIR)/target/linux/mediatek/image/finalize-dual-theme.py \
-		$(KDIR)/root-c2000ultra-$(1)-app $(TOPDIR)
 	ln -sf ../init.d/myos-factory-wifi \
 		$(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/S19myos-factory-wifi
 	test -x $(KDIR)/root-c2000ultra-$(1)-app/usr/sbin/losetup
@@ -230,6 +228,8 @@ define Build/prepare-c2000ultra-app-rootfs
 	test -x $(KDIR)/root-c2000ultra-$(1)-app/usr/sbin/resize2fs
 	chmod 0400 $(KDIR)/root-c2000ultra-$(1)-app/usr/share/myos-nros/id_rsa.db
 	python3 $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-ultra/install-mwrt-packages.py $(KDIR)/root-c2000ultra-$(1)-app $(TOPDIR) kmod-usb-net-huawei-cdc-ncm kmod-qmi_wwan_s kmod-fs-msdos kmod-nls-cp932 kmod-nls-cp936 kmod-nls-cp950 kmod-bonding quectel-CM-5G tar mount-utils luci-app-openclash luci-app-passwall luci-i18n-passwall-zh-cn cpetools mwrt-openclash-core ipt2socks nftables kmod-nft-socket kmod-nft-tproxy kmod-nft-nat kmod-nf-reject kmod-nf-reject6 geoview haproxy shadowsocks-rust-sslocal shadowsocks-rust-ssserver shadowsocksr-libev-ssr-local shadowsocksr-libev-ssr-redir simple-obfs-client sing-box v2ray-plugin xray-core unzip hysteria tuic-client naiveproxy shadow-tls xray-plugin v2dat v2ray-geoip v2ray-geosite wireguard-tools luci-proto-wireguard luci-app-eqos-mtk luci-app-ramfree luci-app-leigod-acc leigod-acc luci-app-uugamebooster mwrt-memtune luci-app-qmodem-ttl collectd collectd-mod-cpu collectd-mod-interface collectd-mod-iwinfo collectd-mod-load collectd-mod-memory collectd-mod-network collectd-mod-rrdtool rrdtool1 coreutils-stat usbutils openssl-util luci-i18n-eqos-mtk-zh-cn luci-i18n-ramfree-zh-cn
+	python3 $(TOPDIR)/target/linux/mediatek/image/finalize-dual-theme.py \
+		$(KDIR)/root-c2000ultra-$(1)-app $(TOPDIR) $(KDIR)/root-c2000ultra-$(1)-app.pseudo
 	ln -sf ../init.d/eqos $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/S50eqos
 	ln -sf ../init.d/collectd $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/S80collectd
 	ln -sf ../init.d/collectd $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/K10collectd
@@ -3472,8 +3472,13 @@ define Device/nradio_c2000-ultra
   BOARD_NAME := nradio,c2000-ultra
   SUPPORTED_DEVICES += nradio,c2000-ultra HCMT7987-SNSD
   DEVICE_PACKAGES := \
-	luci-theme-c2000max-ui luci-theme-mwrt \
+	luci-theme-myos-new luci-app-myos-ultra \
 	openmptcprouter-ultra \
+	kmod-ipt-extra iptables-mod-extra \
+	kmod-fuse kmod-sound-core kmod-fs-cifs \
+	kmod-md-mod kmod-md-raid0 kmod-md-raid1 kmod-md-raid10 \
+	kmod-ipt-conntrack-extra kmod-ipt-ipopt kmod-ipt-filter \
+	qemu-x86_64-softmmu qemu-aarch64-softmmu qemu-img qemu-bridge-helper \
 	fdisk blkid parted resize2fs block-mount losetup kmod-fs-ext4 \
 	kmod-mediatek_hnat luci-app-turboacc luci-i18n-turboacc-zh-cn \
 	kmod-oaf appfilter luci-app-oaf luci-i18n-oaf-zh-cn \
@@ -3491,7 +3496,7 @@ define Device/nradio_c2000-ultra
 	quickfile luci-app-quickfile luci-i18n-quickfile-zh-cn \
 	luci-nginx nginx-ssl nginx-mod-luci nginx-mod-ubus nginx-ssl-util \
 	uwsgi uwsgi-cgi-plugin uwsgi-syslog-plugin uwsgi-luci-support \
-	luci-app-5700webui luci-app-embed \
+	myos-ubus-at mt5700-web-go luci-app-mt5700-web luci-app-embed \
 	miniupnpd-nftables luci-app-upnp luci-i18n-upnp-zh-cn \
 	python3-light uhttpd uhttpd-mod-ubus \
 	f2fsck mkf2fs e2fsprogs \

@@ -25,7 +25,7 @@ return view.extend({
             style: 'width:100%;height:100%;min-width:0;min-height:0;border:0;display:block;'
         });
         var pageWebui = E('div', {
-            style: 'display:block;flex:1;min-width:0;min-height:0;height:100%;overflow:hidden;'
+            style: 'display:block;flex:1;min-width:0;min-height:0;height:100%;overflow:auto;'
         }, [frameEl]);
         var urlInput = E('input', {
             type: 'text', value: currentUrl,
@@ -84,30 +84,25 @@ return view.extend({
         function resizeFrame() {
             if (!wrapper.isConnected) {
                 window.removeEventListener('resize', resizeFrame);
+                if (window.visualViewport) window.visualViewport.removeEventListener('resize', resizeFrame);
                 return;
             }
-            var bottom = window.innerHeight - 16;
+            var viewport = window.visualViewport;
+            var visibleHeight = viewport ? viewport.height : window.innerHeight;
+            var bottom = visibleHeight - 12;
             var mobileNav = document.querySelector('.mobile-nav');
             if (mobileNav) {
                 var navRect = mobileNav.getBoundingClientRect();
                 if (navRect.height && navRect.top > 0 && navRect.top < bottom)
                     bottom = navRect.top - 12;
             }
-            var main = wrapper.closest('main');
-            var footer = main && main.querySelector('.main-footer');
-            if (footer && footer.getBoundingClientRect().height) {
-                var footerStyle = window.getComputedStyle(footer);
-                bottom -= footer.getBoundingClientRect().height +
-                    (parseFloat(footerStyle.marginTop) || 0) +
-                    (parseFloat(footerStyle.marginBottom) || 0);
-            }
-            if (main) bottom -= parseFloat(window.getComputedStyle(main).paddingBottom) || 0;
-            var bodyStyle = window.getComputedStyle(document.body);
-            bottom -= (parseFloat(bodyStyle.marginBottom) || 0) +
-                (parseFloat(bodyStyle.paddingBottom) || 0);
-            wrapper.style.height = Math.max(160, bottom - wrapper.getBoundingClientRect().top - window.scrollY) + 'px';
+            // The footer follows this view in normal flow. Reserving its
+            // height and the theme's bottom padding again clips the iframe.
+            var top = wrapper.getBoundingClientRect().top;
+            wrapper.style.height = Math.max(480, bottom - Math.max(0, top)) + 'px';
         }
         window.addEventListener('resize', resizeFrame);
+        if (window.visualViewport) window.visualViewport.addEventListener('resize', resizeFrame);
         frameEl.addEventListener('load', resizeFrame);
         window.requestAnimationFrame(resizeFrame);
         return wrapper;

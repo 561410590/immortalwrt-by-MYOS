@@ -164,7 +164,7 @@ awk '
 		print "\t    ?v= 取文件 mtime,重新生成时才失效。文件不在就回退原端点。 %>"
 		print "\t<%-"
 		print "\t\tlocal _fs   = require \"nixio.fs\""
-		print "\t\tlocal _lang = luci.i18n.context.lang"
+		print "\t\tlocal _lang = luci.i18n.context.lang or \"en\""
 		print "\t\tlocal _st   = _fs.stat(\"/www/luci-static/resources/trans-\" .. _lang .. \".js\")"
 		print "\t-%>"
 		print "\t<% if _st then -%>"
