@@ -21,6 +21,9 @@ BRANCH = os.environ['BRANCH']
 MODELS = os.environ['MODELS'].split(',')
 LOGS.mkdir(exist_ok=True)
 OUTPUT.mkdir(exist_ok=True)
+os.environ['FORCE_UNSAFE_CONFIGURE'] = '1'
+os.environ['CCACHE_BASEDIR'] = str(SOURCE)
+os.environ['MWRT_REFERENCE'] = str(WORK / 'MWRT-reference.bin')
 
 def run(name, args, cwd=SOURCE):
     print(name + ': started', flush=True)
@@ -107,9 +110,18 @@ def assemble(model):
             'source': os.environ['SOURCE_COMMIT'], 'branch': BRANCH, 'asset': target.name}
 
 def main():
-    prepare()
-    run('download', ['make', 'download', '-j8', 'V=s'])
-    run('compile', ['make', '-j' + str(os.cpu_count()), 'V=s', 'VERSION_NUMBER=' + VERSION])
+    stage = sys.argv[1] if len(sys.argv) > 1 else 'all'
+    if stage in ('prepare', 'all'):
+        prepare()
+    if stage in ('download', 'all'):
+        run('download', ['make', 'download', '-j8', 'V=s'])
+    targets = {'tools': 'tools/install', 'toolchain': 'toolchain/install',
+               'kernel': 'target/linux/compile', 'packages': 'package/compile', 'compile': ''}
+    if stage in targets or stage == 'all':
+        target = targets.get(stage, '')
+        run(stage, ['make', *([target] if target else []), '-j' + str(os.cpu_count()), 'V=s', 'VERSION_NUMBER=' + VERSION])
+    if stage not in ('assemble', 'all'):
+        return 0
     failed = False
     for model in MODELS:
         try:

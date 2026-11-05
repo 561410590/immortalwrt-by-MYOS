@@ -49,6 +49,9 @@ jobs:
       CCACHE_MAXSIZE: 1500M
       CCACHE_COMPRESS: '1'
       BUILD_VERSION: ${{ needs.prepare.outputs.version }}
+      BRANCH: ${{ matrix.branch }}
+      MODELS: ${{ join(matrix.models, ',') }}
+      SOURCE_COMMIT: ${{ matrix.sha }}
     steps:
       - name: Build dependencies and disk
         run: |
@@ -87,12 +90,22 @@ jobs:
           path: source/.ccache
           key: compiler-v1-${{ matrix.branch }}-${{ hashFiles('source/.config', 'source/include/toolchain-build.mk', 'source/toolchain/**/Makefile') }}-${{ github.run_id }}
           restore-keys: compiler-v1-${{ matrix.branch }}-${{ hashFiles('source/.config', 'source/include/toolchain-build.mk', 'source/toolchain/**/Makefile') }}-
-      - name: Compile and assemble
-        env:
-          BRANCH: ${{ matrix.branch }}
-          MODELS: ${{ join(matrix.models, ',') }}
-          SOURCE_COMMIT: ${{ matrix.sha }}
-        run: python3 automation/.github/ci/build.py
+      - name: Prepare build inputs
+        run: python3 automation/.github/ci/build.py prepare
+      - name: Download sources
+        run: python3 automation/.github/ci/build.py download
+      - name: Build host tools
+        run: python3 automation/.github/ci/build.py tools
+      - name: Build toolchain
+        run: python3 automation/.github/ci/build.py toolchain
+      - name: Build kernel
+        run: python3 automation/.github/ci/build.py kernel
+      - name: Build packages
+        run: python3 automation/.github/ci/build.py packages
+      - name: Build firmware
+        run: python3 automation/.github/ci/build.py compile
+      - name: Assemble models and read permissions
+        run: python3 automation/.github/ci/build.py assemble
       - name: Save downloads
         if: always() && steps.downloads.outcome == 'success'
         uses: actions/cache/save@v4
