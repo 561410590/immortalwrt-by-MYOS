@@ -220,11 +220,14 @@ cleanup() {
         fi
     }
     AMBR(){
-        # DSAMBR supports CID 1 and has no APN field. The official ODU uses
-        # its own active CID; read that session's APN from the shared cache.
+        # Read the existing CID 8 session; this query does not change dialing.
         apn=$(/usr/libexec/myos-nbcpe-status apn 2>/dev/null)
         DOWNspeed="-"
         UPspeed="-"
+        qos5g=$(atsd_tools_cli -i cpe -c 'AT+C5GQOSRDP=8' | tr -d '\r' \
+            | sed -n 's/^[[:space:]]*+C5GQOSRDP:[[:space:]]*//p' | head -n 1)
+        DOWNspeed=$(printf '%s\n' "$qos5g" | awk -F ',' '{gsub(/[[:space:]]/,"",$7); print ($7 ~ /^[0-9]+$/ ? $7 " kbps" : "-")}')
+        UPspeed=$(printf '%s\n' "$qos5g" | awk -F ',' '{gsub(/[[:space:]]/,"",$8); print ($8 ~ /^[0-9]+$/ ? $8 " kbps" : "-")}')
     }
     Read_module_data_AT(){
         identity=$(atsd_tools_cli -i cpe -c "ATI" | tr -d '\r')

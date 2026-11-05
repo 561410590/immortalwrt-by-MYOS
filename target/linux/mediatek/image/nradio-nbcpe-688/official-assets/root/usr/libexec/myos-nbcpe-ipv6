@@ -29,11 +29,8 @@ ensure_odu_ipv6() {
 	case "$pdptype" in ipv6|ipv4v6) ;; *) return 0 ;; esac
 
 	child=$(ubus call network.interface.cpe_6 status 2>/dev/null)
-	if [ -n "$child" ]; then
-		[ "$(printf '%s' "$child" | jsonfilter -e '@.up')" != true ] || return 0
-		[ "$(printf '%s' "$child" | jsonfilter -e '@.pending')" != true ] || return 0
-	fi
 
+	# A running or pending DHCPv6 client still needs a link-local address.
 	sysctl -q -w "net.ipv6.conf.$device.disable_ipv6=0" ||
 		logger -t nbcpe-ipv6 "Could not enable IPv6 on $device; requesting DHCPv6"
 	addresses=$(ip -6 address show dev "$device" scope link)
@@ -56,6 +53,8 @@ ensure_odu_ipv6() {
 	fi
 
 	if [ -n "$child" ]; then
+		[ "$(printf '%s' "$child" | jsonfilter -e '@.up')" != true ] || return 0
+		[ "$(printf '%s' "$child" | jsonfilter -e '@.pending')" != true ] || return 0
 		[ "$(printf '%s' "$child" | jsonfilter -e '@.proto')" = dhcpv6 ] || return 0
 		ubus call network.interface.cpe_6 up >/dev/null || return 1
 	else

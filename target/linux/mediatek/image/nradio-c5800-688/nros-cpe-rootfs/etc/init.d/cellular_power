@@ -9,7 +9,7 @@ start() {
 	# A manually disabled interface or an ordinary WAN must remain unpowered.
 	if [ "$(uci -q get network.cpe1.proto)" = "wwan" ] &&
 	   [ "$(uci -q get network.cpe1.mode)" = "odu" ] &&
-	   [ "$(uci -q get network.cpe1.disabled)" != "1" ] &&
+	   [ "$(uci -q get network.cpe1.disabled)" = "0" ] &&
 	   [ "$(uci -q get network.cpe1.auto)" != "0" ]; then
 		cpetools.sh -i cpe1 -k &
 	else

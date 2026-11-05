@@ -7,7 +7,7 @@ import json
 import subprocess
 import tarfile
 
-VERSION = '3.1.35-202610121330'
+VERSION = '3.1.40-202611042000'
 
 
 def main():

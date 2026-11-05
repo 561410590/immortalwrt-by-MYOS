@@ -82,6 +82,12 @@
                 });
             }
             function enabled(name) { var input = q('[data-line="' + name + '"]'); return !!(input && input.checked); }
+            function lineStatus(data, name) {
+                if (!data.lines[name].enabled) return '未启用';
+                if (name === 'poe' && data.secondary_role === 'cellular' && data.power && !data.power.enabled)
+                    return '已保存开启 · 当前未供电';
+                return data.lines[name].online ? '在线' : '离线';
+            }
             function option(select, name) {
                 var item = document.createElement('option'); item.value = name; item.textContent = labels[name]; select.appendChild(item);
             }
@@ -113,7 +119,7 @@
                     q('[data-weight-row="' + name + '"]').hidden = !enabled(name);
                     q('[data-address="' + name + '"]').hidden = !enabled(name);
                     if (state) q('[data-online="' + name + '"]').textContent = enabled(name) !== state.lines[name].enabled ?
-                        (enabled(name) ? '待启用' : '待停用') : enabled(name) ? (state.lines[name].online ? '在线' : '离线') : '未启用';
+                        (enabled(name) ? '待启用' : '待停用') : lineStatus(state, name);
                 });
                 var selected = field('default').value;
                 field('default').textContent = '';
@@ -160,7 +166,7 @@
                 names.forEach(function (name) {
                     var line = data.lines[name]; q('[data-line="' + name + '"]').checked = line.enabled;
                     q('[data-weight="' + name + '"]').value = line.weight;
-                    q('[data-online="' + name + '"]').textContent = line.enabled ? (line.online ? '在线' : '离线') : '未启用';
+                    q('[data-online="' + name + '"]').textContent = lineStatus(data, name);
                 });
                 ['proto','ipaddr','netmask','gateway','username','mtu','macaddr'].forEach(function (name) { field(name).value = data.wan[name]; });
                 field('password').value = ''; field('peerdns').checked = data.wan.peerdns;
@@ -180,7 +186,7 @@
             }
             function showStatus(data) {
                 status.textContent = titles[data.mode] + ' · ' + names.filter(function (name) { return data.lines[name].enabled; }).map(function (name) {
-                    return labels[name] + (data.lines[name].online ? '在线' : '离线');
+                    return labels[name] + ' ' + lineStatus(data, name);
                 }).join(' / ');
             }
             function load() {
@@ -218,10 +224,11 @@
                 api('data-route-status').then(function (data) {
                     if (pending) return;
                     renderPorts(data);
+                    state.power = data.power;
                     names.forEach(function (name) {
                         state.lines[name].online = data.lines[name].online;
                         q('[data-online="' + name + '"]').textContent = enabled(name) !== data.lines[name].enabled ?
-                            (enabled(name) ? '待启用' : '待停用') : enabled(name) ? (data.lines[name].online ? '在线' : '离线') : '未启用';
+                            (enabled(name) ? '待启用' : '待停用') : lineStatus(data, name);
                     });
                     if (!dirty) showStatus(data);
                 }).catch(function () {});

@@ -8,7 +8,7 @@
     <button type="button" class="cbi-button" data-poe="0" disabled>关闭供电</button>
     <button type="button" class="cbi-button" data-poe="refresh">刷新状态</button>
   </div>
-  <p class="cellular-help">操作立即生效，无需保存整页。供电开启后，副模组仍需完成启动、注册和拨号。</p>
+  <p class="cellular-help">同时保存副 5G 接口与 PoE 开关，重启保持选择。开启后副模组需完成启动、注册和拨号；手动关闭后保持关闭。</p>
   <a href="<%=luci.dispatcher.build_url('admin','modem','nets')%>">查看副模组连接状态 →</a>
 </div>
 <%+cbi/valuefooter%>

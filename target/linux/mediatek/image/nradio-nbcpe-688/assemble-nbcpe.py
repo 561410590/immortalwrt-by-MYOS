@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import tarfile
 
-VERSION = '3.1.40-202611031200'
+VERSION = '3.1.40-202611042000'
 KERNEL = '6.6.110'
 BOARD = 'HCMT7981-emmc-NB68'
 
@@ -331,7 +331,7 @@ def main():
     required |= {
         'libc', 'libgcc1', 'luci-base', 'luci-lib-base', 'luci-compat', 'luci-mod-admin-full',
         'luci-mod-network', 'luci-mod-system', 'luci-mod-status', 'luci-lib-jsonc',
-        'luci-lib-nixio', 'luci-lib-ip', 'luci-theme-bootstrap', 'liblucihttp0',
+        'luci-lib-nixio', 'luci-lib-ip', 'liblucihttp0',
         'rpcd', 'rpcd-mod-file', 'rpcd-mod-luci', 'rpcd-mod-iwinfo', 'rpcd-mod-ucode',
         'ucode', 'ucode-mod-fs', 'ucode-mod-ubus', 'ucode-mod-uci',
         'uci', 'libuci-lua', 'ubus', 'libubus-lua', 'netifd', 'procd', 'procd-ujail', 'ubox',
@@ -347,6 +347,7 @@ def main():
     removed = {
         'firewall', 'luci-theme-argon', 'quickstart', 'luci-app-quickstart',
         'luci-theme-c2000max-ui', 'luci-theme-mwrt',
+        'luci-theme-bootstrap', 'luci', 'luci-light', 'luci-nginx',
         'luci-theme-vantage', 'luci-app-vantage', 'luci-i18n-vantage-zh-cn',
         'luci-app-istorex', 'luci-app-c5800-688-wtmodem', 'luci-app-5700webui',
         'docker', 'dockerd', 'docker-compose', 'containerd', 'runc',
@@ -383,6 +384,8 @@ def main():
                 and name not in required}
     old_kernel = {n for n in records if n == 'kernel' or n.startswith('kmod-')}
     required |= set(official_manifest['required_packages'])
+    proxy_bundle = runpy.run_path(str(source / 'target/linux/mediatek/image/c5800-mwrt-packages.py'))
+    required |= proxy_bundle['SYSTEM_PACKAGES']
     required_roots = sorted(required)
     required, missing = required_closure(required, available)
     kernel_abi = re.search(r'^Version: (.+)$', available['kernel'][1], re.M)[1]
@@ -490,7 +493,7 @@ def main():
         if path.is_file():
             copy(path, work / path.relative_to(assets / 'overlay'))
     run('python3', assets / 'prepare-nbcpe-webui.py',
-        '--archive', work / 'usr/share/modem-AK68/5700.tar.xz',
+        '--frontend', source / 'package/custom/mt5700-web-go/src/web-modern',
         '--www', work / 'www')
     # SMS decoding retains stock Python 3.9 and uses precompiled AArch64 modules.
     python_runtime = assets / 'python-runtime'
@@ -599,6 +602,10 @@ def main():
         if link.is_symlink() or link.exists():
             link.unlink()
         link.symlink_to(target)
+    plan['proxy_packages'] = proxy_bundle['install_bundle'](source, work, records)
+    plan['installed_package_count'] = len(records)
+    plan['application_versions'].update({name: version for name, version in plan['proxy_packages'].items()
+                                         if name.startswith('luci-app-')})
     runpy.run_path(str(source / 'target/linux/mediatek/image/myos-new-image.py'))['install'](work)
     # The stock strings alternative points at binutils-strings, which slimming
     # removes. Preinit 02_sysinfo must invoke the retained BusyBox applet.

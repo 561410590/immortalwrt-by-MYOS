@@ -3,6 +3,13 @@
  const root=document.documentElement, sidebar=document.querySelector('#m-sidebar'), nav=document.querySelector('#m-menu');
  const button=document.querySelector('#m-menu-toggle'),scrim=document.querySelector('#m-scrim');
  const narrow=matchMedia('(max-width:760px)'),reduce=matchMedia('(prefers-reduced-motion:reduce)');
+ // Closed-form critically damped spring. Unlike Euler integration, this stays
+ // stable when a glass-heavy frame takes 32ms or longer. Keep the animations.
+ function damped(position,velocity,target,omega,dt){
+  const delta=position-target,c=velocity+omega*delta,decay=Math.exp(-omega*dt);
+  return {position:target+(delta+c*dt)*decay,velocity:(velocity-omega*c*dt)*decay};
+ }
+
  try { const appearance=localStorage.getItem('myos-new-appearance');if(appearance) root.dataset.appearance=appearance; } catch (_) {}
  document.querySelector('#m-appearance').addEventListener('click',()=>{
   const dark=root.dataset.appearance?root.dataset.appearance==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
@@ -11,9 +18,8 @@
  });
  let open=false,position=-260,velocity=0,target=-260,frame=0,last=0;
  function tick(now){
-  const dt=Math.min((now-last)/1000||.016,.032);last=now;
-  const omega=24;velocity+=(-omega*omega*(position-target)-2*omega*velocity)*dt;
-  position+=velocity*dt;sidebar.style.transform='translateX('+position+'px)';
+  const dt=Math.min(Math.max((now-last)/1000||.016,0),.1);last=now;
+  const next=damped(position,velocity,target,24,dt);position=next.position;velocity=next.velocity;sidebar.style.transform='translateX('+position+'px)';
   if(Math.abs(position-target)>.2||Math.abs(velocity)>.2)frame=requestAnimationFrame(tick);
   else {position=target;velocity=0;frame=0;sidebar.style.transform='translateX('+position+'px)';if(!open)sidebar.style.visibility='hidden';}
  }
@@ -74,40 +80,42 @@
  const make=(tag,cls,text)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(text!=null)el.textContent=text;return el;};
  const folds=new WeakMap();
  function resetFold(group){
-  const state=folds.get(group);if(state)cancelAnimationFrame(state.frame);
+  const state=folds.get(group);
+  if(state){state.animation.cancel();group.open=state.expanded;}
   folds.delete(group);const content=group.querySelector(':scope > .m-menu-children');
-  if(content){content.style.height='';content.style.overflow='';content.style.opacity='';}
+  group.style.height='';group.style.overflow='';
+  if(content)content.inert=false;
   group.querySelector('summary').removeAttribute('aria-expanded');
  }
  function animateFold(group,content,summary,event,requested){
   if(event)event.preventDefault();
-  let state=folds.get(group);
+  const state=folds.get(group);
   const expanded=requested==null?(state?!state.expanded:!group.open):requested;
+  const changes=[{group,content,summary,expanded}];
   if(expanded){
    [...group.parentElement.children].forEach(sibling=>{
     if(sibling===group||sibling.tagName!=='DETAILS')return;
     const siblingState=folds.get(sibling);
     if(siblingState?siblingState.expanded:sibling.open)
-     animateFold(sibling,sibling.querySelector(':scope > .m-menu-children'),sibling.querySelector('summary'),null,false);
+     changes.push({group:sibling,content:sibling.querySelector(':scope > .m-menu-children'),summary:sibling.querySelector('summary'),expanded:false});
    });
   }
-  if(reduce.matches){resetFold(group);group.open=expanded;return;}
-  if(!state)state={position:group.open?content.getBoundingClientRect().height:0,velocity:0,frame:0,expanded:group.open};
-  cancelAnimationFrame(state.frame);state.expanded=expanded;
-  group.open=true;content.style.height='auto';
-  const height=content.getBoundingClientRect().height,target=expanded?height:0;
-  content.style.height=state.position+'px';content.style.overflow='hidden';
-  summary.setAttribute('aria-expanded',String(expanded));
-  folds.set(group,state);let previous=performance.now();
-  const step=now=>{
-   const dt=Math.min((now-previous)/1000,.032);previous=now;
-   state.velocity+=(-28*28*(state.position-target)-2*28*state.velocity)*dt;
-   state.position+=state.velocity*dt;
-   content.style.height=Math.max(0,state.position)+'px';content.style.opacity=String(Math.min(1,Math.max(0,state.position/Math.max(1,height))));
-   if(Math.abs(state.position-target)>.3||Math.abs(state.velocity)>.3)state.frame=requestAnimationFrame(step);
-   else{group.open=expanded;resetFold(group);}
-  };
-  state.frame=requestAnimationFrame(step);
+  if(reduce.matches){changes.forEach(item=>{resetFold(item.group);item.group.open=item.expanded;});return;}
+  // Read all current heights before cancelling an interrupted animation. Batch
+  // the final layout reads, then let the browser run the short transition.
+  changes.forEach(item=>item.from=item.group.getBoundingClientRect().height);
+  changes.forEach(item=>{
+   resetFold(item.group);item.group.open=true;
+   item.content.inert=!item.expanded;
+   item.summary.setAttribute('aria-expanded',String(item.expanded));
+  });
+  changes.forEach(item=>item.to=(item.expanded?item.group:item.summary).getBoundingClientRect().height);
+  changes.forEach(item=>{
+   item.group.style.height=item.to+'px';item.group.style.overflow='clip';
+   const animation=item.group.animate([{height:item.from+'px'},{height:item.to+'px'}],{duration:220,easing:'cubic-bezier(.2,.8,.2,1)'});
+   const current={animation,expanded:item.expanded};folds.set(item.group,current);
+   animation.onfinish=()=>{if(folds.get(item.group)===current)resetFold(item.group);};
+  });
  }
  function enterView(){
   const panel=document.querySelector('#view')||document.querySelector('#maincontent');
@@ -115,8 +123,8 @@
   const animate=()=>{
    let position=7,velocity=0,previous=performance.now();
    const step=now=>{
-    const dt=Math.min((now-previous)/1000,.032);previous=now;
-    velocity+=(-26*26*position-2*26*velocity)*dt;position+=velocity*dt;
+    const dt=Math.min(Math.max((now-previous)/1000,0),.1);previous=now;
+    const next=damped(position,velocity,0,26,dt);position=next.position;velocity=next.velocity;
     panel.style.transform='translateY('+position+'px)';panel.style.opacity=String(1-Math.max(0,position)/14);
     if(Math.abs(position)>.04||Math.abs(velocity)>.2)requestAnimationFrame(step);
     else{panel.style.transform='';panel.style.opacity='';}

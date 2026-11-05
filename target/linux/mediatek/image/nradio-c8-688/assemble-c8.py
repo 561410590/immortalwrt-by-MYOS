@@ -8,12 +8,13 @@ import json
 import os
 from pathlib import Path
 import re
+import runpy
 import shlex
 import shutil
 import subprocess
 import tarfile
 
-VERSION = '3.1.35-202610161200'
+VERSION = '3.1.40-202611042000'
 KERNEL = '6.6.110'
 BOARD = 'HCMT7981-688-emmc'
 REFERENCE_SHA256 = '4b8e62131bb5be2926273103e0d5dad030c8a72c7de847e3ce4407219a70b6a1'
@@ -163,7 +164,7 @@ def main():
         'luci-base', 'luci-lib-base', 'luci-compat', 'luci-mod-admin-full',
         'luci-mod-network', 'luci-mod-system', 'luci-mod-status', 'luci-lib-jsonc',
         'luci-i18n-base-zh-cn', 'luci-i18n-firewall-zh-cn',
-        'luci-lib-nixio', 'luci-lib-ip', 'luci-theme-bootstrap', 'liblucihttp0',
+        'luci-lib-nixio', 'luci-lib-ip', 'liblucihttp0',
         'rpcd', 'rpcd-mod-file', 'rpcd-mod-luci', 'rpcd-mod-iwinfo', 'rpcd-mod-ucode',
         'ucode', 'ucode-mod-fs', 'ucode-mod-ubus', 'ucode-mod-uci',
         'uci', 'libuci-lua', 'ubus', 'libubus-lua', 'ubusd',
@@ -179,11 +180,12 @@ def main():
         'curl', 'libcurl4', 'libnghttp2-14',
         'losetup', 'kmod-loop', 'kmod-fs-ext4', 'e2fsprogs',
         'mkf2fs', 'f2fsck', 'usbutils', 'usb-modeswitch',
-        'luci-theme-c2000max-ui', 'luci-theme-mwrt',
-        'luci-theme-vantage', 'luci-app-vantage', 'luci-i18n-vantage-zh-cn',
+        'luci-theme-myos-new', 'luci-app-myos-system',
         'lua-cjson', 'lua-md5', 'lua-mosquitto', 'libmosquitto-nossl',
         'mosquitto-nossl', 'libcares', 'luci-lua-runtime',
     }
+    proxy_bundle = runpy.run_path(str(source / 'target/linux/mediatek/image/c5800-mwrt-packages.py'))
+    roots |= proxy_bundle['SYSTEM_PACKAGES']
     required, missing = helpers.required_closure(roots, available)
     unwanted = {name for name in required if 'quickstart' in name.lower()
                 or name == 'luci-app-package-manager'}
@@ -271,14 +273,6 @@ def main():
     overlay_tree(app, work)
     copy_file(work / 'usr/lib/lua/myos_nradio_data.lua',
               work / 'usr/lib/lua/myos_nradio_data_generic.lua')
-    for name in ('luci-theme-c2000max-ui', 'luci-theme-mwrt'):
-        theme = common / 'themes' / name
-        for part, destination in (('root', work), ('htdocs', work / 'www'),
-                                  ('ucode', work / 'usr/share/ucode/luci')):
-            directory = theme / part
-            if directory.exists():
-                overlay_tree(directory, destination)
-    overlay_tree(common / 'vantage/root', work)
     overlay_tree(source / 'target/linux/mediatek/image/nradio-system-switch/root', work)
     board_files = source / 'target/linux/mediatek/filogic/base-files'
     for relative in ('etc/board.d/02_network', 'lib/upgrade/platform.sh'):
@@ -293,6 +287,20 @@ def main():
     # Offline image builds must not execute package postinst or any device commands.
     helpers.restore_package_alternatives(work, final)
     helpers.restore_busybox_strings(work)
+    # Remove reference-ROM alternatives whose optional providers are not bundled.
+    for relative in (
+        'usr/bin/lzcmp', 'usr/bin/lzdiff', 'usr/bin/lzegrep', 'usr/bin/lzfgrep',
+        'usr/bin/lzgrep', 'usr/bin/lzless', 'usr/bin/lzmore', 'usr/bin/wget-ssl',
+        'usr/bin/xzcmp', 'usr/bin/xzdiff', 'usr/bin/xzegrep', 'usr/bin/xzfgrep',
+        'usr/bin/xzgrep', 'usr/bin/xzless', 'usr/bin/xzmore',
+        'usr/sbin/ebtables', 'usr/sbin/ebtables-restore',
+    ):
+        path = work / relative
+        if path.is_symlink():
+            target = os.readlink(path)
+            target = work / target.lstrip('/') if target.startswith('/') else path.parent / target
+            if not target.exists():
+                path.unlink()
     copy_file(work / 'sbin/wifi', work / 'usr/libexec/myos-c8-wifi-native')
     # The native C8 stack owns AT access; earlier standalone modem drafts stay out.
     excluded = {
@@ -358,7 +366,7 @@ def main():
         'openssl', 'dnsmasq', 'dropbear', 'firewall', 'wpad', 'network', 'usbmode',
         'odhcpd', 'istore', 'tasks', 'cron', 'uhttpd', 'ucitrack', 'turboacc',
         'done', 'sysntpd', 'mtk_smp', 'urandom_seed',
-        'c2000max-wallpaper', 'myos-nros-app', 'myos-nros-mqtt',
+        'myos-nros-app', 'myos-nros-mqtt',
         'myos-c8-identity', 'myos-c8-cellular', 'myos-c8-led', 'myos-c8-fan', 'myos-c8-factory-wifi',
         'myos-c8-calibration', 'atsd', 'infocd', 'smsd',
     }
@@ -394,6 +402,9 @@ def main():
             path.unlink()
     # Install current remote and reporting files after all model/theme overlays.
     helpers.install_remote_access(source, work)
+    plan['proxy_packages'] = proxy_bundle['install_bundle'](source, work, final)
+    helpers.restore_package_alternatives(work, final)
+    runpy.run_path(str(source / 'target/linux/mediatek/image/myos-new-image.py'))['install'](work)
     module_root = work / 'lib/modules' / KERNEL
     for filename in ('modules.builtin', 'modules.builtin.modinfo', 'modules.order'):
         path = kdir / ('linux-' + KERNEL) / filename

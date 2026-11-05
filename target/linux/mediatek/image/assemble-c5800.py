@@ -18,7 +18,7 @@ kernel_dir = source / 'build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_f
 work = kernel_dir / 'root-c5800-myos'
 output = kernel_dir / 'root-c5800-myos.squashfs'
 host = source / 'staging_dir/host/bin'
-version = 'V3.1.40-202611031200'
+version = 'V3.1.40-202611042000'
 kernel_version = '6.6.110'
 assert (assets / 'root.squashfs').is_file()
 assert (kernel_dir / ('linux-' + kernel_version) / 'vmlinux').is_file()
@@ -118,6 +118,7 @@ removed_packages = {
     'luci-app-5700webui', 'luci-app-at-webserver', 'at-webserver',
     'quickstart', 'luci-app-quickstart', 'luci-app-istorex', 'luci-theme-argon',
     'luci-theme-c2000max-ui', 'luci-theme-mwrt',
+    'luci-theme-bootstrap', 'luci', 'luci-light', 'luci-nginx',
     'luci-app-ttyd', 'luci-i18n-ttyd-zh-cn',
     'luci-app-turboacc', 'luci-i18n-turboacc-zh-cn',
     'luci-app-linkease', 'linkease', 'luci-app-ddnsto', 'ddnsto',
@@ -146,9 +147,17 @@ for name in removed_packages:
     for path in (work / 'usr/lib/opkg/info').glob(name + '.*'):
         path.unlink()
 
+# Native C5800 modem pages use LuCI base/compat, without a theme collection.
+name = 'luci-app-c5800-688_wtmodem'
+records[name] = re.sub(r'(?m)^(Depends:.*?)(?<![\w-])luci(?=,|$)', r'\1luci-base', records[name])
+control = work / ('usr/lib/opkg/info/' + name + '.control')
+if control.is_file():
+    control.write_text(re.sub(r'(?m)^(Depends:.*?)(?<![\w-])luci(?=,|$)', r'\1luci-base', control.read_text()))
+
 selected = set(re.findall(r'^CONFIG_PACKAGE_([^=]+)=y$', (source / '.config').read_text(), re.M))
 required = {'kernel'} | {n for n in selected if n.startswith('kmod-')}
-required |= {'luci-theme-myos-new', 'luci-app-myos-system', 'openvpn-openssl', 'kmod-tun', 'dnsmasq-full',
+required |= {'luci-theme-myos-new', 'luci-app-myos-system', 'default-settings',
+             'openvpn-openssl', 'kmod-tun', 'dnsmasq-full',
              'luci-app-c5800-hnat',
              'luci-app-store', 'taskd', 'luci-lib-taskd', 'luci-lib-xterm',
              'mt5700-web-go', 'luci-app-mt5700-web',
@@ -536,9 +545,10 @@ for parent, dirs, files in os.walk(work):
             continue
         executable = bool(path.stat().st_mode & 0o111)
         path.chmod(0o755 if executable else 0o644)
+run('python3', source / 'scripts/prepare-public-rootfs.py', work)
 (work / 'etc/shadow').chmod(0o600)
 (work / 'usr/share/myos-nros/id_rsa.db').chmod(0o400)
-for relative in ('etc/config/myos_nros', 'etc/config/mosquitto'):
+for relative in ('etc/config/myos_usage', 'etc/config/myos_nros', 'etc/config/mosquitto'):
     path = work / relative
     if path.is_file():
         path.chmod(0o600)
@@ -549,7 +559,6 @@ pseudo = kernel_dir / 'c5800-myos-console.pseudo'
 pseudo.write_text('dev/console c 0600 0 0 5 1\n')
 if output.exists():
     output.unlink()
-run('python3', source / 'scripts/prepare-public-rootfs.py', work)
 run(host / 'mksquashfs4', work, output, '-nopad', '-noappend', '-root-owned',
     '-comp', 'xz', '-Xpreset', '9', '-Xe', '-Xlc', '0', '-Xlp', '2', '-Xpb', '2',
     '-b', '256k', '-no-xattrs', '-pf', pseudo, '-processors', '6')

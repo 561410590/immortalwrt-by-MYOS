@@ -1,0 +1,4 @@
+#!/bin/sh
+# Keep the native crypto ABI private, as with the NBCPE official daemons.
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+exec /lib/ld-musl-aarch64.so.1 --library-path /usr/lib/myos-nbcpe-official:/lib:/usr/lib /usr/libexec/myos-nbcpe-official/nradio_crypto "$@"

@@ -22,6 +22,39 @@ function M.is_family()
     return cursor():get("network", "cpe1", "odu_model") == "NRFAMILY"
 end
 
+local function secondary_host()
+    local ok, status = pcall(util.ubus, "network.interface.cpe1_4", "status", {})
+    for _, route in ipairs(ok and type(status) == "table" and status.route or {}) do
+        if route.target == "0.0.0.0" and route.nexthop then return route.nexthop end
+    end
+    return cursor():get("network", "cpe1", "auto_sniffer") or ""
+end
+
+-- The ODU reports its own modem as "cpe". Match its actual gateway, then
+-- present that cached signal as local cpe1; never mix it with the main modem.
+function M.cached_signal()
+    local net = cursor():get_all("network", "cpe1") or {}
+    if net.mode ~= "odu" or net.disabled ~= "0" or
+        fs.readfile("/sys/class/net/port5/carrier") ~= "1\n" then return nil end
+    local host = secondary_host()
+    for _, device in ipairs((read("/tmp/infocd/cache/kpcped").parameter or {}).list or {}) do
+        if host ~= "" and device.host == host then
+            local id = tostring(device.device_id or "")
+            if id == "" or id:match("^[%w_-]+$") then
+                local path = "/tmp/infocd/cache/kpcpe_" .. id .. "_signal"
+                local signals = (read(path).parameter or {}).signal or {}
+                local signal = signals[1]
+                for _, item in ipairs(signals) do if item.using then signal = item; break end end
+                if type(signal) == "table" then
+                    signal = util.clone(signal, true)
+                    signal.name, signal.device = "cpe1", net.device or net.ifname
+                    return signal, fs.stat(path, "mtime")
+                end
+            end
+        end
+    end
+end
+
 function M.status(refresh)
     local uci = cursor()
     local net = uci:get_all("network", "cpe1") or {}
@@ -96,15 +129,7 @@ function M.request(action, payload)
     if action ~= "cpesel" and action ~= "earfcn" and action ~= "apn" and action ~= "info" and action ~= "signal" then
         return nil, "副设备操作无效"
     end
-    local ok, status = pcall(util.ubus, "network.interface.cpe1_4", "status", {})
-    local host = ""
-    for _, route in ipairs(ok and type(status) == "table" and status.route or {}) do
-        if route.target == "0.0.0.0" and route.nexthop then
-            host = route.nexthop
-            break
-        end
-    end
-    if host == "" then host = cursor():get("network", "cpe1", "auto_sniffer") or "" end
+    local host = secondary_host()
     local params = action == "signal" and "{}" or json.stringify(payload)
     local cmd = "/usr/bin/kpcpe-ctl -H " .. util.shellquote(host) .. " -i cpe -a " .. action ..
         " -p " .. util.shellquote(params)

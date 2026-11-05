@@ -2,14 +2,39 @@
 <%+zmode-AK68/cellular-menu%>
 <div class="cbi-map nbcpe-webui-host">
   <h2 name="content"><%:MT5700M-CN 巴龙 Web 管理%></h2>
-  <p><a href="/5700/?v=2.2.2-2230" target="_blank" rel="noopener"><%:在新窗口打开%></a></p>
-  <iframe id="nbcpe-modem-webui" title="MT5700M-CN Web UI" src="/5700/?embed=1&amp;v=2.2.2-2230" scrolling="no"
+  <p><a href="/5700/?v=3.0.2-nbcpe1" target="_blank" rel="noopener"><%:在新窗口打开%></a></p>
+  <iframe id="nbcpe-modem-webui" title="MT5700M-CN Web UI" src="/5700/?embed=1&amp;v=3.0.2-nbcpe1" scrolling="no"
     style="display:block;width:100%;max-width:100%;height:640px;min-height:480px;border:0;background:transparent"></iframe>
 </div>
 <style>.nbcpe-webui-host{min-width:0;max-width:100%;overflow:hidden}.nbcpe-webui-host iframe{box-sizing:border-box}</style>
 <script>
 (function () {
   var frame = document.getElementById('nbcpe-modem-webui');
+  function syncTheme() {
+    if (!document.body.classList.contains('myos-new')) return;
+    var doc = frame.contentDocument;
+    if (!doc || !doc.head) return;
+    var root = doc.documentElement, theme = getComputedStyle(document.documentElement);
+    root.classList.add('myos-nbcpe-embed');
+    ['bg','surface','soft','text','muted','line','blue','blue-soft','green','orange','red','glass','edge','inset','sheen','float','shadow'].forEach(function (name) {
+      root.style.setProperty('--m-' + name, theme.getPropertyValue('--m-' + name));
+    });
+    root.style.colorScheme = theme.colorScheme;
+    if (doc.body) doc.body.setAttribute('theme-mode', theme.colorScheme === 'dark' ? 'dark' : 'light');
+    if (!doc.getElementById('myos-nbcpe-theme')) {
+      var css = doc.createElement('link');
+      css.id = 'myos-nbcpe-theme';
+      css.rel = 'stylesheet';
+      css.href = '/luci-static/myos-new/nbcpe-embed.css?v=20261105';
+      doc.head.appendChild(css);
+    }
+  }
+  frame.addEventListener('load', syncTheme);
+  new MutationObserver(syncTheme).observe(document.documentElement, {
+    attributes: true, attributeFilter: ['data-appearance','style','class']
+  });
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncTheme);
+  syncTheme();
   window.addEventListener('message', function (event) {
     if (event.origin !== location.origin || event.source !== frame.contentWindow ||
         !event.data || event.data.type !== 'myos-nbcpe-webui-height') return;

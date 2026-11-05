@@ -30,7 +30,6 @@ gLedCmode4=
 gCtrlCode=
 gCpeStat=
 gNetStat=
-gCpeSCnt=0
 gMeshRole=
 gMeshStat=
 gMeshOldStat=
@@ -50,6 +49,8 @@ gWanData=
 gCellName=
 gCellRsrp=
 gCellRadio=
+gCellStat=
+gCellSim=
 gCellAt=0
 gSigLevel=
 gSigNext=
@@ -568,9 +569,26 @@ update_cell_info() {
 		gCellAt=0
 		gCpeStat=
 	fi
-	_data=$(ubus call infocd cpestatus)
-	gCellRsrp=$(jsonfilter -s "$_data" -e '@.result[@.status.name="'"$gCellName"'"].status.rsrp')
-	gCellRadio=$(jsonfilter -s "$_data" -e '@.result[@.status.name="'"$gCellName"'"].status.mode')
+	gCellStat=
+	gCellSim=
+	if [ "$gCellName" = cpe1 ]; then
+		# ODU registration and signal come from its gateway-matched cache,
+		# not the empty local AT record for cpe1.
+		_data=$(lua -e 'local s=require("c5800_secondary").cached_signal(); if s then print(require("luci.jsonc").stringify(s)) end')
+		gCellRsrp=$(jsonfilter -s "$_data" -e '@.rsrp')
+		gCellRadio=$(jsonfilter -s "$_data" -e '@.mode')
+		if [ "$(jsonfilter -s "$_data" -e '@.netlink')" = 1 ]; then
+			gCellStat=register
+			gCellSim=ready
+		fi
+	else
+		_data=$(ubus call infocd cpestatus)
+		gCellRsrp=$(jsonfilter -s "$_data" -e '@.result[@.status.name="'"$gCellName"'"].status.rsrp')
+		gCellRadio=$(jsonfilter -s "$_data" -e '@.result[@.status.name="'"$gCellName"'"].status.mode')
+		_data=$(ubus call infocd cpeinfo "{\"name\":\"$gCellName\"}")
+		gCellStat=$(jsonfilter -s "$_data" -e '@.STAT')
+		gCellSim=$(jsonfilter -s "$_data" -e '@.SIM')
+	fi
 }
 
 get_sig_info() {
@@ -634,6 +652,12 @@ check_cell_stat() {
 		fi
 	done
 
+	# Before the first online sample, show the initial network search.
+	# Afterwards only an explicit unregister report starts the flashing.
+	if [ "$gIntAt" -eq 0 ] && [ "$gIntState" != 1 ]; then
+		STAT=unregister
+	fi
+
 	if [ "$STAT" != register ] && [ "$gCellAt" -gt 0 ] && [ $((gNow-gCellAt)) -le 36 ]; then
 		return 0
 	fi
@@ -659,6 +683,9 @@ check_cell_stat() {
 		gCpeStat="register"
 	elif [ "$STAT" = "unregister" ]; then
 		if [ "$gCpeStat" != "unregister" ]; then
+			gSigLevel=
+			gSigNext=
+			gSigAt=0
 			flash_leds "$gLedSig"
 			logclient -i custom -m "[module] register error"
 			[ "$gLock" != "1" ] && onoff_led "$gLedCmode" 0
@@ -682,14 +709,11 @@ check_cell_stat() {
 		gCpeStat="not ready"
 		logclient -i custom -m "[module] sim recognise error"
 	else
-		if [ "$gCpeStat" != "error" ]; then
-			gCpeSCnt=0
- 		fi
-		if [ "$gCpeSCnt" -gt 10 ]; then
-			onoff_led "$gLedSig" 0
-			[ "$gLock" != "1" ] && onoff_led "$gLedCmode" 0
-		fi
-		gCpeSCnt=$((gCpeSCnt+1))
+		# Missing telemetry is unknown, not a report of network search.
+		onoff_led "$gLedSig" 0
+		[ "$gLock" != "1" ] && onoff_led "$gLedCmode" 0
+		gSigLevel=
+		gSigNext=
 		gCpeStat="error"
 	fi
 
@@ -1096,9 +1120,9 @@ handle_led() {
 			if [ -n "$gLedSig" ] || [ -n "$gLedCmode" ] || [ -n "$gLedError" ];then
 				update_cell_info
 				name=$gCellName
-				_regstat=$(ubus call infocd cpeinfo "{\"name\":\"$name\"}")
-				json_load "$_regstat"
-				json_get_vars STAT MODE SIM
+				STAT=$gCellStat
+				MODE=$gCellRadio
+				SIM=$gCellSim
 			fi
 
 			check_cell_stat "$STAT" "$MODE" "$SIM" "$name"

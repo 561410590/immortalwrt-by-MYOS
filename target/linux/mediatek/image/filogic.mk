@@ -2570,7 +2570,7 @@ define Device/nradio_c8-688
 	luci-app-turboacc-mtk luci-i18n-turboacc-mtk-zh-cn mtkhqos_util \
 	adb usbutils usbids pciutils pciids usb-modeswitch \
 	uqmi umbim chat comgt comgt-directip comgt-ncm wwan \
-	python3-light luci-theme-argon uhttpd uhttpd-mod-ubus \
+	python3-light luci-theme-myos-new luci-app-myos-system uhttpd uhttpd-mod-ubus \
 	f2fsck mkf2fs kmod-hwmon-core kmod-hwmon-pwmfan \
 	kmod-usb2 kmod-usb3 kmod-usb-core kmod-usb-xhci-hcd kmod-usb-xhci-mtk \
 	kmod-usb-acm kmod-usb-ehci kmod-usb-ohci kmod-usb-uhci \

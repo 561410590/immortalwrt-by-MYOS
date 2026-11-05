@@ -19,6 +19,28 @@ return network.registerProtocol('wwan', {
 		return false;
 	},
 
+	getErrors: function() {
+		var errors = this.super('getErrors', arguments);
+		if (this.sid != 'cpe' || uci.get('network', 'globals', 'nbcpe') != '1' || !this.isUp())
+			return errors;
+		var connected = ['_4', '_6'].some(function(suffix) {
+			var child = network.instantiateNetwork(this.sid + suffix);
+			return child.isUp() && ((child.getIPAddrs() || []).length || (child.getIP6Addrs() || []).length);
+		}, this);
+		if (!connected || !errors)
+			return errors;
+		// netifd retains startup diagnostics until a reconnect. Once a dynamic
+		// child is up with an address, these two AT acknowledgements are stale.
+		// Preserve the raw ubus/log records and every other interface error.
+		var raw = (this._ubus('errors') || []).filter(function(error) {
+			return L.isObject(error) && typeof(error.code) == 'string';
+		});
+		var current = errors.filter(function(error, index) {
+			return !raw[index] || !['APN_SETUP_FAILED', 'CONNECT_FAILED'].includes(raw[index].code);
+		});
+		return current.length ? current : null;
+	},
+
 	renderFormOptions: function(section) {
 		// The native WWAN/ODU stack owns dialing, SIM and APN configuration.
 		// These display fields leave its existing UCI options intact.

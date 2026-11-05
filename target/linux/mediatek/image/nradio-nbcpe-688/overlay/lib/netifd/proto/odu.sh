@@ -63,7 +63,7 @@ mt5700_odu_connect() {
 		return 0
 	fi
 	echo 'MT5700 CID 8 connect response unavailable; data interface will still start'
-	proto_notify_error "$interface" CONNECT_FAILED
+	[ "$(uci -q get network.globals.nbcpe)" = 1 ] || proto_notify_error "$interface" CONNECT_FAILED
 	return 1
 }
 
@@ -86,7 +86,6 @@ dail_odu_core(){
 	if [ "$vendor" = tdtech_mt5700_odu ] && [ "$(uci -q get network.globals.nbcpe)" = 1 ]; then
 		setup_apn "$apn" "$profile" "$auth" "$username" "$password" "$pdptype" || {
 			echo 'NBCPE APN command failed; retaining the modem session and continuing data startup'
-			proto_notify_error "$interface" APN_SETUP_FAILED
 		}
 		mt5700_odu_connect
 		return $?

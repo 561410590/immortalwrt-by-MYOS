@@ -150,7 +150,7 @@ function render_ifacebox_status(node, ifc) {
 	dom.content(node, c);
 
 	return firewall.getZoneByNetwork(ifc.getName()).then(L.bind(function(zone) {
-		this.style.backgroundColor = zone ? zone.getColor() : '#EEEEEE';
+		this.style.cssText = firewall.getZoneColorStyle(zone);
 		this.title = zone ? _('Part of zone %q').format(zone.getName()) : _('No zone assigned');
 	}, node.previousElementSibling));
 }

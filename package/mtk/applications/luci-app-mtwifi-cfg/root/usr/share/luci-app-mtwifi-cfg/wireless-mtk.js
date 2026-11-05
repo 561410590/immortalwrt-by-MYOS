@@ -1541,6 +1541,14 @@ return view.extend({
 						return this.crypto_support[modeval][value];
 					};
 				}
+				else if (hwtype == 'mtwifi') {
+					// Values supported by mtwifi_defs.enc2dat.
+					crypto_modes.push(['psk2',      'WPA2-PSK',                    35]);
+					crypto_modes.push(['sae',       'WPA3-SAE',                    31]);
+					crypto_modes.push(['sae-mixed', 'WPA2-PSK/WPA3-SAE Mixed Mode', 30]);
+					crypto_modes.push(['psk-mixed', 'WPA-PSK/WPA2-PSK Mixed Mode', 22]);
+					crypto_modes.push(['psk',       'WPA-PSK',                     12]);
+				}
 				else if (hwtype == 'broadcom') {
 					crypto_modes.push(['psk2',     'WPA2-PSK',                    33]);
 					crypto_modes.push(['psk+psk2', 'WPA-PSK/WPA2-PSK Mixed Mode', 22]);

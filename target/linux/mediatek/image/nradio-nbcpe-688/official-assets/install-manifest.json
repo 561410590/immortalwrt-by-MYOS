@@ -3,6 +3,8 @@
   "source": "HC-WT9111 / HCMT7981-EMMC / official 2.3.3.n0.c0 ROM, captured read-only",
   "overlay": "root",
   "exec_files": [
+    "/usr/sbin/nradio_crypto",
+    "/usr/libexec/myos-nbcpe-official/nradio_crypto",
     "/usr/libexec/myos-nbcpe-ipv6",
     "/usr/libexec/myos-nbcpe-ipv4-sync",
     "/etc/hotplug.d/iface/90-nbcpe-ipv4",

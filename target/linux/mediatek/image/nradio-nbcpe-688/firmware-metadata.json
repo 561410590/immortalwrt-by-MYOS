@@ -1,1 +1,1 @@
-{"metadata_version": "1.1", "compat_version": "1.0", "supported_devices": ["HCMT7981-emmc-NB68"], "version": {"dist": "MYOS", "version": "3.1.40-202611031200", "revision": "r33578-c88458e977", "target": "mediatek/filogic", "board": "nradio_wt9111_No2-manper_NB68"}}
+{"metadata_version": "1.1", "compat_version": "1.0", "supported_devices": ["HCMT7981-emmc-NB68"], "version": {"dist": "MYOS", "version": "3.1.40-202611042000", "revision": "r33578-c88458e977", "target": "mediatek/filogic", "board": "nradio_wt9111_No2-manper_NB68"}}

@@ -11,7 +11,7 @@ import struct
 import subprocess
 import tarfile
 
-VERSION = '3.1.35-202610161200'
+VERSION = '3.1.40-202611042000'
 KERNEL = '6.6.110'
 BOARD = 'HCMT7981-688-emmc'
 

@@ -216,12 +216,34 @@ function action_poe_set()
 		http.write_json({ error = "普通 WAN 模式不启用 PoE，请先切回副 5G 模式" })
 		return
 	end
-	if state.enabled ~= enabled then
+	local power_changed = state.enabled ~= enabled
+	if power_changed then
 		local written = set_poe_power(enabled)
 		state = poe_state()
 		if not written or state.enabled ~= enabled then
 			http.status(500, "Internal Server Error")
 			http.write_json({ error = "供电状态写入失败，请刷新后重试" })
+			return
+		end
+	end
+	-- The standalone PoE buttons save the same secondary-5G choice as the line switch.
+	if state.secondary_role == "cellular" then
+		local uci, sys = require("uci").cursor(), require "luci.sys"
+		local disabled, auto = enabled and "0" or "1", enabled and "1" or "0"
+		local changed = uci:get("network","cpe1","disabled") ~= disabled or uci:get("network","cpe1","auto") ~= auto
+		local rc = 0
+		if changed then
+			uci:set("network","cpe1","disabled",disabled)
+			uci:set("network","cpe1","auto",auto)
+			uci:commit("network")
+			rc = sys.call("ubus call network reload")
+		end
+		if changed or power_changed then
+			if sys.call("ubus call network.interface.cpe1 " .. (enabled and "up" or "down")) ~= 0 then rc=1 end
+		end
+		if rc ~= 0 then
+			http.status(503, "Service Unavailable")
+			http.write_json({error="副 5G 开关已保存，接口应用失败，请查看系统日志"})
 			return
 		end
 	end
@@ -238,6 +260,7 @@ local function route_state()
 	local power = poe_state()
 	local function enabled(name)
 		return uci:get("network", name, "proto") ~= nil and
+			(name ~= "cpe1" or uci:get("network", name, "disabled") == "0") and
 			uci:get("network", name, "disabled") ~= "1" and uci:get("network", name, "auto") ~= "0"
 	end
 	local function online(name)
@@ -331,7 +354,7 @@ function action_route_set()
 			dns[#dns+1] = ip
 		end
 	end
-	-- Change routing independently; only an explicit secondary-line change changes PoE.
+	-- Apply the requested secondary-line choice even when saved and actual power differ.
 	uci:set("mwan3","globals","net_kind",value.mode)
 	uci:set("mwan3","globals","download_mode",value.mode == "Overlap" and "download" or "daily")
 	uci:set("mwan3","globals","priority",value.priority)
@@ -427,12 +450,14 @@ function action_route_set()
 	if firewall_changed then uci:commit("firewall") end
 	local rc = 0
 	local power_failed = false
-	if value.lines.poe.enabled ~= old.lines.poe.enabled and old.secondary_role ~= "broadband" then
+	local poe_power_changed = old.secondary_role ~= "broadband" and
+		(value.lines.poe.enabled ~= old.lines.poe.enabled or value.lines.poe.enabled ~= old.power.enabled)
+	if poe_power_changed then
 		power_failed = not set_poe_power(value.lines.poe.enabled)
 	end
 	if network_changed then rc = sys.call("ubus call network reload") end
 	for _,name in ipairs({"main","poe"}) do
-		if value.lines[name].enabled ~= old.lines[name].enabled then
+		if value.lines[name].enabled ~= old.lines[name].enabled or (name == "poe" and poe_power_changed) then
 			local iface = name == "main" and "cpe" or "cpe1"
 			if sys.call("ubus call network.interface." .. iface .. (value.lines[name].enabled and " up" or " down")) ~= 0 then rc=1 end
 		end
