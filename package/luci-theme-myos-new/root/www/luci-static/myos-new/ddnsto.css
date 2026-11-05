@@ -1,0 +1,7 @@
+/* Loaded inside DDNSTO's shadow root; theme variables inherit from the page. */
+:host{color:var(--m-text);--color-slate-50:transparent;--color-slate-100:var(--m-inset);--color-slate-200:var(--m-line);--color-slate-300:var(--m-edge);--color-slate-400:var(--m-muted);--color-slate-500:var(--m-muted);--color-slate-600:var(--m-muted);--color-slate-700:var(--m-text);--color-slate-800:var(--m-text);--color-blue-50:var(--m-inset);--color-blue-200:var(--m-line);--color-blue-500:var(--m-blue);--color-blue-600:var(--m-blue);--color-blue-700:var(--m-blue);--color-green-50:var(--m-inset);--color-green-100:var(--m-inset);--color-green-200:var(--m-line);--color-green-600:var(--m-green);--color-green-700:var(--m-green);--color-green-800:var(--m-green);--color-amber-50:var(--m-inset);--color-amber-200:var(--m-line);--color-amber-600:var(--m-orange)}
+.bg-white{background:var(--m-glass)!important;border-color:var(--m-edge)!important;border-radius:22px;box-shadow:var(--m-shadow);backdrop-filter:blur(24px)}
+.ddnsto-domain-panel{background:var(--m-inset);border:1px solid var(--m-line)}
+input,textarea,select{background:var(--m-inset)!important;color:var(--m-text)!important;border-color:var(--m-line)!important}
+button:not([class*="border-b-2"]){background:var(--m-inset)!important;color:var(--m-text)!important;border-color:var(--m-line)!important}
+button.ddnsto-btn-primary{color:var(--m-blue)!important}

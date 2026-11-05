@@ -178,6 +178,9 @@ def sample():
         result["passthrough"] = passthrough_status(telemetry, result["network"], result["settings"])
         result["signal"].update(telemetry.get("signal", {}))
         result["cell"].update(telemetry.get("cell", {}))
+        result["qos"] = telemetry.get("qos", {})
+        if telemetry.get("apn"):
+            result["session"]["apn"] = telemetry["apn"]
         for key in ("iccid", "imsi", "temperature"):
             if key in telemetry:
                 result["modem"][key] = telemetry[key]
@@ -278,7 +281,7 @@ def parse_telemetry(responses):
             result["operator"] = {"CHN-UNICOM": "中国联通"}.get(row[2], row[2])
             break
     for command, key, pattern in (("AT+CIMI", "imsi", r"(?m)^\s*(\d{14,16})\s*$"),
-                                   ("AT^ICCID?", "iccid", r"\^ICCID:\s*(\d{19,20})")):
+                                   ("AT^ICCID?", "iccid", r"\^ICCID:\s*([0-9A-Fa-f]{19,20})\b")):
         match = re.search(pattern, responses.get(command, "").replace("\r", ""))
         if match:
             result[key] = match.group(1)
@@ -287,6 +290,24 @@ def parse_telemetry(responses):
         value = number(rows[0][7])
         if value is not None and -400 <= value <= 1500:
             result["temperature"] = value / 10  # MT5700 sensor, official helper field 8.
+    qos = {"source": "C8 MT5700 缓存（DSAMBR / CGEQOSRDP / C5GQOSRDP）"}
+    for row in at_rows(responses.get("AT^DSAMBR=8", ""), "^DSAMBR"):
+        if len(row) >= 3 and row[0] == str(DATA_CID):
+            for key, index in (("down_mbps", 1), ("up_mbps", 2)):
+                value = number(row[index])
+                if value is not None and value >= 0:
+                    qos[key] = value / 1000  # DSAMBR reports kbps, not Mbps.
+            if len(row) >= 4 and row[3]:
+                result["apn"] = row[3]
+    for command, prefix, key in (("AT+CGEQOSRDP=8", "+CGEQOSRDP", "qci"),
+                                  ("AT+C5GQOSRDP=8", "+C5GQOSRDP", "fiveqi")):
+        for row in at_rows(responses.get(command, ""), prefix):
+            if len(row) >= 2 and row[0] == str(DATA_CID):
+                value = number(row[1])
+                if value is not None and 1 <= value <= 255 and value.is_integer():
+                    qos[key] = int(value)
+                break
+    result["qos"] = qos
     return result
 
 
@@ -297,7 +318,7 @@ def modem_telemetry(endpoint, slot):
         return cached
     responses = {}
     for command in ("AT^MONSC", "AT^HFREQINFO?", "AT+COPS?", "AT+CIMI", "AT^ICCID?", "AT^CHIPTEMP?",
-                    "AT^TDCFG?", "AT+CGPADDR=8"):
+                    "AT^TDCFG?", "AT+CGPADDR=8", "AT^DSAMBR=8", "AT+CGEQOSRDP=8", "AT+C5GQOSRDP=8"):
         try:
             responses[command] = at(command, timeout=3)
         except (OSError, RuntimeError, subprocess.TimeoutExpired):

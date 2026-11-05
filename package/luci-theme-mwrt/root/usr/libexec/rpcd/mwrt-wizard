@@ -43,6 +43,13 @@ local function status()
             out.secondary={name=sub.name,cur=sub.cur,slots=sub.slots}
         end
     end
+    local c8_ok,c8=pcall(require,"myos_c8_modem")
+    if c8_ok then
+        local m=c8.summary()
+        local data=c8.status()
+        out.modem={present=m.model~="",name=m.model,cur=tonumber(m.simno),slots={},
+            label=(data.sim or {}).label,settings_only=true}
+    end
     return out
 end
 local function apply(args)

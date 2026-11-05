@@ -48,6 +48,7 @@ local function port_label(profile, name)
         return "lan" .. name:sub(-1)
     end
     if profile == "nbcpe688" and name == "port5" then return "2.5G PoE / ODU" end
+    if profile == "c8688" and name == "port5" then return "WAN" end
     return name
 end
 
@@ -104,12 +105,25 @@ end
 
 local function sim_name_cache(iccid)
     iccid=tostring(iccid or "")
-    if #iccid<18 or #iccid>22 or not iccid:match("^%d+$") then return nil end
+    if #iccid<18 or #iccid>22 or not iccid:match("^%x+$") then return nil end
     return "/tmp/myos-new-sim-name-"..iccid
 end
 
 local function nbcpe_cache_record()
     return require("luci.model.myos_liquid").nbcpe()
+end
+
+-- C8's native sampler owns its modem reads; infocd has only interface data.
+local function c8_cache_entry()
+    local ok, native = pcall(require, "myos_c8_modem")
+    if not ok then return nil end
+    local data, item = native.status(), native.cpe_item()
+    item.device, item.CPIN = item.dev, item.simstatus
+    item.sim_label = (data.sim or {}).label
+    item.apn = (data.session or {}).apn
+    item.band_detail = table.concat((data.cell or {}).carriers or {}, " + ")
+    item.carrier_aggregation = #((data.cell or {}).carrier_details or {}) > 1 and item.band_detail or "未聚合"
+    return {status=item, cache_stamp=data.sampled_at and data.sampled_at-(tonumber(data.cache_age) or 0)}
 end
 
 local function c5800_cache_entries(entries)
@@ -205,6 +219,8 @@ function sim_names()
     local fs,json,sys,util=require "nixio.fs",require "luci.jsonc",require "luci.sys",require "luci.util"
     local source=json.parse(fs.readfile("/tmp/infocd/cache/cpestatus") or "") or {}
     local entries=c5800_cache_entries(source.result or {})
+    local c8=c8_cache_entry()
+    if c8 then entries={c8} end
     local native=nbcpe_cache_record()
     if native then entries={{status={name="AK68",iccid=native.iccid}}} end
     if #entries==0 then
@@ -223,11 +239,12 @@ function sim_names()
                 data={iccid=tostring(s.iccid),updated=os.time(),error="云端名称暂不可用"}
                 local native=fs.access("/usr/sbin/nradio_crypto")
                 local available,codec=pcall(require,"myos_nradio_app_crypto")
+                local encrypt=available and (codec.encrypt_card_data or codec.encrypt_app_data)
                 local payload
                 if native then
                     payload=sys.exec("/usr/sbin/nradio_crypto -O -e -s "..util.shellquote(json.stringify({iccid=tostring(s.iccid)})).." 2>/dev/null")
-                elseif available and type(codec.encrypt_card_data)=="function" and type(codec.decrypt_app_data)=="function" then
-                    local ok,encrypted=pcall(codec.encrypt_card_data,json.stringify({iccid=tostring(s.iccid)}))
+                elseif type(encrypt)=="function" and type(codec.decrypt_app_data)=="function" then
+                    local ok,encrypted=pcall(encrypt,json.stringify({iccid=tostring(s.iccid)}))
                     if ok and encrypted then payload=json.stringify({data=encrypted}) end
                 end
                 if payload then
@@ -299,6 +316,14 @@ local function read_acceleration()
     end
     local fp,fc,ppe=read("getFastPathStat"),read("getFullConeStat"),read("getMTKPPEStat")
     result.type=fp.type;result.fullcone=fc.type
+    -- C8 ships the vendor HNAT status files and legacy TurboACC, without this RPC.
+    local hook=p.read("/sys/kernel/debug/hnat/hook_toggle"):match("^%s*(.-)%s*$")
+    if not result.type and hook~="" then
+        result.type=hook=="enabled" and "MediaTek PPE / WHNAT" or "MediaTek PPE / WHNAT（未启用）"
+    end
+    if not ppe.PPE_NUM then
+        for key,value in p.read("/sys/kernel/debug/hnat/hnat_stats"):gmatch("([%w_]+)=(%d+)") do ppe[key]=tonumber(value) end
+    end
     for i=0,(tonumber(ppe.PPE_NUM) or 0)-1 do result.ppe[#result.ppe+1]={id=i,used=tonumber(ppe["BIND_PPE"..i]),total=tonumber(ppe["ALL_PPE"..i])} end
     if bus then bus:close() end
     p.save("acceleration",result);return result
@@ -359,17 +384,25 @@ function snapshot()
     result.connection_limit=tonumber(rd("/proc/sys/net/netfilter/nf_conntrack_max"))
     result.mac=devices["br-lan"] and devices["br-lan"].macaddr
     local bydev, uplinks = {}, {}
+    local interface_devices={}
+    for _,net in ipairs(interfaces) do
+        interface_devices[net.interface]=net.l3_device or net.device or uci:get("network",net.interface,"device")
+    end
     for _, net in ipairs(interfaces) do
         if net.interface ~= "loopback" then
             local ipv6=util.clone(net["ipv6-address"] or {},true)
+            local prefixes=util.clone(net["ipv6-prefix"] or {},true)
             for _,prefix in ipairs(net["ipv6-prefix-assignment"] or {}) do
+                append(prefixes,{address=prefix.address,mask=prefix.mask})
                 if type(prefix["local-address"])=="table" then
                     append(ipv6,util.clone(prefix["local-address"],true))
                 end
             end
-            local item = {name=net.interface, device=net.l3_device or net.device, up=net.up,
+            local device=interface_devices[net.interface]
+            if device and device:sub(1,1)=="@" then device=interface_devices[device:sub(2)] end
+            local item = {name=net.interface, device=device, up=net.up,
                 proto=net.proto, uptime=net.uptime, ipv4=net["ipv4-address"] or {},
-                ipv6=ipv6, prefixes=net["ipv6-prefix"] or {},
+                ipv6=ipv6, prefixes=prefixes,
                 dns=net["dns-server"] or {}, routes=net.route or {}, pending=net.pending}
             append(result.interfaces,item)
             if item.device then
@@ -484,6 +517,10 @@ function snapshot()
     local cache=cached(cachepath)
     local stamp=fs.stat(cachepath,"mtime")
     local entries=profile=="n5000" and {} or (cache.result or {})
+    if profile=="c8688" then
+        local c8=c8_cache_entry()
+        entries=c8 and {c8} or {}
+    end
     if profile=="c5800688" then entries=c5800_cache_entries(entries) end
     local native=profile=="nbcpe688" and nbcpe_cache_record() or nil
     if native then

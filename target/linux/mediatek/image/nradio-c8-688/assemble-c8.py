@@ -148,7 +148,8 @@ def main():
     records = helpers.records_in((stock / 'usr/lib/opkg/status').read_text(encoding='utf-8'))
     available = {}
     for directory in (source / 'bin/targets/mediatek/filogic/packages',
-                      source / 'bin/packages/aarch64_cortex-a53', common / 'vantage/packages'):
+                      source / 'bin/packages/aarch64_cortex-a53', common / 'vantage/packages',
+                      assets / 'packages'):
         for path in directory.rglob('*.ipk'):
             name, record, fields, _ = helpers.read_ipk(path)
             if name == 'kernel' or name.startswith('kmod-'):
@@ -180,7 +181,7 @@ def main():
         'curl', 'libcurl4', 'libnghttp2-14',
         'losetup', 'kmod-loop', 'kmod-fs-ext4', 'e2fsprogs',
         'mkf2fs', 'f2fsck', 'usbutils', 'usb-modeswitch',
-        'luci-theme-myos-new', 'luci-app-myos-system',
+        'luci-theme-myos-new', 'luci-app-myos-system', 'at-webserver',
         'lua-cjson', 'lua-md5', 'lua-mosquitto', 'libmosquitto-nossl',
         'mosquitto-nossl', 'libcares', 'luci-lua-runtime',
     }
@@ -318,6 +319,9 @@ def main():
     spec.loader.exec_module(official)
     plan['official_runtime'] = official.install_official(source, assets, work)
     overlay_tree(assets / 'native-overlay', work)
+    for relative in ('usr/libexec/rpcd/mwrt-wizard',
+                     'www/luci-static/resources/mwrt/wizard.js'):
+        copy_file(source / 'package/luci-theme-mwrt/root' / relative, work / relative)
     for relative in (
         'etc/uci-defaults/94-myos-factory-wifi',
         'etc/init.d/myos-factory-wifi',
@@ -368,7 +372,7 @@ def main():
         'done', 'sysntpd', 'mtk_smp', 'urandom_seed',
         'myos-nros-app', 'myos-nros-mqtt',
         'myos-c8-identity', 'myos-c8-cellular', 'myos-c8-led', 'myos-c8-fan', 'myos-c8-factory-wifi',
-        'myos-c8-calibration', 'atsd', 'infocd', 'smsd',
+        'myos-c8-calibration', 'atsd', 'infocd', 'smsd', 'at-webserver',
     }
     rc = work / 'etc/rc.d'
     rc.mkdir(exist_ok=True)

@@ -395,10 +395,6 @@ return baseclass.extend({
 			dhcp_lease: (st.lan || {}).leasetime || '12h'
 		};
 
-		/* 没有 C2000 的三卡槽时别给用户选, simsel 默认只能是机身槽 6。
-		 * 非授权模组切内置卡会把 SIM 封掉, 这道闸门后端也有一份。 */
-		if (!st.c2000 && this.d.simsel != '6') this.d.simsel = '6';
-
 		/* ?v= 必须跟着 css 一起涨: 这份 css 这次从"整屏页面"改成了"居中弹窗",
 		 * 浏览器拿旧缓存会把新 DOM 按旧布局画出来(按钮条 position:fixed 贴在
 		 * 屏幕底, 窗口没有 max-height), 看起来就是彻底坏掉。
@@ -804,6 +800,12 @@ return baseclass.extend({
 
 	step_cell: function () {
 		var m=this.st.modem||{}, sub=this.st.secondary||{};
+		if (m.settings_only) return [
+			E('h1',{class:'qsw-h1'},_('蜂窝设置')),
+			E('p',{class:'qsw-sub'},m.name||_('蜂窝模组')),
+			E('p',{},_('当前卡槽')+'：'+(m.label||m.cur||_('未获取'))),
+			E('p',{},E('a',{href:L.url('admin','modem','settings'),target:'_blank',rel:'noopener'},_('打开蜂窝设置：手动切卡、IP 透传与网络策略')))
+		];
 		var out=[E('h1',{class:'qsw-h1'},_('蜂窝设置')),
 			this.note(_('主、副设备分别选择卡槽；只有改变选择并最终应用时才会切卡。'))];
 		[[m,'simsel',_('主 5G')],[sub,'subsim',_('副 5G')]].forEach(function(item){

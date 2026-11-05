@@ -47,7 +47,7 @@ function M.summary()
 		signal = tonumber(sig.rsrp) or -999, signalStrength = tostring(tonumber(sig.rsrp) or -999),
 		ip4p = (n.ipv4 or {})[1] or "", ip6p = (n.ipv6 or {})[1] or "", dns4 = n.dns or {}, dns6 = n.dns or {},
 		tx = counter("tx_bytes"), rx = counter("rx_bytes"), tx_packets = counter("tx_packets"), rx_packets = counter("rx_packets"),
-		stale = d.stale, sampled_at = d.sampled_at, age = d.age }
+                qos = d.qos or {}, stale = d.stale, sampled_at = d.sampled_at, age = d.age }
 end
 
 function M.cpe_item()

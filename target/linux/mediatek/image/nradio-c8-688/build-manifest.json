@@ -4,6 +4,7 @@
   "board": "HCMT7981-688-emmc",
   "reference_sha256": "4b8e62131bb5be2926273103e0d5dad030c8a72c7de847e3ce4407219a70b6a1",
   "required_packages": [
+    "at-webserver",
     "base-files",
     "bc",
     "blkid",

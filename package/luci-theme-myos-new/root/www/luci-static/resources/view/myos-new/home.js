@@ -26,6 +26,7 @@ const glyph = name => {
 };
 const alias = (d,name) => {
  if(d.profile==='nbcpe688'&&/^port[123]$/.test(name))return 'lan'+(4-Number(name.slice(-1)));
+ if(d.profile==='c8688'&&name==='port5')return 'WAN';
  return d.profile==='c8688'&&/^port[123]$/.test(name)?'lan'+name.slice(-1):name;
 };
 const leaseText = (expires,ts) => expires===0?'无限期':expires==null?'无 DHCP 租约':expires<=ts?'已到期':duration(expires-ts)+'后到期';
@@ -258,7 +259,7 @@ return view.extend({
     const detail=E('details',{'class':'m-inline-details','data-key':m.id},[
      node('summary','','更多蜂窝详情'),
      kv([['模组版本',m.firmware],['APN',m.apn],['PCI',m.pci],['小区',m.cell],['ARFCN',m.arfcn],
-       ...(d.profile==='nbcpe688'?[['频段与带宽',m.band_detail],['载波聚合',m.carrier_aggregation]]:[]),
+       ...(['nbcpe688','c8688'].includes(d.profile)?[['频段与带宽',m.band_detail],['载波聚合',m.carrier_aggregation]]:[]),
        ['模组温度',m.temperature!=null?m.temperature+' °C':null],['签约信息来源',qos.source],['5QI（独立字段）',qos.fiveqi],['IPv4',addresses(ip)],['IPv6',addresses(v6)]])
     ]);
     return node('div','m-cell'+(d.profile==='nbcpe688'?' m-cell-nbcpe':''),[
@@ -314,7 +315,7 @@ return view.extend({
      kv([['IPv4',addresses(ip)],['默认网关',[...new Set(routes.map(r=>r.nexthop).filter(Boolean))].join(' · ')||'无默认路由']]),
      E('details',{'class':'m-inline-details','data-key':name},[
       node('summary','','IPv6 与 DNS'),
-      kv([['IPv6',addresses(v6)],['DNS',dns.join(' · ')||'未获取'],
+      kv([['IPv6',addresses(v6)],['DNS',dns.join(' · ')||(active?'未配置':'未分配')],
        ['IPv6 前缀',addresses(nets.flatMap(n=>list(n.prefixes)))],['协议',nets.map(n=>n.proto).filter(Boolean).join(' / ')]])
      ])
     ]);

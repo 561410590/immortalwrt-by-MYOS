@@ -4,6 +4,7 @@ function index()
 	entry({"admin", "modem"}, firstchild(), _("蜂窝网络"), 25).dependent = false
 	entry({"admin", "modem", "nets"}, template("myos_c8_modem/status"), _("蜂窝状态"), 10)
 	entry({"admin", "modem", "settings"}, form("myos_c8_modem"), _("蜂窝设置"), 20)
+	entry({"admin", "modem", "webui"}, call("action_webui"), _("MT5700 WebUI 3.0"), 25).leaf = true
 	entry({"admin", "modem", "modem"}, alias("admin", "modem", "settings")).leaf = true
 	entry({"admin", "modem", "smsc"}, form("myos_c8_sms"), _("短信"), 30)
 	entry({"admin", "modem", "at"}, template("myos_c8_modem/diagnostics"), _("网络诊断"), 40)
@@ -71,6 +72,7 @@ function read_status()
 	return data
 end
 
+function action_webui() require("luci.http").redirect("/5700/") end
 function action_status() reply(read_status()) end
 function action_dashboard() reply(require("myos_c8_modem").dashboard()) end
 function action_legacy() reply(require("myos_c8_modem").legacy_status()) end
