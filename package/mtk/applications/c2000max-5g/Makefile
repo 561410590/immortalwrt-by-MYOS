@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=c2000max-5g
 PKG_VERSION:=20260303
-PKG_RELEASE:=2
+PKG_RELEASE:=5
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -79,6 +79,8 @@ endef
 define Package/sms-forwarder-next/install
 	$(CP) ./files/sms-forwarder-next/. $(1)/
 	$(INSTALL_BIN) ./files/sms-forwarder-next/etc/init.d/sms_forwarder $(1)/etc/init.d/sms_forwarder
+	$(INSTALL_BIN) ./files/sms-forwarder-next/usr/bin/sms_forwarder_next $(1)/usr/bin/sms_forwarder_next
+	$(INSTALL_BIN) ./files/sms-forwarder-next/usr/share/sms_forwarder/*.sh $(1)/usr/share/sms_forwarder/
 endef
 
 define Package/luci-app-qmodem-next

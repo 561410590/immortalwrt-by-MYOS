@@ -676,7 +676,7 @@ cell_info()
 }
 
 function network_info() {
-    local response mode mcc mnc isp
+    local response mode mcc mnc isp ambr ambr_dl ambr_ul qos qci
     response=$(at $at_port "AT^MONSC" | grep "\^MONSC:" | sed 's/\^MONSC: //')
     mode=$(echo "$response" | awk -F',' '{print $1}' | tr -d ' \r"')
     mcc=$(echo "$response" | awk -F',' '{print $2}' | tr -d ' \r"')
@@ -688,6 +688,20 @@ function network_info() {
     add_plain_info_entry "Mode" "$mode" "Network Mode"
     add_plain_info_entry "ISP" "$isp" "Operator"
     add_plain_info_entry "Operator" "$isp" "Operator"
+
+    # MT5700 reports subscribed AMBR in kbps and QCI for the selected PDP.
+    case "$(uci -q get qmodem.$config_section.name)" in
+        mt5700*)
+            ambr=$(at "$at_port" "AT^DSAMBR=${pdp_index:-1}")
+            ambr_dl=$(echo "$ambr" | awk -F '[:,]' -v cid="${pdp_index:-1}" '/\^DSAMBR:/ && $2+0==cid {gsub(/[[:space:]]/, "", $3); print $3; exit}')
+            ambr_ul=$(echo "$ambr" | awk -F '[:,]' -v cid="${pdp_index:-1}" '/\^DSAMBR:/ && $2+0==cid {gsub(/[[:space:]]/, "", $4); print $4; exit}')
+            qos=$(at "$at_port" "AT+CGEQOSRDP")
+            qci=$(echo "$qos" | awk -F '[:,]' -v cid="${pdp_index:-1}" '/\+CGEQOSRDP:/ && $2+0==cid {gsub(/[[:space:]]/, "", $3); print $3; exit}')
+            [ -n "$ambr_dl" ] && add_plain_info_entry "AMBR DL" "$ambr_dl kbps" "Subscribed Downlink"
+            [ -n "$ambr_ul" ] && add_plain_info_entry "AMBR UL" "$ambr_ul kbps" "Subscribed Uplink"
+            add_plain_info_entry "QCI" "$qci" "QoS Class Identifier"
+            ;;
+    esac
 }
 
 function _get_lockband_nr(){

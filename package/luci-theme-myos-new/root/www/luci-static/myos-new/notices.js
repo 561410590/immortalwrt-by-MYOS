@@ -3,11 +3,11 @@
  'use strict';
  if(window.__myosNotices)return;
  window.__myosNotices=true;
- const key='myos-new-notices',ttl=150000,reduce=matchMedia('(prefers-reduced-motion:reduce)');
+ const key='myos-new-notices-r4',ttl=15000,reduce=matchMedia('(prefers-reduced-motion:reduce)');
  const box=document.createElement('section');
  box.id='m-notices';box.setAttribute('aria-label','系统通知');document.body.append(box);
  const cards=new Map(),rank={critical:0,warn:1,info:2};
- let state={},busy=false,timer;
+ let state={},busy=false,timer,homePaused=false,mediaOpen=false;
  try{state=JSON.parse(sessionStorage.getItem(key)||'{}')||{};}catch(_){}
  let events=Array.isArray(state.events)?state.events:[],dismissed=Array.isArray(state.dismissed)?state.dismissed:[];
  function save(){
@@ -17,8 +17,8 @@
  function el(tag,cls,text){const n=document.createElement(tag);n.className=cls;if(text!=null)n.textContent=text;return n;}
  function motion(node,out){
   if(reduce.matches||!node.animate){if(out)node.remove();return;}
-  const frames=[{opacity:0,transform:'translateX(18px) scale(.97)',filter:'blur(3px)'},{opacity:1,transform:'translateX(0) scale(1)',filter:'blur(0)'}];
-  const anim=node.animate(out?frames.slice().reverse():frames,{duration:out?180:320,easing:'cubic-bezier(.2,.8,.2,1)',fill:'both'});
+  const frames=[{opacity:0,transform:'translateX(18px) scale(.97)'},{opacity:1,transform:'translateX(0) scale(1)'}];
+  const anim=node.animate(out?frames.slice().reverse():frames,{duration:out?120:180,easing:'cubic-bezier(.2,.8,.2,1)',fill:'both'});
   anim.onfinish=()=>{if(out)node.remove();else anim.cancel();};
  }
  const paths={
@@ -79,13 +79,13 @@
    const speed=p.speed>0?'，协商速率 '+(p.speed>=1000?p.speed/1000+' Gbps':p.speed+' Mbps'):'';
    events=events.filter(n=>n.port!==p.name);
    events.push({id:'link-'+p.name+'-'+now,port:p.name,expires:now+ttl,closable:true,level:'info',
-    icon:connected?'eth':'eth-off',title:p.name+(connected?' 已连接':' 已断开'),
-    text:connected?'网口链路已建立'+speed+'。':'网口链路已断开，请检查网线或对端设备。'});
+    icon:connected?'eth':'eth-off',title:(p.label||p.name)+(connected?(old.carrier===1?' 重新连接':' 已连接'):' 已断开'),
+    text:(connected?'网口链路已建立'+speed+'。':'网口链路已断开，请检查网线或对端设备。')+' '+new Date(now).toLocaleTimeString()});
   });
   state.ports=next;state.time=now;state.boot=data.boot;
  }
  async function tick(){
-  if(busy||document.hidden)return;busy=true;
+  if(busy||document.hidden||homePaused||mediaOpen||window.__MYOSDashboardBusy)return;busy=true;
   try{
    const response=await fetch(L.url('admin/myos/notices'),{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(8000)});
    if(!response.ok)throw new Error('HTTP '+response.status);
@@ -103,7 +103,9 @@
  };
  if(main){main.querySelectorAll(':scope > .alert-message.fade-in').forEach(relocate);
   new MutationObserver(records=>records.forEach(r=>r.addedNodes.forEach(relocate))).observe(main,{childList:true});}
- function run(){tick();timer=setInterval(tick,10000);}
+ window.addEventListener('myos:sampling-state',e=>{homePaused=!!e.detail?.paused;});
+ window.addEventListener('myos:media-state',e=>{mediaOpen=!!e.detail?.active;});
+ function run(){clearInterval(timer);tick();timer=setInterval(tick,30000);}
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)tick();});
  window.addEventListener('pagehide',()=>clearInterval(timer));
  window.addEventListener('pageshow',e=>{if(e.persisted)run();});

@@ -160,7 +160,6 @@ ln -sf ../init.d/myos-nros-mqtt "$root/etc/rc.d/S30myos-nros-mqtt"
 ln -sf ../init.d/myos-nros-mqtt "$root/etc/rc.d/K70myos-nros-mqtt"
 ln -sf ../init.d/myos-nros-app "$root/etc/rc.d/S32myos-nros-app"
 ln -sf ../init.d/myos-nros-app "$root/etc/rc.d/K68myos-nros-app"
-ln -sf ../init.d/quickstart "$root/etc/rc.d/S92quickstart"
 
 if [ -f "$root/etc/config/uhttpd" ] &&
 	! grep -q '0\.0\.0\.0:82' "$root/etc/config/uhttpd"; then

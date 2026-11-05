@@ -51,6 +51,7 @@
   preview.style.backgroundImage=value?'linear-gradient(rgba(5,10,20,'+Number(range.value)/100+'),rgba(5,10,20,'+Number(range.value)/100+')),url('+JSON.stringify(imageURL)+')':'';
   filename.textContent=value?value.name:'默认渐变';
   if(old)URL.revokeObjectURL(old);
+  window.dispatchEvent(new Event('myos:background'));
  }
  function busy(value){choose.disabled=reset.disabled=value;range.disabled=value||!current;}
  const ready=storage(null,false).then(saved=>{if(saved&&saved.blob)apply(saved);})

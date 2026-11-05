@@ -3,6 +3,13 @@
  const root=document.documentElement, sidebar=document.querySelector('#m-sidebar'), nav=document.querySelector('#m-menu');
  const button=document.querySelector('#m-menu-toggle'),scrim=document.querySelector('#m-scrim');
  const narrow=matchMedia('(max-width:760px)'),reduce=matchMedia('(prefers-reduced-motion:reduce)');
+ // Closed-form critically damped spring. Unlike Euler integration, this stays
+ // stable when a glass-heavy frame takes 32ms or longer. Keep the animations.
+ function damped(position,velocity,target,omega,dt){
+  const delta=position-target,c=velocity+omega*delta,decay=Math.exp(-omega*dt);
+  return {position:target+(delta+c*dt)*decay,velocity:(velocity-omega*c*dt)*decay};
+ }
+
  try { const appearance=localStorage.getItem('myos-new-appearance');if(appearance) root.dataset.appearance=appearance; } catch (_) {}
  document.querySelector('#m-appearance').addEventListener('click',()=>{
   const dark=root.dataset.appearance?root.dataset.appearance==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
@@ -11,9 +18,8 @@
  });
  let open=false,position=-260,velocity=0,target=-260,frame=0,last=0;
  function tick(now){
-  const dt=Math.min((now-last)/1000||.016,.032);last=now;
-  const omega=24;velocity+=(-omega*omega*(position-target)-2*omega*velocity)*dt;
-  position+=velocity*dt;sidebar.style.transform='translateX('+position+'px)';
+  const dt=Math.min(Math.max((now-last)/1000||.016,0),.1);last=now;
+  const next=damped(position,velocity,target,24,dt);position=next.position;velocity=next.velocity;sidebar.style.transform='translateX('+position+'px)';
   if(Math.abs(position-target)>.2||Math.abs(velocity)>.2)frame=requestAnimationFrame(tick);
   else {position=target;velocity=0;frame=0;sidebar.style.transform='translateX('+position+'px)';if(!open)sidebar.style.visibility='hidden';}
  }
@@ -62,7 +68,34 @@
   update:'M4 8a9 9 0 1 1-1 8M4 3v5h5M12 7v10M8 11l4-4 4 4',
   bolt:'M13 2 4 14h7l-1 8 10-13h-7z',
   globe:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M3 12h18M12 3c-5 5-5 13 0 18 5-5 5-13 0-18',
-  power:'M12 2v10M6 5a9 9 0 1 0 12 0'
+  power:'M12 2v10M6 5a9 9 0 1 0 12 0',
+  passwall:'M3 4h13v16H3zM3 9h6M3 15h6M7 4v5M7 15v5M12 12h10M18 8l4 4-4 4',
+  openclash:'M3 5h5c5 0 3 14 8 14h5M18 16l3 3-3 3M3 19h5c5 0 3-14 8-14h5M18 2l3 3-3 3',
+  shadowsocks:'M3 10 21 3l-6 18-4-8-8-3zM11 13 21 3',
+  oaf:'M12 2 3 6v6c0 5 5 8 9 10 4-2 9-5 9-10V6zM7 8h10l-4 4v4l-2 1v-5z',
+  leigod:'M8 3a10 10 0 1 0 9 1M14 2 7 13h5l-2 9 9-13h-6z',
+  uu:'M3 5v9a4 4 0 0 0 8 0V5M13 5v9a4 4 0 0 0 8 0V5',
+  tracker:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M12 3v3M3 12h3M12 18v3M18 12h3M15 8l-2 6-5 2 2-6z',
+  upnp:'M3 4h6v6H3zM15 14h6v6h-6zM12 5h7v6M16 8l3 3 3-3M12 19H5v-6M2 16l3-3 3 3',
+  vpn:'M12 2 3 6v6c0 5 5 8 9 10 4-2 9-5 9-10V6zM8 11h8v6H8zM10 11V9a2 2 0 0 1 4 0v2',
+  openvpn:'M7 19a9 9 0 1 1 10 0M9 21l1-7a4 4 0 1 1 4 0l1 7z',
+  tunnel:'M8 7H6a5 5 0 0 0 0 10h2M16 7h2a5 5 0 0 1 0 10h-2M5 10h13M15 7l3 3-3 3M19 14H6M9 11l-3 3 3 3',
+  module:'M5 5h14v14H5zM8 2v3M12 2v3M16 2v3M8 19v3M12 19v3M16 19v3M2 8h3M2 16h3M19 8h3M19 16h3M8 15v-3M12 15V9M16 15V7',
+  webpanel:'M3 4h18v16H3zM3 8h18M6 6h.01M9 6h.01M6 16v-3M10 16v-5M14 16h4M14 12h4',
+  sim:'M5 3h9l5 5v13H5zM8 10h8v8H8zM8 14h8M12 10v8',
+  simswitch:'M3 3h6l3 3v9H3zM12 9h6l3 3v9h-9M4 19h5M7 17l2 2-2 2M15 5h5M17 3l-2 2 2 2',
+  simsms:'M4 3h8l4 4v4M4 3v16h4M8 10h13v9h-6l-4 3v-3H8zM11 13h7M11 16h4',
+  forward:'M3 4h18v9M3 4v13h6l-6 4v-4M6 8h12M11 17h10M18 14l3 3-3 3',
+  sliders:'M3 6h7M14 6h7M3 12h3M10 12h11M3 18h11M18 18h3M10 3h4v6h-4zM6 9h4v6H6zM14 15h4v6h-4z',
+  nodes:'M10 3h4v4h-4zM3 17h4v4H3zM17 17h4v4h-4zM10 17h4v4h-4zM12 7v10M5 17v-5h14v5',
+  server:'M3 3h18v7H3zM3 14h18v7H3zM6 6h.01M6 17h.01M10 6h8M10 17h8',
+  filter:'M3 4h18l-7 8v7l-4 2v-9z',
+  users:'M15 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0M5 21v-3a7 7 0 0 1 14 0v3M19 3a3 3 0 0 1 0 6M21 12a5 5 0 0 1 2 4M5 3a3 3 0 0 0 0 6M3 12a5 5 0 0 0-2 4',
+  library:'M3 3h4v18H3zM10 3h4v18h-4zM16 4l4-1 4 17-4 1zM3 7h4M10 7h4',
+  listcheck:'M3 5l2 2 3-4M11 5h10M3 12l2 2 3-4M11 12h10M3 19l2 2 3-4M11 19h10',
+  info:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M12 10v7M12 7h.01',
+  ttl:'M16 9a7 7 0 1 1-14 0 7 7 0 0 1 14 0M9 5v4l3 2M12 19h10M18 15l4 4-4 4',
+  subscribe:'M4 4h16v16H4zM8 9h8M12 6v6M8 16h8'
  };
  const iconNames={overview:'status',realtime:'chart',routes:'network',nftables:'shield',firewall:'shield',logs:'log',factory_logs:'log',processes:'chip',
   mwan3:'network',interface:'network',member:'network',policy:'shield',rule:'log',notify:'message',globals:'globe',dhcp:'globe',uhttpd:'globe',
@@ -70,44 +103,54 @@
   myos_theme:'services',startup:'power',crontab:'clock',mounts:'drive',leds:'bolt',myos_update:'update',myos_system:'drive',flash:'drive',myos_nros:'globe',reboot:'power',
   mt5700:'modem',qmodem:'modem',nets:'modem',cellscan:'modem',smsc:'message',smstrun:'message',at:'terminal',at2:'terminal',traffic_dividing:'network',
   wireless:'wifi',factory_guest:'wifi',diagnostics:'terminal',troubleshooting:'terminal',turboacc:'bolt',qiyougamebooster:'bolt',
-  passwall:'shield',passwall2:'shield',shadowsocksr:'shield',adguardhome:'shield',openclash:'shield',upnp:'network',vpn:'shield',nas:'drive',istore:'store'};
+  passwall:'passwall',passwall2:'passwall',shadowsocksr:'shadowsocks',adguardhome:'shield',openclash:'openclash',upnp:'upnp',vpn:'vpn',nas:'drive',istore:'store',
+  oaf:'oaf',acc:'leigod',leigod:'leigod',uuplugin:'uu','shadowsocks-libev':'shadowsocks','omr-tracker':'tracker',
+  openvpn:'openvpn','glorytun-tcp':'tunnel',embedded:'module',simcard:'sim',sim_switch:'simswitch',
+  network_config:'network',debug:'terminal',config_advanced:'sliders',sms:'message',conversation:'message',sms_sim:'simsms',sms_forward:'forward',modem_ttl:'ttl',
+  settings:'sliders',advanced:'sliders',app:'leigod',service:'leigod',proxy:'shadowsocks',server:'server',servers:'server',instances:'nodes',
+  app_filter:'filter',rules:'filter',app_record:'log',dashboard:'chart',feature:'library',users:'users',list:'users',whitelist:'listcheck',about:'info',
+  config:'sliders','config-subscribe':'subscribe','config-overwrite':'sliders',client:'status',rule_list:'listcheck',app_update:'update',acl:'shield',
+  other:'sliders',node_subscribe:'subscribe',haproxy:'network',node_list:'nodes'};
+ const pathIcons={'admin/embedded/page':'webpanel','admin/modem/mt5700':'module'};
  const make=(tag,cls,text)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(text!=null)el.textContent=text;return el;};
  const folds=new WeakMap();
  function resetFold(group){
-  const state=folds.get(group);if(state)cancelAnimationFrame(state.frame);
+  const state=folds.get(group);
+  if(state){state.animation.cancel();group.open=state.expanded;}
   folds.delete(group);const content=group.querySelector(':scope > .m-menu-children');
-  if(content){content.style.height='';content.style.overflow='';content.style.opacity='';}
+  group.style.height='';group.style.overflow='';
+  if(content)content.inert=false;
   group.querySelector('summary').removeAttribute('aria-expanded');
  }
  function animateFold(group,content,summary,event,requested){
   if(event)event.preventDefault();
-  let state=folds.get(group);
+  const state=folds.get(group);
   const expanded=requested==null?(state?!state.expanded:!group.open):requested;
+  const changes=[{group,content,summary,expanded}];
   if(expanded){
    [...group.parentElement.children].forEach(sibling=>{
     if(sibling===group||sibling.tagName!=='DETAILS')return;
     const siblingState=folds.get(sibling);
     if(siblingState?siblingState.expanded:sibling.open)
-     animateFold(sibling,sibling.querySelector(':scope > .m-menu-children'),sibling.querySelector('summary'),null,false);
+     changes.push({group:sibling,content:sibling.querySelector(':scope > .m-menu-children'),summary:sibling.querySelector('summary'),expanded:false});
    });
   }
-  if(reduce.matches){resetFold(group);group.open=expanded;return;}
-  if(!state)state={position:group.open?content.getBoundingClientRect().height:0,velocity:0,frame:0,expanded:group.open};
-  cancelAnimationFrame(state.frame);state.expanded=expanded;
-  group.open=true;content.style.height='auto';
-  const height=content.getBoundingClientRect().height,target=expanded?height:0;
-  content.style.height=state.position+'px';content.style.overflow='hidden';
-  summary.setAttribute('aria-expanded',String(expanded));
-  folds.set(group,state);let previous=performance.now();
-  const step=now=>{
-   const dt=Math.min((now-previous)/1000,.032);previous=now;
-   state.velocity+=(-28*28*(state.position-target)-2*28*state.velocity)*dt;
-   state.position+=state.velocity*dt;
-   content.style.height=Math.max(0,state.position)+'px';content.style.opacity=String(Math.min(1,Math.max(0,state.position/Math.max(1,height))));
-   if(Math.abs(state.position-target)>.3||Math.abs(state.velocity)>.3)state.frame=requestAnimationFrame(step);
-   else{group.open=expanded;resetFold(group);}
-  };
-  state.frame=requestAnimationFrame(step);
+  if(reduce.matches){changes.forEach(item=>{resetFold(item.group);item.group.open=item.expanded;});return;}
+  // Read all current heights before cancelling an interrupted animation. Batch
+  // the final layout reads, then let the browser run the short transition.
+  changes.forEach(item=>item.from=item.group.getBoundingClientRect().height);
+  changes.forEach(item=>{
+   resetFold(item.group);item.group.open=true;
+   item.content.inert=!item.expanded;
+   item.summary.setAttribute('aria-expanded',String(item.expanded));
+  });
+  changes.forEach(item=>item.to=(item.expanded?item.group:item.summary).getBoundingClientRect().height);
+  changes.forEach(item=>{
+   item.group.style.height=item.to+'px';item.group.style.overflow='clip';
+   const animation=item.group.animate([{height:item.from+'px'},{height:item.to+'px'}],{duration:220,easing:'cubic-bezier(.2,.8,.2,1)'});
+   const current={animation,expanded:item.expanded};folds.set(item.group,current);
+   animation.onfinish=()=>{if(folds.get(item.group)===current)resetFold(item.group);};
+  });
  }
  function enterView(){
   const panel=document.querySelector('#view')||document.querySelector('#maincontent');
@@ -115,8 +158,8 @@
   const animate=()=>{
    let position=7,velocity=0,previous=performance.now();
    const step=now=>{
-    const dt=Math.min((now-previous)/1000,.032);previous=now;
-    velocity+=(-26*26*position-2*26*velocity)*dt;position+=velocity*dt;
+    const dt=Math.min(Math.max((now-previous)/1000,0),.1);previous=now;
+    const next=damped(position,velocity,0,26,dt);position=next.position;velocity=next.velocity;
     panel.style.transform='translateY('+position+'px)';panel.style.opacity=String(1-Math.max(0,position)/14);
     if(Math.abs(position)>.04||Math.abs(velocity)>.2)requestAnimationFrame(step);
     else{panel.style.transform='';panel.style.opacity='';}
@@ -128,9 +171,11 @@
    observer.observe(panel,{childList:true});
   }else animate();
  }
- const icon=(name,fallback)=>{
-  const key=String(name).toLowerCase(),kind=iconNames[key]||key,ns='http://www.w3.org/2000/svg';
+ const icon=(name,fallback,parts=[])=>{
+  const lookup=value=>iconNames[value]||(drawings[value]?value:null);
+  const kind=pathIcons[parts.join('/')]||lookup(String(name).toLowerCase())||parts.slice(1,-1).reverse().map(lookup).find(Boolean)||lookup(fallback)||'services',ns='http://www.w3.org/2000/svg';
   const wrap=make('span','m-nav-icon'),svg=document.createElementNS(ns,'svg'),path=document.createElementNS(ns,'path');
+  wrap.dataset.icon=kind;
   svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('fill','none');svg.setAttribute('stroke','currentColor');
   svg.setAttribute('stroke-width','1.65');svg.setAttribute('stroke-linecap','round');svg.setAttribute('stroke-linejoin','round');
   svg.setAttribute('aria-hidden','true');path.setAttribute('d',drawings[kind]||drawings[fallback]||drawings.services);
@@ -160,13 +205,13 @@
     const label=_(node.title),kids=children(node).map(c=>render(c,parts.concat(c.name))).filter(Boolean);
     if(kids.length){
      const group=make('details','m-menu-group'),summary=make('summary');
-     summary.append(icon(node.name,parts[1]),make('span','',label));
+     summary.append(icon(node.name,parts[1],parts),make('span','',label));
      const list=make('div','m-menu-children');kids.forEach(n=>list.append(n));group.append(summary,list);
      summary.addEventListener('click',e=>animateFold(group,list,summary,e));
      if(list.querySelector('[aria-current]'))group.open=true;group.dataset.label=label;return group;
     }
     if(['firstchild','alias'].includes(node.action?.type)&&children(node).length)return null;
-    const a=make('a','m-menu-link');a.append(icon(node.name,parts[1]),make('span','',label));a.href=L.url(...parts);a.dataset.label=label;
+    const a=make('a','m-menu-link');a.append(icon(node.name,parts[1],parts),make('span','',label));a.href=L.url(...parts);a.dataset.label=label;
     const url=new URL(a.href,location.href).pathname;
     if(path===url||path.startsWith(url+'/')){a.classList.add('active');a.setAttribute('aria-current','page');title=label;}
     return a;
