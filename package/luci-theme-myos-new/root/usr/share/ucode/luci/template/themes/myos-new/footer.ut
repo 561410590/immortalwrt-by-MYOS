@@ -11,6 +11,6 @@
 {% if (blank_page): %}
 <script src="{{ media }}/ultra-media.js?v=20261104-loginfix1"></script>
 {% endif %}
-<script src="{{ media }}/liquid.js?v=20261104-subpages1"></script>
+<script src="{{ media }}/liquid.js?v=20261105-black-frost"></script>
 </body>
 </html>
