@@ -88,6 +88,14 @@ start_service() {
 		procd_set_param respawn 3600 5 5
 		procd_close_instance
 	fi
+	if { local_enabled || cloud_enabled; } &&
+	   [ "$(uci -q get myos_usage.main.enabled 2>/dev/null)" != "0" ] &&
+	   [ -x /usr/libexec/myos-usage ]; then
+		procd_open_instance usage
+		procd_set_param command /bin/sh -c 'while true; do if /usr/libexec/myos-usage report >/dev/null 2>&1; then sleep 300; else sleep 30; fi; done'
+		procd_set_param respawn 3600 5 5
+		procd_close_instance
+	fi
 	cloud_enabled || return 0
 	for pid in $(pgrep -f '/usr/sbin/myos-nros-app-agent' 2>/dev/null); do
 		[ "$pid" = "$$" ] || kill "$pid" 2>/dev/null || true
@@ -110,6 +118,13 @@ stop_service() {
 	done
 }
 
+reload_service() {
+	/usr/libexec/myos-usage report >/dev/null 2>&1 &
+}
+
+service_triggers() {
+	procd_add_raw_trigger "interface.*" 1000 /etc/init.d/myos-nros-app reload
+}
 EOF
 
 # usr/sbin/myos-nros-cloudctl is supplied by myos-remote-files above.

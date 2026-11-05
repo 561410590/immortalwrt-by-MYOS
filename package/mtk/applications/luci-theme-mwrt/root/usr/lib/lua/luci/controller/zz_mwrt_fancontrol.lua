@@ -5,7 +5,7 @@ local json = require("luci.jsonc")
 uci = luci.model.uci.cursor()
 
 function index()
-    entry({"admin", "status", "mwrt_fan"}, template("Airpifanctrl/fancontrol"), _("MWRT 风扇"), 91).dependent = false
+    entry({"admin", "status", "mwrt_fan"}, template("Airpifanctrl/fancontrol"), _("风扇控制"), 91).dependent = false
     entry({"admin", "Outofnetwork"}, call("action_Outofnetwork")).leaf = true
     for _, action in ipairs({"fanstop", "fanst1", "fanst2", "fanst3", "fanst4", "fanswj", "fanswj2", "fanst", "fansttp", "fansvm", "fansvc", "sched_get", "sched_set", "sched_bypass"}) do
         entry({"admin", "fancontrol", action}, call("action_" .. action)).leaf = true
@@ -14,17 +14,6 @@ function index()
     for _, action in ipairs({"devpop", "memfree", "hqos_get", "hqos_set"}) do
         entry({"admin", "fancontrol", action}, call("action_" .. action)).leaf = true
     end
-    if require("luci.model.uci").cursor():get("luci", "main", "mediaurlbase") ~= "/luci-static/argon" then return end
-    local home = entry({"admin", "modeminfo"}, template("zmode/modem_info"), _("系统首页"), 2)
-    home.dependent = false
-    local data = entry({"admin", "modeminfo", "router3d"}, call("action_router3d"))
-    data.leaf = true
-    data.sysauth = false
-    entry({"admin", "fancontrol", "darkmode_status"}, call("action_darkmode_status")).leaf = true
-    entry({"admin", "fancontrol", "msg"}, call("action_msg")).leaf = true
-    entry({"admin", "fancontrol", "msgct"}, call("action_msgct")).leaf = true
-    entry({"admin", "fancontrol", "devimg_upload"}, call("action_devimg_upload")).leaf = true
-    entry({"admin", "fancontrol", "devimg_reset"}, call("action_devimg_reset")).leaf = true
 end
 
 function action_router3d()
@@ -1029,10 +1018,6 @@ function action_Outofnetwork()
         http.write_json({resdd=value})
     end
     if not require("luci.dispatcher").test_post_security() then return end
-    if not require("luci.model.mwrt_gate").theme() then
-        http.status(403, "Forbidden")
-        return reply("denied")
-    end
     if http.formvalue("set") ~= "666666" then return reply("no") end
     local config = require("luci.model.uci").cursor()
     config:set("mwrt", "access", "access")

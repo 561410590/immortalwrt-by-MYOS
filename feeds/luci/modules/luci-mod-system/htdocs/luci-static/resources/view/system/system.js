@@ -234,16 +234,6 @@ return view.extend({
 			if (k[i].charAt(0) != '.')
 				o.value(k[i], l[k[i]]);
 
-		o = s.taboption('language', form.ListValue, '_mediaurlbase', _('Design'))
-		o.uciconfig = 'luci';
-		o.ucisection = 'main';
-		o.ucioption = 'mediaurlbase';
-
-		var k = Object.keys(uci.get('luci', 'themes') || {}).sort();
-		for (var i = 0; i < k.length; i++)
-			if (k[i].charAt(0) != '.')
-				o.value(uci.get('luci', 'themes', k[i]), k[i]);
-
 		o = s.taboption('language', form.Flag, '_tablefilters', _('Table Filters'));
 		o.default = o.disabled;
 		o.uciconfig = 'luci';

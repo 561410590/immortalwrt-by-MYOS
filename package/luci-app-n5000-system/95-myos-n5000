@@ -1,0 +1,7 @@
+#!/bin/sh
+mkdir -p /etc/crontabs
+[ -s /etc/fanvall ] || echo 9 > /etc/fanvall
+[ -s /usr/bin/fanspeed.conf ] || echo 128 > /usr/bin/fanspeed.conf
+/etc/init.d/myos-update enable
+[ -n "$IPKG_INSTROOT" ] || /etc/init.d/myos-update start
+exit 0

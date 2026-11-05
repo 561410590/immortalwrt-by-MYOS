@@ -1,0 +1,14 @@
+{% if (!blank_page): %}
+ </main>
+ <footer class="m-footer"><span>MYOS-NEW</span><span>{{ entityencode(version.luciname ?? 'LuCI') }} · {{ entityencode(ubus.call('system', 'board')?.release?.version ?? '') }}</span></footer>
+</div>
+<script src="{{ media }}/shell.js?v=20261104-menu1"></script>
+<script src="{{ media }}/unlock.js?v=1.0.2-r3b"></script>
+<script src="{{ media }}/notices.js?v=20261104-liquid2"></script>
+<script src="{{ media }}/layout.js?v=20261104-n5000-adapt1"></script>
+<script src="{{ media }}/ultra-media.js?v=20261104-liquid2"></script>
+<script src="{{ media }}/background.js?v=20261104-liquid2"></script>
+{% endif %}
+<script src="{{ media }}/liquid.js?v=20261104-n5000-adapt1"></script>
+</body>
+</html>

@@ -1,8 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-theme-myos-new
-PKG_VERSION:=1.0.4
-PKG_RELEASE:=5
+PKG_VERSION:=1.2.2
+PKG_RELEASE:=5.20261104.max
 PKG_LICENSE:=Apache-2.0
 PKGARCH:=all
 
@@ -34,6 +34,8 @@ define Package/luci-theme-myos-new/install
 	$(INSTALL_DATA) ./root/www/luci-static/myos-new/*.js $(1)/www/luci-static/myos-new/
 	$(INSTALL_DATA) ./root/www/luci-static/myos-new/*.png $(1)/www/luci-static/myos-new/
 	$(INSTALL_DATA) ./root/www/luci-static/myos-new/products/* $(1)/www/luci-static/myos-new/products/
+	$(INSTALL_DIR) $(1)/www/luci-static/myos-new/media
+	$(INSTALL_DATA) ./root/www/luci-static/myos-new/media/*.mp4 $(1)/www/luci-static/myos-new/media/
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/myos-new
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/myos-new/home.js $(1)/www/luci-static/resources/view/myos-new/
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/icons
@@ -42,6 +44,8 @@ define Package/luci-theme-myos-new/install
 	$(INSTALL_DATA) ./root/usr/share/ucode/luci/template/themes/myos-new/*.ut $(1)/usr/share/ucode/luci/template/themes/myos-new/
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
 	$(INSTALL_DATA) ./root/usr/lib/lua/luci/controller/myos_new.lua $(1)/usr/lib/lua/luci/controller/
+	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/model
+	$(INSTALL_DATA) ./root/usr/lib/lua/luci/model/myos_liquid.lua $(1)/usr/lib/lua/luci/model/
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) ./root/etc/uci-defaults/99-myos-new $(1)/etc/uci-defaults/
 endef

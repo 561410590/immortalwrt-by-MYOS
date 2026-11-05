@@ -10,7 +10,6 @@ local run_path="/tmp/run/qmodem/"
 local modem_ctrl = "/usr/share/qmodem/modem_ctrl.sh "
 
 function index()
-    if require("luci.model.uci").cursor():get("luci", "main", "mediaurlbase") ~= "/luci-static/argon" then return end
     entry({"admin", "modem", "qmodem", "get_modem_cfg"}, call("getModemCFG")).leaf = true
 end
 

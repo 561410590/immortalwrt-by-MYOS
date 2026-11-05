@@ -1,7 +1,7 @@
 local M = {}
 
 function M.theme()
-    return require("luci.model.uci").cursor():get("luci", "main", "mediaurlbase") == "/luci-static/argon"
+    return require("luci.model.uci").cursor():get("luci", "main", "mediaurlbase") == "/luci-static/myos-new"
 end
 
 function M.visible()

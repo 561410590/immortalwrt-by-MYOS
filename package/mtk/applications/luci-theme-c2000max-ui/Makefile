@@ -10,8 +10,6 @@ PKG_RELEASE:=4.20261030.n5000
 
 define Package/luci-theme-c2000max-ui/description
  MYOS theme for nradio,n5000, with model-specific home navigation.
- MYOS usage statistics sends only a device digest, model and firmware version.
- Statistics runs in the existing APP integration service and accepts no commands.
 endef
 
 # Set archive modes after fakeroot chown, which fnOS ACLs can otherwise alter.

@@ -16,7 +16,7 @@ LUCI_DEPENDS:= \
 	+luci-app-firewall \
 	+luci-mod-admin-full \
 	+luci-proto-ppp \
-	+luci-theme-bootstrap \
+	+luci-theme-myos-new \
 	+rpcd-mod-rrdns \
 	+uhttpd \
 	+uhttpd-mod-ubus

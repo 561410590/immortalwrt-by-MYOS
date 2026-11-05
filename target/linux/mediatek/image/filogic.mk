@@ -3550,7 +3550,7 @@ define Build/prepare-n5000-app-rootfs
 	sh $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/install-n5000.sh \
 		$(KDIR)/root-n5000-$(1)-app $(TOPDIR) "$(VERSION_NUMBER)" "$(REVISION)" \
 		$(KDIR)/root-n5000-$(1)-app.myos-n5000-gpt
-	python3 $(TOPDIR)/target/linux/mediatek/image/finalize-dual-theme.py \
+	python3 $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/finalize-myos-new.py \
 		$(KDIR)/root-n5000-$(1)-app $(TOPDIR)
 	ln -sf ../init.d/myos-factory-wifi \
 		$(KDIR)/root-n5000-$(1)-app/etc/rc.d/S19myos-factory-wifi
@@ -3588,7 +3588,7 @@ define Device/nradio_n5000
   BOARD_NAME := nradio,n5000
   SUPPORTED_DEVICES += nradio,n5000 HCMT7987-SNSD
   DEVICE_PACKAGES := \
-	luci-theme-c2000max-ui luci-theme-mwrt \
+	luci-theme-myos-new luci-app-n5000-system \
 	openmptcprouter-ultra \
 	fdisk blkid parted resize2fs block-mount losetup kmod-fs-ext4 \
 	kmod-mediatek_hnat luci-app-turboacc luci-i18n-turboacc-zh-cn \

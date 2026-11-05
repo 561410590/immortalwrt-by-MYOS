@@ -7,6 +7,9 @@ LUCI_PKGARCH:=all
 PKG_VERSION:=1.2.0
 PKG_RELEASE:=3
 
+PKG_FILE_MODES:= \
+	/www/luci-static/resources/view/mt5700-web/status_v8.js:root:root:0644
+
 include $(TOPDIR)/feeds/luci/luci.mk
 
 # call BuildPackage - OpenWrt buildroot signature

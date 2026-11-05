@@ -13,7 +13,7 @@ SIM=$SRC/target/linux/mediatek/image/nradio-n5000
 sed -i "s/^DISTRIB_RELEASE=.*/DISTRIB_RELEASE='$VERSION'/; s/^DISTRIB_REVISION=.*/DISTRIB_REVISION='$REVISION'/; s/^DISTRIB_DESCRIPTION=.*/DISTRIB_DESCRIPTION='MYOS by ImmortalWrt $VERSION'/" "$ROOT/etc/openwrt_release"
 printf '%s\n' "$VERSION" > "$ROOT/etc/openwrt_version"
 sed -i "s/^VERSION=.*/VERSION=\"$VERSION\"/; s/^VERSION_ID=.*/VERSION_ID=\"$VERSION\"/; s/^PRETTY_NAME=.*/PRETTY_NAME=\"MYOS by ImmortalWrt $VERSION\"/; s/^OPENWRT_RELEASE=.*/OPENWRT_RELEASE=\"MYOS by ImmortalWrt $VERSION\"/; s/^BUILD_ID=.*/BUILD_ID=\"$REVISION\"/" "$ROOT/usr/lib/os-release"
-sed -i "s#^[[:space:]]*option mediaurlbase .*#    option mediaurlbase '/luci-static/argon'#" "$ROOT/etc/config/luci"
+sed -i "s#^[[:space:]]*option mediaurlbase .*#    option mediaurlbase '/luci-static/myos-new'#" "$ROOT/etc/config/luci"
 printf '\nMYOS by ImmortalWrt %s\n\n' "$VERSION" > "$ROOT/etc/banner"
 install -D -m 0755 "$GPT_HELPER" "$ROOT/usr/libexec/myos-n5000-gpt"
 install -D -m 0755 "$SD/ubenv-snsd" "$ROOT/usr/libexec/myos-n5000-ubenv"
@@ -22,8 +22,6 @@ install -D -m 0644 "$SRC/package/base-files/files/lib/upgrade/emmc.sh" "$ROOT/li
 install -D -m 0644 "$SIM/web/luci.locations" "$ROOT/etc/nginx/conf.d/luci.locations"
 install -D -m 0644 "$SIM/web/luci-cgi_io.ini" "$ROOT/etc/uwsgi/vassals/luci-cgi_io.ini"
 install -D -m 0755 "$SIM/n5000-board-defaults.uci-default" "$ROOT/etc/uci-defaults/36-n5000-board-defaults"
-# Copy the reviewed mobile navigation even when the theme package cache is reused.
-install -D -m 0644 "$SRC/package/mtk/applications/luci-theme-mwrt/root/usr/lib/lua/luci/view/themes/argon/footer.htm" "$ROOT/usr/lib/lua/luci/view/themes/argon/footer.htm"
 install -D -m 0755 "$SD/myos-n5000-boot" "$ROOT/usr/libexec/myos-n5000-boot"
 install -D -m 0755 "$SD/n5000-sd-extroot.preinit" "$ROOT/lib/preinit/79_n5000_sd_extroot"
 install -D -m 0755 "$SD/n5000-firstboot" "$ROOT/sbin/firstboot"

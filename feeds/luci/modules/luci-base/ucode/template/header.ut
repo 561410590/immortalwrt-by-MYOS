@@ -29,8 +29,3 @@
 		rollback_token : rollback_token
 	} }`, '/', '\\/') }});
 </script>
-{% if (media == '/luci-static/argon'): %}
-<script src="{{ resource }}/mwrt-aurora-boot.js?v=20261102-n5000-support"></script>
-<link rel="stylesheet" href="{{ resource }}/mwrt-aurora-full.css?v=1150-202610221900">
-<link rel="stylesheet" href="{{ resource }}/mwrt-aurora-chrome.css?v=20261102-n5000-support">
-{% endif %}
