@@ -1,0 +1,7 @@
+#!/bin/sh /etc/rc.common
+# Apply once after netifd starts; no link checks, retries or network restarts.
+START=21
+
+start() {
+    /usr/libexec/myos-c8-wan-phy
+}

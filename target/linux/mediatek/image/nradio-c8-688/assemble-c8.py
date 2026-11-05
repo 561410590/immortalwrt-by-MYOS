@@ -372,7 +372,7 @@ def main():
         'done', 'sysntpd', 'mtk_smp', 'urandom_seed',
         'myos-nros-app', 'myos-nros-mqtt',
         'myos-c8-identity', 'myos-c8-cellular', 'myos-c8-led', 'myos-c8-fan', 'myos-c8-factory-wifi',
-        'myos-c8-calibration', 'atsd', 'infocd', 'smsd', 'at-webserver',
+        'myos-c8-calibration', 'myos-c8-wan-phy', 'atsd', 'infocd', 'smsd', 'at-webserver',
     }
     rc = work / 'etc/rc.d'
     rc.mkdir(exist_ok=True)

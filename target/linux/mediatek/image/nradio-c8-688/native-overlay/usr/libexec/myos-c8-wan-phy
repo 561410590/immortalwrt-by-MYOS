@@ -1,0 +1,20 @@
+#!/usr/bin/python3
+"""Match the C8 port5 host interface to copper autonegotiation."""
+import fcntl
+import socket
+import struct
+
+# GPY211 data sheet: MMD 30.8 bit 5 is SGMII_FIXED2G5.
+# Only WAN PHY 5 is touched; eth1 uses PHY 21.
+with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as control:
+    phy = 0x8000 | (5 << 5) | 30
+    request = struct.pack("16sHHHH16x", b"port5", phy, 8, 0, 0)
+    before = struct.unpack_from(
+        "HHHH", fcntl.ioctl(control.fileno(), 0x8948, request), 16
+    )[3]
+    if before & 0x20:
+        fcntl.ioctl(
+            control.fileno(), 0x8949,
+            struct.pack("16sHHHH16x", b"port5", phy, 8, before & ~0x20, 0)
+        )
+        print("port5: cleared GPY211 fixed 2.5G host mode; copper autoneg unchanged")
