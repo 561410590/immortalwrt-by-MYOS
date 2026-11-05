@@ -12,10 +12,20 @@
 <title>MYOS-NEW · {{ entityencode(board.hostname ?? 'OpenWrt') }}</title>
 <link rel="icon" type="image/png" href="{{ media }}/brand.png?v=1">
 <link rel="apple-touch-icon" href="{{ media }}/brand.png?v=1">
-<script>document.documentElement.dataset.glass='refraction';document.documentElement.dataset.appearance='dark';try { const appearance = localStorage.getItem('myos-new-appearance'); if (appearance) document.documentElement.dataset.appearance = appearance; } catch (_) {}</script>
+<script>
+document.documentElement.dataset.glass = 'frosted';
+document.documentElement.dataset.appearance = 'dark';
+try {
+ const appearance = localStorage.getItem('myos-new-appearance');
+ const glass = localStorage.getItem('myos-liquid-material');
+ if (appearance) document.documentElement.dataset.appearance = appearance;
+ if (['refraction','frosted','solid'].includes(glass))
+  document.documentElement.dataset.glass = glass;
+} catch (_) {}
+</script>
 <link rel="stylesheet" href="{{ media }}/style.css?v=20261104-liquid2">
-<link rel="stylesheet" href="{{ media }}/liquid.css?v=20261104-liquid2">
-<link rel="stylesheet" href="{{ media }}/refine.css?v=20261104-n5000-adapt1">
+<link rel="stylesheet" href="{{ media }}/liquid.css?v=20261105-black-frost">
+<link rel="stylesheet" href="{{ media }}/refine.css?v=20261105-black-frost">
 {% if (node?.css): %}<link rel="stylesheet" href="{{ resource }}/{{ node.css }}">{% endif %}
 {% if (css): %}<style>{{ css }}</style>{% endif %}
 <script src="{{ dispatcher.build_url('admin/translations', dispatcher.lang) }}"></script>

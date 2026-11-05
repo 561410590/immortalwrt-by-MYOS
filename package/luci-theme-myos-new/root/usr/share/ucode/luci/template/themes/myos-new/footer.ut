@@ -9,6 +9,6 @@
 <script src="{{ media }}/ultra-media.js?v=20261104-liquid2"></script>
 <script src="{{ media }}/background.js?v=20261104-liquid2"></script>
 {% endif %}
-<script src="{{ media }}/liquid.js?v=20261104-n5000-adapt1"></script>
+<script src="{{ media }}/liquid.js?v=20261105-black-frost"></script>
 </body>
 </html>
