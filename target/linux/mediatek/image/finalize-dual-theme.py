@@ -50,16 +50,61 @@ dst = root / 'www/luci-static/resources/luci.js'
 shutil.copyfile(src / 'staging_dir/target-aarch64_cortex-a53_musl/root-mediatek/www/luci-static/resources/luci.js', dst)
 dst.chmod(0o644)
 
-# The stock ucode Argon shell would otherwise take precedence over MWRT's Lua shell.
-old_shell = root / 'usr/share/ucode/luci/template/themes/argon'
-if old_shell.exists():
-    shutil.rmtree(old_shell)
+# Install the system page without the retired theme selector.
+dst = root / 'www/luci-static/resources/view/system/system.js'
+shutil.copyfile(src / 'staging_dir/target-aarch64_cortex-a53_musl/root-mediatek/www/luci-static/resources/view/system/system.js', dst)
+dst.chmod(0o644)
 
-# Only the new ROM defaults are set here. sysupgrade retains the user's overlay.
+# Only presentation is retired. Shared device services come from
+# luci-app-myos-system, with no legacy theme package in the image.
+for relative in (
+    'www/luci-static/c2000max-ui', 'www/luci-static/argon',
+    'www/luci-static/bootstrap', 'www/luci-static/resources/view/c2000max',
+    'www/luci-static/bootstrap-dark', 'www/luci-static/bootstrap-light',
+    'usr/share/ucode/luci/template/themes/c2000max-ui',
+    'usr/share/ucode/luci/template/themes/argon',
+    'usr/share/ucode/luci/template/themes/bootstrap',
+    'usr/share/ucode/luci/template/themes/bootstrap-dark',
+    'usr/share/ucode/luci/template/themes/bootstrap-light',
+    'usr/lib/lua/luci/view/themes/argon',
+    'usr/lib/lua/luci/view/themes/c2000max-ui',
+    'usr/lib/lua/luci/view/themes/bootstrap',
+):
+    path = root / relative
+    if path.is_symlink():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+for relative in (
+    'etc/config/c2000max_ui', 'etc/init.d/c2000max-wallpaper',
+    'etc/uci-defaults/95-c2000max-ui', 'etc/uci-defaults/96-mwrt-theme',
+    'etc/uci-defaults/30_luci-theme-argon', 'etc/uci-defaults/30_luci-theme-bootstrap',
+    'usr/libexec/c2000max-bing', 'www/cgi-bin/c2000max-wallpaper',
+    'usr/share/luci/menu.d/luci-theme-c2000max-ui.json',
+    'usr/share/luci/menu.d/myos-theme.json',
+    'usr/share/rpcd/acl.d/myos-theme.json',
+    'usr/share/rpcd/acl.d/luci-theme-c2000max-ui.json',
+    'usr/share/rpcd/ucode/c2000max-ui',
+    'www/luci-static/resources/view/myos/theme.js',
+    'www/luci-static/resources/view/myos/max.js',
+):
+    path = root / relative
+    if path.is_file() or path.is_symlink():
+        path.unlink()
+for path in (root / 'etc/rc.d').iterdir():
+    if path.is_symlink() and path.readlink().name == 'c2000max-wallpaper':
+        path.unlink()
+update_link = root / 'etc/rc.d/S99myos-update'
+if update_link.is_symlink() or update_link.exists():
+    update_link.unlink()
+update_link.symlink_to('../init.d/myos-update')
+
+# Match the sole installed theme, including clean-ROM UCI registration.
 cfg = root / 'etc/config/luci'
 text = cfg.read_text()
-text, count = re.subn(r"(?m)^\s*option\s+mediaurlbase\s+[^\n]+", "\toption mediaurlbase '/luci-static/c2000max-ui'", text)
-if count != 1:
-    raise SystemExit('Expected one luci.main.mediaurlbase in ROM')
+text = re.sub(r"(?m)^\s*option\s+mediaurlbase\s+[^\n]+", "\toption mediaurlbase '/luci-static/myos-new'", text)
+text = re.sub(r"(?ms)^config\s+internal\s+['\"]?themes['\"]?[^\n]*\n.*?(?=^config\s|\Z)", "", text)
+text = text.rstrip() + "\n\nconfig internal 'themes'\n\toption MYOS_NEW '/luci-static/myos-new'\n"
 cfg.write_text(text)
-print('Dual-theme ROM defaults: MYOS; MWRT native homepage installed')
+cfg.chmod(0o644)
+print('MYOS-NEW is the sole ROM theme; shared device services retained')

@@ -164,7 +164,7 @@ C2000MAX_EXTRA_IPK_TMP := $(KDIR)/root-c2000max-ipk-payload
 C2000MAX_ROOTFS_ID := $(VERSION_NUMBER)-$(REVISION)
 C2000MAX_EXTRA_IPK_PACKAGES := \
 	flock ip6tables-nft iptables-mod-socket kmod-ipt-socket kmod-ipt-nat-extra iptables-mod-nat-extra python3-ctypes luci-app-uugamebooster mt5700-web-go luci-app-mt5700-web \
-	luci-theme-c2000max-ui luci-theme-mwrt cgi-io bc jq libreadline8 libncurses6 terminfo \
+	luci-theme-myos-new luci-app-myos-system luci-light cgi-io bc jq libreadline8 libncurses6 terminfo \
 	resize2fs fstools block-mount losetup libsmartcols1 libblkid1 libuuid1 f2fsck mkf2fs libf2fs6 \
 	luci-app-store taskd luci-lib-taskd luci-lib-xterm \
 	quickfile luci-app-quickfile luci-i18n-quickfile-zh-cn luci-nginx nginx-ssl nginx-mod-luci nginx-mod-ubus nginx-ssl-util uwsgi uwsgi-cgi-plugin uwsgi-syslog-plugin uwsgi-luci-support \
@@ -195,6 +195,7 @@ C2000MAX_EXTRA_IPK_PACKAGES := \
 	libpng libseccomp libfdt libslirp pixman lua-md5
 
 C2000MAX_REMOVE_IPK_PACKAGES := \
+	luci-theme-c2000max-ui luci-theme-mwrt luci-theme-argon luci-theme-bootstrap luci-app-argon-config luci-i18n-argon-config-zh-cn \
 	luci-app-quickstart luci-i18n-quickstart-zh-cn quickstart \
 	luci-app-homeproxy luci-i18n-homeproxy-zh-cn homeproxy sing-box chinadns-ng dns2socks \
 	luci-app-ddns-go luci-i18n-ddns-go-zh-cn ddns-go \
@@ -420,7 +421,7 @@ define Build/prepare-c2000max-rootfs
 	for pkg in $(C2000MAX_EXTRA_IPK_PACKAGES); do \
 		status="$(C2000MAX_MYOS_ROOTFS_DIR)/usr/lib/opkg/status"; \
 		refresh=0; \
-		case "$$pkg" in luci-theme-c2000max-ui|luci-theme-mwrt|cgi-io|fstools|block-mount|losetup|libsmartcols1|libblkid1|libuuid1|f2fsck|mkf2fs|libf2fs6|iwinfo|libiwinfo20230701|libiwinfo-data|fancontrol|mt5700-web-go|luci-app-mt5700-web) refresh=1 ;; esac; \
+		case "$$pkg" in luci-theme-myos-new|luci-app-myos-system|luci-light|luci-nginx|luci-lib-xterm|luci-app-upnp|luci-i18n-upnp-zh-cn|cgi-io|fstools|block-mount|losetup|libsmartcols1|libblkid1|libuuid1|f2fsck|mkf2fs|libf2fs6|iwinfo|libiwinfo20230701|libiwinfo-data|fancontrol|mt5700-web-go|luci-app-mt5700-web) refresh=1 ;; esac; \
 		if [ "$$refresh" = 0 ] && [ -f "$$status" ] && grep -q "^Package: $${pkg}$$" "$$status"; then continue; fi; \
 		ipk=""; \
 		for cand in $(TOPDIR)/bin/packages/aarch64_cortex-a53/*/$${pkg}_*.ipk \
@@ -791,8 +792,6 @@ define Build/prepare-c2000max-rootfs
 		$(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/sd-tools/myos-max-gpt.c \
 		-o $(C2000MAX_MYOS_ROOTFS_DIR)/usr/libexec/myos-max-gpt
 	chmod 0755 $(C2000MAX_MYOS_ROOTFS_DIR)/usr/libexec/myos-max-gpt
-	install -m 0644 -D $(TOPDIR)/package/mtk/applications/luci-theme-c2000max-ui/root/usr/share/rpcd/ucode/c2000max-ui \
-		$(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/rpcd/ucode/c2000max-ui
 	install -m 0755 -D $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/sd-tools/ubenv-snsd \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/usr/libexec/myos-max-ubenv
 	install -m 0755 -D $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/sd-tools/myos-max-boot \
@@ -3525,7 +3524,7 @@ define Device/nradio_c2000-max
   BOARD_NAME := HCMT7987-EMMC
   SUPPORTED_DEVICES += nradio,c2000-max HCMT7987-EMMC HCMT7987-SNSD
   DEVICE_PACKAGES := \
-	luci-theme-c2000max-ui luci-theme-mwrt flock ip6tables-nft iptables-mod-socket kmod-ipt-socket kmod-ipt-nat-extra iptables-mod-nat-extra python3-ctypes luci-app-uugamebooster mt5700-web-go luci-app-mt5700-web \
+	luci-theme-myos-new luci-app-myos-system flock ip6tables-nft iptables-mod-socket kmod-ipt-socket kmod-ipt-nat-extra iptables-mod-nat-extra python3-ctypes luci-app-uugamebooster mt5700-web-go luci-app-mt5700-web \
 	kmod-mediatek_hnat \
 	kmod-oaf appfilter luci-app-oaf luci-i18n-oaf-zh-cn \
 	kmod-hwmon-pwmfan \

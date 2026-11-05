@@ -17,9 +17,9 @@ function index()
     for _, action in ipairs({"devpop", "memfree", "hqos_get", "hqos_set"}) do
         entry({"admin", "fancontrol", action}, call("action_" .. action)).leaf = true
     end
+    entry({"admin", "fancontrol", "modem_ctrl"}, call("modemCtrl")).leaf = true
     if require("luci.model.uci").cursor():get("luci", "main", "mediaurlbase") ~= "/luci-static/argon" then return end
     entry({"admin", "fancontrol", "darkmode_status"}, call("action_darkmode_status")).leaf = true
-    entry({"admin", "fancontrol", "modem_ctrl"}, call("modemCtrl")).leaf = true
     entry({"admin", "fancontrol", "msg"}, call("action_msg")).leaf = true
     entry({"admin", "fancontrol", "msgct"}, call("action_msgct")).leaf = true
     entry({"admin", "fancontrol", "devimg_upload"}, call("action_devimg_upload")).leaf = true

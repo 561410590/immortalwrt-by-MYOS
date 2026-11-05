@@ -10,13 +10,13 @@ LUCI_TYPE:=col
 LUCI_BASENAME:=light
 
 LUCI_TITLE:=LuCI interface with Uhttpd as Webserver (light)
-LUCI_DESCRIPTION:=Light OpenWrt set including admin support and the default Bootstrap theme
+LUCI_DESCRIPTION:=Light OpenWrt set including admin support and the MYOS-NEW theme
 LUCI_DEPENDS:= \
 	+IPV6:luci-proto-ipv6 \
 	+luci-app-firewall \
 	+luci-mod-admin-full \
 	+luci-proto-ppp \
-	+luci-theme-bootstrap \
+	+luci-theme-myos-new \
 	+rpcd-mod-rrdns \
 	+uhttpd \
 	+uhttpd-mod-ubus

@@ -676,7 +676,7 @@ cell_info()
 }
 
 function network_info() {
-    local response mode mcc mnc isp
+    local response mode mcc mnc isp ambr dl ul qci
     response=$(at $at_port "AT^MONSC" | grep "\^MONSC:" | sed 's/\^MONSC: //')
     mode=$(echo "$response" | awk -F',' '{print $1}' | tr -d ' \r"')
     mcc=$(echo "$response" | awk -F',' '{print $2}' | tr -d ' \r"')
@@ -688,6 +688,17 @@ function network_info() {
     add_plain_info_entry "Mode" "$mode" "Network Mode"
     add_plain_info_entry "ISP" "$isp" "Operator"
     add_plain_info_entry "Operator" "$isp" "Operator"
+
+    # Read the active context's negotiated limits; these queries never dial.
+    if [ "$platform" = "hisilicon" ]; then
+        ambr=$(at "$at_port" "AT^DSAMBR=$pdp_index" | sed -n 's/^.*\^DSAMBR: *//p' | head -n 1)
+        dl=$(printf '%s' "$ambr" | cut -d, -f2 | tr -d ' \r')
+        ul=$(printf '%s' "$ambr" | cut -d, -f3 | tr -d ' \r')
+        case "$dl" in ''|*[!0-9]*) ;; *) add_plain_info_entry "AMBR DL" "$dl kbps" "Subscribed downlink limit" ;; esac
+        case "$ul" in ''|*[!0-9]*) ;; *) add_plain_info_entry "AMBR UL" "$ul kbps" "Subscribed uplink limit" ;; esac
+        qci=$(at "$at_port" "AT+CGEQOSRDP=$pdp_index" | sed -n 's/^.*+CGEQOSRDP: *//p' | head -n 1 | cut -d, -f2 | tr -d ' \r')
+        case "$qci" in ''|*[!0-9]*) ;; *) add_plain_info_entry "QCI" "$qci" "Quality of Service Class Identifier" ;; esac
+    fi
 }
 
 function _get_lockband_nr(){

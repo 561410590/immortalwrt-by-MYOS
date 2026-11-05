@@ -10,6 +10,23 @@ PKG_NAME:=luci-app-passwall
 PKG_VERSION:=26.10.4
 PKG_RELEASE:=1
 PKG_PO_VERSION:=$(PKG_VERSION)
+PKG_FILE_MODES = /usr/lib/lua/luci:root:root:0755 \
+	$(if $(filter luci-app-passwall,$(1)), \
+	$(shell find $(CURDIR)/root -type d -printf '/%P:root:root:0755 ') \
+	$(shell find $(CURDIR)/root -type f ! -name helper_smartdns.sh ! -name luci-passwall -printf '/%P:root:root:0644 ') \
+	$(shell find $(CURDIR)/luasrc -type d -printf '/usr/lib/lua/luci/%P:root:root:0755 ') \
+	$(shell find $(CURDIR)/htdocs -type d -printf '/www/%P:root:root:0755 ') \
+	$(shell find $(CURDIR)/htdocs -type f -printf '/www/%P:root:root:0644 ') \
+	$(shell find $(CURDIR)/root -type f -name '*.sh' ! -name helper_smartdns.sh -printf '/%P:root:root:0755 ') \
+	/etc/init.d/passwall:root:root:0755 \
+	/etc/init.d/passwall_server:root:root:0755 \
+	/etc/uci-defaults/luci-app-passwall:root:root:0755 \
+	/etc/uci-defaults/luci-app-passwall_server:root:root:0755 \
+	/usr/share/passwall/subscribe.lua:root:root:0755 \
+	/usr/share/passwall/rule_update.lua:root:root:0755 \
+	/usr/share/passwall/clash_subconverter.lua:root:root:0755 \
+	/usr/share/passwall/haproxy.lua:root:root:0755 \
+	/etc/config/passwall_server:root:root:0600)
 
 PKG_CONFIG_DEPENDS:= \
 	CONFIG_PACKAGE_$(PKG_NAME)_Iptables_Transparent_Proxy \
