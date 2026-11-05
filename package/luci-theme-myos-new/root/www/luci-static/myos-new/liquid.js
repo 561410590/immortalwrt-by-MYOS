@@ -8,7 +8,7 @@
  const reduce=matchMedia('(prefers-reduced-motion:reduce)'),contrast=matchMedia('(prefers-contrast:more)'),opaque=matchMedia('(prefers-reduced-transparency:reduce)');
  const chromium=/Chrome|Chromium|Edg\//.test(navigator.userAgent)&&!/EdgiOS|CriOS/.test(navigator.userAgent);
  const supported=chromium&&typeof CSS!=='undefined'&&CSS.supports('backdrop-filter','url("#myos-liquid-probe") blur(1px)');
- let mode='refraction',scheduled=false,serial=0,timer=0;
+ let mode='frosted',scheduled=false,serial=0,timer=0;
  try{const stored=localStorage.getItem('myos-liquid-material');if(['refraction','frosted','solid'].includes(stored))mode=stored;}catch(_){}
  root.dataset.glass=mode;root.dataset.lensEngine=supported?'svg':'blur';
  const svg=document.createElementNS(ns,'svg'),defs=document.createElementNS(ns,'defs');
