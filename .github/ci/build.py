@@ -28,12 +28,18 @@ os.environ['MWRT_REFERENCE'] = str(WORK / 'MWRT-reference.bin')
 def run(name, args, cwd=SOURCE):
     print(name + ': started', flush=True)
     with (LOGS / (name + '.log')).open('w') as log:
-        result = subprocess.run([str(a) for a in args], cwd=cwd, stdout=log, stderr=subprocess.STDOUT)
-    print(name + ': exit ' + str(result.returncode), flush=True)
-    if result.returncode:
+        process = subprocess.Popen([str(a) for a in args], cwd=cwd, stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT, text=True, errors='replace')
+        for line in process.stdout:
+            log.write(line)
+            if re.search(r'Entering directory|ERROR:|Error [0-9]|error:|Downloading|^time:', line):
+                print(line.rstrip(), flush=True)
+        code = process.wait()
+    print(name + ': exit ' + str(code), flush=True)
+    if code:
         lines = (LOGS / (name + '.log')).read_text(errors='replace').splitlines()
         print('\n'.join(lines[-70:]), flush=True)
-        raise subprocess.CalledProcessError(result.returncode, args)
+        raise subprocess.CalledProcessError(code, args)
 
 def unpack(name):
     parts = sorted(INPUTS.glob(name + '.tar.gz*'))
