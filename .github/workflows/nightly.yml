@@ -74,13 +74,15 @@ jobs:
           path: private-inputs
           persist-credentials: false
       - name: Restore public downloads
-        uses: actions/cache@v4
+        id: downloads
+        uses: actions/cache/restore@v4
         with:
           path: source/dl
-          key: dl-${{ matrix.branch }}-${{ matrix.sha }}
+          key: dl-${{ matrix.branch }}-${{ matrix.sha }}-${{ github.run_id }}
           restore-keys: dl-${{ matrix.branch }}-
       - name: Restore compiler cache
-        uses: actions/cache@v4
+        id: compiler
+        uses: actions/cache/restore@v4
         with:
           path: source/.ccache
           key: compiler-v1-${{ matrix.branch }}-${{ hashFiles('source/.config', 'source/include/toolchain-build.mk', 'source/toolchain/**/Makefile') }}-${{ github.run_id }}
@@ -91,6 +93,18 @@ jobs:
           MODELS: ${{ join(matrix.models, ',') }}
           SOURCE_COMMIT: ${{ matrix.sha }}
         run: python3 automation/.github/ci/build.py
+      - name: Save downloads
+        if: always() && steps.downloads.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: source/dl
+          key: ${{ steps.downloads.outputs.cache-primary-key }}
+      - name: Save compiler cache
+        if: always() && steps.compiler.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: source/.ccache
+          key: ${{ steps.compiler.outputs.cache-primary-key }}
       - name: Firmware
         if: always()
         uses: actions/upload-artifact@v4
