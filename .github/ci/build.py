@@ -54,6 +54,9 @@ def unpack(name):
 def prepare():
     unpack('factory')
     unpack(BRANCH)
+    if BRANCH != 'main':
+        (SOURCE / 'dl').mkdir(exist_ok=True)
+        shutil.copy2(INPUTS / 'Xray-core-26.10.10.tar.gz', SOURCE / 'dl')
     if BRANCH == 'main':
         unpack('main-binaries')
         if (WORK / 'MWRT-reference.bin').is_file():
