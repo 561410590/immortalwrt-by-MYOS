@@ -18,6 +18,7 @@ LOCAL_CONFLICTS = (
     'package/mtk/applications/luci-app-mtwifi-cfg/root/etc/uci-defaults/luci-app-mtwifi-cfg.default',
     'package/mtk/applications/luci-app-mtwifi-cfg/root/usr/share/luci-app-mtwifi-cfg/wireless-mtk.js',
     'package/network/utils/iwinfo/src/iwinfo_mtk.c',
+    'package/mtk/applications/switch/files/switch_ctl.sh',
 )
 
 
@@ -30,6 +31,7 @@ class Merger:
             GIT_AUTHOR_EMAIL='67544413+561410590@users.noreply.github.com',
             GIT_COMMITTER_EMAIL='67544413+561410590@users.noreply.github.com')
         self.retained = []
+        self.conflicts = []
 
     def git(self, *args, data=None, check=True):
         result = subprocess.run(self.command + list(args), input=data, stdout=subprocess.PIPE,
@@ -99,10 +101,21 @@ class Merger:
             if path in local_conflicts:
                 tree = self.replace(tree, path, self.entry(ours, path))
                 self.retained.append(label + ':' + path)
-            elif label == 'feeds/packages' and path in (
-                    'lang/python/python3/test.sh', 'net/atlas-sw-probe/files/atlas.init'):
-                # Only the local executable bit differed; follow upstream removal.
-                tree = self.replace(tree, path, self.entry(theirs, path))
+            elif (self.entry(theirs, path) is None and self.entry(base, path)
+                  and self.entry(ours, path)
+                  and self.entry(base, path).split()[2] == self.entry(ours, path).split()[2]):
+                # Preserve content changes; a local mode-only change need not revive
+                # a script which upstream removed or replaced.
+                tree = self.replace(tree, path, None)
+            elif path.endswith('mtk/applications/mtwifi-cfg/Makefile'):
+                content = self.git('show', tree + ':' + path).stdout.decode()
+                content = re.sub(r'^<<<<<<<[^\n]*\n(PKG_RELEASE:=3\n)=======\nPKG_RELEASE:=2\n>>>>>>>[^\n]*\n',
+                                 r'\1', content, flags=re.M)
+                if '<<<<<<<' in content:
+                    unresolved.append(path)
+                else:
+                    blob = self.git('hash-object', '-w', '--stdin', data=content.encode()).stdout.strip()
+                    tree = self.replace(tree, path, b'100644 blob ' + blob)
             elif label == 'feeds/packages' and path == 'lang/python/python-ubus/Makefile':
                 content = self.git('show', tree + ':' + path).stdout.decode()
                 content = re.sub(r'^<<<<<<<[^\n]*\n(PKG_BUILD_DEPENDS:=python3/host\n\n)=======\n>>>>>>>[^\n]*\n',
@@ -115,7 +128,8 @@ class Merger:
             else:
                 unresolved.append(path)
         if unresolved:
-            raise RuntimeError(label + ' merge conflicts (tree ' + tree + '):\n' + '\n'.join(unresolved))
+            self.conflicts.append({'component': label, 'tree': tree, 'paths': unresolved})
+            print(label + ' merge conflicts (tree ' + tree + '):\n' + '\n'.join(unresolved), flush=True)
         return tree
 
     def run(self, reference):
@@ -156,7 +170,8 @@ class Merger:
             tree = self.replace(tree, 'feeds/' + name, b'040000 tree ' + merged.encode())
             sources[name] = {'repository': url, 'branch': branch, 'base': old, 'commit': latest}
         return tree, {'kernel': '6.6.110', 'myos': self.text('rev-parse', reference),
-                      'merged_tree': tree, 'upstream': sources, 'retained_local_conflicts': self.retained}
+                      'merged_tree': tree, 'upstream': sources, 'retained_local_conflicts': self.retained,
+                      'conflicts': self.conflicts}
 
 
 def main():
@@ -172,10 +187,14 @@ def main():
     tree, record = merger.run(args.ref)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(record, indent=2) + '\n')
+    if record['conflicts']:
+        print(json.dumps(record['conflicts'], indent=2), flush=True)
+        return 1
     if not args.preview:
         merger.git('read-tree', '--reset', '-u', tree)
     print(json.dumps(record, indent=2), flush=True)
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
