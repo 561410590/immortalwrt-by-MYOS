@@ -3,6 +3,7 @@ from pathlib import Path
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -98,10 +99,23 @@ class Merger:
             if path in local_conflicts:
                 tree = self.replace(tree, path, self.entry(ours, path))
                 self.retained.append(label + ':' + path)
+            elif label == 'feeds/packages' and path in (
+                    'lang/python/python3/test.sh', 'net/atlas-sw-probe/files/atlas.init'):
+                # Only the local executable bit differed; follow upstream removal.
+                tree = self.replace(tree, path, self.entry(theirs, path))
+            elif label == 'feeds/packages' and path == 'lang/python/python-ubus/Makefile':
+                content = self.git('show', tree + ':' + path).stdout.decode()
+                content = re.sub(r'^<<<<<<<[^\n]*\n(PKG_BUILD_DEPENDS:=python3/host\n\n)=======\n>>>>>>>[^\n]*\n',
+                                 r'\1', content, flags=re.M)
+                if '<<<<<<<' in content:
+                    unresolved.append(path)
+                else:
+                    blob = self.git('hash-object', '-w', '--stdin', data=content.encode()).stdout.strip()
+                    tree = self.replace(tree, path, b'100644 blob ' + blob)
             else:
                 unresolved.append(path)
         if unresolved:
-            raise RuntimeError(label + ' merge conflicts:\n' + '\n'.join(unresolved))
+            raise RuntimeError(label + ' merge conflicts (tree ' + tree + '):\n' + '\n'.join(unresolved))
         return tree
 
     def run(self, reference):
