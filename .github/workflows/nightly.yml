@@ -90,6 +90,8 @@ jobs:
           path: source/.ccache
           key: compiler-v1-${{ matrix.branch }}-${{ hashFiles('source/.config', 'source/include/toolchain-build.mk', 'source/toolchain/**/Makefile') }}-${{ github.run_id }}
           restore-keys: compiler-v1-${{ matrix.branch }}-${{ hashFiles('source/.config', 'source/include/toolchain-build.mk', 'source/toolchain/**/Makefile') }}-
+      - name: Merge upstream userspace with kernel 6.6.110
+        run: python3 automation/.github/ci/upstream.py --source source --output logs/upstream.json
       - name: Prepare build inputs
         run: python3 automation/.github/ci/build.py prepare
       - name: Download sources

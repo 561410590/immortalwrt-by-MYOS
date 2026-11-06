@@ -116,7 +116,8 @@ def assemble(model):
     target = OUTPUT / ('MYOS-' + model + '-' + VERSION + '-6.6.110-sysupgrade.bin')
     shutil.copy2(firmware, target)
     return {'model': model, 'version': VERSION, 'date': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            'source': os.environ['SOURCE_COMMIT'], 'branch': BRANCH, 'asset': target.name}
+            'source': os.environ['SOURCE_COMMIT'], 'branch': BRANCH, 'asset': target.name,
+            'upstream': json.loads((LOGS / 'upstream.json').read_text())}
 
 def main():
     stage = sys.argv[1] if len(sys.argv) > 1 else 'all'
