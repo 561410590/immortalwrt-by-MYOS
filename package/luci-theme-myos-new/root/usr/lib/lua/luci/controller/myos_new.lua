@@ -10,6 +10,9 @@ function index()
     entry({"admin", "myos", "sim_names"}, call("sim_names")).leaf = true
     entry({"admin", "myos", "modem_refresh"}, call("modem_refresh")).leaf = true
     entry({"admin", "myos", "notices"}, call("notices")).leaf = true
+    entry({"admin", "myos", "theme_update"}, call("theme_update")).leaf = true
+    entry({"admin", "myos", "theme_install"}, post("theme_install")).leaf = true
+    entry({"admin", "myos", "theme_install_status"}, call("theme_install_status")).leaf = true
     entry({"admin", "myos", "unlock"}, post("unlock_plugins")).leaf = true
 end
 
@@ -17,10 +20,12 @@ local function device_profile(board)
     local identity = ((board.model or "") .. " " .. (board.board_name or "")):lower():gsub("[^%w]", "")
     if identity:find("n5000") then return "n5000"
     elseif identity:find("ultra") then return "c2000ultra"
-    elseif identity:find("c2000max") or identity:find("hcmt7987") then return "c2000max"
+    elseif identity:find("c2000max") then return "c2000max"
+    elseif identity:find("hcmt7987snsd") then return "c2000ultra"
+    elseif identity:find("hcmt7987") then return "c2000max"
     elseif identity:find("nbcpe") or identity:find("nb68") then return "nbcpe688"
     elseif identity:find("c8688") or identity:find("hcmt7981688") then return "c8688"
-    elseif identity:find("c5800") then return "c5800688" end
+    elseif identity:find("c5800") or (board.board_name or ""):lower()=="hcmt7981-emmc" then return "c5800688" end
     return "generic"
 end
 
@@ -288,18 +293,18 @@ function modem_refresh()
                 end
             end
             if not next(result.signals) and not next(result.errors) then result.errors.service="未获取模组信号" end
-        elseif device_profile(board)=="c5800688" then
+        elseif profile=="c5800688" then
             result.signals={}
-            local secondary=require "c5800_secondary"
+            local has_secondary,secondary=pcall(require,"c5800_secondary")
             local function signal_record(s)
-                local radio=secondary.carriers(s)
+                local radio=has_secondary and type(secondary.carriers)=="function" and secondary.carriers(s)
                 local operators={["46000"]="中国移动",["46002"]="中国移动",["46007"]="中国移动",["46008"]="中国移动",
                     ["46001"]="中国联通",["46006"]="中国联通",["46009"]="中国联通",
                     ["46003"]="中国电信",["46005"]="中国电信",["46011"]="中国电信",["46015"]="中国广电"}
                 return {operator=operators[tostring(s.isp)] or s.isp_company or s.isp or "",
-                    rat=s.mode or "",band=s.band or "",band_summary=radio.bands,band_detail=radio.detail,
-                    carriers=radio.carriers,carrier_count=radio.count,
-                    carrier_aggregation=radio.count>1 and (radio.count.."CC · "..radio.bands) or "未聚合",
+                    rat=s.mode or "",band=s.band or "",band_summary=radio and radio.bands,band_detail=radio and radio.detail or s.band_detail,
+                    carriers=radio and radio.carriers,carrier_count=radio and radio.count,
+                    carrier_aggregation=radio and (radio.count>1 and (radio.count.."CC · "..radio.bands) or "未聚合") or s.carrier_aggregation,
                     sim=s.simno or "",sim_label=s.sim_label or "",sim_name=s.sim_name or "",
                     sim_id=sim_name_cache(s.iccid) and tostring(s.iccid) or "",sim_name_status="",
                     pin=s.CPIN or "",apn=s.apn or "",pci=s.pci or "",cell=s.cell or s.cellid or "",
@@ -338,26 +343,31 @@ function modem_refresh()
             else
                 result.errors.cpe="内置5G未返回有效信号"
             end
-            if uci:get("network","cpe1","disabled")=="0" and uci:get("network","cpe1","mode")=="odu" then
+            if has_secondary and type(secondary.request)=="function" and
+                uci:get("network","cpe1","disabled")=="0" and uci:get("network","cpe1","mode")=="odu" then
                 local reply,err=secondary.request("signal",{})
                 if reply and type(reply.result)=="table" then
                     result.signals.cpe1=signal_record(reply.result)
                     result.refreshed[#result.refreshed+1]="cpe1"
                 else result.errors.cpe1=err or "副设备信号暂不可用" end
             end
-        elseif device_profile(board)=="c2000max" then
+        elseif profile=="c2000max" or profile=="c2000ultra" then
             uci:foreach("qmodem","modem-device",function(s)
                 if s.state=="enabled" then
                     local ok,data=pcall(bus.call,bus,"qmodem","info",{config_section=s[".name"]})
                     if ok and type(data)=="table" then
                         result.refreshed[#result.refreshed+1]=s[".name"]
                     else result.errors[s[".name"]]="模组信息暂不可用" end
-                    local read,sim=pcall(bus.call,bus,"qmodem","sim_info",{config_section=s[".name"]})
-                    if not read or type(sim)~="table" then result.errors[s[".name"]]="SIM 信息暂不可用" end
+                    if profile=="c2000max" then
+                        local read,sim=pcall(bus.call,bus,"qmodem","sim_info",{config_section=s[".name"]})
+                        if not read or type(sim)~="table" then result.errors[s[".name"]]="SIM 信息暂不可用" end
+                    end
                 end
             end)
-            local state=json.parse(sys.exec("/etc/init.d/c2000max-sim-select status_json 2>/dev/null")) or {}
-            result.sim={modem=state.modem,actual=state.actual,target=state.target,cpin=state.cpin}
+            if profile=="c2000max" then
+                local state=json.parse(sys.exec("/etc/init.d/c2000max-sim-select status_json 2>/dev/null")) or {}
+                result.sim={modem=state.modem,actual=state.actual,target=state.target,cpin=state.cpin}
+            end
         end
         bus:close()
     else
@@ -441,6 +451,104 @@ local function output(value)
     luci.http.header("Cache-Control","no-store")
     luci.http.write_json(value)
 end
+
+local theme_server = "https://mayebano.shop:8443/myos/"
+local theme_name = "luci-theme-myos-new"
+local theme_job_dir = "/tmp/myos-theme-update."
+
+local function installed_theme()
+    local sys = require "luci.sys"
+    local installed = sys.exec("opkg status luci-theme-myos-new 2>/dev/null") or ""
+    if installed:match("\nStatus: [^\n]* installed\n") then
+        return installed:match("\nVersion: (%S+)")
+    end
+end
+
+local function theme_curl()
+    local ca = "/usr/share/myos-new/update-ca.pem"
+    if not require("nixio.fs").access(ca) then ca = "/usr/share/myos-update/ca.pem" end
+    return "curl -sS --proto =https --tlsv1.2 --cacert " .. ca .. " --connect-timeout 5"
+end
+
+local function theme_update_info()
+    local sys, json, util = require "luci.sys", require "luci.jsonc", require "luci.util"
+    local current = installed_theme()
+    if not current then return {error="无法读取已安装的主题版本"} end
+
+    local response = sys.exec(theme_curl() .. " --max-time 12 --max-filesize 65536 -w '\\n%{http_code}' " ..
+        theme_server .. "theme/latest.json 2>/dev/null && printf '\\nOK'") or ""
+    local body, status = response:match("^(.*)\n(%d%d%d)\nOK$")
+    if status == "404" then
+        return {error="服务器尚未发布主题更新索引"}
+    elseif status ~= "200" then
+        return {error="无法读取服务器主题更新索引"}
+    end
+
+    local manifest = json.parse(body)
+    local latest = type(manifest) == "table" and manifest.version
+    if type(latest) ~= "string" or not latest:match("^%d[%w%.%+%~%:%-]*$") or manifest.package ~= theme_name then
+        return {error="服务器主题更新索引无效"}
+    end
+
+    local url = theme_server .. "files/" .. theme_name .. "_" .. latest .. "_all.ipk"
+    if manifest.url ~= url then return {error="服务器主题 IPK 地址无效"} end
+    local newer = sys.call("opkg compare-versions " .. util.shellquote(latest) ..
+        " '>>' " .. util.shellquote(current) .. " >/dev/null 2>&1") == 0
+    return {current=current, latest=latest, available=newer, url=url, size=tonumber(manifest.size)}
+end
+
+function theme_update()
+    output(theme_update_info())
+end
+
+function theme_install()
+    local info = theme_update_info()
+    if info.error or not info.available then
+        return output({error=info.error or "当前主题无需更新"})
+    end
+
+    local sys, util = require "luci.sys", require "luci.util"
+    local dir = (sys.exec("mktemp -d " .. theme_job_dir .. "XXXXXX") or ""):match("^(%S+)")
+    local job = dir and dir:match("^/tmp/myos%-theme%-update%.(%w+)$")
+    if not job then return output({error="无法创建主题安装任务"}) end
+
+    local quote = util.shellquote
+    local ipk = quote(dir .. "/theme.ipk")
+    local flock = require("nixio.fs").access("/usr/bin/util-linux-flock") and "/usr/bin/util-linux-flock" or "flock"
+    local command = theme_curl() .. " --fail --max-time 1800 --output " .. ipk .. " " .. quote(info.url) ..
+        " && { touch " .. quote(dir .. "/installing") .. "; opkg install " .. ipk .. "; }"
+    sys.call("(if " .. flock .. " -n 9; then " .. command .. "; result=$?; " ..
+        "else printf '%s\\n' '已有主题安装任务'; result=1; fi; rm -f " .. ipk ..
+        "; printf '%s\\n' \"$result\" > " .. quote(dir .. "/exit") ..
+        ") 9>/tmp/myos-theme-install.lock </dev/null >" .. quote(dir .. "/log") ..
+        " 2>&1 & printf '%s\\n' \"$!\" > " .. quote(dir .. "/pid"))
+    output({job=job, latest=info.latest, size=info.size})
+end
+
+function theme_install_status()
+    local job = luci.http.formvalue("job") or ""
+    local fs = require "nixio.fs"
+    local dir = theme_job_dir .. job
+    if not job:match("^%w%w%w%w%w%w$") or not fs.access(dir) then
+        return output({done=true, error="主题安装任务不存在"})
+    end
+
+    local code = tonumber(fs.readfile(dir .. "/exit") or "")
+    if not code then
+        local pid = (fs.readfile(dir .. "/pid") or ""):match("^(%d+)")
+        if not pid or not fs.access("/proc/" .. pid .. "/stat") then
+            return output({done=true, error="主题安装任务已中断"})
+        end
+        return output({done=false, installing=fs.access(dir .. "/installing") or false,
+            downloaded=fs.stat(dir .. "/theme.ipk", "size") or 0})
+    end
+    if code ~= 0 then
+        local log = (fs.readfile(dir .. "/log") or ""):gsub("%s+$", "")
+        return output({done=true, error="主题安装失败" .. (log ~= "" and ("：" .. log:sub(-480)) or "")})
+    end
+    output({done=true, version=installed_theme()})
+end
+
 local function merge_fast(full,fast)
     full.ts=fast.ts;full.sample=fast.sample;full.cpu=fast.cpu;full.boot=fast.boot
     full.system=full.system or {}
@@ -532,6 +640,7 @@ function snapshot()
     local interfaces = call("network.interface", "dump").interface or {}
     local devices = call("network.device", "status")
     local result = {board=board, profile=profile, product=pictures[profile], system=info,
+        theme_version=rd("/usr/lib/opkg/info/luci-theme-myos-new.control"):match("\nVersion: (%S+)"),
         ts=os.time(), sample=tonumber(rd("/proc/uptime"):match("^[%d.]+")), errors=errors,
         interfaces={}, ports={}, uplinks={}, wireless={}, clients={}, modems={}, temperatures={},
         mounts=stable and previous.mounts or (call("luci", "getMountPoints").result or {}),
@@ -689,6 +798,15 @@ function snapshot()
         end
     end
     table.sort(result.wireless,function(a,b) return a.name<b.name end)
+    if profile=="n5000" then
+        for mac,hint in pairs(call("luci-rpc","getHostHints")) do
+            local client=clients[mac:lower()]
+            if client then
+                client.name=client.name or hint.name
+                client.ip=client.ip or (hint.ipaddrs or {})[1]
+            end
+        end
+    end
     for _,c in pairs(clients) do append(result.clients,c) end
     table.sort(result.clients,function(a,b) return a.mac<b.mac end)
     local cpu_temp=tonumber(rd("/sys/class/thermal/thermal_zone0/temp"))
@@ -713,6 +831,11 @@ function snapshot()
             CPIN=native.simstatus,apn=native.apn,device=native.dev,qos=native.qos}}}
         stamp=native.cache_age and os.time()-native.cache_age or nil
     end
+    local carriers
+    if profile=="c5800688" then
+        local ok,secondary=pcall(require,"c5800_secondary")
+        if ok and type(secondary.carriers)=="function" then carriers=secondary.carriers end
+    end
     for _,entry in ipairs(entries) do
         local s=entry.status
         if type(s)=="table" and s.name then
@@ -722,7 +845,7 @@ function snapshot()
             local path=sim_name_cache(s.iccid)
             local cloud=path and cached(path) or {}
             if cloud.iccid==tostring(s.iccid) and cloud.name then sim_name=cloud.name end
-            local radio = profile=="c5800688" and require("c5800_secondary").carriers(s) or nil
+            local radio = carriers and carriers(s)
             append(result.modems,{id=s.name,label=s.name=="cpe1" and "副 5G" or "内置蜂窝",
                 qos=s.qos or perf.qos(s,"infocd cache"),model=s.model,firmware=s.revision,operator=operators[s.isp] or s.isp_company or s.isp,
                 rat=s.mode,band=s.band,band_detail=radio and radio.detail or s.band_detail,
@@ -739,6 +862,20 @@ function snapshot()
     if #result.modems==0 and profile~="n5000" then
         for _,record in ipairs(qmodem_cache_records()) do
             append(result.modems,qmodem_dashboard_record(record,profile,uci))
+        end
+    end
+    if profile=="c2000max" then
+        local addresses=require("nixio").getifaddrs() or {}
+        for _,modem in ipairs(result.modems) do
+            modem.ipv4,modem.ipv6={},{}
+            for _,address in ipairs(addresses) do
+                if address.name==modem.device and address.addr then
+                    if address.family=="inet" then append(modem.ipv4,{address=address.addr,mask=address.prefix})
+                    elseif address.family=="inet6" and not address.addr:lower():match("^fe[89ab]") then
+                        append(modem.ipv6,{address=address.addr,mask=address.prefix})
+                    end
+                end
+            end
         end
     end
     result.acceleration=read_acceleration()

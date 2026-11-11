@@ -11,6 +11,27 @@ EXTRA_HELP="	check_status Check running status of utils"
 
 restart_utils="true"
 
+save_ppe_count() {
+	local count autoload=/etc/modules.d/20-mediatek_hnat current next temp
+	[ -r /sys/module/mtkhnat/parameters/single_ppe ] || return 0
+	config_get count config fastpath_mh_eth_hnat_ppenum
+	case "$count" in 1|2) ;; *) return 0 ;; esac
+
+	current="$(cat "$autoload")" || return 1
+	next="$(printf '%s\n' "$current" | sed -E '/^mtkhnat([[:space:]]|$)/s/[[:space:]]+single_ppe=[^[:space:]]+//g')"
+	if [ "$count" = 1 ]; then
+		next="$(printf '%s\n' "$next" | sed -E '/^mtkhnat([[:space:]]|$)/s/$/ single_ppe=1/')"
+	fi
+	[ "$current" != "$next" ] || return 0
+
+	temp="$(mktemp /etc/modules.d/.20-mediatek_hnat.XXXXXX)" || return 1
+	if printf '%s\n' "$next" > "$temp" && chmod 0644 "$temp" && mv -f "$temp" "$autoload"; then
+		return 0
+	fi
+	rm -f "$temp"
+	return 1
+}
+
 inital_conf(){
 	config_load "turboacc"
 	config_get "hw_wed" "config" "hw_wed" "0"
@@ -61,6 +82,19 @@ unload_wed() {
 
 start(){
 	inital_conf
+	save_ppe_count || logger -t turboacc "Unable to save HNAT PPE count for next boot"
+
+	local hnat_path=/sys/kernel/debug/hnat eth_hnat ipv6_hnat bind_rate
+	if [ -e "$hnat_path/hook_toggle" ]; then
+		config_get_bool eth_hnat config fastpath_mh_eth_hnat 1
+		config_get_bool ipv6_hnat config fastpath_mh_eth_hnat_v6 1
+		config_get bind_rate config fastpath_mh_eth_hnat_bind_rate 30
+		echo "$eth_hnat" > "$hnat_path/hook_toggle"
+		if [ "$eth_hnat" = 1 ]; then
+			echo "8 $ipv6_hnat" > "$hnat_path/hnat_setting"
+			echo "11 $bind_rate" > "$hnat_path/hnat_setting"
+		fi
+	fi
 
 	uci set firewall.@defaults[0].flow_offloading="${sw_flow}"
 	uci set firewall.@defaults[0].flow_offloading_hw="${hw_flow}"
@@ -132,8 +166,7 @@ check_status(){
 		if [ "$(cat "/sys/module/nft_flow_offload/refcnt" 2>"/dev/null" || echo -1)" -gt "0" ]; then
 			msg="Flow Offloading"
 			exit_code=0
-		elif [ "$(cat "/sys/module/nft_flow_offload/refcnt" 2>"/dev/null")" -eq "0" ] && \
-		    [ -e /sys/kernel/debug/hnat/hnat_version ]; then
+		elif [ "$(cat /sys/kernel/debug/hnat/hook_toggle 2>/dev/null)" = enabled ]; then
 			msg="MediaTek HWNAT"
 			exit_code=0
 		elif [ -d /sys/kernel/debug/ecm/ecm_nss_ipv4 ]; then

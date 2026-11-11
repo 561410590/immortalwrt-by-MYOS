@@ -154,13 +154,29 @@ s=m.section(form.NamedSection,'config','turboacc');o=s.option(form.ListValue,'fa
 o.value('flow_offloading',_('Flow offloading'));if(features.hasFASTCLASSIFIER)
 o.value('fast_classifier',_('Fast classifier'));if(features.hasSHORTCUTFECM)
 o.value('shortcut_fe_cm',_('SFE connection manager'));if(features.hasMEDIATEKHNAT)
-o.value('mediatek_hnat',_('MediaTek HNAT'));o.default='disabled';o.rmempty=false;o.onchange=function(ev,section_id,value){var desc=ev.target.nextElementSibling;if(value==='flow_offloading')
+o.value('mediatek_hnat',_('MediaTek HNAT'));o.default=features.hasMEDIATEKHNAT?'mediatek_hnat':'disabled';o.rmempty=false;o.onchange=function(ev,section_id,value){var desc=ev.target.nextElementSibling;if(value==='flow_offloading')
 desc.innerHTML=_('Software based offloading for routing/NAT.');else if(value==='fast_classifier')
 desc.innerHTML=_('Fast classifier connection manager for the shortcut forwarding engine.');else if(value==='shortcut_fe_cm')
 desc.innerHTML=_('Simple connection manager for the shortcut forwarding engine.');else if(value==='mediatek_hnat')
 desc.innerHTML=_('MediaTek\'s open source hardware offloading engine.');else
 desc.innerHTML=_('The offloading engine for routing/NAT.');}
 o=s.option(form.Flag,'fastpath_fo_hw',_('Hardware flow offloading'),_('Requires hardware NAT support. Implemented at least for mt7621.'));o.default=o.disabled;o.rmempty=false;o.depends('fastpath','flow_offloading');o=s.option(form.Flag,'fastpath_fc_br',_('Bridge Acceleration'),_('Enable bridge acceleration (may be functional conflict with bridge-mode VPN server).'));o.default=o.disabled;o.rmempty=false;o.depends('fastpath','fast_classifier');if(features.hasIPV6){o=s.option(form.Flag,'fastpath_fc_ipv6',_('IPv6 acceleration'),_('Enable IPv6 Acceleration.'));o.default=o.disabled;o.rmempty=false;o.depends('fastpath','fast_classifier');}
-o=s.option(form.Flag,'fastpath_mh_eth_hnat',_('Enable ethernet HNAT'),_('Enable hardware offloading for wired connections.'));o.default=o.enabled;o.rmempty=false;o.depends('fastpath','mediatek_hnat');o=s.option(form.Flag,'fastpath_mh_eth_hnat_v6',_('Enable ethernet IPv6 HNAT'),_('Enable hardware offloading for wired IPv6 connections.'));o.default=o.enabled;o.rmempty=false;o.depends('fastpath_mh_eth_hnat','1');o=s.option(form.Value,'fastpath_mh_eth_hnat_bind_rate',_('HNAT bind rate threshold (pps)'),_('The smaller the threshold, the easier it is for the connection to be accelerated.'));o.optional=true;o.datatype='range(1,30)';o.placeholder=30;o.depends('fastpath_mh_eth_hnat','1');o=s.option(form.DummyValue,'_ppe_num',_('Number of HNAT PPE'));o.cfgvalue=function(){return ppe_stats.PPE_NUM||'—';};o=s.option(form.ListValue,'fullcone',_('Full cone NAT'),_('Full cone NAT (NAT1) can improve gaming performance effectively.'));o.value('0',_('Disable'))
-o.value('1',_('Broadcom Full Cone NAT'));o.default='1';o.rmempty=false;o.cfgvalue=function(section_id){var v=uci.get('turboacc',section_id,'fullcone');return(v==null||v==='')?this.default:(v==='0'?'0':'1');};o=s.option(form.ListValue,'tcpcca',_('TCP CCA'),_('TCP congestion control algorithm.'));for(var i of (features.hasTCPCCA||'').split(' ').sort())
-o.value(i);o.default='cubic';o.rmempty=false;return m.render();}});
+o=s.option(form.Flag,'fastpath_mh_eth_hnat',_('Enable ethernet HNAT'),_('Enable hardware offloading for wired connections.'));o.default=o.enabled;o.rmempty=false;o.depends('fastpath','mediatek_hnat');o=s.option(form.Flag,'fastpath_mh_eth_hnat_v6',_('Enable ethernet IPv6 HNAT'),_('Enable hardware offloading for wired IPv6 connections.'));o.default=o.enabled;o.rmempty=false;o.depends('fastpath_mh_eth_hnat','1');o=s.option(form.Value,'fastpath_mh_eth_hnat_bind_rate',_('HNAT bind rate threshold (pps)'),_('The smaller the threshold, the easier it is for the connection to be accelerated.'));o.optional=true;o.datatype='range(1,30)';o.placeholder=30;o.depends('fastpath_mh_eth_hnat','1');
+if(features.hasHNATPPELimit){
+ o=s.option(form.ListValue,'fastpath_mh_eth_hnat_ppenum',_('Number of HNAT PPE'),_('Apply this setting after reboot.'));
+ o.value('1');o.value('2');o.default='2';o.rmempty=false;o.depends('fastpath_mh_eth_hnat','1');
+}else{
+ o=s.option(form.DummyValue,'_ppe_num',_('Number of HNAT PPE'));
+ o.cfgvalue=function(){return ppe_stats.PPE_NUM||'—';};
+}
+o=s.option(form.ListValue,'fullcone',_('Full cone NAT'),_('Full cone NAT (NAT1) can improve gaming performance effectively.'));o.value('0',_('Disable'))
+o.value('1',_('Broadcom Full Cone NAT'));o.default='1';o.rmempty=false;
+o.cfgvalue=function(section_id){
+	var value=uci.get('turboacc',section_id,'fullcone');
+	if(value==null||value==='')value=uci.get('turboacc',section_id,'fullcone_nat');
+	return(value==null||value==='')?this.default:(value==='0'?'0':'1');
+};
+o=s.option(form.ListValue,'tcpcca',_('TCP CCA'),_('TCP congestion control algorithm.'));
+var algorithms=(features.hasTCPCCA||'').split(' ').filter(Boolean).sort();
+for(var algorithm of algorithms)o.value(algorithm);
+o.default=algorithms.includes('bbr')?'bbr':'cubic';o.rmempty=false;return m.render();}});

@@ -1,20 +1,43 @@
 #!/bin/sh /etc/rc.common
 # Copyright (C) 2018 Lean <coolsnowwolf@gmail.com>
 # Copyright (C) 2019-2022 Tianling Shen <cnsztl@immortalwrt.org>
-# C5800 adaptation of the MWRT TurboACC plugin for the MediaTek 6.6 driver.
+# NRadio adaptation of the MWRT TurboACC plugin for the MediaTek 6.6 driver.
 
 START=90
 STOP=10
 USE_PROCD=1
 
+save_ppe_count() {
+	local count autoload=/etc/modules.d/20-mediatek_hnat current next temp
+	[ -r /sys/module/mtkhnat/parameters/single_ppe ] || return 0
+	config_get count config fastpath_mh_eth_hnat_ppenum
+	case "$count" in 1|2) ;; *) return 0 ;; esac
+
+	current="$(cat "$autoload")" || return 1
+	next="$(printf '%s\n' "$current" | sed -E '/^mtkhnat([[:space:]]|$)/s/[[:space:]]+single_ppe=[^[:space:]]+//g')"
+	if [ "$count" = 1 ]; then
+		next="$(printf '%s\n' "$next" | sed -E '/^mtkhnat([[:space:]]|$)/s/$/ single_ppe=1/')"
+	fi
+	[ "$current" != "$next" ] || return 0
+
+	temp="$(mktemp /etc/modules.d/.20-mediatek_hnat.XXXXXX)" || return 1
+	if printf '%s\n' "$next" > "$temp" && chmod 0644 "$temp" && mv -f "$temp" "$autoload"; then
+		return 0
+	fi
+	rm -f "$temp"
+	return 1
+}
+
 start_service() {
 	config_load turboacc
+	save_ppe_count || logger -t turboacc "Unable to save HNAT PPE count for next boot"
 	local fastpath eth_hnat ipv6_hnat bind_rate fullcone tcpcca
 	config_get fastpath config fastpath mediatek_hnat
 	config_get_bool eth_hnat config fastpath_mh_eth_hnat 1
 	config_get_bool ipv6_hnat config fastpath_mh_eth_hnat_v6 1
 	config_get bind_rate config fastpath_mh_eth_hnat_bind_rate 30
-	config_get fullcone config fullcone 1
+	config_get fullcone config fullcone_nat 1
+	config_get fullcone config fullcone "$fullcone"
 	config_get tcpcca config tcpcca bbr
 
 	local hnat_path=/sys/kernel/debug/hnat

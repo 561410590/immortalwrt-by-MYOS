@@ -13,7 +13,7 @@ for branch, models in groups.items():
     if selected:
         sha = subprocess.check_output(['gh', 'api', 'repos/' + os.environ['GITHUB_REPOSITORY'] +
             '/commits/' + branch, '--jq', '.sha'], text=True).strip()
-        matrix.append({'branch': branch, 'sha': sha, 'models': selected})
+        matrix.extend({'branch': branch, 'sha': sha, 'model': model} for model in selected)
 stamp = datetime.datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y%m%d%H%M')
 settings = json.loads(Path('.github/ci/inputs.json').read_text())
 with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:

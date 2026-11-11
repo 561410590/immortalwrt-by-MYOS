@@ -68,3 +68,21 @@ msgstr "运行中"
 
 msgid "NOT RUNNING"
 msgstr "未运行"
+
+msgid "Enable ethernet HNAT"
+msgstr "启用以太网 HNAT"
+
+msgid "Enable ethernet IPv6 HNAT"
+msgstr "启用以太网 IPv6 HNAT"
+
+msgid "HNAT bind rate threshold (pps)"
+msgstr "HNAT 连接速率绑定阈值（pps）"
+
+msgid "Number of HNAT PPE"
+msgstr "HNAT PPE 数量"
+
+msgid "Apply this setting after reboot."
+msgstr "保存后重启生效。"
+
+msgid "HNAT PPE bindings"
+msgstr "HNAT PPE 已绑定连接数"

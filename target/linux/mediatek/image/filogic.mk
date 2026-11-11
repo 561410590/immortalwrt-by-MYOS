@@ -2517,8 +2517,9 @@ define Device/nradio_c5800-688
   BOARD_NAME := nradio_c5800-688
   SUPPORTED_DEVICES += HCMT7981-emmc
   DEVICE_PACKAGES := \
+	luci-app-qiyougamebooster luci-i18n-qiyougamebooster-zh-cn \
 	libip4tc libip6tc kmod-ipt-extra iptables-mod-extra \
-	kmod-mediatek_hnat \
+	kmod-mediatek_hnat luci-app-c5800-hnat \
 	mtk-smp luci-app-c5800-688-wtmodem mt5700-web-go luci-app-mt5700-web openvpn-openssl kmod-tun \
 	kmod-mt_wifi kmod-conninfra kmod-warp mtwifi-cfg luci-app-mtwifi-cfg \
 	kmod-wwan kmod-mhi-bus kmod-mhi-net kmod-mhi-pci-generic \
@@ -2563,13 +2564,14 @@ define Device/nradio_c8-688
   BOARD_NAME := HCMT7981-688-emmc
   SUPPORTED_DEVICES := HCMT7981-688-emmc
   DEVICE_PACKAGES := \
+	luci-app-qiyougamebooster luci-i18n-qiyougamebooster-zh-cn \
 	kmod-conninfra kmod-mediatek_hnat kmod-mt_wifi kmod-warp kmod-nft-fullcone \
 	wifi-dats wifi-profile mtwifi-cfg luci-app-mtwifi-cfg \
 	mtk-smp \
 	libustream-openssl ca-bundle ca-certificates coreutils-sha256sum block-mount blkid lsblk \
 	libip4tc libip6tc kmod-ipt-extra iptables-mod-extra \
 	losetup kmod-loop kmod-ifb kmod-fs-ext4 e2fsprogs \
-	luci-app-turboacc-mtk luci-i18n-turboacc-mtk-zh-cn mtkhqos_util \
+	luci-app-turboacc luci-i18n-turboacc-zh-cn mtkhqos_util \
 	adb usbutils usbids pciutils pciids usb-modeswitch \
 	uqmi umbim chat comgt comgt-directip comgt-ncm wwan \
 	python3-light luci-theme-myos-new luci-app-myos-system uhttpd uhttpd-mod-ubus \

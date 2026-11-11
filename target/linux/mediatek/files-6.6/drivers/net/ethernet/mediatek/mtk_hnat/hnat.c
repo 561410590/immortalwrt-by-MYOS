@@ -32,6 +32,9 @@ bool hnat_nbcpe_dsa;
 static struct socket *_hnat_roam_sock;
 static struct work_struct _hnat_roam_work;
 static DEFINE_MUTEX(hnat_hook_lock);
+static bool single_ppe;
+module_param(single_ppe, bool, 0444);
+MODULE_PARM_DESC(single_ppe, "Use only PPE0 when probing HNAT");
 
 int (*ra_sw_nat_hook_rx)(struct sk_buff *skb) = NULL;
 EXPORT_SYMBOL(ra_sw_nat_hook_rx);
@@ -868,6 +871,9 @@ static int hnat_probe(struct platform_device *pdev)
 		hnat_priv->ppe_num = 1;
 	else
 		hnat_priv->ppe_num = val;
+
+	if (single_ppe)
+		hnat_priv->ppe_num = 1;
 
 	dev_info(&pdev->dev, "ppe num = %d\n", hnat_priv->ppe_num);
 

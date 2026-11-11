@@ -21,9 +21,9 @@ try {
 } catch (_) {}
 document.querySelector('meta[name="theme-color"]').content = document.documentElement.dataset.appearance === 'dark' ? '#090a0c' : '#edf0f4';
 </script>
-<link rel="stylesheet" href="{{ media }}/style.css?v=20261104-liquid2">
+<link rel="stylesheet" href="{{ media }}/style.css?v=20261111-allmodels1">
 <link rel="stylesheet" href="{{ media }}/liquid.css?v=20261105-black-frost">
-<link rel="stylesheet" href="{{ media }}/refine.css?v=20261111-emil3-c5800">
+<link rel="stylesheet" href="{{ media }}/refine.css?v=20261111-c5800-login1">
 {% if (node?.css): %}<link rel="stylesheet" href="{{ resource }}/{{ node.css }}">{% endif %}
 {% if (css): %}<style>{{ css }}</style>{% endif %}
 <script src="{{ dispatcher.build_url('admin/translations', dispatcher.lang) }}"></script>

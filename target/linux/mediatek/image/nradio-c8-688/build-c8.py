@@ -11,7 +11,7 @@ import struct
 import subprocess
 import tarfile
 
-VERSION = '3.1.41-202611061200'
+VERSION = os.environ.get('MYOS_BUILD_VERSION', '3.1.41-202611061200')
 KERNEL = '6.6.113'
 BOARD = 'HCMT7981-688-emmc'
 

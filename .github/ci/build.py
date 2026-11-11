@@ -20,12 +20,16 @@ CONFIG_VERSION = re.search(r'^CONFIG_VERSION_NUMBER="[Vv]?(\d+\.\d+\.\d+)', (SOU
 VERSION = CONFIG_VERSION + '-' + os.environ['BUILD_STAMP']
 KERNEL = json.loads((LOGS / 'upstream.json').read_text())['kernel']
 BRANCH = os.environ['BRANCH']
-MODELS = os.environ['MODELS'].split(',')
+MODEL = os.environ['MODEL']
+MAKE_VERSION = VERSION if BRANCH == 'main' else 'V' + VERSION
+MAIN_PROFILES = {'C8-688': 'nradio_c8-688', 'C5800-688': 'nradio_c5800-688',
+                 'NBCPE-688': 'nradio_nbcpe-688'}
 LOGS.mkdir(exist_ok=True)
 OUTPUT.mkdir(exist_ok=True)
 os.environ['FORCE_UNSAFE_CONFIGURE'] = '1'
 os.environ['CCACHE_BASEDIR'] = str(SOURCE)
 os.environ['MWRT_REFERENCE'] = str(WORK / 'MWRT-reference.bin')
+os.environ['MYOS_BUILD_VERSION'] = VERSION
 
 def run(name, args, cwd=SOURCE):
     print(name + ': started', flush=True)
@@ -70,19 +74,17 @@ def prepare():
         run('private-overlay', ['git', 'apply', '--whitespace=nowarn', patch])
         (LOGS / 'private-overlay.log').unlink()
     shutil.rmtree(INPUTS)
-    # The original local entrypoints remain unchanged; only this cloud workspace
-    # receives the scheduled build version.
-    for relative in ('assemble-c5800.py', 'build-c5800.py', 'assemble-nbcpe.py', 'build-nbcpe.py',
-                     'nradio-c8-688/assemble-c8.py', 'nradio-c8-688/build-c8.py'):
-        path = IMAGE / relative
-        if path.is_file():
-            text = path.read_text()
-            text = re.sub(r"(?m)^((?:VERSION|version) = ['\"])(V?)\d+\.\d+\.\d+-\d+(['\"])",
-                          lambda m: m[1] + m[2] + VERSION + m[3], text)
-            path.write_text(text)
     config = SOURCE / '.config'
-    text = re.sub(r'(?m)^CONFIG_VERSION_NUMBER=.*$', 'CONFIG_VERSION_NUMBER="' + VERSION + '"', config.read_text())
+    text = re.sub(r'(?m)^CONFIG_VERSION_NUMBER=.*$', 'CONFIG_VERSION_NUMBER="' + MAKE_VERSION + '"', config.read_text())
     text = re.sub(r'(?m)^(?:# CONFIG_CCACHE is not set|CONFIG_CCACHE=.*)$', 'CONFIG_CCACHE=y', text)
+    if MODEL in MAIN_PROFILES:
+        text = re.sub(r'(?m)^(?:# )?CONFIG_TARGET_(?:mediatek_filogic_DEVICE_\S+|PROFILE=\S+).*\n', '', text)
+        text += f'CONFIG_TARGET_mediatek_filogic_DEVICE_{MAIN_PROFILES[MODEL]}=y\n'
+        for package in ('luci-app-turboacc', 'luci-i18n-turboacc-zh-cn', 'luci-app-c5800-hnat'):
+            symbol = 'CONFIG_PACKAGE_' + package
+            text = re.sub(rf'(?m)^(?:# )?{symbol}(?:=.*| is not set)\n', '', text)
+            wanted = (MODEL == 'C8-688') == (package != 'luci-app-c5800-hnat')
+            text += symbol + '=y\n' if wanted else '# ' + symbol + ' is not set\n'
     config.write_text(text)
     os.environ['FORCE_UNSAFE_CONFIGURE'] = '1'
     os.environ['CCACHE_BASEDIR'] = str(SOURCE)
@@ -94,11 +96,12 @@ def assemble(model):
     filename = f'MYOS-{model}-{VERSION}-{KERNEL}-sysupgrade.bin'
     if model == 'C8-688':
         run(model + '-assemble', ['python3', IMAGE / 'nradio-c8-688/assemble-c8.py', '--source', SOURCE, '--pack'])
-        run(model + '-pack', ['python3', IMAGE / 'nradio-c8-688/build-c8.py', '--source', SOURCE])
+        kernel_image = KDIR / ('linux-' + KERNEL) / 'arch/arm64/boot/Image'
+        run(model + '-pack', ['python3', IMAGE / 'nradio-c8-688/build-c8.py', '--source', SOURCE,
+                             '--kernel-image', kernel_image])
         root = IMAGE / ('nradio-c8-688/root-c8-myos-' + VERSION)
         firmware = SOURCE / 'bin/targets/mediatek/filogic' / filename
     elif model == 'C5800-688':
-        run(model + '-assemble', ['python3', IMAGE / 'assemble-c5800.py'])
         run(model + '-pack', ['python3', IMAGE / 'build-c5800.py', '--source', SOURCE])
         root = KDIR / 'root-c5800-myos'
         firmware = SOURCE / 'bin/targets/mediatek/filogic' / filename
@@ -133,18 +136,12 @@ def main():
                'kernel': 'target/linux/compile', 'packages': 'package/compile', 'compile': ''}
     if stage in targets or stage == 'all':
         target = targets.get(stage, '')
-        run(stage, ['make', *([target] if target else []), '-j' + str(os.cpu_count()), 'V=s', 'VERSION_NUMBER=' + VERSION])
+        run(stage, ['make', *([target] if target else []), '-j' + str(os.cpu_count()), 'V=s', 'VERSION_NUMBER=' + MAKE_VERSION])
     if stage not in ('assemble', 'all'):
         return 0
-    failed = False
-    for model in MODELS:
-        try:
-            record = assemble(model)
-            (OUTPUT / (model + '.json')).write_text(json.dumps(record) + '\n')
-        except Exception as error:
-            failed = True
-            print(model + ': ' + str(error), flush=True)
-    return 1 if failed else 0
+    record = assemble(MODEL)
+    (OUTPUT / (MODEL + '.json')).write_text(json.dumps(record) + '\n')
+    return 0
 
 if __name__ == '__main__':
     sys.exit(main())

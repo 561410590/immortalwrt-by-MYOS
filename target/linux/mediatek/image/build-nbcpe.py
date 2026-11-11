@@ -13,7 +13,7 @@ import subprocess
 import tarfile
 import zlib
 
-VERSION = '3.1.41-202611061200'
+VERSION = os.environ.get('MYOS_BUILD_VERSION', '3.1.41-202611061200')
 KERNEL = '6.6.113'
 BOARD = 'nradio_wt9111_No2-manper_NB68'
 COMPATIBLE = 'HCMT7981-emmc-NB68'

@@ -1,9 +1,9 @@
 {
-  "file": "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/bin/targets/mediatek/filogic/MYOS-C8-688-3.1.41-202611061200-6.6.113-sysupgrade.bin",
-  "bytes": 126095637,
-  "sha256": "7e40ae5c3efdc519f703af751e1fff935ceba58162e12f0716cefc12d47da997",
+  "file": "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/bin/targets/mediatek/filogic/MYOS-C8-688-3.1.41-202611112200-6.6.113-sysupgrade.bin",
+  "bytes": 134635797,
+  "sha256": "e7b98c1c8c5dd653b6ef81918ecd7d53ec9f1213435117999a2c2c823ed11c79",
   "kernel": "6.6.113",
-  "version": "3.1.41-202611061200",
+  "version": "3.1.41-202611112200",
   "board": "HCMT7981-688-emmc",
   "kernel_provenance": "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/arch/arm64/boot/Image",
   "live_device_validation": "pending"

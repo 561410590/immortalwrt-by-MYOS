@@ -2,8 +2,8 @@
  * once on drop. No framework, continuous animation, server write or UCI change. */
 (()=>{
  'use strict';
- const labels={product:'本机设备',resources:'系统资源',traffic:'实时流量',modems:'蜂窝网络',clients:'终端与连接',network:'网络接口',ports:'端口管理',wifi:'无线网络',topology:'逻辑连接概览',health:'状态巡检',management:'网络管理',events:'连接事件',controls:'布局与性能',version:'设备信息'};
- const defaults={overview:['product','resources'],main:['traffic','ports','clients','network'],side:['modems','wifi','topology','health','management'],bottom:['events','controls','version']};
+ const labels={product:'本机设备',resources:'系统资源',traffic:'实时流量',usage:'流量统计',modems:'蜂窝网络',clients:'终端与连接',network:'网络接口',ports:'端口管理',wifi:'无线网络',topology:'逻辑连接概览',health:'状态巡检',management:'网络管理',events:'连接事件',controls:'布局与性能',version:'设备信息'};
+ const defaults={overview:['product','resources'],main:['traffic','ports','clients','network','usage'],side:['modems','wifi','topology','health','management'],bottom:['events','controls','version']};
  const legacyDefaults={overview:['product','resources'],main:['traffic','ports','clients','network'],side:['modems','wifi','topology','health','management','events','controls'],bottom:['version']};
  const legacyN5000={overview:['product','resources'],main:['traffic','ports','clients','network','events'],side:['modems','wifi','topology','health','management'],bottom:['controls','version']};
  const defaultZones=()=>JSON.parse(JSON.stringify(defaults));
@@ -12,31 +12,75 @@
   let model=app.previous?.profile||'generic',key='myos-liquid-layout-v4:'+model,state={zones:defaultZones(model),hidden:[]},editing=false,drag=null,frame=0,dialog=null;
   const live=document.createElement('div');live.className='m-layout-live';live.setAttribute('role','status');live.setAttribute('aria-live','polite');root.append(live);
   const announce=s=>{live.textContent=s;};
+  const usage=parts.usage;
+  const narrow=matchMedia('(max-width:1000px)');
+  let usageFrame=0,observing=false;
+  const resize=typeof ResizeObserver==='function'?new ResizeObserver(scheduleUsage):null;
+
+  function columnHeight(column){
+   let height=0,count=0;
+   for(const card of column.children){
+    if(card===usage||card.hidden)continue;
+    height+=card.getBoundingClientRect().height;
+    count++;
+   }
+   const gap=parseFloat(getComputedStyle(column).rowGap)||0;
+   return height+Math.max(0,count-1)*gap;
+  }
+
+  function scheduleUsage(){
+   if(usageFrame||!usage||editing||state.usagePinned||usage.hidden||!root.isConnected)return;
+   usageFrame=requestAnimationFrame(()=>{
+    usageFrame=0;
+    if(editing||state.usagePinned||usage.hidden||!root.isConnected)return;
+    const target=narrow.matches||columnHeight(zones.main)<=columnHeight(zones.side)?zones.main:zones.side;
+    if(usage.parentElement===target&&!usage.nextElementSibling)return;
+    target.append(usage);
+    window.dispatchEvent(new Event('myos:layout'));
+   });
+  }
   function save(){try{localStorage.setItem(key,JSON.stringify(state));}catch(_){announce('当前浏览器不能保存，布局仅本次有效。');}}
   function load(){
    state={zones:defaultZones(model),hidden:[]};
    try{const data=JSON.parse(localStorage.getItem(key));if(data?.zones){
     const seen=new Set();Object.keys(zones).forEach(z=>{state.zones[z]=(Array.isArray(data.zones[z])?data.zones[z]:[]).filter(n=>Object.hasOwn(parts,n)&&!seen.has(n)&&seen.add(n));});
-    Object.entries(defaultZones(model)).forEach(([z,names])=>names.forEach(n=>{if(!seen.has(n))state.zones[z].push(n);}));
-
     const oldDefault=model==='n5000'?legacyN5000:legacyDefaults;
     if(Object.entries(oldDefault).every(([z,names])=>state.zones[z].join('|')===names.join('|'))||
        Object.entries(legacyDefaults).every(([z,names])=>state.zones[z].join('|')===names.join('|')))
      state.zones=defaultZones();
+    else
+     Object.entries(defaultZones()).forEach(([z,names])=>names.forEach(n=>{if(!seen.has(n))state.zones[z].push(n);}));
     state.hidden=(Array.isArray(data.hidden)?data.hidden:[]).filter(n=>Object.hasOwn(parts,n)&&n!=='controls');
+    state.usagePinned=data.usagePinned??(seen.has('usage')&&state.zones.main.at(-1)!=='usage');
    }}catch(_){}
   }
   const available=n=>!(n==='modems'&&model==='n5000'&&!app.previous?.modems?.length);
   function reconcile(d){
    if(d?.profile&&d.profile!==model){model=d.profile;key='myos-liquid-layout-v4:'+model;load();apply();return;}
    Object.keys(parts).forEach(n=>{parts[n].hidden=state.hidden.includes(n)||!available(n);});
+   if(!observing&&usage&&root.isConnected){
+    observing=true;
+    resize?.observe(root);
+    resize?.observe(zones.main);
+    resize?.observe(zones.side);
+    scheduleUsage();
+   }
   }
-  function apply(){root.classList.add('m-home-refined');Object.entries(state.zones).forEach(([z,names])=>names.forEach(n=>zones[z].append(parts[n])));reconcile();window.dispatchEvent(new Event('myos:layout'));}
-  function capture(){Object.entries(zones).forEach(([z,el])=>state.zones[z]=[...el.children].map(n=>n.dataset.card).filter(Boolean));save();}
-  function moveTo(n,zone,before){const part=parts[n],parent=zones[zone];if(!part||!parent||before===part)return;parent.insertBefore(part,before||null);capture();announce(labels[n]+'已移动');window.dispatchEvent(new Event('myos:layout'));}
+  function apply(){root.classList.add('m-home-refined');Object.entries(state.zones).forEach(([z,names])=>names.forEach(n=>zones[z].append(parts[n])));reconcile();scheduleUsage();window.dispatchEvent(new Event('myos:layout'));}
+  function capture(moved){
+   if(moved==='usage')state.usagePinned=true;
+   Object.entries(zones).forEach(([z,el])=>{
+    state.zones[z]=[...el.children].map(n=>n.dataset.card).filter(n=>n&&(n!=='usage'||state.usagePinned));
+   });
+   if(usage&&!state.usagePinned)state.zones.main.push('usage');
+   save();
+  }
+  function moveTo(n,zone,before){const part=parts[n],parent=zones[zone];if(!part||!parent||before===part)return;parent.insertBefore(part,before||null);capture(n);announce(labels[n]+'已移动');window.dispatchEvent(new Event('myos:layout'));}
   function adjacent(n,delta){const part=parts[n],siblings=[...part.parentNode.children].filter(p=>p.dataset.card&&!p.hidden),i=siblings.indexOf(part);
-   if(delta<0&&i>0)part.parentNode.insertBefore(part,siblings[i-1]);if(delta>0&&i<siblings.length-1)part.parentNode.insertBefore(part,siblings[i+1].nextSibling);
-   capture();announce(labels[n]+'顺序已调整');part.querySelector('.m-grab')?.focus();}
+   if(delta<0&&i>0)part.parentNode.insertBefore(part,siblings[i-1]);
+   else if(delta>0&&i<siblings.length-1)part.parentNode.insertBefore(part,siblings[i+1].nextSibling);
+   else return;
+   capture(n);announce(labels[n]+'顺序已调整');part.querySelector('.m-grab')?.focus();}
   function cross(n){moveTo(n,parts[n].parentNode===zones.main?'side':'main',null);parts[n].querySelector('.m-grab')?.focus();}
   function begin(e,n){if(!editing||e.button>0||drag)return;drag={n,button:e.currentTarget,id:e.pointerId,x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY,active:false,target:null,before:null};e.currentTarget.setPointerCapture(e.pointerId);e.preventDefault();}
   function move(e){if(!drag||e.pointerId!==drag.id)return;drag.x=e.clientX;drag.y=e.clientY;if(!drag.active&&Math.hypot(drag.x-drag.sx,drag.y-drag.sy)<5)return;
@@ -58,11 +102,11 @@
    grab.addEventListener('pointerdown',e=>begin(e,n));grab.addEventListener('pointermove',move);grab.addEventListener('pointerup',()=>end(false));grab.addEventListener('pointercancel',()=>end(true));grab.addEventListener('keydown',e=>{if(e.key==='Escape'){end(true);return;}if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();if(e.key==='ArrowUp'||e.key==='ArrowDown')adjacent(n,e.key==='ArrowUp'?-1:1);else cross(n);}});
    handle.append(grab);[['↑','上移',()=>adjacent(n,-1)],['↓','下移',()=>adjacent(n,1)],['⇄','移到另一栏',()=>cross(n)]].forEach(([text,label,fn])=>{const b=document.createElement('button');b.type='button';b.textContent=text;b.title=label;b.setAttribute('aria-label',labels[n]+label);b.addEventListener('click',fn);handle.append(b);});part.prepend(handle);
   });
-  function toggleEdit(){editing=!editing;root.classList.toggle('m-layout-editing',editing);app.editButton.textContent=editing?'完成布局':'编辑布局';app.editButton.setAttribute('aria-pressed',String(editing));if(!editing)end(true);announce(editing?'拖动手柄调整卡片；自动保存。':'布局已保存。');window.dispatchEvent(new Event('myos:layout'));}
+  function toggleEdit(){editing=!editing;root.classList.toggle('m-layout-editing',editing);app.editButton.textContent=editing?'完成布局':'编辑布局';app.editButton.setAttribute('aria-pressed',String(editing));if(!editing){end(true);scheduleUsage();}announce(editing?'拖动手柄调整卡片；自动保存。':'布局已保存。');window.dispatchEvent(new Event('myos:layout'));}
   function reset(){end(true);state={zones:defaultZones(model),hidden:[]};try{localStorage.removeItem(key);}catch(_){}apply();announce('已恢复默认布局。');}
   function picker(){dialog?.remove();dialog=document.createElement('dialog');dialog.className='m-client-dialog m-layout-dialog';const h=document.createElement('h2');h.textContent='添加 / 隐藏卡片';dialog.append(h);const text=document.createElement('p');text.textContent='仅列出本机适用的卡片。勾选后立即显示，不增加服务或修改网络。';dialog.append(text);
    Object.keys(parts).filter(n=>available(n)&&n!=='controls').forEach(n=>{const label=document.createElement('label');label.className='m-card-choice';const check=document.createElement('input');check.type='checkbox';check.checked=!state.hidden.includes(n);check.addEventListener('change',()=>{state.hidden=state.hidden.filter(v=>v!==n);if(!check.checked)state.hidden.push(n);reconcile();save();});label.append(check,document.createTextNode(labels[n]));dialog.append(label);});
    const done=document.createElement('button');done.type='button';done.className='m-pill-button';done.textContent='完成';const current=dialog;done.addEventListener('click',()=>current.close());current.append(done);current.addEventListener('close',()=>current.remove());document.body.append(current);current.showModal();}
-  load();apply();return {toggleEdit,reset,picker,reconcile,moveTo,adjacent,get state(){return state;},destroy(){end(true);dialog?.remove();}};
+  load();apply();return {toggleEdit,reset,picker,reconcile,moveTo,adjacent,get state(){return state;},destroy(){end(true);dialog?.remove();resize?.disconnect();observing=false;cancelAnimationFrame(usageFrame);usageFrame=0;}};
  };
 })();

@@ -18,7 +18,7 @@ kernel_dir = source / 'build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_f
 work = kernel_dir / 'root-c5800-myos'
 output = kernel_dir / 'root-c5800-myos.squashfs'
 host = source / 'staging_dir/host/bin'
-version = 'V3.1.41-202611061200'
+version = 'V' + os.environ.get('MYOS_BUILD_VERSION', '3.1.41-202611061200')
 kernel_version = '6.6.113'
 assert (assets / 'root.squashfs').is_file()
 assert (kernel_dir / ('linux-' + kernel_version) / 'vmlinux').is_file()
@@ -157,6 +157,7 @@ if control.is_file():
 selected = set(re.findall(r'^CONFIG_PACKAGE_([^=]+)=y$', (source / '.config').read_text(), re.M))
 required = {'kernel'} | {n for n in selected if n.startswith('kmod-')}
 required |= {'luci-theme-myos-new', 'luci-app-myos-system', 'default-settings',
+             'qiyougamebooster', 'luci-app-qiyougamebooster', 'luci-i18n-qiyougamebooster-zh-cn',
              'openvpn-openssl', 'kmod-tun', 'dnsmasq-full',
              'luci-app-c5800-hnat',
              'luci-app-store', 'taskd', 'luci-lib-taskd', 'luci-lib-xterm',
@@ -515,6 +516,8 @@ write('etc/config/system', system)
 for relative, target in (
     ('etc/rc.d/S19mwan3', '../init.d/mwan3'),
     ('etc/rc.d/S45istore', '../init.d/istore'),
+    ('etc/rc.d/S99qiyougamebooster', '../init.d/qiyougamebooster'),
+    ('etc/rc.d/K99qiyougamebooster', '../init.d/qiyougamebooster'),
     ('etc/rc.d/S99openclash', '../init.d/openclash'),
     ('etc/rc.d/K15openclash', '../init.d/openclash'),
     ('etc/rc.d/S99passwall', '../init.d/passwall'),

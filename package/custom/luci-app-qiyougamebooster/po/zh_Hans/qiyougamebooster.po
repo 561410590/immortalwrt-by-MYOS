@@ -1,0 +1,41 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Qiyou Game Booster"
+msgstr "奇游联机宝加速器"
+
+msgid "Play console games online with less lag and more stability."
+msgstr "降低主机游戏联机延迟，提升连接稳定性。"
+
+msgid "Supports PS, Switch, Xbox, PC, and mobile."
+msgstr "支持 PS、Switch、Xbox、电脑和手机。"
+
+msgid "Setup"
+msgstr "配置指引"
+
+msgid "Qiyou Game Booster setup"
+msgstr "奇游联机宝配置指引"
+
+msgid "NOT ENABLED"
+msgstr "未启用"
+
+msgid "CLOSED"
+msgstr "已关闭"
+
+msgid "BOOSTING"
+msgstr "加速中"
+
+msgid "RUNNING"
+msgstr "运行中"
+
+msgid "NOT SUPPORTED"
+msgstr "设备暂不支持"
+
+msgid "DOWNLOADING"
+msgstr "下载中"
+
+msgid "INSTALLING"
+msgstr "安装中"
+
+msgid "NOT RUNNING"
+msgstr "未运行"

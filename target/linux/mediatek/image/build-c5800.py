@@ -4,10 +4,11 @@ from pathlib import Path
 import argparse
 import io
 import json
+import os
 import subprocess
 import tarfile
 
-VERSION = '3.1.41-202611061200'
+VERSION = os.environ.get('MYOS_BUILD_VERSION', '3.1.41-202611061200')
 
 
 def main():

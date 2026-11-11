@@ -26,10 +26,16 @@ end
 
 function action_status()
 	local fastpath = fastpath_status()
+	local hnat_stats = nixio.fs.readfile("/sys/kernel/debug/hnat/hnat_stats") or ""
+	local ppe = {}
+	for key, value in hnat_stats:gmatch("([%w_]+)=(%d+)") do
+		ppe[key] = tonumber(value)
+	end
 	luci.http.prepare_content("application/json")
 	luci.http.write_json({
 		fastpath_state = fastpath ~= "",
 		fastpath_name = fastpath,
+		ppe = ppe,
 		fullconenat_state = fullconenat_status(),
 		bbr_state = bbr_status()
     })

@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import tarfile
 
-VERSION = '3.1.41-202611061200'
+VERSION = os.environ.get('MYOS_BUILD_VERSION', '3.1.41-202611061200')
 KERNEL = '6.6.113'
 BOARD = 'HCMT7981-emmc-NB68'
 
@@ -336,12 +336,13 @@ def main():
         'ucode', 'ucode-mod-fs', 'ucode-mod-ubus', 'ucode-mod-uci',
         'uci', 'libuci-lua', 'ubus', 'libubus-lua', 'netifd', 'procd', 'procd-ujail', 'ubox',
         'uhttpd', 'uhttpd-mod-ubus', 'firewall4', 'nftables-json',
+        'qiyougamebooster', 'luci-app-qiyougamebooster', 'luci-i18n-qiyougamebooster-zh-cn',
         'luci-app-firewall', 'luci-app-store', 'luci-app-package-manager', 'opkg', 'openwrt-keyring',
         'iptables-nft', 'ip6tables-nft', 'tc-full',
         'libip4tc2', 'libip6tc2', 'iptables-mod-extra',
         'mtwifi-cfg', 'luci-app-mtwifi-cfg', 'jq', 'bc', 'fstools', 'block-mount',
         'uclient-fetch', 'ca-bundle', 'curl', 'libcurl4', 'libnghttp2-14', 'mkf2fs', 'f2fsck',
-        'luci-theme-myos-new', 'luci-app-myos-system',
+        'luci-theme-myos-new', 'luci-app-myos-system', 'luci-app-c5800-hnat',
         'lua-cjson', 'lua-md5', 'lua-mosquitto', 'libmosquitto-nossl', 'mosquitto-nossl',
         'libcares', 'luci-lua-runtime',
     }
@@ -358,7 +359,8 @@ def main():
         'python-pip-conf', 'binutils', 'objdump', 'ar', 'libopcodes', 'libctf', 'libbfd',
     }
     kept_apps = {'luci-app-store', 'luci-app-ModemATSD', 'luci-app-package-manager',
-                 'luci-app-mtwifi-cfg', 'luci-app-firewall', 'luci-app-myos-system'}
+                 'luci-app-mtwifi-cfg', 'luci-app-firewall', 'luci-app-myos-system',
+                 'luci-app-c5800-hnat'}
     removed |= {name for name in records
                 if name.startswith('luci-app-') and name not in kept_apps}
     translated_apps = {'base', 'store', 'ModemATSD', 'mtwifi-cfg', 'firewall', 'package-manager', 'vantage'}
@@ -577,19 +579,15 @@ def main():
                 link.unlink()
     # Install current remote and reporting files after all bundled theme overlays.
     install_remote_access(source, work)
-    # Reuse the read-only MTK status API without replacing NBCPE acceleration settings.
-    hnat = source / 'package/luci-app-c5800-hnat/root'
-    for relative, mode in (('usr/libexec/rpcd/luci.turboacc', 0o755),
-                           ('usr/share/rpcd/acl.d/luci-app-turboacc.json', 0o644)):
-        copy(hnat / relative, work / relative)
-        (work / relative).chmod(mode)
+    # The stock preinit hook writes the old kernel's unsupported ppe_cnt parameter.
+    (work / 'lib/preinit/82_setup_ppenum').unlink(missing_ok=True)
     disabled_init = set(official_manifest['disabled_init'])
     for link in (work / 'etc/rc.d').iterdir():
         if link.is_symlink() and Path(os.readlink(link)).name in disabled_init:
             link.unlink()
-    for script in ('myos-nros-app', 'myos-nros-mqtt',
+    for script in ('qiyougamebooster', 'myos-nros-app', 'myos-nros-mqtt',
                    'myos-nbcpe-cache', 'myos-nbcpe-leds', 'myos-nbcpe-native',
-                   'myos-nbcpe-webui', 'myos-factory-wifi'):
+                   'myos-nbcpe-webui', 'myos-factory-wifi', 'turboacc'):
         target = work / ('etc/init.d/' + script)
         if target.exists():
             for key, prefix in (('START', 'S'), ('STOP', 'K')):

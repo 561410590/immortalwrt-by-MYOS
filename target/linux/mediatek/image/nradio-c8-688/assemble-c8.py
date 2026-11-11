@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import tarfile
 
-VERSION = '3.1.41-202611061200'
+VERSION = os.environ.get('MYOS_BUILD_VERSION', '3.1.41-202611061200')
 KERNEL = '6.6.113'
 BOARD = 'HCMT7981-688-emmc'
 REFERENCE_SHA256 = '4b8e62131bb5be2926273103e0d5dad030c8a72c7de847e3ce4407219a70b6a1'
@@ -162,6 +162,7 @@ def main():
     selected = set(re.findall(r'^CONFIG_PACKAGE_([^=]+)=y$', config, re.M))
     roots = {'kernel'} | {name for name in selected if name.startswith('kmod-')}
     roots |= {
+        'qiyougamebooster', 'luci-app-qiyougamebooster', 'luci-i18n-qiyougamebooster-zh-cn',
         'libip4tc2', 'libip6tc2', 'iptables-mod-extra',
         'base-files', 'busybox', 'libc', 'libgcc1', 'libpthread', 'dropbear',
         'luci-base', 'luci-lib-base', 'luci-compat', 'luci-mod-admin-full',
@@ -372,6 +373,7 @@ def main():
         'sysfixtime', 'urngd', 'boot', 'system', 'fstab', 'sysctl', 'log', 'rpcd',
         'openssl', 'dnsmasq', 'dropbear', 'firewall', 'wpad', 'network', 'usbmode',
         'odhcpd', 'istore', 'tasks', 'cron', 'uhttpd', 'ucitrack', 'turboacc',
+        'qiyougamebooster',
         'done', 'sysntpd', 'mtk_smp', 'urandom_seed',
         'myos-nros-app', 'myos-nros-mqtt',
         'myos-c8-identity', 'myos-c8-cellular', 'myos-c8-led', 'myos-c8-fan', 'myos-c8-factory-wifi',

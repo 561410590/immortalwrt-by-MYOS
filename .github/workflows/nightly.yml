@@ -37,7 +37,7 @@ jobs:
         run: python3 .github/ci/plan.py
 
   build:
-    name: Build ${{ matrix.branch }}
+    name: Build ${{ matrix.model }}
     needs: prepare
     runs-on: ubuntu-22.04
     timeout-minutes: 360
@@ -50,7 +50,7 @@ jobs:
       CCACHE_COMPRESS: '1'
       BUILD_STAMP: ${{ needs.prepare.outputs.stamp }}
       BRANCH: ${{ matrix.branch }}
-      MODELS: ${{ join(matrix.models, ',') }}
+      MODEL: ${{ matrix.model }}
       SOURCE_COMMIT: ${{ matrix.sha }}
     steps:
       - uses: actions/checkout@v4
@@ -75,16 +75,16 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: source/dl
-          key: dl-${{ matrix.branch }}-${{ matrix.sha }}-${{ github.run_id }}
+          key: dl-${{ matrix.branch }}-${{ matrix.model }}-${{ matrix.sha }}-${{ github.run_id }}
           restore-keys: dl-${{ matrix.branch }}-
       - name: Restore compiler cache
         id: compiler
         uses: actions/cache/restore@v4
         with:
           path: source/.ccache
-          key: compiler-v1-${{ matrix.branch }}-${{ hashFiles('source/.config', 'source/include/toolchain-build.mk', 'source/toolchain/**/Makefile') }}-${{ github.run_id }}
+          key: compiler-v1-${{ matrix.branch }}-${{ matrix.model }}-${{ hashFiles('source/.config', 'source/include/toolchain-build.mk', 'source/toolchain/**/Makefile') }}-${{ github.run_id }}
           restore-keys: |
-            compiler-v1-${{ matrix.branch }}-${{ hashFiles('source/.config', 'source/include/toolchain-build.mk', 'source/toolchain/**/Makefile') }}-
+            compiler-v1-${{ matrix.branch }}-${{ matrix.model }}-
             compiler-v1-${{ matrix.branch }}-
       - name: Merge upstream userspace
         run: python3 automation/.github/ci/upstream.py --source source --output logs/upstream.json
@@ -107,6 +107,7 @@ jobs:
       - name: Build packages
         run: python3 automation/.github/ci/build.py packages
       - name: Build firmware
+        if: matrix.model != 'C8-688' && matrix.model != 'NBCPE-688'
         run: python3 automation/.github/ci/build.py compile
       - name: Assemble models and read permissions
         run: python3 automation/.github/ci/build.py assemble
@@ -126,7 +127,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ matrix.branch }}
+          name: firmware-${{ matrix.model }}
           path: output/*
           if-no-files-found: ignore
           retention-days: 1
@@ -135,7 +136,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: logs-${{ matrix.branch }}
+          name: logs-${{ matrix.model }}
           path: logs/*
           if-no-files-found: ignore
           retention-days: 7

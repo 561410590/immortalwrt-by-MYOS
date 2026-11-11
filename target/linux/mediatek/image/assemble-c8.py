@@ -159,6 +159,7 @@ def main():
     selected = set(re.findall(r'^CONFIG_PACKAGE_([^=]+)=y$', config, re.M))
     roots = {'kernel'} | {name for name in selected if name.startswith('kmod-')}
     roots |= {
+        'qiyougamebooster', 'luci-app-qiyougamebooster', 'luci-i18n-qiyougamebooster-zh-cn',
         'libip4tc2', 'libip6tc2', 'iptables-mod-extra',
         'base-files', 'busybox', 'libc', 'libgcc1', 'libpthread', 'dropbear',
         'luci-base', 'luci-lib-base', 'luci-compat', 'luci-mod-admin-full',
@@ -354,6 +355,7 @@ def main():
         'sysfixtime', 'urngd', 'boot', 'system', 'fstab', 'sysctl', 'log', 'rpcd',
         'openssl', 'dnsmasq', 'dropbear', 'firewall', 'wpad', 'network', 'usbmode',
         'odhcpd', 'istore', 'tasks', 'cron', 'uhttpd', 'ucitrack', 'turboacc',
+        'qiyougamebooster',
         'done', 'sysntpd', 'mtk_smp', 'urandom_seed',
         'c2000max-wallpaper', 'myos-nros-app', 'myos-nros-mqtt',
         'myos-c8-identity', 'myos-c8-cellular', 'myos-c8-led', 'myos-c8-fan', 'myos-c8-factory-wifi',

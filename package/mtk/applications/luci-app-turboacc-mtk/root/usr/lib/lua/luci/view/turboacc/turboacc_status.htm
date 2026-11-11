@@ -25,6 +25,7 @@
 	<div class="myos-acc-row"><span class="myos-acc-label"><%:Flow Offloading%></span><span class="myos-acc-badge" id="_fastpath_state"><%:Collecting data...%></span></div>
 	<div class="myos-acc-row"><span class="myos-acc-label"><%:FullCone NAT%></span><span class="myos-acc-badge" id="_fullconenat_state"><%:Collecting data...%></span></div>
 	<div class="myos-acc-row"><span class="myos-acc-label"><%:BBR CCA%></span><span class="myos-acc-badge" id="_bbr_state"><%:Collecting data...%></span></div>
+	<div class="myos-acc-row" id="_ppe_status" hidden><span class="myos-acc-label"><%:HNAT PPE bindings%></span><span id="_ppe_counts"></span></div>
 </div>
 <script type="text/javascript">
 (function() {
@@ -40,6 +41,13 @@
 		setStatus('_fastpath_state', status.fastpath_state, status.fastpath_name);
 		setStatus('_fullconenat_state', status.fullconenat_state);
 		setStatus('_bbr_state', status.bbr_state);
+		var ppe = status.ppe || {}, counts = [];
+		for (var i = 0; i < (ppe.PPE_NUM || 0); i++) {
+			if (ppe['ALL_PPE' + i] != null && ppe['BIND_PPE' + i] != null)
+				counts.push('PPE ' + i + ' · ' + ppe['BIND_PPE' + i] + ' / ' + ppe['ALL_PPE' + i]);
+		}
+		document.getElementById('_ppe_counts').textContent = counts.join('　');
+		document.getElementById('_ppe_status').hidden = !counts.length;
 	});
 })();
 </script>

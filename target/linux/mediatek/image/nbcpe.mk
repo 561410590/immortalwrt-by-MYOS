@@ -37,7 +37,8 @@ define Device/nradio_nbcpe-688
   SUPPORTED_DEVICES := HCMT7981-emmc-NB68
   DEVICE_IMG_PREFIX := MYOS-NBCPE-688-$(NBCPE_VERSION)
   DEVICE_PACKAGES := \
-	kmod-gpio-button-hotplug kmod-leds-gpio kmod-mediatek_hnat mtk-smp \
+	luci-app-qiyougamebooster luci-i18n-qiyougamebooster-zh-cn \
+	kmod-gpio-button-hotplug kmod-leds-gpio kmod-mediatek_hnat luci-app-c5800-hnat mtk-smp \
 	kmod-mt_wifi kmod-conninfra kmod-warp mtwifi-cfg luci-app-mtwifi-cfg \
 	kmod-usb3 kmod-usb-xhci-mtk kmod-usb-acm \
 	kmod-usb-net-cdc-ether kmod-usb-net-cdc-ncm kmod-usb-net-cdc-mbim \

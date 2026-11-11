@@ -34,6 +34,16 @@ function handleDelRule(num, ev) {
 	callUpnpDeleteRule(num);
 }
 
+function formatExpiry(seconds) {
+	const pad = value => String(value).padStart(2, '0');
+	const hour = Math.floor(seconds / 3600);
+	const minute = Math.floor((seconds % 3600) / 60);
+	const second = Math.floor(seconds % 60);
+	if (hour > 0) return `${hour}h ${pad(minute)}m ${pad(second)}s`;
+	if (minute > 0) return `${minute}m ${pad(second)}s`;
+	return seconds > 0 ? `${second}s` : '';
+}
+
 return view.extend({
 	load: function() {
 		return Promise.all([
@@ -47,24 +57,13 @@ return view.extend({
 		var rules = Array.isArray(data[0].rules) ? data[0].rules : [];
 
 		var rows = rules.map(function(rule) {
-			const padnum = (num, length) => num.toString().padStart(length, "0");
-			const expires_sec = rule?.expires || 0;
-			const hour = Math.floor(expires_sec / 3600);
-			const minute = Math.floor((expires_sec % 3600) / 60);
-			const second = Math.floor(expires_sec % 60);
-			const expires_str =
-				hour > 0 ? `${hour}h ${padnum(minute, 2)}m ${padnum(second, 2)}s` :
-				minute > 0 ? `${minute}m ${padnum(second, 2)}s` :
-				expires_sec > 0 ? `${second}s` :
-				'';
-
 			return [
 				rule.host_hint || _('Unknown'),
 				rule.intaddr,
 				rule.intport,
 				rule.extport,
 				rule.proto,
-				expires_str,
+				formatExpiry(rule.expires || 0),
 				rule.descr,
 				E('button', {
 					'class': 'btn cbi-button-remove',
@@ -115,6 +114,7 @@ return view.extend({
 					rule.intport,
 					rule.extport,
 					rule.proto,
+					formatExpiry(rule.expires || 0),
 					rule.descr,
 					E('button', {
 						'class': 'btn cbi-button-remove',

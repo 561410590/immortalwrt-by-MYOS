@@ -10,6 +10,31 @@ s = m:section(TypedSection, "turboacc", "")
 s.addremove = false
 s.anonymous = true
 
+if nixio.fs.access("/lib/modules/" .. kernel_version .. "/mtkhnat.ko") then
+	local enabled = s:option(Flag, "fastpath_mh_eth_hnat", translate("Enable ethernet HNAT"))
+	enabled.default = "1"
+	enabled.rmempty = false
+
+	local ipv6 = s:option(Flag, "fastpath_mh_eth_hnat_v6", translate("Enable ethernet IPv6 HNAT"))
+	ipv6.default = "1"
+	ipv6.rmempty = false
+	ipv6:depends("fastpath_mh_eth_hnat", "1")
+
+	local rate = s:option(Value, "fastpath_mh_eth_hnat_bind_rate", translate("HNAT bind rate threshold (pps)"))
+	rate.default = "30"
+	rate.datatype = "range(1,30)"
+	rate:depends("fastpath_mh_eth_hnat", "1")
+
+	if nixio.fs.access("/sys/module/mtkhnat/parameters/single_ppe") then
+		local count = s:option(ListValue, "fastpath_mh_eth_hnat_ppenum", translate("Number of HNAT PPE"))
+		count:value("1")
+		count:value("2")
+		count.default = "2"
+		count.rmempty = false
+		count.description = translate("Apply this setting after reboot.")
+	end
+end
+
 -- nftables: nft_flow_offload is built-in mod
 if nixio.fs.access("/lib/modules/" .. kernel_version .. "/nft_flow_offload.ko") then
 sw_flow = s:option(Flag, "sw_flow", translate("Software flow offloading"))
