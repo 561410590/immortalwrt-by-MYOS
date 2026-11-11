@@ -2,7 +2,8 @@
  'use strict';
  const root=document.documentElement, sidebar=document.querySelector('#m-sidebar'), nav=document.querySelector('#m-menu');
  const button=document.querySelector('#m-menu-toggle'),scrim=document.querySelector('#m-scrim');
- const narrow=matchMedia('(max-width:760px)'),reduce=matchMedia('(prefers-reduced-motion:reduce)');
+ const narrow=matchMedia('(max-width:1024px), (max-width:1200px) and (pointer:coarse)');
+ const reduce=matchMedia('(prefers-reduced-motion:reduce)');
 
  try { const appearance=localStorage.getItem('myos-new-appearance');if(appearance==='light'||appearance==='dark')root.dataset.appearance=appearance; } catch (_) {}
  const appearanceButton=document.querySelector('#m-appearance');

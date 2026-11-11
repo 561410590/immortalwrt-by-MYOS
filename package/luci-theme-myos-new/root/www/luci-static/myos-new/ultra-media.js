@@ -34,6 +34,7 @@
   const play=video.play();if(play?.catch)play.catch(()=>{});
  }
  video.addEventListener('loadeddata',sync);
+ if(login)video.addEventListener('playing',()=>host.classList.add('m-video-ready'),{once:true});
  video.addEventListener('error',()=>{host.remove();body.classList.remove(backgroundClass);});
  document.addEventListener('visibilitychange',sync);
  document.addEventListener('pointerdown',sync,{once:true,passive:true});
