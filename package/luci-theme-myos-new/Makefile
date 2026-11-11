@@ -1,8 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-theme-myos-new
-PKG_VERSION:=1.2.2
-PKG_RELEASE:=14.20261107.allmodels
+PKG_VERSION:=1.2.3
+PKG_RELEASE:=4
 PKG_LICENSE:=Apache-2.0
 PKGARCH:=all
 
@@ -13,7 +13,7 @@ define Package/luci-theme-myos-new
   CATEGORY:=LuCI
   SUBMENU:=Themes
   TITLE:=MYOS-NEW universal device console
-  DEPENDS:=+luci-base +luci-compat +rpcd-mod-luci +curl
+  DEPENDS:=+luci-base +luci-compat +rpcd-mod-luci +curl +flock
   PKGARCH:=all
 endef
 
@@ -46,6 +46,8 @@ define Package/luci-theme-myos-new/install
 	$(INSTALL_DATA) ./root/usr/lib/lua/luci/controller/myos_new.lua $(1)/usr/lib/lua/luci/controller/
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/model
 	$(INSTALL_DATA) ./root/usr/lib/lua/luci/model/myos_liquid.lua $(1)/usr/lib/lua/luci/model/
+	$(INSTALL_DIR) $(1)/usr/share/myos-new
+	$(INSTALL_DATA) ./root/usr/share/myos-new/update-ca.pem $(1)/usr/share/myos-new/update-ca.pem
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) ./root/etc/uci-defaults/99-myos-new $(1)/etc/uci-defaults/
 endef

@@ -30,6 +30,12 @@
 *{box-sizing:border-box}body{margin:0;color:var(--m-text);background:var(--m-bg)}a{color:var(--m-blue);text-decoration:none}
 body.myos-new{background-image:var(--m-wallpaper);background-attachment:fixed;background-size:cover}
 body.myos-new.m-custom-background{background-image:linear-gradient(rgba(5,10,20,var(--m-background-dim,.45)),rgba(5,10,20,var(--m-background-dim,.45))),var(--m-custom-wallpaper);background-position:center;background-repeat:no-repeat}
+body.myos-new.m-custom-video{background-image:none}
+.myos-new.m-custom-video :is(.m-workspace,.m-login){position:relative;z-index:1}
+.m-custom-video-backdrop{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none}
+.m-custom-video-backdrop video,.m-background-preview video{display:block;width:100%;height:100%;object-fit:cover}
+.m-custom-video-backdrop:after,.m-background-preview-video:after{content:"";position:absolute;inset:0;background:rgba(5,10,20,var(--m-background-dim,.45));pointer-events:none}
+.m-background-preview-video{position:relative;overflow:hidden}
 .m-background-dialog{width:min(460px,calc(100vw - 28px));max-height:calc(100dvh - 32px);overflow:auto;border:1px solid var(--m-edge);border-radius:22px;padding:24px;background:var(--m-float);color:var(--m-text);box-shadow:var(--m-shadow);backdrop-filter:blur(32px) saturate(170%);-webkit-backdrop-filter:blur(32px) saturate(170%)}
 .m-background-dialog::backdrop{background:#050a1466;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
 .m-background-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.m-background-heading h2{margin:0;font-size:1.2rem}.m-background-dialog p{font-size:.75rem}.m-background-preview{height:170px;border-radius:14px;border:1px solid var(--m-line);background-color:var(--m-bg);background-image:var(--m-wallpaper);background-size:cover;background-position:center}
@@ -167,6 +173,11 @@ body.myos-new .qsw-root,body.myos-new .qsw-root[data-qsw-scheme],body.myos-new.q
 .myos-new .cbi-tooltip-container:hover>.cbi-tooltip:not(:empty),.myos-new .cbi-tooltip-container:focus-within>.cbi-tooltip:not(:empty){visibility:visible;opacity:1}
 .myos-new .zonebadge{display:inline-flex;align-items:center;gap:5px;border-radius:6px;padding:4px 8px;border:1px solid var(--m-line)}.myos-new .zone-forwards{display:flex;align-items:center;gap:10px}
 .myos-new [data-name="_ifacebox"]{width:230px}.myos-new [data-name="_ifacestat"]{line-height:1.7}
+.myos-new .network-status-table{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:12px}
+.myos-new .network-status-table .ifacebox{width:auto;min-width:0;max-width:none;text-align:left}
+.myos-new .network-status-table .ifacebox-body{line-height:1.75;overflow-wrap:anywhere}
+.myos-new .network-status-table .ifacebadge{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+@media(max-width:760px){.myos-new .network-status-table{grid-template-columns:minmax(0,1fr)}}
 /* TurboACC ships global light CSS; the active theme owns these surfaces. */
 body.myos-new{background-color:var(--m-bg);color:var(--m-text);font-family:inherit}
 .myos-new fieldset.cbi-section{background:var(--m-glass);border-radius:16px;box-shadow:var(--m-shadow);padding:22px;animation:none}
@@ -285,6 +296,43 @@ iframe{max-width:100%;border:0}#view{min-width:0}.spinning{padding:22px;color:va
 .myos-new #tab.oc .radio-button label{border-radius:8px}
 .myos-new .oc .select-popup-footer.log-footer{width:100%;margin:14px 0 0;padding:12px;background:var(--m-inset);border:1px solid var(--m-line);border-radius:12px;gap:10px}
 .myos-new .oc .log-footer .footer-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;margin:0;min-height:42px;max-width:none;flex:1 1 150px;background:var(--m-inset);color:var(--m-text);border-color:var(--m-line);box-shadow:inset 0 1px 0 var(--m-edge)}
+/* NBCPE ATSD pages share MYOS-NEW colors, including the legacy CBI form. */
+body.myos-new :is(.nb-cellular,.nb-cellular-menu,.nb-cellular-form){
+ --text:var(--m-text);--text-secondary:var(--m-muted);--text-muted:var(--m-muted);
+ --surface:var(--m-glass);--surface-soft:var(--m-inset);--border:var(--m-line);--border-soft:var(--m-line);
+ --hover:var(--m-blue-soft);--track:var(--m-line);--accent:var(--m-blue);--accent-soft:var(--m-blue-soft);
+ --accent-hover:var(--m-blue);--on-accent:var(--m-bg);--danger:var(--m-red);--warning:var(--m-orange);
+ --success:var(--m-green);--icon-signal:var(--m-green);--icon-signal-soft:color-mix(in srgb,var(--m-green) 12%,transparent);
+ --ring:var(--m-blue);--shadow:var(--m-shadow);--font-sans:inherit;
+ color:var(--m-text)
+}
+.myos-new .nb-card,.myos-new .nb-cellular-form>.cbi-section{
+ background:linear-gradient(135deg,var(--m-sheen),transparent 65%),var(--m-glass);
+ border:1px solid var(--m-edge);box-shadow:var(--m-shadow);
+ backdrop-filter:blur(30px) saturate(160%);-webkit-backdrop-filter:blur(30px) saturate(160%)
+}
+.myos-new .nb-cellular :is(h2,h3),.myos-new .nb-cellular-form :is(h2,h3,.cbi-value-title){color:var(--m-text)}
+.myos-new .nb-cellular .nb-button{background:var(--m-inset);color:var(--m-text);border-color:var(--m-line)}
+.myos-new .nb-cellular .nb-button:hover{background:var(--m-blue-soft)}
+.myos-new .nb-cellular .nb-primary{background:var(--m-blue);color:var(--m-bg);border-color:var(--m-blue)}
+.myos-new .nb-cellular .nb-danger{color:var(--m-red)}
+.myos-new .nb-tool .nb-input{background:var(--m-inset);color:var(--m-text);border-color:var(--m-line)}
+.myos-new .nb-cellular-form .cbi-tabmenu .cbi-tab a{color:var(--m-blue)}
+.myos-new .nb-cellular-heading{margin-bottom:18px;gap:12px}
+.myos-new .nb-cellular h2{font-size:26px}
+.myos-new .nb-card{padding:20px}
+.myos-new .nb-grid{gap:16px;margin-bottom:16px}
+.myos-new .nb-overview{margin-bottom:16px}
+.myos-new .nb-metrics strong{font-size:26px}
+.myos-new .nb-details dd{flex:1}
+@media(max-width:760px){
+ .myos-new .nb-grid{grid-template-columns:minmax(0,1fr)}
+ .myos-new .nb-card{padding:16px}
+ .myos-new .nb-cellular-form .cbi-tabmenu li a{padding:8px 10px;white-space:normal}
+}
+@media(prefers-reduced-transparency:reduce),(prefers-contrast:more){
+ .myos-new .nb-card,.myos-new .nb-cellular-form>.cbi-section{background:var(--m-surface);backdrop-filter:none;-webkit-backdrop-filter:none}
+}
 /* Notifications share one non-modal, top-right material layer. */
 #m-notices{position:fixed;top:80px;right:20px;z-index:900;width:370px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 100px);overflow:auto;scrollbar-width:thin;display:flex;flex-direction:column;gap:12px;padding:4px 4px 20px;pointer-events:none}
 #m-notices:empty{display:none}

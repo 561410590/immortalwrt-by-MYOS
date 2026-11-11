@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
 
 LUCI_NAME:=luci-app-turboacc
 PKG_VERSION:=1.4
-PKG_RELEASE:=6.20261030.n5000
+PKG_RELEASE:=7.20261111.n5000
 PKG_LICENSE:=GPL-3.0-only
 
 LUCI_TITLE:=LuCI support for original MTK TurboACC

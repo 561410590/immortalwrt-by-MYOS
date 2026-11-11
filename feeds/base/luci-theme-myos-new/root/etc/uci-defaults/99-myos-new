@@ -1,7 +1,8 @@
 #!/bin/sh
-uci -q delete luci.themes
-uci set luci.themes=internal
 uci set luci.themes.MYOS_NEW='/luci-static/myos-new'
 uci set luci.main.mediaurlbase='/luci-static/myos-new'
+uci set luci.main.resourcebase='/luci-static/resources'
+uci -q delete luci.themes.MYOS
+uci -q delete luci.themes.MWRT
 uci commit luci
 exit 0
