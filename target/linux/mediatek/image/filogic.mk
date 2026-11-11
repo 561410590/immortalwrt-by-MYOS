@@ -3589,6 +3589,7 @@ define Device/nradio_n5000
   SUPPORTED_DEVICES += nradio,n5000 HCMT7987-SNSD
   DEVICE_PACKAGES := \
 	luci-theme-myos-new luci-app-n5000-system \
+	libip4tc libip6tc iptables-mod-extra kmod-ipt-extra \
 	openmptcprouter-ultra \
 	fdisk blkid parted resize2fs block-mount losetup kmod-fs-ext4 \
 	kmod-mediatek_hnat luci-app-turboacc luci-i18n-turboacc-zh-cn \
