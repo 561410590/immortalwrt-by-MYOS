@@ -134,7 +134,11 @@ def main():
         if 'qmodem' in path and (path.endswith(('/modem_scan.sh', '/modem_hook.sh')) or '/vendor/' in path):
             if mode[3] not in 'xs':
                 issues.append([path, 'QModem execution', mode])
-    version = subprocess.check_output([tool, '-cat', image, 'etc/myos-version'], text=True).strip()
+    if '/etc/myos-version' in by_path:
+        version = subprocess.check_output([tool, '-cat', image, 'etc/myos-version'], text=True).strip()
+    else:
+        release = subprocess.check_output([tool, '-cat', image, 'etc/openwrt_release'], text=True)
+        version = re.search(r"^DISTRIB_RELEASE=['\"]?([^'\"\n]+)", release, re.M)[1]
     if version.lstrip('Vv') != args.version:
         issues.append(['etc/myos-version', 'firmware version', version])
     save('sourced-metadata.json', sourced)
