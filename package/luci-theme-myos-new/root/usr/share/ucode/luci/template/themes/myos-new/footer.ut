@@ -2,13 +2,13 @@
  </main>
  <footer class="m-footer"><span>MYOS-NEW</span><span>{{ entityencode(version.luciname ?? 'LuCI') }} · {{ entityencode(ubus.call('system', 'board')?.release?.version ?? '') }}</span></footer>
 </div>
-<script src="{{ media }}/shell.js?v=20261108-emil1"></script>
+<script src="{{ media }}/shell.js?v=20261111-emil3-c5800"></script>
 <script src="{{ media }}/unlock.js?v=1.0.2-r3b"></script>
 <script src="{{ media }}/notices.js?v=20261104-liquid2"></script>
-<script src="{{ media }}/layout.js?v=20261107-allmodels1"></script>
-<script src="{{ media }}/ultra-media.js?v=20261104-liquid2"></script>
-<script src="{{ media }}/background.js?v=20261104-liquid2"></script>
+<script src="{{ media }}/layout.js?v=20261111-layout-balance1"></script>
 {% endif %}
+<script src="{{ media }}/background.js?v=20261111-allmodels1"></script>
+<script src="{{ media }}/ultra-media.js?v=20261111-allmodels1"></script>
 <script src="{{ media }}/liquid.js?v=20261107-appearance1"></script>
 </body>
 </html>

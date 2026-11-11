@@ -308,6 +308,32 @@ fi
 
 if [ -f "$turboacc" ]; then
 	sed -i 's/echo "7 \$fastpath_mh_eth_hnat_bind_rate"/echo "11 \$fastpath_mh_eth_hnat_bind_rate"/' "$turboacc"
+	if ! grep -q '^save_ppe_count()' "$turboacc"; then
+		cat >> "$turboacc" <<'EOF'
+
+save_ppe_count() {
+	local count autoload=/etc/modules.d/20-mediatek_hnat current next temp
+	[ -r /sys/module/mtkhnat/parameters/single_ppe ] || return 0
+	config_get count config fastpath_mh_eth_hnat_ppenum
+	case "$count" in 1|2) ;; *) return 0 ;; esac
+
+	current="$(cat "$autoload")" || return 1
+	next="$(printf '%s\n' "$current" | sed -E '/^mtkhnat([[:space:]]|$)/s/[[:space:]]+single_ppe=[^[:space:]]+//g')"
+	if [ "$count" = 1 ]; then
+		next="$(printf '%s\n' "$next" | sed -E '/^mtkhnat([[:space:]]|$)/s/$/ single_ppe=1/')"
+	fi
+	[ "$current" != "$next" ] || return 0
+
+	temp="$(mktemp /etc/modules.d/.20-mediatek_hnat.XXXXXX)" || return 1
+	if printf '%s\n' "$next" > "$temp" && chmod 0644 "$temp" && mv -f "$temp" "$autoload"; then
+		return 0
+	fi
+	rm -f "$temp"
+	return 1
+}
+EOF
+		sed -i '/^[[:space:]]*config_load "turboacc"[[:space:]]*$/a\	save_ppe_count || logger -t turboacc "Unable to save HNAT PPE count for next boot"' "$turboacc"
+	fi
 	sh -n "$turboacc"
 	grep -q '^set_hnat_state()' "$turboacc"
 	grep -q 'echo "11 \$fastpath_mh_eth_hnat_bind_rate" > "\$hnat_path/hnat_setting"' "$turboacc"

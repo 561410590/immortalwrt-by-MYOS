@@ -181,7 +181,7 @@ C2000MAX_EXTRA_IPK_PACKAGES := \
 	coreutils-base64 coreutils-nohup coreutils-timeout lyaml \
 	libyaml libudns resolveip libev \
 	libsodium ip-full libuci-lua libbpf1 \
-	libelf1 libip4tc libip6tc iptables-mod-tproxy iptables-mod-extra kmod-ipt-extra libpcap1 ipset \
+	libelf1 libip4tc2 libip6tc2 iptables-mod-tproxy iptables-mod-extra kmod-ipt-extra libpcap1 ipset \
 	libipset13 tc-full conntrack conntrackd \
 	libnetfilter-cthelper0 libnetfilter-cttimeout1 libnetfilter-queue1 libltdl7 \
 	liblua5.3-5.3 \
@@ -421,6 +421,7 @@ define Build/prepare-c2000max-rootfs
 	for pkg in $(C2000MAX_EXTRA_IPK_PACKAGES); do \
 		status="$(C2000MAX_MYOS_ROOTFS_DIR)/usr/lib/opkg/status"; \
 		refresh=0; \
+		case "$$pkg" in libip4tc2|libip6tc2|iptables-mod-extra) refresh=1 ;; esac; \
 		case "$$pkg" in luci-theme-myos-new|luci-app-myos-system|luci-light|luci-nginx|luci-lib-xterm|luci-app-upnp|luci-i18n-upnp-zh-cn|cgi-io|fstools|block-mount|losetup|libsmartcols1|libblkid1|libuuid1|f2fsck|mkf2fs|libf2fs6|iwinfo|libiwinfo20230701|libiwinfo-data|fancontrol|mt5700-web-go|luci-app-mt5700-web) refresh=1 ;; esac; \
 		if [ "$$refresh" = 0 ] && [ -f "$$status" ] && grep -q "^Package: $${pkg}$$" "$$status"; then continue; fi; \
 		ipk=""; \
@@ -3525,6 +3526,7 @@ define Device/nradio_c2000-max
   SUPPORTED_DEVICES += nradio,c2000-max HCMT7987-EMMC HCMT7987-SNSD
   DEVICE_PACKAGES := \
 	luci-theme-myos-new luci-app-myos-system flock ip6tables-nft iptables-mod-socket kmod-ipt-socket kmod-ipt-nat-extra iptables-mod-nat-extra python3-ctypes luci-app-uugamebooster mt5700-web-go luci-app-mt5700-web \
+	libip4tc libip6tc iptables-mod-extra kmod-ipt-extra \
 	kmod-mediatek_hnat \
 	kmod-oaf appfilter luci-app-oaf luci-i18n-oaf-zh-cn \
 	kmod-hwmon-pwmfan \

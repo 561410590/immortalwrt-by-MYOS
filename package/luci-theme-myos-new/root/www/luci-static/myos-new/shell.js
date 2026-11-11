@@ -18,30 +18,45 @@
  };
  syncPluginAppearance();
  new MutationObserver(syncPluginAppearance).observe(root,{attributes:true,attributeFilter:['data-appearance']});
+ function themeDdnsto(){
+  const shadow=document.querySelector('.ddnsto-root')?.shadowRoot;if(!shadow||shadow.querySelector('#myos-ddnsto-theme'))return;
+  const css=document.createElement('link');css.id='myos-ddnsto-theme';css.rel='stylesheet';css.href=L.media('ddnsto.css')+'?v=20261105';shadow.append(css);
+ }
+ themeDdnsto();window.addEventListener('load',themeDdnsto,{once:true});
  appearanceButton.addEventListener('click',()=>{
   const dark=root.dataset.appearance==='dark';
   root.dataset.appearance=dark?'light':'dark';
   try { localStorage.setItem('myos-new-appearance',root.dataset.appearance); } catch (_) {}
  });
- let open=false,drawerMotion=null;
+ let open=false,drawerMotion=null,scrimMotion=null;
  function drawer(value,instant=false){
-  const current=narrow.matches?getComputedStyle(sidebar).transform:'none';
-  if(drawerMotion){drawerMotion.cancel();drawerMotion=null;}
-  open=value&&narrow.matches;button.setAttribute('aria-expanded',String(open));scrim.hidden=!open;
-  sidebar.inert=narrow.matches&&!open;
-  if(!narrow.matches){sidebar.style.transform='';sidebar.style.visibility='';return;}
+  const mobile=narrow.matches;
+  const animate=mobile&&!instant&&!reduce.matches;
+  const current=animate?getComputedStyle(sidebar).transform:'none';
+  const opacity=animate&&!scrim.hidden?getComputedStyle(scrim).opacity:'0';
+  drawerMotion?.cancel();
+  scrimMotion?.cancel();
+  drawerMotion=scrimMotion=null;
+  open=value&&mobile;
+  button.setAttribute('aria-expanded',String(open));
+  sidebar.inert=mobile&&!open;
+  scrim.inert=!open;
+  scrim.hidden=!open&&!animate;
+  scrim.style.opacity=open?'1':'0';
+  if(!mobile){sidebar.style.transform='';sidebar.style.visibility='';return;}
   const target=open?'translateX(0)':'translateX(-100%)';
   sidebar.style.transform=target;
-  if(instant||reduce.matches)sidebar.style.visibility=open?'visible':'hidden';
-  else {
-   sidebar.style.visibility='visible';
-   const animation=sidebar.animate([{transform:current},{transform:target}],{
-    duration:open?240:180,easing:'cubic-bezier(.32,.72,0,1)'
-   });
+  sidebar.style.visibility=open||animate?'visible':'hidden';
+  if(animate){
+   const timing={duration:open?240:180,easing:'cubic-bezier(.32,.72,0,1)'};
+   const animation=sidebar.animate([{transform:current},{transform:target}],timing);
+   scrimMotion=scrim.animate([{opacity},{opacity:open?'1':'0'}],timing);
    drawerMotion=animation;
    animation.onfinish=()=>{
     if(drawerMotion!==animation)return;
-    drawerMotion=null;sidebar.style.visibility=open?'visible':'hidden';
+    drawerMotion=scrimMotion=null;
+    sidebar.style.visibility=open?'visible':'hidden';
+    scrim.hidden=!open;
    };
   }
   if(open)document.querySelector('.m-home').focus({preventScroll:true});else button.focus({preventScroll:true});
@@ -150,7 +165,13 @@
  new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(brandWizard))).observe(document.body,{childList:true});
  async function load(){
   try{
-   const ui=await L.require('ui'),tree=await ui.menu.load();
+   const ui=await L.require('ui');let tree=await ui.menu.load();
+   let branch=tree;for(const part of (L.env.dispatchpath||[]).slice(0,3))branch=branch?.children?.[part];
+   // Plugin activation can add routes while the browser still holds the old menu.
+   if(!branch){
+    ui.menu.flushCache();const request=await L.require('request');
+    tree=(await request.get(L.url('admin/menu'),{cache:false})).json();
+   }
    const children=n=>ui.menu.getChildren(n).filter(c=>!c.hidden&&c.satisfied!==false&&c.title);
    const path=location.pathname.replace(/\/$/,'');
    const home=document.querySelector('.m-home');
