@@ -1,0 +1,37 @@
+/* Color and embedding adapter for the original Semi Design WebUI 3.0.2. */
+html.myos-nbcpe-embed,
+.myos-nbcpe-embed body,
+.myos-nbcpe-embed #root,
+.myos-nbcpe-embed .app-shell,
+.myos-nbcpe-embed .app-shell .semi-layout,
+.myos-nbcpe-embed .app-content{min-height:0;height:auto;background:transparent}
+.myos-nbcpe-embed body,
+.myos-nbcpe-embed body[theme-mode="dark"]{
+ --app-bg:transparent;--app-surface:var(--m-glass);--app-surface-2:var(--m-inset);--app-surface-3:var(--m-soft);
+ --app-text-1:var(--m-text);--app-text-2:var(--m-muted);--app-text-3:var(--m-muted);
+ --app-border:var(--m-line);--app-border-strong:var(--m-edge);
+ --app-rail-bg:var(--m-glass);--app-rail-bg-2:var(--m-inset);--app-rail-text:var(--m-text);--app-rail-muted:var(--m-muted);
+ --app-rail-selected:var(--m-blue);--app-rail-active:var(--m-blue-soft);--app-rail-border:var(--m-line);
+ --app-success:var(--m-green);--app-warning:var(--m-orange);--app-danger:var(--m-red);--app-info:var(--m-blue);
+ --app-accent-50:var(--m-blue-soft);--app-accent-100:var(--m-blue-soft);--app-accent-200:var(--m-line);
+ --app-accent-400:var(--m-blue);--app-accent-500:var(--m-blue);--app-accent-600:var(--m-blue);--app-accent-700:var(--m-blue);--app-accent-800:var(--m-blue);
+ --app-action:var(--m-blue);--app-action-hover:var(--m-blue);--app-action-active:var(--m-blue);
+ --app-shadow-card:var(--m-shadow);--app-shadow-raised:var(--m-shadow);--app-radius:12px;--app-radius-lg:16px;
+ --semi-color-primary:var(--m-blue);--semi-color-primary-hover:var(--m-blue);--semi-color-primary-active:var(--m-blue);
+ --semi-color-primary-light-default:var(--m-blue-soft);--semi-color-primary-light-hover:var(--m-blue-soft);--semi-color-primary-light-active:var(--m-blue-soft);
+ --semi-color-text-0:var(--m-text);--semi-color-text-1:var(--m-text);--semi-color-text-2:var(--m-muted);--semi-color-text-3:var(--m-muted);
+ --semi-color-bg-0:transparent;--semi-color-bg-1:var(--m-glass);--semi-color-bg-2:var(--m-float);--semi-color-bg-3:var(--m-inset);--semi-color-bg-4:var(--m-soft);
+ --semi-color-border:var(--m-line);--semi-color-fill-0:var(--m-inset);--semi-color-fill-1:var(--m-inset);--semi-color-fill-2:var(--m-line);
+ --semi-color-link:var(--m-blue);--semi-color-link-hover:var(--m-blue);--semi-color-nav-bg:transparent
+}
+.myos-nbcpe-embed .app-header{position:relative}
+.myos-nbcpe-embed .app-sider{position:relative;height:auto;align-self:stretch}
+.myos-nbcpe-embed .app-sider .semi-navigation{height:auto!important}
+.myos-nbcpe-embed :is(.semi-card,.app-sider,.app-header){
+ border-color:var(--m-edge);background:linear-gradient(135deg,var(--m-sheen),transparent 65%),var(--m-glass);
+ backdrop-filter:blur(24px) saturate(150%);-webkit-backdrop-filter:blur(24px) saturate(150%)
+}
+.myos-nbcpe-embed :is(.semi-modal-content,.semi-popover-wrapper,.semi-select-option-list){background:var(--m-float)}
+.myos-nbcpe-embed .app-content{min-width:0}
+.myos-nbcpe-embed .semi-table-wrapper{max-width:100%;overflow:auto}
+.myos-nbcpe-embed .semi-button-primary:not(.semi-button-light):not(.semi-button-borderless){color:var(--m-bg)}

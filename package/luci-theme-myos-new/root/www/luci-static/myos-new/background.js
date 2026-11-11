@@ -1,7 +1,12 @@
 (function () {
  'use strict';
+ const body=document.body;
  const button=document.querySelector('#m-background');
- if(!button&&!document.body.classList.contains('m-auth'))return;
+ const model=(body.dataset.deviceModel||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+ const board=(body.dataset.deviceBoard||'').toLowerCase();
+ const ultra=model.includes('c2000ultra')||(board==='hcmt7987-snsd'&&!model.includes('c2000max'));
+ if(!button&&!(ultra&&body.classList.contains('m-auth')))return;
+ const reduced=matchMedia('(prefers-reduced-motion:reduce)');
  const make=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=text;return n;};
  let database,current=null,mediaURL=null,backdrop=null,backgroundVideo=null,previewVideo=null;
  const makeVideo=()=>{
@@ -45,7 +50,7 @@
  function syncVideo(){
   for(const video of [backgroundVideo,previewVideo]){
    if(!video)continue;
-   if(document.hidden||(video===previewVideo?!dialog.open:dialog.open)){video.pause();continue;}
+   if(document.hidden||(video===previewVideo?!dialog.open:dialog.open||reduced.matches)){video.pause();continue;}
    const play=video.play();if(play?.catch)play.catch(e=>{
     if(e.name==='NotAllowedError')status.textContent='浏览器尚未允许播放视频，点击页面后会重试。';
    });
@@ -87,6 +92,7 @@
  if(button)button.addEventListener('click',async()=>{await ready;dialog.showModal();syncVideo();});
  dialog.addEventListener('close',syncVideo);
  document.addEventListener('visibilitychange',syncVideo);
+ reduced.addEventListener('change',syncVideo);
  document.addEventListener('pointerdown',syncVideo,{passive:true});
  window.addEventListener('pagehide',()=>{backgroundVideo?.pause();previewVideo?.pause();});
  window.addEventListener('pageshow',syncVideo);

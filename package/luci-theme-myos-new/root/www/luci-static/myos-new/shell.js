@@ -18,30 +18,45 @@
  };
  syncPluginAppearance();
  new MutationObserver(syncPluginAppearance).observe(root,{attributes:true,attributeFilter:['data-appearance']});
+ function themeDdnsto(){
+  const shadow=document.querySelector('.ddnsto-root')?.shadowRoot;if(!shadow||shadow.querySelector('#myos-ddnsto-theme'))return;
+  const css=document.createElement('link');css.id='myos-ddnsto-theme';css.rel='stylesheet';css.href=L.media('ddnsto.css')+'?v=20261105';shadow.append(css);
+ }
+ themeDdnsto();window.addEventListener('load',themeDdnsto,{once:true});
  appearanceButton.addEventListener('click',()=>{
   const dark=root.dataset.appearance==='dark';
   root.dataset.appearance=dark?'light':'dark';
   try { localStorage.setItem('myos-new-appearance',root.dataset.appearance); } catch (_) {}
  });
- let open=false,drawerMotion=null;
+ let open=false,drawerMotion=null,scrimMotion=null;
  function drawer(value,instant=false){
-  const current=narrow.matches?getComputedStyle(sidebar).transform:'none';
-  if(drawerMotion){drawerMotion.cancel();drawerMotion=null;}
-  open=value&&narrow.matches;button.setAttribute('aria-expanded',String(open));scrim.hidden=!open;
-  sidebar.inert=narrow.matches&&!open;
-  if(!narrow.matches){sidebar.style.transform='';sidebar.style.visibility='';return;}
+  const mobile=narrow.matches;
+  const animate=mobile&&!instant&&!reduce.matches;
+  const current=animate?getComputedStyle(sidebar).transform:'none';
+  const opacity=animate&&!scrim.hidden?getComputedStyle(scrim).opacity:'0';
+  drawerMotion?.cancel();
+  scrimMotion?.cancel();
+  drawerMotion=scrimMotion=null;
+  open=value&&mobile;
+  button.setAttribute('aria-expanded',String(open));
+  sidebar.inert=mobile&&!open;
+  scrim.inert=!open;
+  scrim.hidden=!open&&!animate;
+  scrim.style.opacity=open?'1':'0';
+  if(!mobile){sidebar.style.transform='';sidebar.style.visibility='';return;}
   const target=open?'translateX(0)':'translateX(-100%)';
   sidebar.style.transform=target;
-  if(instant||reduce.matches)sidebar.style.visibility=open?'visible':'hidden';
-  else {
-   sidebar.style.visibility='visible';
-   const animation=sidebar.animate([{transform:current},{transform:target}],{
-    duration:open?240:180,easing:'cubic-bezier(.32,.72,0,1)'
-   });
+  sidebar.style.visibility=open||animate?'visible':'hidden';
+  if(animate){
+   const timing={duration:open?240:180,easing:'cubic-bezier(.32,.72,0,1)'};
+   const animation=sidebar.animate([{transform:current},{transform:target}],timing);
+   scrimMotion=scrim.animate([{opacity},{opacity:open?'1':'0'}],timing);
    drawerMotion=animation;
    animation.onfinish=()=>{
     if(drawerMotion!==animation)return;
-    drawerMotion=null;sidebar.style.visibility=open?'visible':'hidden';
+    drawerMotion=scrimMotion=null;
+    sidebar.style.visibility=open?'visible':'hidden';
+    scrim.hidden=!open;
    };
   }
   if(open)document.querySelector('.m-home').focus({preventScroll:true});else button.focus({preventScroll:true});
@@ -83,34 +98,7 @@
   update:'M4 8a9 9 0 1 1-1 8M4 3v5h5M12 7v10M8 11l4-4 4 4',
   bolt:'M13 2 4 14h7l-1 8 10-13h-7z',
   globe:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M3 12h18M12 3c-5 5-5 13 0 18 5-5 5-13 0-18',
-  power:'M12 2v10M6 5a9 9 0 1 0 12 0',
-  passwall:'M3 4h13v16H3zM3 9h6M3 15h6M7 4v5M7 15v5M12 12h10M18 8l4 4-4 4',
-  openclash:'M3 5h5c5 0 3 14 8 14h5M18 16l3 3-3 3M3 19h5c5 0 3-14 8-14h5M18 2l3 3-3 3',
-  shadowsocks:'M3 10 21 3l-6 18-4-8-8-3zM11 13 21 3',
-  oaf:'M12 2 3 6v6c0 5 5 8 9 10 4-2 9-5 9-10V6zM7 8h10l-4 4v4l-2 1v-5z',
-  leigod:'M8 3a10 10 0 1 0 9 1M14 2 7 13h5l-2 9 9-13h-6z',
-  uu:'M3 5v9a4 4 0 0 0 8 0V5M13 5v9a4 4 0 0 0 8 0V5',
-  tracker:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M12 3v3M3 12h3M12 18v3M18 12h3M15 8l-2 6-5 2 2-6z',
-  upnp:'M3 4h6v6H3zM15 14h6v6h-6zM12 5h7v6M16 8l3 3 3-3M12 19H5v-6M2 16l3-3 3 3',
-  vpn:'M12 2 3 6v6c0 5 5 8 9 10 4-2 9-5 9-10V6zM8 11h8v6H8zM10 11V9a2 2 0 0 1 4 0v2',
-  openvpn:'M7 19a9 9 0 1 1 10 0M9 21l1-7a4 4 0 1 1 4 0l1 7z',
-  tunnel:'M8 7H6a5 5 0 0 0 0 10h2M16 7h2a5 5 0 0 1 0 10h-2M5 10h13M15 7l3 3-3 3M19 14H6M9 11l-3 3 3 3',
-  module:'M5 5h14v14H5zM8 2v3M12 2v3M16 2v3M8 19v3M12 19v3M16 19v3M2 8h3M2 16h3M19 8h3M19 16h3M8 15v-3M12 15V9M16 15V7',
-  webpanel:'M3 4h18v16H3zM3 8h18M6 6h.01M9 6h.01M6 16v-3M10 16v-5M14 16h4M14 12h4',
-  sim:'M5 3h9l5 5v13H5zM8 10h8v8H8zM8 14h8M12 10v8',
-  simswitch:'M3 3h6l3 3v9H3zM12 9h6l3 3v9h-9M4 19h5M7 17l2 2-2 2M15 5h5M17 3l-2 2 2 2',
-  simsms:'M4 3h8l4 4v4M4 3v16h4M8 10h13v9h-6l-4 3v-3H8zM11 13h7M11 16h4',
-  forward:'M3 4h18v9M3 4v13h6l-6 4v-4M6 8h12M11 17h10M18 14l3 3-3 3',
-  sliders:'M3 6h7M14 6h7M3 12h3M10 12h11M3 18h11M18 18h3M10 3h4v6h-4zM6 9h4v6H6zM14 15h4v6h-4z',
-  nodes:'M10 3h4v4h-4zM3 17h4v4H3zM17 17h4v4h-4zM10 17h4v4h-4zM12 7v10M5 17v-5h14v5',
-  server:'M3 3h18v7H3zM3 14h18v7H3zM6 6h.01M6 17h.01M10 6h8M10 17h8',
-  filter:'M3 4h18l-7 8v7l-4 2v-9z',
-  users:'M15 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0M5 21v-3a7 7 0 0 1 14 0v3M19 3a3 3 0 0 1 0 6M21 12a5 5 0 0 1 2 4M5 3a3 3 0 0 0 0 6M3 12a5 5 0 0 0-2 4',
-  library:'M3 3h4v18H3zM10 3h4v18h-4zM16 4l4-1 4 17-4 1zM3 7h4M10 7h4',
-  listcheck:'M3 5l2 2 3-4M11 5h10M3 12l2 2 3-4M11 12h10M3 19l2 2 3-4M11 19h10',
-  info:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M12 10v7M12 7h.01',
-  ttl:'M16 9a7 7 0 1 1-14 0 7 7 0 0 1 14 0M9 5v4l3 2M12 19h10M18 15l4 4-4 4',
-  subscribe:'M4 4h16v16H4zM8 9h8M12 6v6M8 16h8'
+  power:'M12 2v10M6 5a9 9 0 1 0 12 0'
  };
  const iconNames={overview:'status',realtime:'chart',routes:'network',nftables:'shield',firewall:'shield',logs:'log',factory_logs:'log',processes:'chip',
   mwan3:'network',interface:'network',member:'network',policy:'shield',rule:'log',notify:'message',globals:'globe',dhcp:'globe',uhttpd:'globe',
@@ -118,15 +106,7 @@
   myos_theme:'services',startup:'power',crontab:'clock',mounts:'drive',leds:'bolt',myos_update:'update',myos_system:'drive',flash:'drive',myos_nros:'globe',reboot:'power',
   mt5700:'modem',qmodem:'modem',nets:'modem',cellscan:'modem',smsc:'message',smstrun:'message',at:'terminal',at2:'terminal',traffic_dividing:'network',
   wireless:'wifi',factory_guest:'wifi',diagnostics:'terminal',troubleshooting:'terminal',turboacc:'bolt',qiyougamebooster:'bolt',
-  passwall:'passwall',passwall2:'passwall',shadowsocksr:'shadowsocks',adguardhome:'shield',openclash:'openclash',upnp:'upnp',vpn:'vpn',nas:'drive',istore:'store',
-  oaf:'oaf',acc:'leigod',leigod:'leigod',uuplugin:'uu','shadowsocks-libev':'shadowsocks','omr-tracker':'tracker',
-  openvpn:'openvpn','glorytun-tcp':'tunnel',embedded:'module',simcard:'sim',sim_switch:'simswitch',
-  network_config:'network',debug:'terminal',config_advanced:'sliders',sms:'message',conversation:'message',sms_sim:'simsms',sms_forward:'forward',modem_ttl:'ttl',
-  settings:'sliders',advanced:'sliders',app:'leigod',service:'leigod',proxy:'shadowsocks',server:'server',servers:'server',instances:'nodes',
-  app_filter:'filter',rules:'filter',app_record:'log',dashboard:'chart',feature:'library',users:'users',list:'users',whitelist:'listcheck',about:'info',
-  config:'sliders','config-subscribe':'subscribe','config-overwrite':'sliders',client:'status',rule_list:'listcheck',app_update:'update',acl:'shield',
-  other:'sliders',node_subscribe:'subscribe',haproxy:'network',node_list:'nodes'};
- const pathIcons={'admin/embedded/page':'webpanel','admin/modem/mt5700':'module'};
+  passwall:'shield',passwall2:'shield',shadowsocksr:'shield',adguardhome:'shield',openclash:'shield',upnp:'network',vpn:'shield',nas:'drive',istore:'store'};
  const make=(tag,cls,text)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(text!=null)el.textContent=text;return el;};
  const menuMotion=new Map();
  function animateFold(group,content,summary,event,requested){
@@ -166,11 +146,9 @@
    observer.observe(panel,{childList:true});
   }else animate();
  }
- const icon=(name,fallback,parts=[])=>{
-  const lookup=value=>iconNames[value]||(drawings[value]?value:null);
-  const kind=pathIcons[parts.join('/')]||lookup(String(name).toLowerCase())||parts.slice(1,-1).reverse().map(lookup).find(Boolean)||lookup(fallback)||'services',ns='http://www.w3.org/2000/svg';
+ const icon=(name,fallback)=>{
+  const key=String(name).toLowerCase(),kind=iconNames[key]||key,ns='http://www.w3.org/2000/svg';
   const wrap=make('span','m-nav-icon'),svg=document.createElementNS(ns,'svg'),path=document.createElementNS(ns,'path');
-  wrap.dataset.icon=kind;
   svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('fill','none');svg.setAttribute('stroke','currentColor');
   svg.setAttribute('stroke-width','1.65');svg.setAttribute('stroke-linecap','round');svg.setAttribute('stroke-linejoin','round');
   svg.setAttribute('aria-hidden','true');path.setAttribute('d',drawings[kind]||drawings[fallback]||drawings.services);
@@ -187,7 +165,13 @@
  new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(brandWizard))).observe(document.body,{childList:true});
  async function load(){
   try{
-   const ui=await L.require('ui'),tree=await ui.menu.load();
+   const ui=await L.require('ui');let tree=await ui.menu.load();
+   let branch=tree;for(const part of (L.env.dispatchpath||[]).slice(0,3))branch=branch?.children?.[part];
+   // Plugin activation can add routes while the browser still holds the old menu.
+   if(!branch){
+    ui.menu.flushCache();const request=await L.require('request');
+    tree=(await request.get(L.url('admin/menu'),{cache:false})).json();
+   }
    const children=n=>ui.menu.getChildren(n).filter(c=>!c.hidden&&c.satisfied!==false&&c.title);
    const path=location.pathname.replace(/\/$/,'');
    const home=document.querySelector('.m-home');
@@ -200,13 +184,13 @@
     const label=_(node.title),kids=children(node).map(c=>render(c,parts.concat(c.name))).filter(Boolean);
     if(kids.length){
      const group=make('details','m-menu-group'),summary=make('summary');
-     summary.append(icon(node.name,parts[1],parts),make('span','',label));
+     summary.append(icon(node.name,parts[1]),make('span','',label));
      const list=make('div','m-menu-children');kids.forEach(n=>list.append(n));group.append(summary,list);
      summary.addEventListener('click',e=>animateFold(group,list,summary,e));
      if(list.querySelector('[aria-current]'))group.open=true;group.dataset.label=label;return group;
     }
     if(['firstchild','alias'].includes(node.action?.type)&&children(node).length)return null;
-    const a=make('a','m-menu-link');a.append(icon(node.name,parts[1],parts),make('span','',label));a.href=L.url(...parts);a.dataset.label=label;
+    const a=make('a','m-menu-link');a.append(icon(node.name,parts[1]),make('span','',label));a.href=L.url(...parts);a.dataset.label=label;
     const url=new URL(a.href,location.href).pathname;
     if(path===url||path.startsWith(url+'/')){a.classList.add('active');a.setAttribute('aria-current','page');title=label;}
     return a;

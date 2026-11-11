@@ -10,6 +10,9 @@ function index()
     entry({"admin", "myos", "sim_names"}, call("sim_names")).leaf = true
     entry({"admin", "myos", "modem_refresh"}, call("modem_refresh")).leaf = true
     entry({"admin", "myos", "notices"}, call("notices")).leaf = true
+    entry({"admin", "myos", "theme_update"}, call("theme_update")).leaf = true
+    entry({"admin", "myos", "theme_install"}, post("theme_install")).leaf = true
+    entry({"admin", "myos", "theme_install_status"}, call("theme_install_status")).leaf = true
     entry({"admin", "myos", "unlock"}, post("unlock_plugins")).leaf = true
 end
 
@@ -17,10 +20,12 @@ local function device_profile(board)
     local identity = ((board.model or "") .. " " .. (board.board_name or "")):lower():gsub("[^%w]", "")
     if identity:find("n5000") then return "n5000"
     elseif identity:find("ultra") then return "c2000ultra"
-    elseif identity:find("c2000max") or identity:find("hcmt7987") then return "c2000max"
+    elseif identity:find("c2000max") then return "c2000max"
+    elseif identity:find("hcmt7987snsd") then return "c2000ultra"
+    elseif identity:find("hcmt7987") then return "c2000max"
     elseif identity:find("nbcpe") or identity:find("nb68") then return "nbcpe688"
     elseif identity:find("c8688") or identity:find("hcmt7981688") then return "c8688"
-    elseif identity:find("c5800") then return "c5800688" end
+    elseif identity:find("c5800") or (board.board_name or ""):lower()=="hcmt7981-emmc" then return "c5800688" end
     return "generic"
 end
 
@@ -41,10 +46,14 @@ end
 
 -- Presentation aliases only: do not rename netdevs or rewrite UCI network state.
 local function port_label(profile, name)
-    if (profile == "c8688" or profile == "nbcpe688") and name:match("^port[123]$") then
+    if profile == "nbcpe688" and name:match("^port[123]$") then
+        return "lan" .. (4 - tonumber(name:sub(-1)))
+    end
+    if profile == "c8688" and name:match("^port[123]$") then
         return "lan" .. name:sub(-1)
     end
     if profile == "nbcpe688" and name == "port5" then return "2.5G PoE / ODU" end
+    if profile == "c8688" and name == "port5" then return "WAN" end
     return name
 end
 
@@ -101,12 +110,40 @@ end
 
 local function sim_name_cache(iccid)
     iccid=tostring(iccid or "")
-    if #iccid<18 or #iccid>22 or not iccid:match("^%d+$") then return nil end
+    if #iccid<18 or #iccid>22 or not iccid:match("^%x+$") then return nil end
     return "/tmp/myos-new-sim-name-"..iccid
 end
 
 local function nbcpe_cache_record()
     return require("luci.model.myos_liquid").nbcpe()
+end
+
+-- C8's native sampler owns its modem reads; infocd has only interface data.
+local function c8_cache_entry()
+    local ok, native = pcall(require, "myos_c8_modem")
+    if not ok then return nil end
+    local data, item = native.status(), native.cpe_item()
+    item.device, item.CPIN = item.dev, item.simstatus
+    item.sim_label = (data.sim or {}).label
+    item.apn = (data.session or {}).apn
+    item.band_detail = table.concat((data.cell or {}).carriers or {}, " + ")
+    item.carrier_aggregation = #((data.cell or {}).carrier_details or {}) > 1 and item.band_detail or "未聚合"
+    return {status=item, cache_stamp=data.sampled_at and data.sampled_at-(tonumber(data.cache_age) or 0)}
+end
+
+local function c5800_cache_entries(entries)
+    local ok, secondary = pcall(require, "c5800_secondary")
+    if not ok or type(secondary.cached_signal) ~= "function" then return entries end
+    local signal, stamp = secondary.cached_signal()
+    if not signal then return entries end
+    for _, entry in ipairs(entries) do
+        if entry.status and entry.status.name == "cpe1" then
+            entry.status, entry.cache_stamp = signal, stamp
+            return entries
+        end
+    end
+    entries[#entries + 1] = {status=signal, cache_stamp=stamp}
+    return entries
 end
 
 -- QModem versions publish either split caches or one merged cache_info_<id>.
@@ -216,8 +253,7 @@ local function native_dashboard_signal(s)
         rsrp=perf.number(s.rsrp),rsrq=perf.number(s.rsrq),sinr=perf.number(s.sinr)}
 end
 
--- QModem's existing reader is request-driven, not a background sampler.
--- Keep its slow, read-only refresh separate from CPU and traffic snapshots.
+-- Keep request-driven modem reads separate from CPU and traffic snapshots.
 function modem_refresh()
     local uci,json,sys=require("luci.model.uci").cursor(),require "luci.jsonc",require "luci.sys"
     local bus=require("ubus").connect()
@@ -257,6 +293,64 @@ function modem_refresh()
                 end
             end
             if not next(result.signals) and not next(result.errors) then result.errors.service="未获取模组信号" end
+        elseif profile=="c5800688" then
+            result.signals={}
+            local has_secondary,secondary=pcall(require,"c5800_secondary")
+            local function signal_record(s)
+                local radio=has_secondary and type(secondary.carriers)=="function" and secondary.carriers(s)
+                local operators={["46000"]="中国移动",["46002"]="中国移动",["46007"]="中国移动",["46008"]="中国移动",
+                    ["46001"]="中国联通",["46006"]="中国联通",["46009"]="中国联通",
+                    ["46003"]="中国电信",["46005"]="中国电信",["46011"]="中国电信",["46015"]="中国广电"}
+                return {operator=operators[tostring(s.isp)] or s.isp_company or s.isp or "",
+                    rat=s.mode or "",band=s.band or "",band_summary=radio and radio.bands,band_detail=radio and radio.detail or s.band_detail,
+                    carriers=radio and radio.carriers,carrier_count=radio and radio.count,
+                    carrier_aggregation=radio and (radio.count>1 and (radio.count.."CC · "..radio.bands) or "未聚合") or s.carrier_aggregation,
+                    sim=s.simno or "",sim_label=s.sim_label or "",sim_name=s.sim_name or "",
+                    sim_id=sim_name_cache(s.iccid) and tostring(s.iccid) or "",sim_name_status="",
+                    pin=s.CPIN or "",apn=s.apn or "",pci=s.pci or "",cell=s.cell or s.cellid or "",
+                    arfcn=s.earfcn or "",temperature=tonumber(s.model_temp),
+                    qos=s.qos or require("luci.model.myos_liquid").qos(s,"infocd cache"),
+                    rsrp=tonumber(s.rsrp),rsrq=tonumber(s.rsrq),sinr=tonumber(s.sinr)}
+            end
+            local cache=json.parse(require("nixio.fs").readfile("/tmp/infocd/cache/cpestatus") or "") or {}
+            for _,entry in ipairs(cache.result or {}) do
+                if entry.status and entry.status.name=="cpe" then
+                    result.signals.cpe=signal_record(entry.status)
+                    result.signals.cpe.rsrp,result.signals.cpe.rsrq,result.signals.cpe.sinr=nil,nil,nil
+                    for _,carrier in ipairs(result.signals.cpe.carriers or {}) do
+                        if carrier.index==0 then carrier.rsrp,carrier.rsrq,carrier.sinr=nil,nil,nil end
+                    end
+                    break
+                end
+            end
+            local ok,reply=pcall(bus.call,bus,"atsdcpe","at_cmd",{cmd="AT^MONSC"})
+            local line=ok and type(reply)=="table" and tonumber(reply.code)==0 and
+                tostring(reply.respone or ""):match("%^MONSC:%s*([^\r\n]+)")
+            local fields={}
+            for value in ((line or "")..","):gmatch("(.-),") do
+                fields[#fields+1]=value:match("^%s*(.-)%s*$")
+            end
+            local nr=fields[1]=="NR"
+            local index=nr and 9 or 8
+            if (nr or fields[1]=="LTE") and tonumber(fields[index]) then
+                local current=result.signals.cpe or {}
+                current.rsrp,current.rsrq,current.sinr=tonumber(fields[index]),tonumber(fields[index+1]),nr and tonumber(fields[11]) or nil
+                for _,carrier in ipairs(current.carriers or {}) do
+                    if carrier.index==0 then carrier.rsrp,carrier.rsrq,carrier.sinr=current.rsrp,current.rsrq,current.sinr end
+                end
+                result.signals.cpe=current
+                result.refreshed[#result.refreshed+1]="cpe"
+            else
+                result.errors.cpe="内置5G未返回有效信号"
+            end
+            if has_secondary and type(secondary.request)=="function" and
+                uci:get("network","cpe1","disabled")=="0" and uci:get("network","cpe1","mode")=="odu" then
+                local reply,err=secondary.request("signal",{})
+                if reply and type(reply.result)=="table" then
+                    result.signals.cpe1=signal_record(reply.result)
+                    result.refreshed[#result.refreshed+1]="cpe1"
+                else result.errors.cpe1=err or "副设备信号暂不可用" end
+            end
         elseif profile=="c2000max" or profile=="c2000ultra" then
             uci:foreach("qmodem","modem-device",function(s)
                 if s.state=="enabled" then
@@ -273,8 +367,6 @@ function modem_refresh()
             if profile=="c2000max" then
                 local state=json.parse(sys.exec("/etc/init.d/c2000max-sim-select status_json 2>/dev/null")) or {}
                 result.sim={modem=state.modem,actual=state.actual,target=state.target,cpin=state.cpin}
-            elseif #result.refreshed>0 then
-                require("nixio.fs").remove(require("luci.model.myos_liquid").path("snapshot"))
             end
         end
         bus:close()
@@ -289,7 +381,9 @@ end
 function sim_names()
     local fs,json,sys,util=require "nixio.fs",require "luci.jsonc",require "luci.sys",require "luci.util"
     local source=json.parse(fs.readfile("/tmp/infocd/cache/cpestatus") or "") or {}
-    local entries=source.result or {}
+    local entries=c5800_cache_entries(source.result or {})
+    local c8=c8_cache_entry()
+    if c8 then entries={c8} end
     local native=nbcpe_cache_record()
     if native then entries={{status={name="AK68",iccid=native.iccid}}} end
     if #entries==0 then
@@ -308,11 +402,12 @@ function sim_names()
                 data={iccid=tostring(s.iccid),updated=os.time(),error="云端名称暂不可用"}
                 local native=fs.access("/usr/sbin/nradio_crypto")
                 local available,codec=pcall(require,"myos_nradio_app_crypto")
+                local encrypt=available and (codec.encrypt_card_data or codec.encrypt_app_data)
                 local payload
                 if native then
                     payload=sys.exec("/usr/sbin/nradio_crypto -O -e -s "..util.shellquote(json.stringify({iccid=tostring(s.iccid)})).." 2>/dev/null")
-                elseif available and type(codec.encrypt_card_data)=="function" and type(codec.decrypt_app_data)=="function" then
-                    local ok,encrypted=pcall(codec.encrypt_card_data,json.stringify({iccid=tostring(s.iccid)}))
+                elseif type(encrypt)=="function" and type(codec.decrypt_app_data)=="function" then
+                    local ok,encrypted=pcall(encrypt,json.stringify({iccid=tostring(s.iccid)}))
                     if ok and encrypted then payload=json.stringify({data=encrypted}) end
                 end
                 if payload then
@@ -332,6 +427,10 @@ function sim_names()
                                 local value=type(answer.result)=="string" and answer.result or answer.message
                                 local name=type(value)=="string" and value:match("^%s*(.-)%s*$") or ""
                                 if name~="" and name~="unknown" then data.name=name;data.error=nil end
+                            elseif type(answer)=="table" and answer.success==false then
+                                data.error="云端未返回卡名"
+                                data.cloud_code=answer.code
+                                data.cloud_message=answer.message
                             end
                         end
                     end
@@ -339,7 +438,7 @@ function sim_names()
                 fs.writefile(path,json.stringify(data))
                 fs.chmod(path,"600")
             end
-            result[s.name or "modem"]={name=data.name,error=data.error}
+            result[s.name or "modem"]={name=data.name,error=data.error,cloud_code=data.cloud_code,cloud_message=data.cloud_message}
         end
     end
     luci.http.prepare_content("application/json")
@@ -352,6 +451,104 @@ local function output(value)
     luci.http.header("Cache-Control","no-store")
     luci.http.write_json(value)
 end
+
+local theme_server = "https://mayebano.shop:8443/myos/"
+local theme_name = "luci-theme-myos-new"
+local theme_job_dir = "/tmp/myos-theme-update."
+
+local function installed_theme()
+    local sys = require "luci.sys"
+    local installed = sys.exec("opkg status luci-theme-myos-new 2>/dev/null") or ""
+    if installed:match("\nStatus: [^\n]* installed\n") then
+        return installed:match("\nVersion: (%S+)")
+    end
+end
+
+local function theme_curl()
+    local ca = "/usr/share/myos-new/update-ca.pem"
+    if not require("nixio.fs").access(ca) then ca = "/usr/share/myos-update/ca.pem" end
+    return "curl -sS --proto =https --tlsv1.2 --cacert " .. ca .. " --connect-timeout 5"
+end
+
+local function theme_update_info()
+    local sys, json, util = require "luci.sys", require "luci.jsonc", require "luci.util"
+    local current = installed_theme()
+    if not current then return {error="无法读取已安装的主题版本"} end
+
+    local response = sys.exec(theme_curl() .. " --max-time 12 --max-filesize 65536 -w '\\n%{http_code}' " ..
+        theme_server .. "theme/latest.json 2>/dev/null && printf '\\nOK'") or ""
+    local body, status = response:match("^(.*)\n(%d%d%d)\nOK$")
+    if status == "404" then
+        return {error="服务器尚未发布主题更新索引"}
+    elseif status ~= "200" then
+        return {error="无法读取服务器主题更新索引"}
+    end
+
+    local manifest = json.parse(body)
+    local latest = type(manifest) == "table" and manifest.version
+    if type(latest) ~= "string" or not latest:match("^%d[%w%.%+%~%:%-]*$") or manifest.package ~= theme_name then
+        return {error="服务器主题更新索引无效"}
+    end
+
+    local url = theme_server .. "files/" .. theme_name .. "_" .. latest .. "_all.ipk"
+    if manifest.url ~= url then return {error="服务器主题 IPK 地址无效"} end
+    local newer = sys.call("opkg compare-versions " .. util.shellquote(latest) ..
+        " '>>' " .. util.shellquote(current) .. " >/dev/null 2>&1") == 0
+    return {current=current, latest=latest, available=newer, url=url, size=tonumber(manifest.size)}
+end
+
+function theme_update()
+    output(theme_update_info())
+end
+
+function theme_install()
+    local info = theme_update_info()
+    if info.error or not info.available then
+        return output({error=info.error or "当前主题无需更新"})
+    end
+
+    local sys, util = require "luci.sys", require "luci.util"
+    local dir = (sys.exec("mktemp -d " .. theme_job_dir .. "XXXXXX") or ""):match("^(%S+)")
+    local job = dir and dir:match("^/tmp/myos%-theme%-update%.(%w+)$")
+    if not job then return output({error="无法创建主题安装任务"}) end
+
+    local quote = util.shellquote
+    local ipk = quote(dir .. "/theme.ipk")
+    local flock = require("nixio.fs").access("/usr/bin/util-linux-flock") and "/usr/bin/util-linux-flock" or "flock"
+    local command = theme_curl() .. " --fail --max-time 1800 --output " .. ipk .. " " .. quote(info.url) ..
+        " && { touch " .. quote(dir .. "/installing") .. "; opkg install " .. ipk .. "; }"
+    sys.call("(if " .. flock .. " -n 9; then " .. command .. "; result=$?; " ..
+        "else printf '%s\\n' '已有主题安装任务'; result=1; fi; rm -f " .. ipk ..
+        "; printf '%s\\n' \"$result\" > " .. quote(dir .. "/exit") ..
+        ") 9>/tmp/myos-theme-install.lock </dev/null >" .. quote(dir .. "/log") ..
+        " 2>&1 & printf '%s\\n' \"$!\" > " .. quote(dir .. "/pid"))
+    output({job=job, latest=info.latest, size=info.size})
+end
+
+function theme_install_status()
+    local job = luci.http.formvalue("job") or ""
+    local fs = require "nixio.fs"
+    local dir = theme_job_dir .. job
+    if not job:match("^%w%w%w%w%w%w$") or not fs.access(dir) then
+        return output({done=true, error="主题安装任务不存在"})
+    end
+
+    local code = tonumber(fs.readfile(dir .. "/exit") or "")
+    if not code then
+        local pid = (fs.readfile(dir .. "/pid") or ""):match("^(%d+)")
+        if not pid or not fs.access("/proc/" .. pid .. "/stat") then
+            return output({done=true, error="主题安装任务已中断"})
+        end
+        return output({done=false, installing=fs.access(dir .. "/installing") or false,
+            downloaded=fs.stat(dir .. "/theme.ipk", "size") or 0})
+    end
+    if code ~= 0 then
+        local log = (fs.readfile(dir .. "/log") or ""):gsub("%s+$", "")
+        return output({done=true, error="主题安装失败" .. (log ~= "" and ("：" .. log:sub(-480)) or "")})
+    end
+    output({done=true, version=installed_theme()})
+end
+
 local function merge_fast(full,fast)
     full.ts=fast.ts;full.sample=fast.sample;full.cpu=fast.cpu;full.boot=fast.boot
     full.system=full.system or {}
@@ -380,6 +577,14 @@ local function read_acceleration()
     end
     local fp,fc,ppe=read("getFastPathStat"),read("getFullConeStat"),read("getMTKPPEStat")
     result.type=fp.type;result.fullcone=fc.type
+    -- C8 ships the vendor HNAT status files and legacy TurboACC, without this RPC.
+    local hook=p.read("/sys/kernel/debug/hnat/hook_toggle"):match("^%s*(.-)%s*$")
+    if not result.type and hook~="" then
+        result.type=hook=="enabled" and "MediaTek PPE / WHNAT" or "MediaTek PPE / WHNAT（未启用）"
+    end
+    if not ppe.PPE_NUM then
+        for key,value in p.read("/sys/kernel/debug/hnat/hnat_stats"):gmatch("([%w_]+)=(%d+)") do ppe[key]=tonumber(value) end
+    end
     for i=0,(tonumber(ppe.PPE_NUM) or 0)-1 do result.ppe[#result.ppe+1]={id=i,used=tonumber(ppe["BIND_PPE"..i]),total=tonumber(ppe["ALL_PPE"..i])} end
     if bus then bus:close() end
     p.save("acceleration",result);return result
@@ -394,9 +599,18 @@ function snapshot()
     local explicit=luci.http.formvalue and luci.http.formvalue("fresh")=="1"
     local ttl=explicit and 2 or 25
     if previous.meta_ts and os.time()-previous.meta_ts>=0 and os.time()-previous.meta_ts<ttl and not fast.needs_full then
-        return output(merge_fast(previous,fast))
+        local carrier = {}
+        for _, port in ipairs(previous.ports or {}) do carrier[port.name] = port.carrier end
+        local port_changed = false
+        for _, port in ipairs(fast.ports or {}) do
+            if carrier[port.name] ~= port.carrier then
+                port_changed = true
+                break
+            end
+        end
+        if not port_changed then return output(merge_fast(previous,fast)) end
     end
-    local fs, json = require "nixio.fs", require "luci.jsonc"
+    local fs, json, util = require "nixio.fs", require "luci.jsonc", require "luci.util"
     local uci = require("luci.model.uci").cursor()
     local bus = require("ubus").connect()
     local errors = {}
@@ -426,6 +640,7 @@ function snapshot()
     local interfaces = call("network.interface", "dump").interface or {}
     local devices = call("network.device", "status")
     local result = {board=board, profile=profile, product=pictures[profile], system=info,
+        theme_version=rd("/usr/lib/opkg/info/luci-theme-myos-new.control"):match("\nVersion: (%S+)"),
         ts=os.time(), sample=tonumber(rd("/proc/uptime"):match("^[%d.]+")), errors=errors,
         interfaces={}, ports={}, uplinks={}, wireless={}, clients={}, modems={}, temperatures={},
         mounts=stable and previous.mounts or (call("luci", "getMountPoints").result or {}),
@@ -440,11 +655,25 @@ function snapshot()
     result.connection_limit=tonumber(rd("/proc/sys/net/netfilter/nf_conntrack_max"))
     result.mac=devices["br-lan"] and devices["br-lan"].macaddr
     local bydev, uplinks = {}, {}
+    local interface_devices={}
+    for _,net in ipairs(interfaces) do
+        interface_devices[net.interface]=net.l3_device or net.device or uci:get("network",net.interface,"device")
+    end
     for _, net in ipairs(interfaces) do
         if net.interface ~= "loopback" then
-            local item = {name=net.interface, device=net.l3_device or net.device, up=net.up,
+            local ipv6=util.clone(net["ipv6-address"] or {},true)
+            local prefixes=util.clone(net["ipv6-prefix"] or {},true)
+            for _,prefix in ipairs(net["ipv6-prefix-assignment"] or {}) do
+                append(prefixes,{address=prefix.address,mask=prefix.mask})
+                if type(prefix["local-address"])=="table" then
+                    append(ipv6,util.clone(prefix["local-address"],true))
+                end
+            end
+            local device=interface_devices[net.interface]
+            if device and device:sub(1,1)=="@" then device=interface_devices[device:sub(2)] end
+            local item = {name=net.interface, device=device, up=net.up,
                 proto=net.proto, uptime=net.uptime, ipv4=net["ipv4-address"] or {},
-                ipv6=net["ipv6-address"] or {}, prefixes=net["ipv6-prefix"] or {},
+                ipv6=ipv6, prefixes=prefixes,
                 dns=net["dns-server"] or {}, routes=net.route or {}, pending=net.pending}
             append(result.interfaces,item)
             if item.device then
@@ -475,7 +704,8 @@ function snapshot()
             if n and n>0 then link_speed=tostring(n)..(rd(base.."/duplex")=="half" and "H" or "F") end
         end
         return {name=name,label=port_label(profile,name),role=role,carrier=carrier,up=d.up,speed=link_speed,
-            mac=d.macaddr,mtu=d.mtu,networks=require("luci.util").clone(bydev[name] or {},true),
+            -- jsonc treats shared tables as cycles; keep interface copies independent.
+            mac=d.macaddr,mtu=d.mtu,networks=util.clone(bydev[name] or {},true),
             rx=tonumber(rd(base.."/statistics/rx_bytes")),tx=tonumber(rd(base.."/statistics/tx_bytes"))}
     end
     for name in pairs(uplinks) do append(result.uplinks,devinfo(name)) end
@@ -509,6 +739,24 @@ function snapshot()
             clients[key]={mac=key,ip=ip,name=lease.name,kind="DHCP",state="租约记录",lease_expires=expires}
         end
     end
+    local lan_port_by_number, lan_port_by_mac = {}, {}
+    for _, port in ipairs(result.ports) do
+        if port.role == "LAN" and port.carrier == true then
+            local number = tonumber(rd("/sys/class/net/" .. port.name .. "/brport/port_no"))
+            if number then
+                port.client_ipv4 = {}
+                lan_port_by_number[number] = port
+            end
+        end
+    end
+    if next(lan_port_by_number) and fs.access("/usr/sbin/brctl") then
+        local forwarding = require("luci.sys").exec("/usr/sbin/brctl showmacs br-lan 2>/dev/null") or ""
+        for row in forwarding:gmatch("[^\n]+") do
+            local number, mac = row:match("^%s*(%d+)%s+([%x:]+)%s+no%s")
+            local port = lan_port_by_number[tonumber(number)]
+            if port then lan_port_by_mac[mac:lower()] = port end
+        end
+    end
     -- Do not treat ARP cache entries or DHCP leases as proof of present reachability.
     local lanbridges={["br-lan"]=true}
     for dev,d in pairs(devices) do
@@ -520,8 +768,11 @@ function snapshot()
             local key=mac:lower()
             local n=names[key] or {}
             clients[key]={mac=key,ip=ip,name=n.name,kind="LAN",state="邻居记录",device=dev,lease_expires=n.expires}
+            local port = dev == "br-lan" and lan_port_by_mac[key]
+            if port then append(port.client_ipv4, ip) end
         end
     end
+    for _, port in pairs(lan_port_by_number) do table.sort(port.client_ipv4) end
     local radios=call("network.wireless","status")
     for radio,r in pairs(radios) do
         for _,i in ipairs(r.interfaces or {}) do
@@ -547,6 +798,15 @@ function snapshot()
         end
     end
     table.sort(result.wireless,function(a,b) return a.name<b.name end)
+    if profile=="n5000" then
+        for mac,hint in pairs(call("luci-rpc","getHostHints")) do
+            local client=clients[mac:lower()]
+            if client then
+                client.name=client.name or hint.name
+                client.ip=client.ip or (hint.ipaddrs or {})[1]
+            end
+        end
+    end
     for _,c in pairs(clients) do append(result.clients,c) end
     table.sort(result.clients,function(a,b) return a.mac<b.mac end)
     local cpu_temp=tonumber(rd("/sys/class/thermal/thermal_zone0/temp"))
@@ -555,37 +815,67 @@ function snapshot()
     local cache=cached(cachepath)
     local stamp=fs.stat(cachepath,"mtime")
     local entries=profile=="n5000" and {} or (cache.result or {})
+    if profile=="c8688" then
+        local c8=c8_cache_entry()
+        entries=c8 and {c8} or {}
+    end
+    if profile=="c5800688" then entries=c5800_cache_entries(entries) end
     local native=profile=="nbcpe688" and nbcpe_cache_record() or nil
     if native then
         entries={{status={name="AK68",model=native.model,revision=native.revision,
             isp=native.isp,isp_company=native.operator,mode=native.mode,band=native.band,
+            band_detail=native.band_detail,carrier_aggregation=native.carrier_aggregation,
             rsrp=native.rsrp,rsrq=native.rsrq,sinr=native.sinr,pci=native.pci,
             cell=native.cell,earfcn=native.earfcn,model_temp=native.temp,
             simno=native.simno,sim_label=native.sim_label,iccid=native.iccid,
             CPIN=native.simstatus,apn=native.apn,device=native.dev,qos=native.qos}}}
         stamp=native.cache_age and os.time()-native.cache_age or nil
     end
+    local carriers
+    if profile=="c5800688" then
+        local ok,secondary=pcall(require,"c5800_secondary")
+        if ok and type(secondary.carriers)=="function" then carriers=secondary.carriers end
+    end
     for _,entry in ipairs(entries) do
         local s=entry.status
         if type(s)=="table" and s.name then
+            local signal_stamp=entry.cache_stamp or stamp
             local sim_name=tostring(s.sim_name or ""):match("^%s*(.-)%s*$")
             if sim_name=="unknown" then sim_name="" end
             local path=sim_name_cache(s.iccid)
             local cloud=path and cached(path) or {}
             if cloud.iccid==tostring(s.iccid) and cloud.name then sim_name=cloud.name end
+            local radio = carriers and carriers(s)
             append(result.modems,{id=s.name,label=s.name=="cpe1" and "副 5G" or "内置蜂窝",
                 qos=s.qos or perf.qos(s,"infocd cache"),model=s.model,firmware=s.revision,operator=operators[s.isp] or s.isp_company or s.isp,
-                rat=s.mode,band=s.band,rsrp=tonumber(s.rsrp),rsrq=tonumber(s.rsrq),sinr=tonumber(s.sinr),
+                rat=s.mode,band=s.band,band_detail=radio and radio.detail or s.band_detail,
+                carrier_aggregation=radio and (radio.count > 1 and (radio.count .. "CC · " .. radio.bands) or "未聚合") or s.carrier_aggregation,
+                carriers=radio and radio.carriers,carrier_count=radio and radio.count,band_summary=radio and radio.bands,
+                rsrp=tonumber(s.rsrp),rsrq=tonumber(s.rsrq),sinr=tonumber(s.sinr),
                 pci=s.pci,cell=s.cell or s.cellid,arfcn=s.earfcn,temperature=tonumber(s.model_temp),
                 sim=s.simno,sim_label=s.sim_label,sim_name=sim_name,sim_type=s.simtype,sim_id=path and tostring(s.iccid),
                 sim_name_status=cloud.error or (path and "未读取云端名称" or nil),pin=s.CPIN,apn=s.apn,
-                device=s.device or uci:get("network",s.name,"device"),age=stamp and math.max(0,os.time()-stamp)})
+                device=s.device or uci:get("network",s.name,"device"),age=signal_stamp and math.max(0,os.time()-signal_stamp)})
         end
     end
     -- QModem boards publish caches themselves. Reading the files does not request AT commands.
     if #result.modems==0 and profile~="n5000" then
         for _,record in ipairs(qmodem_cache_records()) do
             append(result.modems,qmodem_dashboard_record(record,profile,uci))
+        end
+    end
+    if profile=="c2000max" then
+        local addresses=require("nixio").getifaddrs() or {}
+        for _,modem in ipairs(result.modems) do
+            modem.ipv4,modem.ipv6={},{}
+            for _,address in ipairs(addresses) do
+                if address.name==modem.device and address.addr then
+                    if address.family=="inet" then append(modem.ipv4,{address=address.addr,mask=address.prefix})
+                    elseif address.family=="inet6" and not address.addr:lower():match("^fe[89ab]") then
+                        append(modem.ipv6,{address=address.addr,mask=address.prefix})
+                    end
+                end
+            end
         end
     end
     result.acceleration=read_acceleration()

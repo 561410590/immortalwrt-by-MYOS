@@ -90,6 +90,13 @@ function M.nbcpe()
  local f={};for i,k in ipairs(keys) do f[k]=lines[i] end
  local m={model=f.name,revision=f.revision,isp=f.plmn:gsub("[%s/]",""),operator=f.ISP,mode=f.network_mode,band=f.Band,rsrp=M.number(f.RSRP),rsrq=M.number(f.RSRQ),sinr=M.number(f.SINR),temp=M.number(f.temperature),pci=f.PCI,cell=f.CID,earfcn=f.ARFCN,
  simno=({["外置SIM卡"]="1",["内置SIM1"]="2"})[f.sim_label],sim_label=f.sim_label,iccid=f.ICCID,simstatus=f.ICCID~="" and "READY" or nil,apn=f.APN,dev="port5",qos=M.qos(f,"AK68 line cache")}
+ m.band_detail=f.Band
+ m.band=f.Band:match("[NnBb]%d+") or f.Band
+ local carriers={}
+ for _,v in ipairs({f.carrier_aggregation,f.ca2,f.ca3}) do
+  if v~="" and v~="-" and v~="Loss-in" then carriers[#carriers+1]=v end
+ end
+ m.carrier_aggregation=table.concat(carriers," + ")
  local stamp=fs.stat("/tmp/cpe_cell-AK68.file","mtime");m.cache_age=stamp and math.max(0,os.time()-stamp)
  return m
 end
