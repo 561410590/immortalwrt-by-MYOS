@@ -25,3 +25,8 @@ esac
 mwan3_init
 mwan3_set_policies_iptables
 mwan3_set_user_rules
+route_rc=$?
+# Notify only UPnP after changing policy; preserve the routing result.
+ACTION=policy INTERFACE=lan /bin/sh /etc/hotplug.d/iface/50-miniupnpd ||
+	logger -t miniupnpd "C5800 UPnP policy update failed"
+exit "$route_rc"

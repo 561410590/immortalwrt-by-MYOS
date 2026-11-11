@@ -36,6 +36,7 @@
   if(slot){slot.textContent=''; (Array.isArray(s.slots)?s.slots:[]).forEach(function(v){var o=document.createElement('option');o.value=v.value;o.textContent=v.label;slot.appendChild(o);});slot.value=String(s.cur);}
   var apn=s.apn||{},p=s.profile||{}; root.querySelectorAll('[data-field]').forEach(function(e){var k=e.dataset.field,v=k==='apn'?apn.name:apn[k];e.value=v||p[k]||({auth:'0',pdptype:'IPV4V6'}[k]||'');});
   if(s.read_error) msg.textContent='实时读取失败，当前显示缓存：'+s.read_error;
+  else if(/^(实时读取失败|读取失败：)/.test(msg.textContent)) msg.textContent='';
  }).catch(function(e){msg.textContent='读取失败：'+e.message;});}
  function send(data){data.token=root.dataset.token;msg.textContent='正在提交副设备…';return fetch(root.dataset.set,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(data).toString()}).then(function(r){return r.json();}).then(function(r){msg.textContent=r.error||r.message||'请求完成，请刷新实际状态';if(!r.error)read();}).catch(function(e){msg.textContent='请求失败：'+e.message;});}
  root.querySelector('[data-refresh]').onclick=read;

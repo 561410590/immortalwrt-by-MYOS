@@ -12,8 +12,8 @@ import shutil
 import subprocess
 import tarfile
 
-VERSION = '3.1.40-202611042000'
-KERNEL = '6.6.110'
+VERSION = '3.1.41-202611061200'
+KERNEL = '6.6.113'
 BOARD = 'HCMT7981-emmc-NB68'
 
 
@@ -320,7 +320,7 @@ def main():
         for path in directory.rglob('*.ipk'):
             name, record, fields, _ = read_ipk(path)
             if name == 'kernel' or name.startswith('kmod-'):
-                if not re.search(r'(^Version: 6\.6\.110[~+.\-]|kernel \(= 6\.6\.110)', record, re.M):
+                if not re.search(r'(^Version: ' + re.escape(KERNEL) + r'[~+.\-]|kernel \(= ' + re.escape(KERNEL) + r'\))', record, re.M):
                     continue
             if name not in available or path.stat().st_mtime > available[name][0].stat().st_mtime:
                 available[name] = (path, record, fields)
@@ -338,6 +338,7 @@ def main():
         'uhttpd', 'uhttpd-mod-ubus', 'firewall4', 'nftables-json',
         'luci-app-firewall', 'luci-app-store', 'luci-app-package-manager', 'opkg', 'openwrt-keyring',
         'iptables-nft', 'ip6tables-nft', 'tc-full',
+        'libip4tc2', 'libip6tc2', 'iptables-mod-extra',
         'mtwifi-cfg', 'luci-app-mtwifi-cfg', 'jq', 'bc', 'fstools', 'block-mount',
         'uclient-fetch', 'ca-bundle', 'curl', 'libcurl4', 'libnghttp2-14', 'mkf2fs', 'f2fsck',
         'luci-theme-myos-new', 'luci-app-myos-system',

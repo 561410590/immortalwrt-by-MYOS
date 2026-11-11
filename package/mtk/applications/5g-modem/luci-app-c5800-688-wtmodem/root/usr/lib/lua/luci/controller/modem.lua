@@ -784,6 +784,14 @@ local function fill_iface_summary(rv, prefix, iface)
 	rv[prefix .. "odu"] = "-"
 end
 
+local function fill_carriers(rv, prefix, signal)
+	local radio = require("c5800_secondary").carriers(signal)
+	rv[prefix .. "carriers"] = radio.carriers
+	rv[prefix .. "carrier_count"] = radio.count
+	rv[prefix .. "band_summary"] = radio.bands
+	rv[prefix .. "zbjh"] = radio.count > 1 and (radio.count .. "CC · " .. radio.detail) or "未聚合"
+end
+
 local function fill_mt5700_from_cache(rv, prefix, iface)
 	local section = status_section(iface)
 	local rsrp
@@ -852,7 +860,7 @@ local function fill_mt5700_from_cache(rv, prefix, iface)
 	rv[prefix .. "down"] = rate_mbps(section, "NR5G_AMBR_DL")
 	rv[prefix .. "up"] = rate_mbps(section, "NR5G_AMBR_UL")
 	rv[prefix .. "qci"] = status_field(section, "CQI") ~= "" and ("CQI: " .. status_field(section, "CQI")) or "-"
-	rv[prefix .. "zbjh"] = status_field(section, "band_count") ~= "" and ("NR5G band_count: " .. status_field(section, "band_count")) or "-"
+	fill_carriers(rv, prefix, function(key) return status_field(section, key) end)
 	rv[prefix .. "r2cc"] = "-"
 	rv[prefix .. "r3cc"] = "-"
 	rv[prefix .. "cell1"] = "-"
@@ -899,6 +907,7 @@ local function fill_ak_secondary(rv)
 	rv[prefix .. "dlbw"] = field_or_dash(signal.DLBW)
 	rv[prefix .. "ulbw"] = field_or_dash(signal.ULBW)
 	rv[prefix .. "qci"] = field_or_dash(signal.CQI)
+	fill_carriers(rv, prefix, signal)
 	rv[prefix .. "stsss"] = "AK 原厂实时状态"
 end
 

@@ -18,6 +18,6 @@ stamp = datetime.datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y%m%d%H%M')
 settings = json.loads(Path('.github/ci/inputs.json').read_text())
 with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
     stream.write('matrix=' + json.dumps({'include': matrix}) + '\n')
-    stream.write('version=3.1.40-' + stamp + '\n')
+    stream.write('stamp=' + stamp + '\n')
     stream.write('inputs_ref=' + settings['commit'] + '\n')
 print(json.dumps(matrix))

@@ -18,8 +18,8 @@ kernel_dir = source / 'build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_f
 work = kernel_dir / 'root-c5800-myos'
 output = kernel_dir / 'root-c5800-myos.squashfs'
 host = source / 'staging_dir/host/bin'
-version = 'V3.1.40-202611042000'
-kernel_version = '6.6.110'
+version = 'V3.1.41-202611061200'
+kernel_version = '6.6.113'
 assert (assets / 'root.squashfs').is_file()
 assert (kernel_dir / ('linux-' + kernel_version) / 'vmlinux').is_file()
 
@@ -166,7 +166,8 @@ required |= {'luci-theme-myos-new', 'luci-app-myos-system', 'default-settings',
              'mkf2fs', 'f2fsck', 'blkid', 'lsblk', 'rpcd', 'rpcd-mod-luci',
              'iwinfo', 'libiwinfo20230701'}
 # Installer dependencies use the runtime package names (including library ABI suffixes).
-required |= {'coreutils-base64', 'coreutils-nohup', 'coreutils-timeout', 'lyaml',
+required |= {'libip4tc2', 'libip6tc2', 'iptables-mod-extra',
+             'coreutils-base64', 'coreutils-nohup', 'coreutils-timeout', 'lyaml',
              'libyaml', 'libudns', 'resolveip', 'libev',
              'libsodium', 'ip-full', 'libuci-lua', 'libbpf1',
              'libelf1', 'iptables-mod-tproxy', 'libpcap1', 'miniupnpd-nftables',
@@ -181,7 +182,7 @@ for directory in (source / 'bin/targets/mediatek/filogic/packages', source / 'bi
         filename = path.name.rsplit('_', 2)[0]
         name, record, content, data = package(path, include_data=False)
         if name == 'kernel' or name.startswith('kmod-'):
-            if not re.search(r'(^Version: 6\.6\.110[~+.\-]|kernel \(= 6\.6\.110)', record, re.M):
+            if not re.search(r'(^Version: ' + re.escape(kernel_version) + r'[~+.\-]|kernel \(= ' + re.escape(kernel_version) + r'[~+.\-])', record, re.M):
                 continue
         if name not in available or path.stat().st_mtime > available[name][0].stat().st_mtime:
             available[name] = (path, record, content, data)
@@ -288,6 +289,16 @@ copy(source / 'feeds/luci/modules/luci-mod-network/htdocs/luci-static/resources/
      work / 'www/luci-static/resources/view/network/wireless.js')
 copy(source / 'feeds/luci/modules/luci-mod-network/htdocs/luci-static/resources/view/network/interfaces.js',
      work / 'www/luci-static/resources/view/network/interfaces.js')
+# Keep the verified UPnP first-render fix scoped to C5800.
+copy(assets / 'upnp.js', work / 'www/luci-static/resources/view/upnp/upnp.js')
+(work / 'www/luci-static/resources/view/upnp/upnp.js').chmod(0o644)
+for asset, relative, mode in (
+    ('miniupnpd-c5800.init', 'etc/init.d/miniupnpd', 0o755),
+    ('50-miniupnpd-c5800', 'etc/hotplug.d/iface/50-miniupnpd', 0o644),
+    ('c5800-upnp.sh', 'lib/functions/c5800-upnp.sh', 0o644),
+):
+    copy(assets / asset, work / relative)
+    (work / relative).chmod(mode)
 for relative in ('dispatcher.uc', 'template/header.ut'):
     copy(source / 'feeds/luci/modules/luci-base/ucode' / relative,
          work / 'usr/share/ucode/luci' / relative)

@@ -3,28 +3,35 @@
 (()=>{
  'use strict';
  const labels={product:'本机设备',resources:'系统资源',traffic:'实时流量',modems:'蜂窝网络',clients:'终端与连接',network:'网络接口',ports:'端口管理',wifi:'无线网络',topology:'逻辑连接概览',health:'状态巡检',management:'网络管理',events:'连接事件',controls:'布局与性能',version:'设备信息'};
- const defaults={overview:['product','resources'],main:['traffic','modems','clients','network'],side:['ports','wifi','topology','health','management','events','controls'],bottom:['version']};
+ const defaults={overview:['product','resources'],main:['traffic','ports','clients','network'],side:['modems','wifi','topology','health','management'],bottom:['events','controls','version']};
+ const legacyDefaults={overview:['product','resources'],main:['traffic','ports','clients','network'],side:['modems','wifi','topology','health','management','events','controls'],bottom:['version']};
+ const legacyN5000={overview:['product','resources'],main:['traffic','ports','clients','network','events'],side:['modems','wifi','topology','health','management'],bottom:['controls','version']};
  const defaultZones=()=>JSON.parse(JSON.stringify(defaults));
  window.MYOSLayout=app=>{
   const root=app.root,parts=app.parts,zones={overview:root.querySelector('.m-overview-row'),main:root.querySelector('.m-main-column'),side:root.querySelector('.m-side-column'),bottom:root.querySelector('.m-layout-bottom')};
-  let model=app.previous?.profile||'generic',key='myos-liquid-layout-v2:'+model,state={zones:defaultZones(),hidden:[]},editing=false,drag=null,frame=0,dialog=null;
+  let model=app.previous?.profile||'generic',key='myos-liquid-layout-v4:'+model,state={zones:defaultZones(model),hidden:[]},editing=false,drag=null,frame=0,dialog=null;
   const live=document.createElement('div');live.className='m-layout-live';live.setAttribute('role','status');live.setAttribute('aria-live','polite');root.append(live);
   const announce=s=>{live.textContent=s;};
   function save(){try{localStorage.setItem(key,JSON.stringify(state));}catch(_){announce('当前浏览器不能保存，布局仅本次有效。');}}
   function load(){
-   state={zones:defaultZones(),hidden:[]};
+   state={zones:defaultZones(model),hidden:[]};
    try{const data=JSON.parse(localStorage.getItem(key));if(data?.zones){
     const seen=new Set();Object.keys(zones).forEach(z=>{state.zones[z]=(Array.isArray(data.zones[z])?data.zones[z]:[]).filter(n=>Object.hasOwn(parts,n)&&!seen.has(n)&&seen.add(n));});
-    Object.entries(defaults).forEach(([z,names])=>names.forEach(n=>{if(!seen.has(n))state.zones[z].push(n);}));
+    Object.entries(defaultZones(model)).forEach(([z,names])=>names.forEach(n=>{if(!seen.has(n))state.zones[z].push(n);}));
+
+    const oldDefault=model==='n5000'?legacyN5000:legacyDefaults;
+    if(Object.entries(oldDefault).every(([z,names])=>state.zones[z].join('|')===names.join('|'))||
+       Object.entries(legacyDefaults).every(([z,names])=>state.zones[z].join('|')===names.join('|')))
+     state.zones=defaultZones();
     state.hidden=(Array.isArray(data.hidden)?data.hidden:[]).filter(n=>Object.hasOwn(parts,n)&&n!=='controls');
    }}catch(_){}
   }
   const available=n=>!(n==='modems'&&model==='n5000'&&!app.previous?.modems?.length);
   function reconcile(d){
-   if(d?.profile&&d.profile!==model){model=d.profile;key='myos-liquid-layout-v2:'+model;load();apply();return;}
+   if(d?.profile&&d.profile!==model){model=d.profile;key='myos-liquid-layout-v4:'+model;load();apply();return;}
    Object.keys(parts).forEach(n=>{parts[n].hidden=state.hidden.includes(n)||!available(n);});
   }
-  function apply(){Object.entries(state.zones).forEach(([z,names])=>names.forEach(n=>zones[z].append(parts[n])));reconcile();window.dispatchEvent(new Event('myos:layout'));}
+  function apply(){root.classList.add('m-home-refined');Object.entries(state.zones).forEach(([z,names])=>names.forEach(n=>zones[z].append(parts[n])));reconcile();window.dispatchEvent(new Event('myos:layout'));}
   function capture(){Object.entries(zones).forEach(([z,el])=>state.zones[z]=[...el.children].map(n=>n.dataset.card).filter(Boolean));save();}
   function moveTo(n,zone,before){const part=parts[n],parent=zones[zone];if(!part||!parent||before===part)return;parent.insertBefore(part,before||null);capture();announce(labels[n]+'已移动');window.dispatchEvent(new Event('myos:layout'));}
   function adjacent(n,delta){const part=parts[n],siblings=[...part.parentNode.children].filter(p=>p.dataset.card&&!p.hidden),i=siblings.indexOf(part);
@@ -52,7 +59,7 @@
    handle.append(grab);[['↑','上移',()=>adjacent(n,-1)],['↓','下移',()=>adjacent(n,1)],['⇄','移到另一栏',()=>cross(n)]].forEach(([text,label,fn])=>{const b=document.createElement('button');b.type='button';b.textContent=text;b.title=label;b.setAttribute('aria-label',labels[n]+label);b.addEventListener('click',fn);handle.append(b);});part.prepend(handle);
   });
   function toggleEdit(){editing=!editing;root.classList.toggle('m-layout-editing',editing);app.editButton.textContent=editing?'完成布局':'编辑布局';app.editButton.setAttribute('aria-pressed',String(editing));if(!editing)end(true);announce(editing?'拖动手柄调整卡片；自动保存。':'布局已保存。');window.dispatchEvent(new Event('myos:layout'));}
-  function reset(){end(true);state={zones:defaultZones(),hidden:[]};try{localStorage.removeItem(key);}catch(_){}apply();announce('已恢复默认布局。');}
+  function reset(){end(true);state={zones:defaultZones(model),hidden:[]};try{localStorage.removeItem(key);}catch(_){}apply();announce('已恢复默认布局。');}
   function picker(){dialog?.remove();dialog=document.createElement('dialog');dialog.className='m-client-dialog m-layout-dialog';const h=document.createElement('h2');h.textContent='添加 / 隐藏卡片';dialog.append(h);const text=document.createElement('p');text.textContent='仅列出本机适用的卡片。勾选后立即显示，不增加服务或修改网络。';dialog.append(text);
    Object.keys(parts).filter(n=>available(n)&&n!=='controls').forEach(n=>{const label=document.createElement('label');label.className='m-card-choice';const check=document.createElement('input');check.type='checkbox';check.checked=!state.hidden.includes(n);check.addEventListener('change',()=>{state.hidden=state.hidden.filter(v=>v!==n);if(!check.checked)state.hidden.push(n);reconcile();save();});label.append(check,document.createTextNode(labels[n]));dialog.append(label);});
    const done=document.createElement('button');done.type='button';done.className='m-pill-button';done.textContent='完成';const current=dialog;done.addEventListener('click',()=>current.close());current.append(done);current.addEventListener('close',()=>current.remove());document.body.append(current);current.showModal();}

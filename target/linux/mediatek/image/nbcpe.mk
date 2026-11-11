@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # NBCPE-688 / WT9111 NB68 has its own rootfs, device tree and image identity.
 
-NBCPE_VERSION := 3.1.34-202610092000
+NBCPE_VERSION := 3.1.41-202611061200
 
 define Build/nbcpe-688-rootfs-system
 	python3 $(TOPDIR)/target/linux/mediatek/image/assemble-nbcpe.py --pack
@@ -46,7 +46,7 @@ define Device/nradio_nbcpe-688
 	python3-light luci-theme-c2000max-ui luci-theme-mwrt uhttpd uhttpd-mod-ubus \
 	luci-app-store luci-app-firewall luci-app-package-manager \
 	lua-cjson lua-md5 lua-mosquitto libmosquitto-nossl mosquitto-nossl libcares \
-	curl libcurl4 luci-lua-runtime
+	curl libcurl4 luci-lua-runtime libip4tc libip6tc kmod-ipt-extra iptables-mod-extra
   KERNEL_LOADADDR := 0x48000000
   KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb | pad-to 64k
   KERNEL_INITRAMFS := kernel-bin | lzma | \

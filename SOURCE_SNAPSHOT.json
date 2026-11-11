@@ -1,9 +1,9 @@
 {
-  "snapshot_date": "2026-11-06",
+  "snapshot_date": "2026-11-11",
   "tree": "immortalwrt-mt798x-6.6",
   "base_commit": "c88458e977271b41b6a8943dd14940c103c904bd",
-  "source_version": "3.1.40-202611042000",
-  "configuration_target": "nradio_c5800-688",
+  "source_version": "3.1.41-202611061200",
+  "configuration_target": "nradio_nbcpe-688",
   "feed_origins": {
     "istore": "a4a02e700e7840ba0d01cc5677a36257864291c8",
     "luci": "6ac4a0390e5cc92c7cba7a68233be74ae61cd9a4",

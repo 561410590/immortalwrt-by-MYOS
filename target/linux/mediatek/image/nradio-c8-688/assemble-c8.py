@@ -14,8 +14,8 @@ import shutil
 import subprocess
 import tarfile
 
-VERSION = '3.1.40-202611042000'
-KERNEL = '6.6.110'
+VERSION = '3.1.41-202611061200'
+KERNEL = '6.6.113'
 BOARD = 'HCMT7981-688-emmc'
 REFERENCE_SHA256 = '4b8e62131bb5be2926273103e0d5dad030c8a72c7de847e3ce4407219a70b6a1'
 
@@ -30,6 +30,7 @@ def package_helpers(source):
         'myos_package_helpers', source / 'target/linux/mediatek/image/assemble-nbcpe.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    module.KERNEL = KERNEL
     return module
 
 
@@ -153,7 +154,7 @@ def main():
         for path in directory.rglob('*.ipk'):
             name, record, fields, _ = helpers.read_ipk(path)
             if name == 'kernel' or name.startswith('kmod-'):
-                if not re.search(r'(^Version: 6\.6\.110[~+.\-]|kernel \(= 6\.6\.110)', record, re.M):
+                if not re.search(r'(^Version: ' + re.escape(KERNEL) + r'[~+.\-]|kernel \(= ' + re.escape(KERNEL) + r'[~+.\-)])', record, re.M):
                     continue
             if name not in available or path.stat().st_mtime > available[name][0].stat().st_mtime:
                 available[name] = path, record, fields
@@ -161,6 +162,7 @@ def main():
     selected = set(re.findall(r'^CONFIG_PACKAGE_([^=]+)=y$', config, re.M))
     roots = {'kernel'} | {name for name in selected if name.startswith('kmod-')}
     roots |= {
+        'libip4tc2', 'libip6tc2', 'iptables-mod-extra',
         'base-files', 'busybox', 'libc', 'libgcc1', 'libpthread', 'dropbear',
         'luci-base', 'luci-lib-base', 'luci-compat', 'luci-mod-admin-full',
         'luci-mod-network', 'luci-mod-system', 'luci-mod-status', 'luci-lib-jsonc',
@@ -173,17 +175,18 @@ def main():
         'uhttpd', 'uhttpd-mod-ubus', 'firewall4', 'nftables-json',
         'luci-app-firewall', 'luci-app-store', 'luci-proto-ipv6', 'kmod-nft-fullcone',
         'opkg', 'openwrt-keyring', 'iptables-nft', 'ip6tables-nft', 'iptables-mod-extra',
+        'libip4tc2', 'libip6tc2',
         'mtwifi-cfg', 'luci-app-mtwifi-cfg', 'wifi-dats', 'wifi-profile', 'mtk-smp', 'ethtool',
         'luci-app-turboacc', 'luci-i18n-turboacc-zh-cn',
         'dnsmasq-full', 'odhcp6c', 'odhcpd-ipv6only',
         'jq', 'bc', 'fstools', 'block-mount', 'blkid', 'lsblk', 'ip-full', 'tc-full',
         'uclient-fetch', 'libustream-openssl', 'ca-bundle', 'ca-certificates',
-        'curl', 'libcurl4', 'libnghttp2-14',
-        'losetup', 'kmod-loop', 'kmod-fs-ext4', 'e2fsprogs',
+        'curl', 'libcurl4', 'libnghttp2-14', 'coreutils-sha256sum',
+        'losetup', 'kmod-loop', 'kmod-ifb', 'kmod-fs-ext4', 'e2fsprogs',
         'mkf2fs', 'f2fsck', 'usbutils', 'usb-modeswitch',
         'luci-theme-myos-new', 'luci-app-myos-system', 'at-webserver',
         'lua-cjson', 'lua-md5', 'lua-mosquitto', 'libmosquitto-nossl',
-        'mosquitto-nossl', 'libcares', 'luci-lua-runtime',
+        'mosquitto-nossl', 'libcares', 'luci-lua-runtime', 'libpcre2',
     }
     proxy_bundle = runpy.run_path(str(source / 'target/linux/mediatek/image/c5800-mwrt-packages.py'))
     roots |= proxy_bundle['SYSTEM_PACKAGES']

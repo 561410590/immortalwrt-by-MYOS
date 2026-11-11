@@ -74,7 +74,8 @@
             var rsrp = Number(d.rscp);
             var quality = !valid(d.rscp) || !isFinite(rsrp) ? '' : rsrp >= -85 ? '强' : rsrp >= -95 ? '良好' : rsrp >= -105 ? '一般' : '弱';
             var rawBand = valid(d.raw_band) ? String(d.raw_band).replace(/^[nNbB]/, '') : '';
-            var band = rawBand ? (/NR|5G/i.test(d.mode || '') ? 'n' : 'B') + rawBand : '—';
+            var band = d.band_summary || (rawBand ? (/NR|5G/i.test(d.mode || '') ? 'n' : 'B') + rawBand : '—');
+            if (d.carrier_count > 1) network.appendChild(node('span', 'cms-badge', d.carrier_count + 'CC'));
             signals.appendChild(tile('RSRP', value(d, 'rscp'), 'dBm', quality));
             signals.appendChild(tile('SINR', value(d, 'sinr'), 'dB'));
             signals.appendChild(tile('工作频段', band, '')); article.appendChild(signals);
@@ -114,6 +115,15 @@
                 ['下行带宽', bandwidth(d.dlbw)], ['上行带宽', bandwidth(d.ulbw)],
                 ['载波聚合', value(d, 'zbjh')], ['CQI', value(d, 'qci')]
             ]));
+            (Array.isArray(d.carriers) ? d.carriers : []).forEach(function (c) {
+                function reported(key, unit) { return valid(c[key]) ? String(c[key]) + (unit || '') : '未上报'; }
+                details.appendChild(group(c.label + ' · ' + reported('band'), [
+                    ['PCI', reported('pci')], ['Cell ID', reported('cell')],
+                    ['下行频点', reported('dl_fcn')], ['上行频点', reported('ul_fcn')],
+                    ['下行带宽', reported('down_mhz', ' MHz')], ['上行带宽', reported('up_mhz', ' MHz')],
+                    ['RSRP', reported('rsrp', ' dBm')], ['RSRQ', reported('rsrq', ' dB')], ['SINR', reported('sinr', ' dB')]
+                ]));
+            });
             details.appendChild(group('数据连接', [
                 ['APN', value(d, 'apn')], ['IPv6 前缀', value(d, 'ipv6pd')],
                 ['签约下行', value(d, 'down')], ['签约上行', value(d, 'up')]

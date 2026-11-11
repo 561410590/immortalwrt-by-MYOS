@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-22.04
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
-      version: ${{ steps.plan.outputs.version }}
+      stamp: ${{ steps.plan.outputs.stamp }}
       inputs_ref: ${{ steps.plan.outputs.inputs_ref }}
     steps:
       - uses: actions/checkout@v4
@@ -48,7 +48,7 @@ jobs:
       CCACHE_DIR: ${{ github.workspace }}/source/.ccache
       CCACHE_MAXSIZE: 1500M
       CCACHE_COMPRESS: '1'
-      BUILD_VERSION: ${{ needs.prepare.outputs.version }}
+      BUILD_STAMP: ${{ needs.prepare.outputs.stamp }}
       BRANCH: ${{ matrix.branch }}
       MODELS: ${{ join(matrix.models, ',') }}
       SOURCE_COMMIT: ${{ matrix.sha }}
@@ -84,7 +84,7 @@ jobs:
           path: source/.ccache
           key: compiler-v1-${{ matrix.branch }}-${{ hashFiles('source/.config', 'source/include/toolchain-build.mk', 'source/toolchain/**/Makefile') }}-${{ github.run_id }}
           restore-keys: compiler-v1-${{ matrix.branch }}-${{ hashFiles('source/.config', 'source/include/toolchain-build.mk', 'source/toolchain/**/Makefile') }}-
-      - name: Merge upstream userspace with kernel 6.6.110
+      - name: Merge upstream userspace
         run: python3 automation/.github/ci/upstream.py --source source --output logs/upstream.json
       - name: Build dependencies and disk
         run: |

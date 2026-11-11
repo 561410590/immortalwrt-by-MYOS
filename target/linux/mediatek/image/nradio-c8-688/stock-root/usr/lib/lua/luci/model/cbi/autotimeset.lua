@@ -1,5 +1,4 @@
 local o=require"luci.dispatcher"
-local e=require("luci.model.ipkg")
 local s=require"nixio.fs"
 local e=luci.model.uci.cursor()
 local m,s,e

@@ -1,6 +1,6 @@
 {
-  "version": "3.1.40-202611042000",
-  "kernel": "6.6.110",
+  "version": "3.1.41-202611061200",
+  "kernel": "6.6.113",
   "board": "HCMT7981-688-emmc",
   "reference_sha256": "4b8e62131bb5be2926273103e0d5dad030c8a72c7de847e3ce4407219a70b6a1",
   "required_packages": [
@@ -17,6 +17,7 @@
     "coreutils",
     "coreutils-base64",
     "coreutils-nohup",
+    "coreutils-sha256sum",
     "coreutils-stty",
     "coreutils-timeout",
     "curl",
@@ -250,6 +251,7 @@
     "libopenldap",
     "libopenssl3",
     "libpcap1",
+    "libpcre2",
     "libpthread",
     "libreadline8",
     "librt",
@@ -370,10 +372,10 @@
     "python3-urllib"
   ],
   "missing_packages": [],
-  "kernel_abi": "6.6.110~7b6e534b726d3806dc7bdd177cff3504-r1",
+  "kernel_abi": "6.6.113~7b6e534b726d3806dc7bdd177cff3504-r1",
   "abi_mismatches": {},
   "dependency_gaps": {},
-  "source_config_sha256": "9ed31f9aa37101210d52cd579c1b611446496cd83818b9775fc5c1caf22baa2f",
+  "source_config_sha256": "831f74e3cd84efeea2f62764295f660ad2f01f49e43ebee1c42f41dc603c7285",
   "live_device_validation": "pending",
   "removed_reference_packages": [
     "adb",
@@ -482,7 +484,6 @@
     "libopenssl-legacy",
     "libparted",
     "libpci",
-    "libpcre2",
     "libpopt0",
     "librrd1",
     "libsqlite3-0",
@@ -1128,7 +1129,6 @@
     "haproxy": "3.0.25-r1",
     "hysteria": "2.13.0-r1",
     "ipt2socks": "1.1.4-r3",
-    "libpcre2": "10.42-r1",
     "libruby3.3": "3.3.10-r1",
     "lua-neturl": "1.2.1-r1",
     "luci-app-openclash": "0.48.002",

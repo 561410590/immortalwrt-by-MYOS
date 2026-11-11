@@ -13,8 +13,8 @@ import subprocess
 import tarfile
 import zlib
 
-VERSION = '3.1.40-202611042000'
-KERNEL = '6.6.110'
+VERSION = '3.1.41-202611061200'
+KERNEL = '6.6.113'
 BOARD = 'nradio_wt9111_No2-manper_NB68'
 COMPATIBLE = 'HCMT7981-emmc-NB68'
 
@@ -65,7 +65,7 @@ def main():
     assets = source / 'target/linux/mediatek/image/nradio-nbcpe-688'
     kdir = source / 'build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic'
     host = source / 'staging_dir/host/bin'
-    output = source / 'bin/targets/mediatek/filogic' / ('MYOS-NBCPE-688-' + VERSION + '-6.6.110-sysupgrade.bin')
+    output = source / 'bin/targets/mediatek/filogic' / ('MYOS-NBCPE-688-' + VERSION + '-' + KERNEL + '-sysupgrade.bin')
     fit = assets / 'nbcpe-kernel.itb'
     root = kdir / 'root-nbcpe-myos.squashfs'
     if not args.validate_only:
@@ -80,13 +80,13 @@ def main():
             '-I', linux / 'arch/arm64/boot/dts/mediatek', dts, '-o', preprocessed)
         run(linux / 'scripts/dtc/dtc', '-I', 'dts', '-O', 'dtb',
             '-o', dtb, preprocessed)
-        image = (kdir / 'Image').read_bytes()
+        image = (linux / 'arch/arm64/boot/Image').read_bytes()
         if not args.build_only:
             assert image[56:60] == b'ARM\x64'
         text_offset = struct.unpack_from('<Q', image, 8)[0]
         if not args.build_only:
             assert text_offset == 0, 'FIT load address must follow the ARM64 Image header'
-        compressed = assets / 'kernel-6.6.110.lzma'
+        compressed = assets / ('kernel-' + KERNEL + '.lzma')
         encoded = lzma.compress(image, format=lzma.FORMAT_ALONE, filters=[{
             'id': lzma.FILTER_LZMA1, 'dict_size': 8 * 1024 * 1024,
             'lc': 1, 'lp': 2, 'pb': 2, 'mode': lzma.MODE_NORMAL,
@@ -117,7 +117,7 @@ def main():
   #address-cells = <1>;
   images {
     kernel-1 {
-      description = "ARM64 OpenWrt Linux-6.6.110";
+      description = "ARM64 OpenWrt Linux-''' + KERNEL + '''";
       data = /incbin/("''' + str(compressed) + '''");
       type = "kernel"; arch = "arm64"; os = "linux";
       compression = "lzma"; load = <0x48000000>; entry = <0x48000000>;

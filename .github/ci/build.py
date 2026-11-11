@@ -16,7 +16,9 @@ LOGS = WORK / 'logs'
 OUTPUT = WORK / 'output'
 IMAGE = SOURCE / 'target/linux/mediatek/image'
 KDIR = SOURCE / 'build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic'
-VERSION = os.environ['BUILD_VERSION']
+CONFIG_VERSION = re.search(r'^CONFIG_VERSION_NUMBER="[Vv]?(\d+\.\d+\.\d+)', (SOURCE / '.config').read_text(), re.M)[1]
+VERSION = CONFIG_VERSION + '-' + os.environ['BUILD_STAMP']
+KERNEL = json.loads((LOGS / 'upstream.json').read_text())['kernel']
 BRANCH = os.environ['BRANCH']
 MODELS = os.environ['MODELS'].split(',')
 LOGS.mkdir(exist_ok=True)
@@ -59,6 +61,7 @@ def prepare():
         shutil.copy2(INPUTS / 'Xray-core-26.10.10.tar.gz', SOURCE / 'dl')
     if BRANCH == 'main':
         unpack('main-binaries')
+        unpack('mwrt')
         if (WORK / 'MWRT-reference.bin').is_file():
             os.environ['MWRT_REFERENCE'] = str(WORK / 'MWRT-reference.bin')
     patch = INPUTS / (BRANCH + '.patch')
@@ -74,7 +77,7 @@ def prepare():
         path = IMAGE / relative
         if path.is_file():
             text = path.read_text()
-            text = re.sub(r"(?m)^((?:VERSION|version) = ['\"])(V?)3\.1\.40-\d+(['\"])",
+            text = re.sub(r"(?m)^((?:VERSION|version) = ['\"])(V?)\d+\.\d+\.\d+-\d+(['\"])",
                           lambda m: m[1] + m[2] + VERSION + m[3], text)
             path.write_text(text)
     config = SOURCE / '.config'
@@ -88,21 +91,22 @@ def prepare():
     run('config', ['make', 'defconfig'])
 
 def assemble(model):
+    filename = f'MYOS-{model}-{VERSION}-{KERNEL}-sysupgrade.bin'
     if model == 'C8-688':
         run(model + '-assemble', ['python3', IMAGE / 'nradio-c8-688/assemble-c8.py', '--source', SOURCE, '--pack'])
         run(model + '-pack', ['python3', IMAGE / 'nradio-c8-688/build-c8.py', '--source', SOURCE])
         root = IMAGE / ('nradio-c8-688/root-c8-myos-' + VERSION)
-        firmware = SOURCE / ('bin/targets/mediatek/filogic/MYOS-C8-688-' + VERSION + '-6.6.110-sysupgrade.bin')
+        firmware = SOURCE / 'bin/targets/mediatek/filogic' / filename
     elif model == 'C5800-688':
         run(model + '-assemble', ['python3', IMAGE / 'assemble-c5800.py'])
         run(model + '-pack', ['python3', IMAGE / 'build-c5800.py', '--source', SOURCE])
         root = KDIR / 'root-c5800-myos'
-        firmware = SOURCE / ('bin/targets/mediatek/filogic/MYOS-C5800-688-' + VERSION + '-6.6.110-sysupgrade.bin')
+        firmware = SOURCE / 'bin/targets/mediatek/filogic' / filename
     elif model == 'NBCPE-688':
         run(model + '-assemble', ['python3', IMAGE / 'assemble-nbcpe.py', '--source', SOURCE, '--pack'])
         run(model + '-pack', ['python3', IMAGE / 'build-nbcpe.py', '--source', SOURCE, '--build-only'])
         root = KDIR / 'root-nbcpe-myos'
-        firmware = SOURCE / ('bin/targets/mediatek/filogic/MYOS-NBCPE-688-' + VERSION + '-6.6.110-sysupgrade.bin')
+        firmware = SOURCE / 'bin/targets/mediatek/filogic' / filename
     else:
         patterns = {'C2000MAX': ('*nradio_c2000-max*sysupgrade.bin', 'root-c2000max-MYOS'),
                     'C2000-Ultra': ('*nradio_c2000-ultra*sysupgrade.bin', 'root-c2000ultra-*-app'),
@@ -113,7 +117,7 @@ def assemble(model):
     run(model + '-permissions', ['python3', Path(__file__).with_name('permissions.py'),
         '--source', SOURCE, '--root', root, '--firmware', firmware,
         '--output', LOGS / (model + '-permissions'), '--version', VERSION])
-    target = OUTPUT / ('MYOS-' + model + '-' + VERSION + '-6.6.110-sysupgrade.bin')
+    target = OUTPUT / filename
     shutil.copy2(firmware, target)
     return {'model': model, 'version': VERSION, 'date': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'source': os.environ['SOURCE_COMMIT'], 'branch': BRANCH, 'asset': target.name,

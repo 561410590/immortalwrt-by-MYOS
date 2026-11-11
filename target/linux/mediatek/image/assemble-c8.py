@@ -159,6 +159,7 @@ def main():
     selected = set(re.findall(r'^CONFIG_PACKAGE_([^=]+)=y$', config, re.M))
     roots = {'kernel'} | {name for name in selected if name.startswith('kmod-')}
     roots |= {
+        'libip4tc2', 'libip6tc2', 'iptables-mod-extra',
         'base-files', 'busybox', 'libc', 'libgcc1', 'libpthread', 'dropbear',
         'luci-base', 'luci-lib-base', 'luci-compat', 'luci-mod-admin-full',
         'luci-mod-network', 'luci-mod-system', 'luci-mod-status', 'luci-lib-jsonc',

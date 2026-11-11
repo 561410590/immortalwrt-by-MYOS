@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-theme-myos-new
 PKG_VERSION:=1.2.2
-PKG_RELEASE:=7
+PKG_RELEASE:=15.20261108.emil2
 PKG_LICENSE:=Apache-2.0
 PKGARCH:=all
 

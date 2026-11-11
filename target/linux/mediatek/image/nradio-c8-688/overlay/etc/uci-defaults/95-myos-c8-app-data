@@ -1,0 +1,69 @@
+#!/bin/sh
+. /lib/functions/myos-c8-identity.sh
+myos_c8_board || exit 0
+. /lib/functions.sh
+
+# Mount the existing shared data partition; never create or format a filesystem.
+c8_device="$(blkid -t PARTLABEL=app_data -o device | head -n 1)"
+if [ -z "$c8_device" ]; then
+    logger -t myos-c8-apps "app_data partition not found; existing storage unchanged"
+    exit 0
+fi
+c8_uuid="$(blkid -s UUID -o value "$c8_device")"
+c8_type="$(blkid -s TYPE -o value "$c8_device")"
+if [ -z "$c8_uuid" ] || [ -z "$c8_type" ]; then
+    logger -t myos-c8-apps "app_data has no recognised filesystem; not formatting it"
+    exit 0
+fi
+c8_label="$(blkid -s LABEL -o value "$c8_device")"
+c8_section=
+c8_find_mount() {
+    local uuid device label
+    config_get uuid "$1" uuid
+    config_get device "$1" device
+    config_get label "$1" label
+    if [ "$uuid" = "$c8_uuid" ] || [ "$device" = "$c8_device" ] ||
+       { [ -n "$c8_label" ] && [ "$label" = "$c8_label" ]; }; then
+        [ -n "$c8_section" ] || c8_section="$1"
+    fi
+}
+config_load fstab
+config_foreach c8_find_mount mount
+[ -n "$c8_section" ] || c8_section=c8_app_data
+c8_target="$(uci -q get "fstab.$c8_section.target")"
+case "$c8_target" in
+    /mnt/*) ;;
+    *) c8_target=/mnt/app_data ;;
+esac
+uci -q set "fstab.$c8_section=mount"
+uci -q set "fstab.$c8_section.uuid=$c8_uuid"
+uci -q set "fstab.$c8_section.target=$c8_target"
+uci -q set "fstab.$c8_section.enabled=1"
+uci -q commit fstab
+mkdir -p "$c8_target"
+/sbin/block mount
+c8_mounted="$(findmnt -nr -S "$c8_device" -o TARGET | head -n 1)"
+if [ -z "$c8_mounted" ]; then
+    logger -t myos-c8-apps "app_data mount failed; inspect fstab and block mount output"
+    exit 0
+fi
+
+# Seed first-install defaults only. Existing containers and chosen paths stay put.
+[ -n "$(uci -q get istore.istore)" ] || uci -q set istore.istore=istore
+[ -n "$(uci -q get istore.istore.last_path)" ] ||
+    uci -q set "istore.istore.last_path=$c8_mounted"
+uci -q commit istore
+if [ -z "$(uci -q get dockerd.globals.data_root)" ]; then
+    [ -f /etc/config/dockerd ] || touch /etc/config/dockerd
+    mkdir -p "$c8_mounted/docker"
+    uci -q set dockerd.globals=globals
+    uci -q set "dockerd.globals.data_root=$c8_mounted/docker"
+    [ -n "$(uci -q get dockerd.globals.iptables)" ] ||
+        uci -q set dockerd.globals.iptables=1
+    if [ "$c8_type" = ext4 ] &&
+       [ -z "$(uci -q get dockerd.globals.storage_driver)" ]; then
+        uci -q set dockerd.globals.storage_driver=overlay2
+    fi
+    uci -q commit dockerd
+fi
+exit 0

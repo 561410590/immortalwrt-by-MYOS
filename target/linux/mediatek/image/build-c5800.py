@@ -7,7 +7,7 @@ import json
 import subprocess
 import tarfile
 
-VERSION = '3.1.40-202611042000'
+VERSION = '3.1.41-202611061200'
 
 
 def main():
@@ -29,7 +29,7 @@ def main():
         raise RuntimeError('Expected the assembled C5800 squashfs')
     root_data += bytes((-len(root_data)) % 1024)
     output = source / 'bin/targets/mediatek/filogic' / (
-        'MYOS-C5800-688-' + VERSION + '-6.6.110-sysupgrade.bin')
+        'MYOS-C5800-688-' + VERSION + '-6.6.113-sysupgrade.bin')
     board = 'nradio_c5800-688'
     prefix = 'sysupgrade-' + board
     control = ('BOARD=' + board + '\n').encode()

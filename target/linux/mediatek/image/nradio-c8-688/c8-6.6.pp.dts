@@ -6,7 +6,7 @@
 
 # 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/target/linux/mediatek/dts/mt7981-nradio-c8-688-emmc.dtsi" 1
 # 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/target/linux/mediatek/dts/mt7981-nradio-common.dtsi" 1
-# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 1
+# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 1
 
 
 
@@ -14,28 +14,28 @@
 
 
 
-# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/include/dt-bindings/interrupt-controller/irq.h" 1
-# 9 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
-# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/include/dt-bindings/interrupt-controller/arm-gic.h" 1
-# 10 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
-# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/include/dt-bindings/phy/phy.h" 1
-# 11 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
-# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/include/dt-bindings/clock/mediatek,mt7981-clk.h" 1
-# 12 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
-# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/include/dt-bindings/reset/mt7986-resets.h" 1
-# 13 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
-# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/include/dt-bindings/pinctrl/mt65xx.h" 1
-# 14 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
-# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/include/dt-bindings/leds/common.h" 1
-# 15 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
-# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/include/dt-bindings/input/linux-event-codes.h" 1
-# 16 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
-# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/include/dt-bindings/gpio/gpio.h" 1
-# 17 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
-# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/include/dt-bindings/mux/mux.h" 1
-# 18 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
-# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/include/dt-bindings/reset/ti-syscon.h" 1
-# 19 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.110/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
+# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/include/dt-bindings/interrupt-controller/irq.h" 1
+# 9 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
+# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/include/dt-bindings/interrupt-controller/arm-gic.h" 1
+# 10 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
+# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/include/dt-bindings/phy/phy.h" 1
+# 11 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
+# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/include/dt-bindings/clock/mediatek,mt7981-clk.h" 1
+# 12 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
+# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/include/dt-bindings/reset/mt7986-resets.h" 1
+# 13 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
+# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/include/dt-bindings/pinctrl/mt65xx.h" 1
+# 14 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
+# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/include/dt-bindings/leds/common.h" 1
+# 15 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
+# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/include/dt-bindings/input/linux-event-codes.h" 1
+# 16 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
+# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/include/dt-bindings/gpio/gpio.h" 1
+# 17 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
+# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/include/dt-bindings/mux/mux.h" 1
+# 18 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
+# 1 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/include/dt-bindings/reset/ti-syscon.h" 1
+# 19 "/vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.6.113/arch/arm64/boot/dts/mediatek/mt7981.dtsi" 2
 
 / {
  compatible = "mediatek,mt7981";

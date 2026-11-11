@@ -33,7 +33,7 @@ SYSTEM_PACKAGES = {
 def install(source, work, records):
     image = Path(os.environ.get('MWRT_REFERENCE',
         '/mnt/f/Download/Mwrt-c2000ultra-tf-1153-24-20261028.bin'))
-    unpack = source / 'build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/mwrt-1153-24-packages'
+    unpack = source / 'target/linux/mediatek/image/nradio-c5800-688/mwrt-1153-24-packages'
     tool = source / 'staging_dir/host/bin/unsquashfs4'
     # Reuse the existing extracted input when the original BIN is no longer present.
     if image.is_file():

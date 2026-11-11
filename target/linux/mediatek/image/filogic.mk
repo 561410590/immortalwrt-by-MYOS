@@ -164,7 +164,7 @@ endef
 
 define Build/c5800-688-append-metadata
 	printf '%s\n' \
-		'{ "metadata_version": "1.1", "compat_version": "1.0", "supported_devices":["nradio,c5800-688","HCMT7981-emmc"], "version": { "dist": "MYOS", "version": "3.1.40-202611031200", "revision": "r33578-c88458e977", "target": "mediatek/filogic", "board": "nradio_c5800-688" } }' \
+		'{ "metadata_version": "1.1", "compat_version": "1.0", "supported_devices":["nradio,c5800-688","HCMT7981-emmc"], "version": { "dist": "MYOS", "version": "$(VERSION_NUMBER)", "revision": "r33578-c88458e977", "target": "mediatek/filogic", "board": "nradio_c5800-688" } }' \
 		> $@.metadata
 	fwtool -I $@.metadata $@
 	rm -f $@.metadata
@@ -2517,6 +2517,7 @@ define Device/nradio_c5800-688
   BOARD_NAME := nradio_c5800-688
   SUPPORTED_DEVICES += HCMT7981-emmc
   DEVICE_PACKAGES := \
+	libip4tc libip6tc kmod-ipt-extra iptables-mod-extra \
 	kmod-mediatek_hnat \
 	mtk-smp luci-app-c5800-688-wtmodem mt5700-web-go luci-app-mt5700-web openvpn-openssl kmod-tun \
 	kmod-mt_wifi kmod-conninfra kmod-warp mtwifi-cfg luci-app-mtwifi-cfg \
@@ -2565,8 +2566,9 @@ define Device/nradio_c8-688
 	kmod-conninfra kmod-mediatek_hnat kmod-mt_wifi kmod-warp kmod-nft-fullcone \
 	wifi-dats wifi-profile mtwifi-cfg luci-app-mtwifi-cfg \
 	mtk-smp \
-	libustream-openssl ca-bundle ca-certificates block-mount blkid lsblk \
-	iptables-mod-extra losetup kmod-loop kmod-fs-ext4 e2fsprogs \
+	libustream-openssl ca-bundle ca-certificates coreutils-sha256sum block-mount blkid lsblk \
+	libip4tc libip6tc kmod-ipt-extra iptables-mod-extra \
+	losetup kmod-loop kmod-ifb kmod-fs-ext4 e2fsprogs \
 	luci-app-turboacc-mtk luci-i18n-turboacc-mtk-zh-cn mtkhqos_util \
 	adb usbutils usbids pciutils pciids usb-modeswitch \
 	uqmi umbim chat comgt comgt-directip comgt-ncm wwan \

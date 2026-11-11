@@ -1,0 +1,42 @@
+/etc/init.d/miniupnpd enabled || exit 0
+
+# Re-evaluate after failover, recovery, address updates and policy changes.
+# The configuration comparison below keeps ordinary renewals restart-free.
+case "$ACTION" in
+	ifup|ifdown|ifupdate|connected|disconnected|policy) ;;
+	*) /etc/init.d/miniupnpd running && exit 0 ;;
+esac
+
+tmpconf="/var/etc/miniupnpd.conf"
+external_iface=$(uci -q get upnpd.config.external_iface)
+external_iface6=$(uci -q get upnpd.config.external_iface6)
+external_zone=$(uci -q get upnpd.config.external_zone)
+[ -x "$(command -v nft)" ] && FW="fw4" || FW="fw3"
+
+. /lib/functions/network.sh
+. /lib/functions/c5800-upnp.sh
+
+if [ -n "$external_iface" ] ; then
+	network_get_device ifname "$external_iface"
+else
+	if [ -n "$external_zone" ] ; then
+		ifname=$($FW -q zone "$external_zone" 2>/dev/null | head -1)
+	else
+		ifname="$(c5800_upnp_device)"
+	fi
+fi
+if [ -n "$external_iface6" ] ; then
+	network_get_device ifname6 "$external_iface6"
+else
+	if [ -n "$external_zone" ] ; then
+		ifname6=$($FW -q zone "$external_zone" 2>/dev/null | head -1)
+	else
+		network_find_wan6 external_iface6 && \
+			network_get_device ifname6 "$external_iface6"
+	fi
+fi
+
+grep -Fqx "ext_ifname=$ifname" "$tmpconf" && grep -Fqx "ext_ifname6=$ifname6" "$tmpconf" && exit 0
+
+logger -t miniupnpd "C5800 UPnP follows uplink $ifname ($ACTION/$INTERFACE)"
+/etc/init.d/miniupnpd restart

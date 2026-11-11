@@ -33,7 +33,7 @@ const leaseText = (expires,ts) => expires===0?'无限期':expires==null?'无 DHC
 const card = (title,icon,body,extra) => node('section','m-card',[
  node('div','m-card-heading',[node('h2','',[node('span','m-section-icon',glyph(icon)),title]),extra||node('span')]),body
 ]);
-const kv = pairs => node('dl','m-kv',pairs.map(p=>node('div','',[node('dt','',p[0]),node('dd','',text(p[1]))])));
+const kv = pairs => node('dl','m-kv',pairs.map(p=>node('div','',[node('dt','',p[0]),node('dd',p[2]||'',text(p[1]))])));
 const bytes = value => {
  if(value==null||!Number.isFinite(Number(value)))return '—';
  let n=Number(value),u=0;const units=['B','KiB','MiB','GiB','TiB'];
@@ -77,7 +77,17 @@ return view.extend({
    if(!d.system||(!d.lite&&!d.board))throw new Error('状态响应无效');return d;
   });
  },
- load:function(){return this.fetchData(true).catch(e=>({failure:e.message}));},
+ load:function(){
+  this.initialSample=null;
+  return this.fetchData(true).then(async first=>{
+   // Take two real counter samples before the browser paints the dashboard.
+   await new Promise(resolve=>setTimeout(resolve,250));
+   const next=await this.fetchData(false);
+   if(next.boot!==first.boot)return next.lite?this.fetchData(true):next;
+   this.initialSample=first;
+   return next.lite?this.mergeSample(next,first):next;
+  }).catch(e=>({failure:e.message}));
+ },
  intervals:function(){return this.performanceMode==='realtime'?{fast:1000,slow:30000}:this.performanceMode==='eco'?{fast:10000,slow:60000}:this.performanceMode==='responsive'?{fast:3000,slow:30000}:{fast:5000,slow:30000};},
  scheduleNext:function(delay){
   clearTimeout(this.sampleTimer);
@@ -102,14 +112,68 @@ return view.extend({
    this.scheduleNext(delay);
   });return this.refreshing;
  },
- mergeSample:function(fast){
-  const old=this.previous;if(!old)return fast;
+ mergeSample:function(fast,baseline){
+  const old=baseline||this.previous;if(!old)return fast;
   const d={...old,...fast,lite:false,system:{...old.system,...fast.system}};
-  ['ports','uplinks'].forEach(key=>{const values=new Map(list(fast[key]).map(p=>[p.name,p]));d[key]=list(old[key]).map(p=>({...p,...(values.get(p.name)||{})}));});
+  ['ports','uplinks'].forEach(key=>{
+   const values=new Map(list(fast[key]).map(p=>[p.name,p]));
+   d[key]=list(old[key]).map(port=>{
+    const merged={...port,...values.get(port.name)};
+    if(key==='ports'&&port.carrier!==merged.carrier){
+     merged.client_ipv4=[];
+     merged.networks=[];
+    }
+    return merged;
+   });
+  });
   return d;
  },
+ scheduleSignals:function(delay){
+  clearTimeout(this.signalTimer);this.signalTimer=null;
+  if(document.hidden||this.paused||this.disposed||!this.root?.isConnected||!['c5800688','c8688','nbcpe688','c2000max','c2000ultra'].includes(this.previous?.profile))return;
+  this.signalTimer=setTimeout(()=>this.refreshSignals(),delay==null?1000:delay);
+ },
+ refreshSignals:function(){
+  clearTimeout(this.signalTimer);this.signalTimer=null;
+  if(document.hidden||this.paused||this.disposed||!this.root?.isConnected||!['c5800688','c8688','nbcpe688','c2000max','c2000ultra'].includes(this.previous?.profile))return Promise.resolve();
+  if(this.signalRequest)return this.signalRequest;
+  if(this.dragging){this.scheduleSignals(1000);return Promise.resolve();}
+  const started=performance.now();
+  this.signalRequest=request.get(L.url('admin','myos','modem_refresh')+'?signals=1',{cache:false,timeout:30000})
+   .then(r=>{
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const data=r.json();
+    if(this.disposed||!this.root.isConnected)return;
+    const signals={};
+    Object.entries(data.signals||{}).forEach(([id,value])=>{
+     const current={...value};
+     ['rsrp','rsrq','sinr','operator','rat','band','band_summary','band_detail','carrier_aggregation',
+      'sim','sim_label','sim_name','sim_id','sim_name_status','pin','apn','pci','cell','arfcn','temperature',
+      'selected_sim','selected_sim_label','selected_sim_type'].forEach(key=>{current[key]=value[key]??null;});
+     current.carriers=Array.isArray(value.carriers)?value.carriers:[];
+     current.qos=value.qos||{};
+     signals[id]=current;
+    });
+    list(this.previous?.modems).forEach(m=>{if(!signals[m.id])signals[m.id]={rsrp:null,rsrq:null,sinr:null,carriers:[]};});
+    this.liveSignals=signals;
+    this.refreshSimNames({...this.previous,modems:list(this.previous?.modems).map(m=>({...m,...signals[m.id]}))});
+    this.signalErrors=data.errors||{};
+   })
+   .catch(e=>{
+    this.signalErrors={service:e.message};
+    this.liveSignals=Object.fromEntries(list(this.previous?.modems).map(m=>[m.id,{rsrp:null,rsrq:null,sinr:null,carriers:[]}]));
+   })
+   .finally(()=>{
+    this.signalRequest=null;
+    if(!this.disposed&&!document.hidden&&!this.dragging&&!this.paused&&this.root.isConnected&&this.previous){
+     this.renderModems(this.previous);this.layout?.reconcile(this.previous);
+    }
+    this.scheduleSignals(Math.max(250,1000-(performance.now()-started)));
+   });
+  return this.signalRequest;
+ },
  refreshMaxModem:function(d){
-  if(!['c2000max','c5800688'].includes(d.profile)||document.hidden||this.modemRefresh||Date.now()<(this.modemNext||0))return Promise.resolve();
+  if(d.profile!=='c2000max'||document.hidden||this.modemRefresh||Date.now()<(this.modemNext||0))return Promise.resolve();
   this.modemNext=Date.now()+30000;
   this.modemRefresh=request.get(L.url('admin','myos','modem_refresh'),{cache:false,timeout:30000})
    .then(r=>{
@@ -139,18 +203,23 @@ return view.extend({
  },
  render:function(initial){
   this.previous=null;this.trafficPrevious=null;this.cpuReading=null;this.history=[];this.saved={};this.parts={};this.events=[];this.portRates={};this.paused=false;this.fullNext=Date.now()+30000;
+  if(!initial.failure&&this.initialSample){
+   this.previous=this.initialSample;
+   this.trafficPrevious={sample:this.initialSample.sample,boot:this.initialSample.boot,uplinks:list(this.initialSample.uplinks)};
+  }
+  this.initialSample=null;this.liveSignals={};this.signalErrors={};
   this.performanceMode='realtime';try{const v=localStorage.getItem('myos-liquid-performance-v3');if(['realtime','eco','balanced','responsive'].includes(v))this.performanceMode=v;}catch(_){}
   const slot=name=>this.parts[name]=node('div','m-slot m-slot-'+name);
   this.error=node('div','m-read-error');this.error.hidden=true;
-  this.root=node('div','m-dashboard',[
+  this.root=node('div','m-dashboard m-home-refined',[
    node('div','m-page-heading',[
     node('div','m-heading-copy',[node('p','m-eyebrow','MYOS / NETWORK'),node('h1','','网络控制中心')])
    ]),this.error,
    node('div','m-overview-row m-layout-zone',[slot('product'),slot('resources')]),
    node('div','m-dashboard-grid',[
-    node('div','m-main-column m-layout-zone',[slot('traffic'),slot('modems'),slot('clients'),slot('network')]),
-    node('div','m-side-column m-layout-zone',[slot('ports'),slot('wifi'),slot('topology'),slot('health'),slot('management'),slot('events'),slot('controls')]),
-    node('div','m-layout-bottom m-layout-zone',[slot('version')])
+    node('div','m-main-column m-layout-zone',[slot('traffic'),slot('ports'),slot('clients'),slot('network')]),
+    node('div','m-side-column m-layout-zone',['modems','wifi','topology','health','management'].map(slot)),
+    node('div','m-layout-bottom m-layout-zone',['events','controls','version'].map(slot))
    ])
   ]);
   this.initTraffic();
@@ -158,15 +227,15 @@ return view.extend({
   this.initManagement();
   this.initControls();
   if(initial.failure)this.showError(initial.failure);else this.update(initial);
-  this.onVisibility=()=>{clearTimeout(this.sampleTimer);if(!document.hidden){this.fullNext=0;this.scheduleNext(250);}};
+  this.onVisibility=()=>{clearTimeout(this.sampleTimer);clearTimeout(this.signalTimer);this.signalTimer=null;if(!document.hidden){this.fullNext=0;this.scheduleNext(250);this.scheduleSignals(0);}};
   document.addEventListener('visibilitychange',this.onVisibility);
-  window.addEventListener('pagehide',()=>{this.disposed=true;clearTimeout(this.sampleTimer);this.layout?.destroy();},{once:true});
-  window.addEventListener('pageshow',event=>{if(event.persisted){this.disposed=false;this.scheduleNext(250);}});
+  window.addEventListener('pagehide',()=>{this.disposed=true;clearTimeout(this.sampleTimer);clearTimeout(this.signalTimer);this.signalTimer=null;this.layout?.destroy();},{once:true});
+  window.addEventListener('pageshow',event=>{if(event.persisted){this.disposed=false;this.scheduleNext(250);this.scheduleSignals(0);}});
   setTimeout(()=>{
    if(!this.root.isConnected)return;
    if(window.MYOSLayout)this.layout=window.MYOSLayout(this);
-   this.scheduleNext(1000);
-   if(typeof IntersectionObserver!=='undefined'){this.chartVisibility=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)&&this.previous)this.drawTraffic(this.previous,this.lastRates?.down,this.lastRates?.up);});this.chartVisibility.observe(this.parts.traffic);}
+   this.scheduleNext(1000);this.scheduleSignals(0);
+   if(typeof IntersectionObserver!=='undefined'){this.chartVisibility=new IntersectionObserver(entries=>{this.chartInView=entries.some(e=>e.isIntersecting);if(this.chartInView&&this.previous)this.drawTraffic(this.previous,this.lastRates?.down,this.lastRates?.up);});this.chartVisibility.observe(this.parts.traffic);}
    window.dispatchEvent(new Event('myos:layout'));
   },0);
   return this.root;
@@ -216,6 +285,7 @@ return view.extend({
   if(dt!==0)this.portRates={};
   if(dt>0&&dt<=90)list(d.ports).forEach(p=>{
    const old=list(prev.ports).find(q=>q.name===p.name);
+   if(light&&old&&old.carrier!==p.carrier)this.fullNext=0;
    if(old&&p.rx!=null&&p.tx!=null&&old.rx!=null&&old.tx!=null&&p.rx>=old.rx&&p.tx>=old.tx)
     this.portRates[p.name]={rx:(p.rx-old.rx)/dt,tx:(p.tx-old.tx)/dt};
   });
@@ -236,19 +306,29 @@ return view.extend({
   if(this.layout)this.layout.reconcile(d);
   if(!light)window.dispatchEvent(new Event('myos:layout'));
   if(!light)this.refreshSimNames(d);
-  if(!light&&d.profile==='c5800688')this.refreshMaxModem(d);
+  if(!this.signalTimer&&!this.signalRequest)this.scheduleSignals(0);
 
  },
  renderModems:function(d){
-  const data={modems:d.modems,interfaces:d.interfaces,simNames:this.simNames,simFailure:this.simFailure,modemFailure:this.modemFailure};
+  const modems=list(d.modems).map(m=>{
+   const signal=this.liveSignals?.[m.id];
+   return signal?{...m,...signal,carriers:signal.carriers??list(m.carriers).map(c=>c.index===0?{...c,...signal}:c)}:m;
+  });
+  const data={modems,interfaces:d.interfaces,simNames:this.simNames,simFailure:this.simFailure,modemFailure:this.modemFailure,signalErrors:this.signalErrors};
   this.parts.modems.hidden=d.profile==='n5000'&&!list(d.modems).length;
   this.replace('modems',data,()=>{
-   const cells=list(d.modems);
+   const cells=list(modems).slice();
+   if(d.profile==='c5800688'){
+    const order={cpe:0,cpe1:1};
+    cells.sort((a,b)=>(order[a.id]??2)-(order[b.id]??2));
+   }
    return card('蜂窝网络','▥',cells.length?node('div','',cells.map(m=>{
     const cloud=this.simNames?.[m.sim_id]||{};
     const nets=list(d.interfaces).filter(n=>n.device===m.device&&n.up);
     const ip=nets.flatMap(n=>list(n.ipv4)),v6=nets.flatMap(n=>list(n.ipv6));
-    const rat=text(m.rat),band=m.band?String(m.band).split(/[, +]+/).map(b=>/^\d+$/.test(b)?(/NR|5G/i.test(rat)?'n':'B')+b:b).join(' + '):'—';
+    const carriers=d.profile==='c5800688'?list(m.carriers):[],carrierCount=d.profile==='c5800688'?m.carrier_count:0;
+    const rat=text(m.rat),band=(d.profile==='c5800688'&&m.band_summary)||(m.band?String(m.band).split(/[, +]+/).sort((a,b)=>Number(b.match(/\d+/)?.[0]||0)-Number(a.match(/\d+/)?.[0]||0)).map(b=>/^\d+$/.test(b)?(/NR|5G/i.test(rat)?'n':'B')+b:b).join(' + '):'—');
+    const reported=(value,unit)=>value==null||value===''?'未上报':String(value)+(unit||'');
     const metric=(label,value,unit)=>node('div','',[node('label','',label),node('strong','',value==null?'—':String(value)),node('small','',unit)]);
     const qos=m.qos||{},rate=v=>v==null?'未获取':Number(v).toLocaleString('zh-CN',{maximumFractionDigits:3})+' Mbps';
     const contract=node('div','m-contract',[
@@ -259,20 +339,27 @@ return view.extend({
     const detail=E('details',{'class':'m-inline-details','data-key':m.id},[
      node('summary','','更多蜂窝详情'),
      kv([['模组版本',m.firmware],['APN',m.apn],['PCI',m.pci],['小区',m.cell],['ARFCN',m.arfcn],
-       ...(['nbcpe688','c8688'].includes(d.profile)?[['频段与带宽',m.band_detail],['载波聚合',m.carrier_aggregation]]:[]),
-       ['模组温度',m.temperature!=null?m.temperature+' °C':null],['签约信息来源',qos.source],['5QI（独立字段）',qos.fiveqi],['IPv4',addresses(ip)],['IPv6',addresses(v6)]])
+       ...(['nbcpe688','c8688','c5800688'].includes(d.profile)?[['频段与带宽',m.band_detail],['载波聚合',m.carrier_aggregation]]:[]),
+       ['模组温度',m.temperature!=null?m.temperature+' °C':null],['签约信息来源',qos.source],['5QI（独立字段）',qos.fiveqi],['IPv4',addresses(ip)],['IPv6',addresses(v6)]]),
+     ...carriers.map(c=>node('div','',[
+      node('h4','m-cell-subtitle',c.label+' · '+reported(c.band)),
+      kv([['PCI',reported(c.pci)],['Cell ID',reported(c.cell)],
+       ['下行频点',reported(c.dl_fcn)],['上行频点',reported(c.ul_fcn)],
+       ['下行带宽',reported(c.down_mhz,' MHz')],['上行带宽',reported(c.up_mhz,' MHz')],
+       ['RSRP',reported(c.rsrp,' dBm')],['RSRQ',reported(c.rsrq,' dB')],['SINR',reported(c.sinr,' dB')]])
+     ]))
     ]);
+    const signalError=this.signalErrors?.[m.id]||this.signalErrors?.service||this.modemFailure;
     return node('div','m-cell'+(d.profile==='nbcpe688'?' m-cell-nbcpe':''),[
      node('div','m-cell-head',[
-      node('div','',[node('div','m-cell-title',[text(m.operator),badge(m.rat||'制式未获取','blue')]),node('div','m-cell-subtitle',text(m.label)+' · '+text(m.model))]),
+      node('div','',[node('div','m-cell-title',[text(m.operator),badge(m.rat||'制式未获取','blue'),...(carrierCount>1?[badge(carrierCount+'CC','blue')]:[])]),node('div','m-cell-subtitle',text(m.label)+' · '+text(m.model))]),
       badge(ip.length||v6.length?'已获取地址':'地址未获取',ip.length||v6.length?'good':'')
      ]),
      node('div','m-signal',[metric('RSRP',m.rsrp,'dBm'),metric('RSRQ',m.rsrq,'dB'),metric('SINR',m.sinr,'dB'),metric('频段',band,'')]),contract,
-     node('p','m-contract-note','AMBR 来自模组缓存，不代表实时网速；未上报时显示未获取。'),
      kv([...(m.selected_sim?[['已选卡槽',m.selected_sim_label||('SIM '+m.selected_sim+(m.selected_sim_type?' · '+m.selected_sim_type:''))]]:[]),
        ['当前 SIM',m.sim_label||(m.sim?'SIM '+m.sim:null)],['SIM 名称',cloud.name||m.sim_name||cloud.error||(this.simFailure?'云端名称暂不可用':m.sim_name_status)],['数据接口',m.device],
        ['识卡状态',m.pin==='0'||m.pin==='READY'?'已就绪':m.pin!=null?'状态 '+m.pin:null]]),
-     detail,node('div','m-cell-age',(m.age!=null?'本次读取时缓存已存在 '+m.age+' 秒':'信号采样时间未获取')+(this.modemFailure?' · 刷新失败：'+this.modemFailure:''))
+     detail,...(signalError?[node('div','m-cell-age','信号读取失败：'+signalError)]:[])
     ]);
    })):node('p','m-empty','暂无模组缓存，网络接口状态见下方。'),node('div','m-action-buttons',[
     ...(d.profile==='c2000max'?[E('button',{type:'button',class:'m-copy-button',click:()=>{
@@ -283,21 +370,44 @@ return view.extend({
   });
  },
  renderPorts:function(d){
-  this.replace('ports',{ports:d.ports,rates:this.portRates,profile:d.profile},()=>card('端口管理','⌘',
-   list(d.ports).length?node('div','m-port-grid',list(d.ports).map(p=>{
-    const rate=this.portRates[p.name]||{};
-    const lan=p.role==='LAN',down=lan?rate.tx:rate.rx,up=lan?rate.rx:rate.tx;
+  const ports=list(d.ports);
+  const status=ports.map(p=>{
+   let ips=[];
+   if(p.carrier===true){
+    if(p.role==='LAN')ips=list(p.client_ipv4);
+    else{
+     const networks=list(p.networks).filter(n=>n.up===true);
+     ips=networks.flatMap(n=>list(n.ipv4).map(ip=>ip.address));
+     if(!ips.length)ips=networks.flatMap(n=>list(n.ipv6).map(ip=>ip.address));
+    }
+   }
+   return {name:p.name,role:p.role,carrier:p.carrier,speed:p.speed,mac:p.mac,mtu:p.mtu,ips:[...new Set(ips.filter(Boolean))]};
+  });
+  this.replace('ports',{ports:status,profile:d.profile},()=>card('端口管理','⌘',
+   status.length?node('div','m-port-grid',status.map(p=>{
     const label=alias(d,p.name),desc=p.carrier===true?'链路已连接':p.carrier===false?'未连接':'状态未获取';
     const detail=E('details',{class:'m-port-details','data-key':p.name},[
-     node('summary','','详情'),kv([['实际接口',p.name],['角色',p.role],['MAC',p.mac],['MTU',p.mtu],['累计接收',bytes(p.rx)],['累计发送',bytes(p.tx)]])
+     node('summary','','详情'),kv([['实际接口',p.name],['角色',p.role],['MAC',p.mac],['MTU',p.mtu],
+      ...(p.ips.length>1?[['IP 地址',p.ips.join(' · ')]]:[]),
+      ['累计接收','—','m-port-rx'],['累计发送','—','m-port-tx']])
     ]);
     return node('div','m-port'+(p.carrier?' up':''),[
      node('div','m-port-top',[node('div','m-port-socket'),node('span','m-port-led')]),
      node('strong','',label),node('small','',p.role||'物理网口'),
      badge(p.carrier&&p.speed?String(p.speed).replace(/F$/,' Mbps').replace(/H$/,' Mbps · 半双工').replace(/^(\d+)$/,'$1 Mbps'):desc,p.carrier?'good':''),
-     node('div','m-port-traffic',[node('span','','↓ 下载 '+speed(down).join(' ')),node('span','','↑ 上传 '+speed(up).join(' '))]),detail
+     E('div',{class:'m-port-ip',hidden:!p.ips.length},p.ips.length?p.ips[0]+(p.ips.length>1?' +'+(p.ips.length-1):''):null),
+     node('div','m-port-traffic',[node('span','m-download'),node('span','m-upload')]),detail
     ]);
    })):node('p','m-empty','未获取物理网口信息'),link('接口设置','admin/network/network')));
+  this.parts.ports.querySelectorAll('.m-port').forEach((row,index)=>{
+   const p=ports[index],rate=this.portRates[p.name]||{};
+   const lan=p.role==='LAN',down=lan?rate.tx:rate.rx,up=lan?rate.rx:rate.tx;
+   for(const [selector,value] of [['.m-download','↓ 下载 '+speed(down).join(' ')],['.m-upload','↑ 上传 '+speed(up).join(' ')],
+    ['.m-port-rx',bytes(p.rx)],['.m-port-tx',bytes(p.tx)]]){
+    const field=row.querySelector(selector);
+    if(field.textContent!==value)field.textContent=value;
+   }
+  });
  },
  renderNetwork:function(d){
   this.replace('network',{interfaces:d.interfaces,ports:d.ports,profile:d.profile},()=>{
@@ -352,7 +462,7 @@ return view.extend({
   this.chart=document.createElementNS('http://www.w3.org/2000/svg','svg');
   this.chart.setAttribute('viewBox','0 0 600 150');this.chart.setAttribute('preserveAspectRatio','none');this.chart.setAttribute('role','img');this.chart.setAttribute('aria-label','外网出口上下行曲线，横轴为有效采样顺序；每点按实际时间间隔计算平均速率');
   this.chartEmpty=node('div','m-chart-empty','等待下一次实际采样');
-  this.chartSource=node('small');this.chartScale=node('small');
+  this.chartSource=E('small',{style:'margin-inline-start:0;text-align:start'});
   this.trafficTotal=node('div','m-cell-age');
   this.connectionValue=node('strong');
   this.connectionLimit=node('small');
@@ -364,20 +474,19 @@ return view.extend({
     node('div','',[node('label','','↑ 上传'),this.up,document.createTextNode(' '),this.upUnit])
    ]),
    node('div','m-chart',[this.chart,this.chartEmpty]),
-   node('div','m-chart-note',[this.chartSource,this.chartScale]),this.trafficTotal,
+   node('div','m-chart-note',[this.chartSource]),this.trafficTotal,
    node('div','m-forwarding',[
     node('div','m-forwarding-summary',[
      node('div','',[node('label','','活动连接数'),this.connectionValue,this.connectionLimit]),
      node('div','',[node('label','','硬件加速'),this.accelerationName])
     ]),this.ppeRows
    ])
-  ]),this.sampleBadge=badge((this.intervals().fast/1000)+' 秒轻采样','blue')));
+  ])));
   this.parts.traffic.firstElementChild.classList.add('m-traffic');
  },
  drawTraffic:function(d,down,up){
   const rx=speed(down),tx=speed(up);this.down.textContent=rx[0];this.downUnit.textContent=rx[1];this.up.textContent=tx[0];this.upUnit.textContent=tx[1];
-  const rect=this.parts.traffic.getBoundingClientRect();
-  if(!this.parts.traffic.hidden&&rect.bottom>=0&&rect.top<=innerHeight){
+  if(!this.parts.traffic.hidden&&this.chartInView!==false){
    const ns=this.chart.namespaceURI,svg=(tag,attrs)=>{const el=document.createElementNS(ns,tag);Object.entries(attrs).forEach(([k,v])=>el.setAttribute(k,v));return el;};
    if(!this.chartPaths){
     const frag=document.createDocumentFragment();[20,60,100,140].forEach(y=>frag.append(svg('line',{x1:0,y1:y,x2:600,y2:y,class:'m-chart-gridline'})));
@@ -396,9 +505,6 @@ return view.extend({
    });
    this.chartEmpty.hidden=valid.length>0;
    this.chartSource.textContent='出口：'+(list(d.uplinks).map(n=>alias(d,n.name)).join(' + ')||'未获取');
-   this.chartScale.textContent=valid.length?'最近 '+valid.length+' 次有效采样 · 峰值 '+speed(max).join(' '):'等待实际采样';
-   const latest=valid[valid.length-1];
-   this.chartScale.title=latest?'本次实际采样间隔 '+latest.interval.toFixed(1)+' 秒；每点为区间平均速率。':'等待实际采样';
   }
   const totals=list(d.uplinks);
   this.trafficTotal.textContent=totals.length?'当前出口累计 ↓ '+bytes(totals.reduce((s,n)=>s+(n.rx||0),0))+'　↑ '+bytes(totals.reduce((s,n)=>s+(n.tx||0),0)):'尚无可统计的外网接口';
@@ -406,14 +512,18 @@ return view.extend({
   this.connectionLimit.textContent=d.connection_limit?' / '+Number(d.connection_limit).toLocaleString('zh-CN'):'';
   const acceleration=d.acceleration||{};
   this.accelerationName.textContent=acceleration.type||'未获取';
-  this.ppeRows.replaceChildren(...list(acceleration.ppe).map(p=>{
+  if(!same(this.saved.ppe,acceleration.ppe)){
+   const rows=list(acceleration.ppe).map(p=>{
    const percent=p.total>0&&p.used!=null?100*p.used/p.total:null;
    return node('div','m-ppe-row',[
     node('span','','PPE '+p.id),
-    node('div','m-meter',E('span',{style:'width:'+(percent==null?0:Math.min(100,percent))+'%'})),
+    node('div','m-meter',E('span',{style:'transform:scaleX('+(percent==null?0:Math.min(1,percent/100))+')'})),
     node('small','',percent==null?'未获取':p.used+' / '+p.total+' · '+percent.toFixed(2)+'%')
    ]);
-  }));
+   });
+   patchTree(this.ppeRows,node('div','m-ppe-rows',rows));
+   this.saved.ppe=acceleration.ppe;
+  }
  },
  renderResources:function(d,cpu){
   const m=d.system.memory||{},used=m.total!=null?m.total-(m.available!=null?m.available:(m.free||0)+(m.buffered||0)+(m.cached||0)):null;
@@ -421,7 +531,7 @@ return view.extend({
   const percent=storage&&storage.size?100*(storage.size-storage.avail)/storage.size:null;
   const item=(label,value,description,percent)=>node('div','m-resource',[
    node('label','',label),node('strong','',value),node('p','',description),
-   node('div','m-meter',E('span',{style:'width:'+(percent==null?0:Math.min(100,Math.max(0,percent)))+'%'}))
+   node('div','m-meter',E('span',{style:'transform:scaleX('+(percent==null?0:Math.min(1,Math.max(0,percent/100)))+')'}))
   ]);
   const cpuTemp=list(d.temperatures).find(t=>t.name==='CPU'),wifi=list(d.temperatures).filter(t=>t.name!=='CPU');
   const fresh=node('section','m-card m-resource-strip',[
@@ -429,7 +539,7 @@ return view.extend({
     (cpu==null?(this.cpuReading==null?'等待新采样':'上次采样 · 正在更新')+' · ':'')+
     (list(d.system.load).length?'负载 '+d.system.load.map(n=>(n/65536).toFixed(2)).join(' / '):'等待实际采样'),this.cpuReading),
    item('运行内存',memory==null?'—':memory.toFixed(0)+'%',bytes(used)+' / '+bytes(m.total),memory),
-   item('设备温度',cpuTemp?Number(cpuTemp.value).toFixed(1)+' °C':'—',wifi.length?'Wi-Fi '+wifi.map(t=>t.value+'°').join(' / '):'无线温度不自动轮询',cpuTemp?cpuTemp.value:null),
+   item('设备温度',cpuTemp?Number(cpuTemp.value).toFixed(1)+' °C':'—',wifi.length?'Wi-Fi '+wifi.map(t=>t.value+'°').join(' / '):'',cpuTemp?cpuTemp.value:null),
    item('系统存储',percent==null?'—':percent.toFixed(1)+'%',storage?bytes(storage.size-storage.avail)+' / '+bytes(storage.size):'未获取',percent)
   ]);
   const old=this.parts.resources.querySelector('.m-resource-strip');if(old)patchTree(old,fresh);else this.parts.resources.append(fresh);
@@ -442,15 +552,15 @@ return view.extend({
   ]);
   this.clientSearch.addEventListener('input',()=>{this.clientPage=0;this.drawClients();});
   this.clientFilter.addEventListener('change',()=>{this.clientPage=0;this.drawClients();});
-  this.clientRows=node('tbody');
+  this.clientRows=E('tbody',{role:'rowgroup'});
   this.clientCount=badge('正在读取');
   this.clientSummary=node('div','m-cell-age');
   this.clientPager=node('div','m-client-pager');
   this.clientCopyStatus=E('span',{'class':'m-copy-status','role':'status'});
   this.parts.clients.replaceChildren(card('终端与连接','◈',node('div','',[
    node('div','m-client-tools',[this.clientSearch,this.clientFilter,E('button',{type:'button',class:'m-pill-button',click:()=>this.exportClients()},'导出 CSV')]),
-   node('div','m-table-scroll',node('table','m-table',[
-    node('thead','',node('tr','',['终端 / MAC','IP 地址','接入与信号','详情'].map(t=>node('th','',t)))),this.clientRows
+   node('div','m-table-scroll',E('table',{class:'m-table',role:'table'},[
+    E('thead',{role:'rowgroup'},E('tr',{role:'row'},['终端 / MAC','IP 地址','接入与信号','详情'].map(t=>E('th',{role:'columnheader',scope:'col'},t)))),this.clientRows
    ])),node('div','m-client-footer',[this.clientSummary,this.clientPager]),this.clientCopyStatus,
    node('div','m-cell-age','无线关联可确认接入；DHCP / ARP 记录不代表当前在线。点“详情”查看租约与协商速率。')
   ]),this.clientCount));
@@ -480,11 +590,13 @@ return view.extend({
   const shown=clients.slice(this.clientPage*this.clientPageSize,(this.clientPage+1)*this.clientPageSize);
   const copy=(label,value)=>E('button',{type:'button','class':'m-copy-button',disabled:!value,
    'aria-label':'复制'+label+(value?' '+value:''),click:()=>this.copyClient(value)},label);
-  this.clientRows.replaceChildren(...(clients.length?shown.map(c=>node('tr','',[
-   node('td','',[node('strong','',c.name||'未命名终端'),node('div','m-muted',c.mac)]),
-   node('td','m-mono',text(c.ip)),node('td','',[node('span','m-client-state'+(c.state==='无线已关联'?' associated':''),c.ssid||c.kind),node('div','m-muted',c.state+(c.signal!=null?' · '+c.signal+' dBm':''))]),
-   node('td','',node('div','m-copy-actions',[E('button',{type:'button',class:'m-copy-button',click:()=>this.showClient(c)},'详情'),copy('IP',c.ip)]))
-  ])):[node('tr','',E('td',{colspan:4},this.clients.length?'没有匹配的终端':'暂无终端记录'))]));
+  this.clientRows.replaceChildren(...(clients.length?shown.map(c=>E('tr',{class:'m-client-row',role:'row'},[
+   E('td',{class:'m-client-id',role:'cell'},[node('strong','',c.name||'未命名终端'),node('div','m-muted m-client-mac',c.mac)]),
+   E('td',{class:'m-mono m-client-ip',role:'cell'},text(c.ip)),
+   E('td',{class:'m-client-link',role:'cell'},[node('span','m-client-state'+(c.state==='无线已关联'?' associated':''),c.ssid||c.kind),
+    node('div','m-muted',c.state+(c.signal!=null?' · '+c.signal+' dBm':''))]),
+   E('td',{class:'m-client-actions',role:'cell'},node('div','m-copy-actions',[E('button',{type:'button',class:'m-copy-button',click:()=>this.showClient(c)},'详情'),copy('IP',c.ip)]))
+  ])):[E('tr',{role:'row'},E('td',{role:'cell',colspan:4},this.clients.length?'没有匹配的终端':'暂无终端记录'))]));
   this.clientSummary.textContent='筛选 '+clients.length+' / '+this.clients.length+' 条记录 · 第 '+(this.clientPage+1)+' / '+totalPages+' 页';
   this.clientPager.replaceChildren(...(totalPages>1?[
    E('button',{type:'button',class:'m-copy-button',disabled:this.clientPage===0,click:()=>{this.clientPage--;this.drawClients();}},'上一页'),
@@ -499,7 +611,7 @@ return view.extend({
   const select=E('select',{'aria-label':'首页采样模式'},[
    E('option',{value:'realtime'},'实时 · 1 秒 / 30 秒'),E('option',{value:'responsive'},'即时 · 3 秒 / 30 秒'),E('option',{value:'balanced'},'均衡 · 5 秒 / 30 秒'),E('option',{value:'eco'},'省资源 · 10 秒 / 60 秒')
   ]);select.value=this.performanceMode;
-  select.addEventListener('change',()=>{this.performanceMode=select.value;try{localStorage.setItem('myos-liquid-performance-v3',select.value);}catch(_){}this.sampleBadge.textContent=(this.intervals().fast/1000)+' 秒轻采样';this.fullNext=0;this.scheduleNext(50);});
+  select.addEventListener('change',()=>{this.performanceMode=select.value;try{localStorage.setItem('myos-liquid-performance-v3',select.value);}catch(_){}this.fullNext=0;this.scheduleNext(50);});
   this.parts.controls.append(card('布局与性能','ⓘ',node('div','m-layout-controls',[
    node('p','m-cell-age','拖动手柄调整卡片顺序与所在栏。布局只保存到当前浏览器，不改路由配置。'),
    node('div','m-action-buttons',[

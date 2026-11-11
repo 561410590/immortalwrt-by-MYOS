@@ -2,6 +2,7 @@
 local M = {}
 local fs = require "nixio.fs"
 local json = require "luci.jsonc"
+local nixio = require "nixio"
 local util = require "luci.util"
 local cursor = require("luci.model.uci").cursor
 
@@ -37,6 +38,7 @@ function M.cached_signal()
     if net.mode ~= "odu" or net.disabled ~= "0" or
         fs.readfile("/sys/class/net/port5/carrier") ~= "1\n" then return nil end
     local host = secondary_host()
+    local latest, latest_stamp
     for _, device in ipairs((read("/tmp/infocd/cache/kpcped").parameter or {}).list or {}) do
         if host ~= "" and device.host == host then
             local id = tostring(device.device_id or "")
@@ -45,29 +47,34 @@ function M.cached_signal()
                 local signals = (read(path).parameter or {}).signal or {}
                 local signal = signals[1]
                 for _, item in ipairs(signals) do if item.using then signal = item; break end end
-                if type(signal) == "table" then
-                    signal = util.clone(signal, true)
-                    signal.name, signal.device = "cpe1", net.device or net.ifname
-                    return signal, fs.stat(path, "mtime")
+                local stamp = fs.stat(path, "mtime")
+                if type(signal) == "table" and stamp and (not latest_stamp or stamp >= latest_stamp) then
+                    latest, latest_stamp = signal, stamp
                 end
             end
         end
+    end
+    if latest then
+        latest = util.clone(latest, true)
+        latest.name, latest.device = "cpe1", net.device or net.ifname
+        return latest, latest_stamp
     end
 end
 
 function M.status(refresh)
     local uci = cursor()
     local net = uci:get_all("network", "cpe1") or {}
-    local id = tostring(net.kpcpe_id or "")
+    local host = secondary_host()
+    local id, info = "", {}
     for _, device in ipairs((read("/tmp/infocd/cache/kpcped").parameter or {}).list or {}) do
-        if device.name == "cpe1" and device.host == net.auto_sniffer then
+        if host ~= "" and device.host == host then
             id = tostring(device.device_id or "")
+            -- Native NRFAMILY discovery can leave device_id empty.
+            if id == "" or id:match("^[%w_-]+$") then
+                info = read("/tmp/infocd/cache/kpcpe_" .. id .. "_info").parameter or {}
+            end
             break
         end
-    end
-    local info = {}
-    if id:match("^[%w_-]+$") then
-        info = read("/tmp/infocd/cache/kpcpe_" .. id .. "_info").parameter or {}
     end
     local read_error
     if refresh then
@@ -91,13 +98,20 @@ function M.status(refresh)
         slots[#slots + 1] = { value = index, type = types[index] or "0",
             label = embedded and "内置卡" or ("SIM" .. external), mapping = mapping[index] or "" }
     end
-    local signal = {}
-    for _, item in ipairs(read("/tmp/infocd/cache/cpestatus").result or {}) do
-        if item.status and item.status.name == "cpe1" then signal = item.status end
+    local signal = M.cached_signal() or {}
+    if next(signal) == nil then
+        for _, item in ipairs(read("/tmp/infocd/cache/cpestatus").result or {}) do
+            if item.status and item.status.name == "cpe1" then signal = item.status end
+        end
     end
     if refresh then
         local reply = M.request("signal", {})
         if reply and type(reply.result) == "table" then signal = reply.result end
+    end
+    local signal_slot = tonumber(signal.simno)
+    if signal_slot and signal_slot % 1 == 0 and signal_slot >= 1 and signal_slot <= maximum then
+        current = signal_slot
+        selector.cur = current
     end
     local profiles = (info.cpecfg or {})[1] or {}
     local profile = profiles[tostring(current)] or uci:get_all("cpecfg", "cpe1sim" .. current) or {}
@@ -115,7 +129,7 @@ function M.status(refresh)
     end
     return { iface = "cpe1", id = id, name = basic.name or "副设备信息未读取",
         version = basic.version or "", transport = net.odu_model or "",
-        host = net.auto_sniffer or "", connected = fs.readfile("/sys/class/net/port5/carrier") == "1\n",
+        host = host, connected = fs.readfile("/sys/class/net/port5/carrier") == "1\n",
         cur = current, max = maximum, mode = tonumber(selector.mode) or 1,
         stype = selector.stype or selector.type or "", gval = selector.gval or "",
         default = selector.default or current, slots = slots, signal = signal,
@@ -133,17 +147,39 @@ function M.request(action, payload)
     local params = action == "signal" and "{}" or json.stringify(payload)
     local cmd = "/usr/bin/kpcpe-ctl -H " .. util.shellquote(host) .. " -i cpe -a " .. action ..
         " -p " .. util.shellquote(params)
-    local pipe = io.popen(cmd .. " 2>/dev/null")
-    if not pipe then return nil, "无法调用原厂副设备控制程序" end
-    local raw = pipe:read("*a") or ""
-    pipe:close()
-    local reply = json.parse(raw)
+    local function fetch()
+        local pipe = io.popen(cmd .. " 2>/dev/null")
+        if not pipe then return nil end
+        local raw = pipe:read("*a") or ""
+        pipe:close()
+        return json.parse(raw)
+    end
+    local reply = fetch()
+    -- A bare code=1 is the native APP's expired-session response. Refresh only
+    -- this management session; never repeat SIM/APN/radio writes.
+    local reading = action == "info" or (action == "earfcn" and tonumber(payload.action) == 0)
+    if reading and type(reply) == "table" and tostring(reply.code) == "1" and reply.result == nil then
+        local ok, session = pcall(util.ubus, "kpcped", "status", {host=host, name="cpe", token=""})
+        if ok and type(session) == "table" and session.host == host then
+            -- The native daemon renews an empty token on its regular timer.
+            for attempt = 1, 5 do
+                nixio.nanosleep(1)
+                local valid, renewed = pcall(util.ubus, "kpcped", "status", {host=host, name="cpe"})
+                if valid and type(renewed) == "table" and type(renewed.token) == "string" and renewed.token ~= "" then
+                    reply = fetch()
+                    break
+                end
+            end
+        end
+    end
     if type(reply) ~= "table" then
         return nil, "副设备未返回有效结果，请刷新实际状态"
     end
     if action == "signal" and reply.code == nil then return { result = reply } end
     if tostring(reply.code) ~= "0" then
-        return nil, type(reply.result) == "string" and reply.result or "副设备未接受设置"
+        return nil, type(reply.result) == "string" and reply.result or
+            (tostring(reply.code) == "1" and "副设备管理认证未恢复，请刷新实际状态" or
+            (reading and "副设备读取失败" or "副设备未接受设置"))
     end
     return reply
 end
@@ -325,6 +361,58 @@ function M.configure(input)
     local saved, message = save_profile(state, adv)
     if not saved then return nil, message end
     return { ok = true, message = "副设备已接受设置，请刷新连接状态" }
+end
+
+-- Decode every carrier reported by the C5800 modem; missing secondary fields stay empty.
+function M.carriers(signal)
+    local function field(key)
+        local value
+        if type(signal) == "function" then value = signal(key)
+        elseif type(signal) == "table" then value = signal[key] end
+        if value == nil or value == "" or value == "-" then return nil end
+        return value
+    end
+    local count = tonumber(field("band_count")) or (field("band") and 1 or 0)
+    local carriers, bands, details = {}, {}, {}
+    for index = 0, count - 1 do
+        local suffix = index == 0 and "" or tostring(index)
+        local rat = tostring(field("dl_mode" .. suffix) or field("mode") or "")
+        local band = field("band" .. suffix)
+        if band then
+            band = tostring(band)
+            if band:match("^%d+$") then
+                if rat:match("NR") or rat:match("5G") then band = "n" .. band
+                elseif rat:match("LTE") or rat:match("4G") then band = "B" .. band end
+            end
+        end
+        local down, up = tonumber(field("DLBW" .. suffix)), tonumber(field("ULBW" .. suffix))
+        local carrier = {
+            index = index, label = index == 0 and "主载波" or ("辅载波 " .. index),
+            band = band, rat = rat,
+            pci = field("dl_pci" .. suffix) or field("pci" .. suffix),
+            cell = field("cell" .. suffix) or field("cellid" .. suffix),
+            arfcn = field("earfcn" .. suffix),
+            dl_fcn = field("dl_fcn" .. suffix), ul_fcn = field("ul_fcn" .. suffix),
+            down_mhz = down and down / 1000, up_mhz = up and up / 1000,
+            rsrp = tonumber(field("rsrp" .. suffix)), rsrq = tonumber(field("rsrq" .. suffix)),
+            sinr = tonumber(field("sinr" .. suffix))
+        }
+        carriers[#carriers + 1] = carrier
+    end
+    -- Sort presentation only; keep each carrier's reported role and measurements.
+    table.sort(carriers, function(a, b)
+        local first = tonumber((a.band or ""):match("%d+")) or -1
+        local second = tonumber((b.band or ""):match("%d+")) or -1
+        if first == second then return a.index < b.index end
+        return first > second
+    end)
+    for _, carrier in ipairs(carriers) do
+        bands[#bands + 1] = carrier.band or "频段未上报"
+        details[#details + 1] = (carrier.band or "频段未上报") ..
+            (carrier.down_mhz and (" (" .. tostring(carrier.down_mhz) .. " MHz)") or "")
+    end
+    return {carriers=carriers, count=#carriers, bands=table.concat(bands, " + "),
+        detail=table.concat(details, " + ")}
 end
 
 function M.app_info(refresh)
