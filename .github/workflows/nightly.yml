@@ -83,7 +83,9 @@ jobs:
         with:
           path: source/.ccache
           key: compiler-v1-${{ matrix.branch }}-${{ hashFiles('source/.config', 'source/include/toolchain-build.mk', 'source/toolchain/**/Makefile') }}-${{ github.run_id }}
-          restore-keys: compiler-v1-${{ matrix.branch }}-${{ hashFiles('source/.config', 'source/include/toolchain-build.mk', 'source/toolchain/**/Makefile') }}-
+          restore-keys: |
+            compiler-v1-${{ matrix.branch }}-${{ hashFiles('source/.config', 'source/include/toolchain-build.mk', 'source/toolchain/**/Makefile') }}-
+            compiler-v1-${{ matrix.branch }}-
       - name: Merge upstream userspace
         run: python3 automation/.github/ci/upstream.py --source source --output logs/upstream.json
       - name: Build dependencies and disk
