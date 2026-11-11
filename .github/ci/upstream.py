@@ -30,6 +30,7 @@ TAKE_UPSTREAM = {
 QUICKSTART = 'luci/luci-app-quickstart/luasrc/controller/quickstart.lua'
 ISTORE_ENHANCE = 'luci/luci-app-istoreenhance/Makefile'
 OPENCLASH = 'applications/luci-app-openclash'
+UPNP_VIEW = 'applications/luci-app-upnp/htdocs/luci-static/resources/view/upnp/upnp.js'
 
 
 class Merger:
@@ -142,6 +143,14 @@ class Merger:
                 self.retained.append(label + ':' + path)
             elif path in TAKE_UPSTREAM.get(label, ()):
                 tree = self.replace(tree, path, self.entry(theirs, path))
+            elif label == 'feeds/luci' and path == UPNP_VIEW:
+                description = re.compile(r'^(\t+)rule\.descr,$', re.M)
+                escaped = r"\1'%h'.format(rule.descr),"
+                if description.sub(escaped, self.file(base, path)) == self.file(theirs, path):
+                    tree = self.write_file(tree, path, description.sub(escaped, self.file(ours, path)))
+                    self.retained.append(label + ':' + path + ' expiry column')
+                else:
+                    unresolved.append(path)
             elif label == 'feeds/nas_luci' and path == ISTORE_ENHANCE:
                 content = self.file(theirs, path)
                 if '+lsblk' in self.file(ours, path) and '+lsblk' not in content:
