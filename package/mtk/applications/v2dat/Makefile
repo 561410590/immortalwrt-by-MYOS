@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=v2dat
 PKG_VERSION:=2022.12.15~47b8ee51
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/urlesistiana/v2dat.git
 PKG_SOURCE_DATE:=2022-12-15
@@ -22,6 +22,11 @@ define Package/v2dat
   CATEGORY:=Utilities
   TITLE:=V2Ray GeoIP and GeoSite data tools
   DEPENDS:=$(GO_ARCH_DEPENDS)
+endef
+
+define Package/v2dat/install
+	$(INSTALL_DIR) $(1) $(1)/usr $(1)/usr/bin
+	$(call GoPackage/Package/Install/Bin,$(1))
 endef
 
 $(eval $(call GoBinPackage,v2dat))

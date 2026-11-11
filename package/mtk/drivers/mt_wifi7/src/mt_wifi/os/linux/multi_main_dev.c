@@ -62,9 +62,6 @@ int multi_inf_active_cnt(void)
 				active_cnt++;
 		}
 	}
-	if (active_cnt == 0)
-		MTWF_DBG(NULL, DBG_CAT_INIT, CATCFG_DBGLOG, DBG_LVL_ERROR,
-			 "failed to find nonempty adapt_list!\n");
 	return active_cnt;
 }
 

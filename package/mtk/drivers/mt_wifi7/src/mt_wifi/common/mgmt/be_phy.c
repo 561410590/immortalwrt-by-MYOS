@@ -664,6 +664,10 @@ VOID operate_loader_phy(struct wifi_dev *wdev, struct freq_cfg *cfg)
 		cfg->eht_bw = wlan_operate_get_he_bw(wdev);
 	}
 
+	/* Auto-channel selection has not assigned a primary channel yet. */
+	if (cfg->prim_ch == 0)
+		return;
+
 	if (!phy_freq_adjust(wdev, cfg, &oper_dev)) {
 		MTWF_DBG(ad, DBG_CAT_CHN, CATCHN_CHN, DBG_LVL_ERROR, "phy_freq_adjust failed!");
 		return;

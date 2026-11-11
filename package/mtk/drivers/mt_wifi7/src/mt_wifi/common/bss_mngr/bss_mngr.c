@@ -5205,7 +5205,7 @@ int bss_mngr_con_mld_conn_req(
 			return ret;
 		}
 
-		if (mld_conn->t2l_ie)
+		if (mld_conn->t2l_ie && mld_conn->t2l_ie[1])
 			parse_tid_to_link_map_ie(mld_conn->t2l_ie, &t2l_info);
 
 		if (mld_conn->ml_ie) {

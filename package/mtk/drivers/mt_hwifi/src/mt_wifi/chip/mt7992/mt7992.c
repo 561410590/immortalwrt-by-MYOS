@@ -1229,7 +1229,6 @@ static VOID cal_free_data_get(RTMP_ADAPTER *ad)
 		}
 	}
 
-	MTWF_DBG(ad, DBG_CAT_HW, CATHW_EEPROM, DBG_LVL_ERROR, "\n");
 }
 
 #endif /* CAL_FREE_IC_SUPPORT */

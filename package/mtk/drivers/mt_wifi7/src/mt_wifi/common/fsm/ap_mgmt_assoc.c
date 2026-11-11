@@ -1608,6 +1608,14 @@ BOOLEAN PeerAssocReqCmmSanity
 				}
 				break;
 #endif
+#ifdef DOT11_EHT_BE
+			case EID_EXT_EHT_MULTI_LINK:
+			case EID_EXT_EHT_CAPS:
+			case EID_EXT_EHT_OP:
+			case EID_EXT_EHT_TID2LNK_MAP:
+				/* These elements were handled by eht_get_ies() above. */
+				break;
+#endif
 			default:
 				MTWF_DBG(pAd, DBG_CAT_MLME, CATMLME_ASSOC, DBG_LVL_WARN,
 					"IE_WLAN_EXTENSION: no handler for extension_id:%d\n", *extension_id);

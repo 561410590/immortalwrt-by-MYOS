@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=mwrt-memtune
 PKG_VERSION:=1
-PKG_RELEASE:=4.202610151000
+PKG_RELEASE:=5.20261107
 
 include $(INCLUDE_DIR)/package.mk
 

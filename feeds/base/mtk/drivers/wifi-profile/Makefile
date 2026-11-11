@@ -12,6 +12,8 @@ PKG_NAME:=wifi-profile
 PKG_RELEASE:=1
 PKG_LICENSE:=GPL-2.0
 
+PKG_FILE_MODES = $(if $(filter wifi-dats,$(1)),/lib/upgrade/keep.d/wifi-dats:root:root:0644)
+
 PKG_KCONFIG:= \
 	first_card \
 	first_card_name \

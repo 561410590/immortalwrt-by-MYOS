@@ -3474,7 +3474,7 @@ define Device/nradio_c2000-ultra
   DEVICE_PACKAGES := \
 	luci-theme-myos-new luci-app-myos-ultra \
 	openmptcprouter-ultra \
-	kmod-ipt-extra iptables-mod-extra \
+	libip4tc libip6tc kmod-ipt-extra iptables-mod-extra \
 	kmod-fuse kmod-sound-core kmod-fs-cifs \
 	kmod-md-mod kmod-md-raid0 kmod-md-raid1 kmod-md-raid10 \
 	kmod-ipt-conntrack-extra kmod-ipt-ipopt kmod-ipt-filter \

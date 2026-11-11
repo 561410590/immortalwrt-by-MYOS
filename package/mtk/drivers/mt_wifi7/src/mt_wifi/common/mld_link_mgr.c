@@ -1250,7 +1250,7 @@ int sta_mld_conn_req(struct wifi_dev *wdev, struct mld_conn_req *mld_conn)
 		sta_mld_disconn_req(wdev);
 
 	/* 2. parse t2l ie*/
-	if (mld_conn->t2l_ie) {
+	if (mld_conn->t2l_ie && mld_conn->t2l_ie[1]) {
 		/*need to check return value later*/
 		parse_tid_to_link_map_ie(mld_conn->t2l_ie, &t2l_info);
 	}

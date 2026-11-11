@@ -72,8 +72,12 @@ create_swap() {
 	chmod 600 "$tmp"
 	mkswap "$tmp" >/dev/null 2>&1 || { rm -f "$tmp"; return 1; }
 	mv -f "$tmp" "$SWAP" && sync
-	swapon -p "$PRIO" "$SWAP" 2>/dev/null
-	logger -t mwrt-swapfile "created ${SWAP} ${SIZE_MB}MB, swapon pri ${PRIO}"
+	if swapon -p "$PRIO" "$SWAP"; then
+		logger -t mwrt-swapfile "created ${SWAP} ${SIZE_MB}MB, swapon pri ${PRIO}"
+	else
+		logger -p daemon.err -t mwrt-swapfile "created ${SWAP}, but swapon failed"
+		return 1
+	fi
 }
 
 start() {
@@ -89,8 +93,8 @@ start() {
 		# 文件已在(往次开机生成):直接挂;若头无效则补 mkswap 再挂
 		swapon -p "$PRIO" "$SWAP" 2>/dev/null && return 0
 		mkswap "$SWAP" >/dev/null 2>&1
-		swapon -p "$PRIO" "$SWAP" 2>/dev/null
-		return 0
+		swapon -p "$PRIO" "$SWAP"
+		return $?
 	fi
 
 	# 文件不存在(首次):后台生成。已经有一份在生成就别再起(两份会互删 .tmp)
