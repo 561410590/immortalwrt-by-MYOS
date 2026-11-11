@@ -181,7 +181,7 @@ C2000MAX_EXTRA_IPK_PACKAGES := \
 	coreutils-base64 coreutils-nohup coreutils-timeout lyaml \
 	libyaml libudns resolveip libev \
 	libsodium ip-full libuci-lua libbpf1 \
-	libelf1 iptables-mod-tproxy iptables-mod-extra kmod-ipt-extra libpcap1 ipset \
+	libelf1 libip4tc libip6tc iptables-mod-tproxy iptables-mod-extra kmod-ipt-extra libpcap1 ipset \
 	libipset13 tc-full conntrack conntrackd \
 	libnetfilter-cthelper0 libnetfilter-cttimeout1 libnetfilter-queue1 libltdl7 \
 	liblua5.3-5.3 \

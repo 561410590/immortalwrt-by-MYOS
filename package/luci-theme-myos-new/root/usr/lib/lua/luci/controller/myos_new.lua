@@ -148,6 +148,74 @@ local function qmodem_cache_records()
     return records
 end
 
+local operators={["46000"]="中国移动",["46002"]="中国移动",["46007"]="中国移动",["46008"]="中国移动",
+    ["46001"]="中国联通",["46006"]="中国联通",["46009"]="中国联通",
+    ["46003"]="中国电信",["46005"]="中国电信",["46011"]="中国电信",["46015"]="中国广电"}
+
+local function qmodem_dashboard_record(record,profile,uci)
+    local perf=require "luci.model.myos_liquid"
+    local cached=perf.json
+    local id,f=record.id,record.fields
+    local m={id=id,qos=perf.qos(f,"QModem cache"),label=profile=="c2000ultra" and "内置 5G" or "蜂窝模组",
+        device=uci:get("qmodem",id,"network"),apn=uci:get("qmodem",id,"apn"),
+        age=record.updated and math.max(0,os.time()-record.updated)}
+    local fields={name="model",revision="firmware",rsrp="rsrp",rsrq="rsrq",sinr="sinr",
+        band="band",temperature="temperature",iccid="sim_id",["sim slot"]="sim",["sim name"]="sim_name",
+        ["cell id"]="cell",apn="apn"}
+    for source,target in pairs(fields) do if f[source]~=nil then m[target]=f[source] end end
+    m.rat=f.network_mode or f.mode
+    m.pci=f["physical cell id"] or f.pci
+    m.arfcn=f.arfcn or f.earfcn
+    m.pin=f["sim status"] or f.cpin
+    local plmn=tostring(f.mcc or f.mmc or "")..tostring(f.mnc or "")
+    local operator=f.operator or f.isp
+    m.operator=operators[plmn] or operators[tostring(operator)] or operator
+    for _,key in ipairs({"temperature","rsrp","rsrq","sinr"}) do
+        m[key]=tonumber(tostring(m[key] or ""):match("%-?%d+%.?%d*"))
+    end
+    if profile=="c2000ultra" then
+        local state=cached("/var/run/c2000ultra-sim-select.status.json")
+        m.selected_sim=uci:get("cpesel","sim","cur")
+        if state.modem==id then m.sim=m.sim or state.actual;m.pin=m.pin or state.cpin end
+        m.apn=m.apn or uci:get("embed_simcard","general","apn")
+        local types={}
+        for value in (uci:get("cpesel","sim","stype") or ""):gmatch("[^,]+") do types[#types+1]=value end
+        local kind=types[tonumber(m.selected_sim)]
+        m.selected_sim_type=kind=="0" and "普通卡" or kind=="4" and "云卡" or nil
+    end
+    if profile=="c2000max" then
+        -- QModem's cached SIM Slot is the modem channel, not MAX's
+        -- logical external/internal slot. The refresh returns actual.
+        local selection=perf.cached("sim-selection")
+        m.sim=selection.modem==id and selection.actual or nil
+        m.sim_label=m.sim and ({["1"]="SIM 卡 1",["2"]="SIM 卡 2",["3"]="内置卡 1"})[tostring(m.sim)] or nil
+        m.label="内置 5G"
+        m.selected_sim=uci:get("cpesel","sim","cur")
+        m.selected_sim_label=({["1"]="SIM 卡 1",["2"]="SIM 卡 2",["3"]="内置卡 1"})[m.selected_sim]
+    end
+    if m.pin then m.pin=tostring(m.pin):upper() end
+    local path=sim_name_cache(m.sim_id)
+    local cloud=path and cached(path) or {}
+    if cloud.iccid==tostring(m.sim_id) and cloud.name then m.sim_name=cloud.name end
+    m.sim_name_status=cloud.error or (path and "未读取云端名称" or nil)
+    return m
+end
+
+local function native_dashboard_signal(s)
+    if type(s)~="table" then return nil end
+    local perf=require "luci.model.myos_liquid"
+    local path=sim_name_cache(s.iccid)
+    local cloud=path and perf.json(path) or {}
+    return {operator=operators[tostring(s.isp)] or s.operator or s.isp_company or s.isp,
+        rat=s.mode,band=s.band,band_detail=s.band_detail,carrier_aggregation=s.carrier_aggregation,
+        sim=s.simno,sim_label=s.sim_label,sim_name=cloud.iccid==tostring(s.iccid) and cloud.name or s.sim_name,
+        sim_id=path and tostring(s.iccid),sim_name_status=cloud.error,
+        pin=s.CPIN or s.simstatus,apn=s.apn,pci=s.pci,cell=s.cell or s.cellid,
+        arfcn=s.earfcn,temperature=perf.number(s.model_temp or s.temp),
+        qos=s.qos or perf.qos(s,"infocd cache"),
+        rsrp=perf.number(s.rsrp),rsrq=perf.number(s.rsrq),sinr=perf.number(s.sinr)}
+end
+
 -- MAX's existing QModem reader is request-driven, not a background sampler.
 -- Keep its slow, read-only refresh separate from CPU and traffic snapshots.
 function modem_refresh()
@@ -156,7 +224,40 @@ function modem_refresh()
     local result={refreshed={},errors={}}
     if bus then
         local board=bus:call("system","board",{}) or {}
-        if device_profile(board)=="c2000max" then
+        local profile=device_profile(board)
+        if luci.http.formvalue("signals")=="1" and profile~="c5800688" then
+            -- Return SIM and radio metadata from the same source as each signal read.
+            result.signals={}
+            local function put(id,signal)
+                if not signal then result.errors[id]="未获取模组状态";return end
+                signal.age=nil
+                result.signals[id]=signal
+                if signal.rsrp or signal.rsrq or signal.sinr then
+                    result.refreshed[#result.refreshed+1]=id
+                else result.errors[id]="未获取有效信号" end
+            end
+            if profile=="c8688" then
+                local ok,native=pcall(require,"myos_c8_modem")
+                if ok then
+                    local data,s=native.status(),native.cpe_item()
+                    s.CPIN=s.simstatus
+                    s.sim_label=(data.sim or {}).label
+                    s.apn=(data.session or {}).apn
+                    s.band_detail=table.concat((data.cell or {}).carriers or {}," + ")
+                    s.carrier_aggregation=#((data.cell or {}).carrier_details or {})>1 and s.band_detail or "未聚合"
+                    put("cpe",native_dashboard_signal(s))
+                else result.errors.cpe="未获取模组状态" end
+            elseif profile=="nbcpe688" then
+                put("AK68",native_dashboard_signal(nbcpe_cache_record()))
+            elseif profile=="c2000max" or profile=="c2000ultra" then
+                for _,record in ipairs(qmodem_cache_records()) do
+                    if uci:get("qmodem",record.id,"state")=="enabled" then
+                        put(record.id,qmodem_dashboard_record(record,profile,uci))
+                    end
+                end
+            end
+            if not next(result.signals) and not next(result.errors) then result.errors.service="未获取模组信号" end
+        elseif device_profile(board)=="c2000max" then
             local state=json.parse(sys.exec("/etc/init.d/c2000max-sim-select status_json 2>/dev/null")) or {}
             result.sim={modem=state.modem,actual=state.actual,target=state.target,cpin=state.cpin}
             require("luci.model.myos_liquid").save("sim-selection",result.sim)
@@ -172,6 +273,8 @@ function modem_refresh()
             end)
         end
         bus:close()
+    else
+        result.errors.service="无法连接信号服务"
     end
     luci.http.prepare_content("application/json")
     luci.http.header("Cache-Control","no-store")
@@ -443,9 +546,6 @@ function snapshot()
     table.sort(result.clients,function(a,b) return a.mac<b.mac end)
     local cpu_temp=tonumber(rd("/sys/class/thermal/thermal_zone0/temp"))
     if cpu_temp then table.insert(result.temperatures,1,{name="CPU",value=cpu_temp/1000}) end
-    local operators={["46000"]="中国移动",["46002"]="中国移动",["46007"]="中国移动",["46008"]="中国移动",
-        ["46001"]="中国联通",["46006"]="中国联通",["46009"]="中国联通",
-        ["46003"]="中国电信",["46005"]="中国电信",["46011"]="中国电信",["46015"]="中国广电"}
     local cachepath="/tmp/infocd/cache/cpestatus"
     local cache=cached(cachepath)
     local stamp=fs.stat(cachepath,"mtime")
@@ -480,50 +580,7 @@ function snapshot()
     -- QModem boards publish caches themselves. Reading the files does not request AT commands.
     if #result.modems==0 and profile~="n5000" then
         for _,record in ipairs(qmodem_cache_records()) do
-            local id,f=record.id,record.fields
-            local m={id=id,qos=perf.qos(f,"QModem cache"),label=profile=="c2000ultra" and "内置 5G" or "蜂窝模组",
-                device=uci:get("qmodem",id,"network"),apn=uci:get("qmodem",id,"apn"),
-                age=record.updated and math.max(0,os.time()-record.updated)}
-            local fields={name="model",revision="firmware",rsrp="rsrp",rsrq="rsrq",sinr="sinr",
-                band="band",temperature="temperature",iccid="sim_id",["sim slot"]="sim",["sim name"]="sim_name",
-                ["cell id"]="cell",apn="apn"}
-            for source,target in pairs(fields) do if f[source]~=nil then m[target]=f[source] end end
-            m.rat=f.network_mode or f.mode
-            m.pci=f["physical cell id"] or f.pci
-            m.arfcn=f.arfcn or f.earfcn
-            m.pin=f["sim status"] or f.cpin
-            local plmn=tostring(f.mcc or f.mmc or "")..tostring(f.mnc or "")
-            local operator=f.operator or f.isp
-            m.operator=operators[plmn] or operators[tostring(operator)] or operator
-            for _,key in ipairs({"temperature","rsrp","rsrq","sinr"}) do
-                m[key]=tonumber(tostring(m[key] or ""):match("%-?%d+%.?%d*"))
-            end
-            if profile=="c2000ultra" then
-                local state=cached("/var/run/c2000ultra-sim-select.status.json")
-                m.selected_sim=uci:get("cpesel","sim","cur")
-                if state.modem==id then m.sim=m.sim or state.actual;m.pin=m.pin or state.cpin end
-                m.apn=m.apn or uci:get("embed_simcard","general","apn")
-                local types={}
-                for value in (uci:get("cpesel","sim","stype") or ""):gmatch("[^,]+") do append(types,value) end
-                local kind=types[tonumber(m.selected_sim)]
-                m.selected_sim_type=kind=="0" and "普通卡" or kind=="4" and "云卡" or nil
-            end
-            if profile=="c2000max" then
-                -- QModem's cached SIM Slot is the modem channel, not MAX's
-                -- logical external/internal slot. The refresh returns actual.
-                local selection=perf.cached("sim-selection")
-                m.sim=selection.modem==id and selection.actual or nil
-                m.sim_label=m.sim and ({["1"]="SIM 卡 1",["2"]="SIM 卡 2",["3"]="内置卡 1"})[tostring(m.sim)] or nil
-                m.label="内置 5G"
-                m.selected_sim=uci:get("cpesel","sim","cur")
-                m.selected_sim_label=({["1"]="SIM 卡 1",["2"]="SIM 卡 2",["3"]="内置卡 1"})[m.selected_sim]
-            end
-            if m.pin then m.pin=tostring(m.pin):upper() end
-            local path=sim_name_cache(m.sim_id)
-            local cloud=path and cached(path) or {}
-            if cloud.iccid==tostring(m.sim_id) and cloud.name then m.sim_name=cloud.name end
-            m.sim_name_status=cloud.error or (path and "未读取云端名称" or nil)
-            append(result.modems,m)
+            append(result.modems,qmodem_dashboard_record(record,profile,uci))
         end
     end
     if profile=="c2000max" then

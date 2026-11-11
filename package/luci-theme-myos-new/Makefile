@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-theme-myos-new
 PKG_VERSION:=1.2.2
-PKG_RELEASE:=6.20261105.max
+PKG_RELEASE:=15.20261107.maxports
 PKG_LICENSE:=Apache-2.0
 PKGARCH:=all
 

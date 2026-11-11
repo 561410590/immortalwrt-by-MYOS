@@ -226,6 +226,11 @@ define Package/$(PKG_NAME)/install
 	$(call Build/Install/Default)
 	$(CP) $(PKG_INSTALL_DIR)/* $(1)/
  endif
+	if [ -d $(1)$(HTDOCS)/luci-static ]; then \
+		find $(1)$(HTDOCS)/luci-static -type d -exec chmod 0755 {} +; \
+		find $(1)$(HTDOCS)/luci-static -type f -exec chmod 0644 {} +; \
+	fi
+	if [ -f $(1)$(HTDOCS)/index.html ]; then chmod 0644 $(1)$(HTDOCS)/index.html; fi
 endef
 
 ifndef Package/$(PKG_NAME)/postinst
