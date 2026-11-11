@@ -94,6 +94,7 @@ jobs:
           apt_repo="$RUNNER_TEMP/myos-jammy-debs"
           mkdir -p "$apt_repo"
           cat private-inputs/jammy-build-debs.tar.part* | tar -x -C "$apt_repo"
+          gzip -d "$apt_repo/Packages.gz"
           apt_sources="$RUNNER_TEMP/myos-ubuntu.list"
           printf 'deb [trusted=yes] file:%s ./\n' "$apt_repo" > "$apt_sources"
           apt_options=(-o "Dir::Etc::sourcelist=$apt_sources" -o Dir::Etc::sourceparts=-)
