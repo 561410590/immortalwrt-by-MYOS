@@ -618,3 +618,107 @@ html[data-darkmode="true"] body.myos-new .oc{--text-on-primary:#102538}
  font-variant-numeric:tabular-nums;
  white-space:nowrap;
 }
+
+.myos-new.m-login-video .m-video-backdrop {
+ opacity:0;
+ transition:opacity 160ms var(--m-motion-ease,ease-out);
+}
+.myos-new.m-login-video .m-video-backdrop.m-video-ready {opacity:1}
+.myos-new .m-chart-line.up {stroke-dasharray:6 5}
+
+.myos-new .m-client-dialog .m-copy-status {
+ display:block;
+ min-height:1.5em;
+ margin:8px 0 0;
+ overflow-wrap:anywhere;
+}
+.myos-new .m-theme-update {
+ display:grid;
+ gap:10px;
+ padding-block-start:14px;
+ border-block-start:1px solid var(--m-line);
+}
+.myos-new .m-theme-update .m-action-buttons {margin:0}
+.myos-new .m-theme-update [role="status"] {overflow-wrap:anywhere}
+.myos-new .m-theme-update progress {
+ width:100%;
+ height:8px;
+ accent-color:var(--m-blue);
+}
+
+@media (max-width:1024px), (max-width:1200px) and (pointer:coarse) {
+ .myos-new .m-workspace {margin-left:0}
+ .myos-new #m-sidebar {
+  width:min(290px,calc(100vw - 48px));
+  padding-block:max(18px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-bottom));
+  padding-inline-start:max(16px,env(safe-area-inset-left));
+  border-radius:0 22px 22px 0;
+  transform:translateX(-100%);
+  visibility:hidden;
+ }
+ .myos-new #m-menu {overscroll-behavior:contain}
+ .myos-new #m-scrim:not([hidden]) {
+  position:fixed;
+  inset:0;
+  z-index:90;
+  border:0;
+  border-radius:0;
+  background:#0005;
+  backdrop-filter:none;
+  transform:none;
+ }
+ .myos-new .m-mobile-toggle {display:inline-grid}
+ .myos-new .m-toolbar {
+  min-height:56px;
+  top:env(safe-area-inset-top);
+  padding-inline:max(12px,env(safe-area-inset-left)) max(12px,env(safe-area-inset-right));
+ }
+ .myos-new .m-toolbar>div:first-child {flex:1;min-width:0}
+ .myos-new .m-toolbar .m-toolbar-actions {flex:none;gap:4px}
+ .myos-new .m-toolbar #m-page-title {
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+ }
+ .myos-new .m-toolbar .m-icon-button {flex:none;width:44px;height:44px}
+ .myos-new #maincontent {
+  padding-inline:max(14px,env(safe-area-inset-left)) max(14px,env(safe-area-inset-right));
+ }
+ .myos-new .cbi-page-actions {padding-bottom:max(12px,env(safe-area-inset-bottom))}
+ .myos-new .m-footer {padding-bottom:max(22px,env(safe-area-inset-bottom))}
+}
+@media (min-width:761px) and (max-width:1000px) {
+ :root[data-myos-motion="smooth"] .myos-new .m-dashboard.m-home-refined .m-dashboard-grid {
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:16px;
+ }
+ .myos-new .m-dashboard.m-home-refined .m-dashboard-grid :is(.m-slot-traffic,.m-slot-modems,.m-slot-ports,.m-slot-clients,.m-layout-bottom) {
+  grid-column:1/-1;
+ }
+ .myos-new .m-dashboard.m-home-refined .m-slot-ports .m-port-grid {
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));
+ }
+}
+@media (max-width:520px) {
+ .myos-new .m-login {padding:24px}
+ .myos-new .m-login-brand {margin-bottom:24px}
+ .myos-new .m-login h1 {font-size:26px}
+ .myos-new .m-toolbar {top:max(8px,env(safe-area-inset-top))}
+ .myos-new .m-client-dialog {
+  padding:16px;
+  max-height:calc(100dvh - max(24px,env(safe-area-inset-top) + env(safe-area-inset-bottom)));
+ }
+ .myos-new .m-client-dialog .m-kv {gap:12px}
+ .myos-new .m-theme-update .m-action-buttons>button {flex:1 1 auto}
+}
+@media (pointer:coarse) {
+ .myos-new .m-search {min-height:44px}
+ .myos-new .m-search input[type="search"],
+ .myos-new .m-login input {font-size:16px}
+ .myos-new :is(.m-login button,.m-theme-update button,.m-layout-handle button,.m-client-dialog button) {
+  min-height:44px;
+ }
+ .myos-new .m-client-dialog .m-icon-button,
+ .myos-new .m-layout-handle button:not(.m-grab) {min-width:44px}
+}

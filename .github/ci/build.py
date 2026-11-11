@@ -58,7 +58,8 @@ def unpack(name):
         raise RuntimeError('Failed to read private input archive ' + name)
 
 def prepare():
-    unpack('factory')
+    if MODEL != 'C2000MAX':
+        unpack('factory')
     unpack(BRANCH)
     if BRANCH != 'main':
         (SOURCE / 'dl').mkdir(exist_ok=True)
