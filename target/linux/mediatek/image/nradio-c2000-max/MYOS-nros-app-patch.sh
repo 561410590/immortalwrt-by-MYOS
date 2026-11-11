@@ -2,26 +2,9 @@
 set -eu
 
 root="${1:?rootfs path required}"
-factory="${2:?factory rootfs path required}"
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
 [ -d "$root" ] || { echo "C2000MAX NROS app patch missing rootfs: $root"; exit 1; }
-[ -d "$factory" ] || { echo "C2000MAX NROS app patch missing factory rootfs: $factory"; exit 1; }
-
-copy_file() {
-	local src="$factory/$1" dst="$root/$1"
-	[ -f "$src" ] || { echo "C2000MAX missing NROS app file: $1"; exit 1; }
-	mkdir -p "$(dirname "$dst")"
-	cp -fp "$src" "$dst"
-}
-
-copy_file usr/sbin/mosquitto
-copy_file usr/lib/lua/mosquitto.so
-copy_file usr/lib/lua/md5.lua
-copy_file usr/lib/lua/md5/core.so
-mkdir -p "$root/usr/lib"
-cp -fpL "$factory/usr/lib/libmosquitto.so.1" "$root/usr/lib/libmosquitto.so.1"
-ln -sf libmosquitto.so.1 "$root/usr/lib/libmosquitto.so"
 
 # Free enough compressed space for NROS APP bridge without removing user-facing plugins.
 rm -rf "$root/usr/share/hwdata"

@@ -130,35 +130,13 @@ define Build/c2000max-upload-size
 		{ echo "C2000MAX official upload requires a sysupgrade tar"; exit 1; }
 endef
 
-define Build/c2000max-gpt
-	dd if=$(C2000MAX_FACTORY_SDCARD) bs=512 count=34 >> $@
-endef
-
-define Build/append-c2000max-bl2
-	dd if=$(C2000MAX_FACTORY_SDCARD) bs=512 skip=1024 count=7168 >> $@
-endef
-
-define Build/append-c2000max-uboot-env
-	dd if=$(C2000MAX_FACTORY_SDCARD) bs=512 skip=8192 count=1024 >> $@
-endef
-
-define Build/append-c2000max-factory
-	dd if=$(C2000MAX_FACTORY_SDCARD) bs=512 skip=9216 count=8192 >> $@
-endef
-
-define Build/append-c2000max-fip
-	dd if=$(C2000MAX_FACTORY_SDCARD) bs=512 skip=17408 count=4096 >> $@
-endef
-
-C2000MAX_FACTORY_ANALYSIS := $(TOPDIR)/../factory-openwrt/c2000max-analysis
-C2000MAX_FACTORY_SDCARD := $(C2000MAX_FACTORY_ANALYSIS)/nradio_c2000-max-SD_0305.img
 C2000MAX_FACTORY_ROOTFS_OFFSET := 44564480
 C2000MAX_ROOTFS_SIZE_LIMIT := 201326592
 C2000MAX_UPLOAD_SIZE_LIMIT := 230686720
-C2000MAX_FACTORY_LED_ROOTFS := $(C2000MAX_FACTORY_ANALYSIS)/C2000-788-WT9303_2.1.11.0h-rootfs
+C2000MAX_BOARD_ROOTFS := $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/board-rootfs
 C2000MAX_MYOS_ROOTFS_DIR := $(KDIR)/root-c2000max-MYOS
 C2000MAX_MYOS_ROOTFS := $(KDIR)/root-c2000max-MYOS.squashfs
-C2000MAX_MYOS_ROOTFS_PSEUDO := $(KDIR)/root-c2000max-factory.pseudo
+C2000MAX_MYOS_ROOTFS_PSEUDO := $(KDIR)/root-c2000max-MYOS.pseudo
 C2000MAX_SD_KERNEL := $(KDIR)/nradio_c2000-max-sd-kernel.bin
 C2000MAX_EXTRA_IPK_TMP := $(KDIR)/root-c2000max-ipk-payload
 C2000MAX_ROOTFS_ID := $(VERSION_NUMBER)-$(REVISION)
@@ -210,11 +188,24 @@ endef
 define Build/prepare-c2000max-rootfs
 	rm -rf $(C2000MAX_MYOS_ROOTFS_DIR) $(C2000MAX_MYOS_ROOTFS) $(C2000MAX_MYOS_ROOTFS_PSEUDO)
 	$(STAGING_DIR_HOST)/bin/unsquashfs4 -pf $(C2000MAX_MYOS_ROOTFS_PSEUDO) \
-		-offset $(C2000MAX_FACTORY_ROOTFS_OFFSET) \
-		$(C2000MAX_FACTORY_SDCARD) >/dev/null
+		$(IMAGE_ROOTFS) >/dev/null
 	$(STAGING_DIR_HOST)/bin/unsquashfs4 -excludes -d $(C2000MAX_MYOS_ROOTFS_DIR) \
-		-offset $(C2000MAX_FACTORY_ROOTFS_OFFSET) \
-		$(C2000MAX_FACTORY_SDCARD) dev/console
+		$(IMAGE_ROOTFS) dev/console
+	install -m 0755 -D $(C2000MAX_BOARD_ROOTFS)/etc/init.d/turboacc $(C2000MAX_MYOS_ROOTFS_DIR)/etc/init.d/turboacc
+	install -m 0644 -D $(C2000MAX_BOARD_ROOTFS)/etc/config/turboacc $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/turboacc
+	install -m 0755 -D $(C2000MAX_BOARD_ROOTFS)/etc/uci-defaults/turboacc $(C2000MAX_MYOS_ROOTFS_DIR)/etc/uci-defaults/turboacc
+	install -m 0755 -D $(C2000MAX_BOARD_ROOTFS)/usr/libexec/rpcd/luci.turboacc $(C2000MAX_MYOS_ROOTFS_DIR)/usr/libexec/rpcd/luci.turboacc
+	install -m 0644 -D $(C2000MAX_BOARD_ROOTFS)/usr/share/rpcd/acl.d/luci-app-turboacc.json $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/rpcd/acl.d/luci-app-turboacc.json
+	install -m 0644 -D $(C2000MAX_BOARD_ROOTFS)/usr/share/luci/menu.d/luci-app-turboacc.json $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/luci/menu.d/luci-app-turboacc.json
+	install -m 0644 -D $(C2000MAX_BOARD_ROOTFS)/www/luci-static/resources/view/turboacc.js $(C2000MAX_MYOS_ROOTFS_DIR)/www/luci-static/resources/view/turboacc.js
+	install -m 0644 -D $(C2000MAX_BOARD_ROOTFS)/usr/lib/lua/luci/i18n/turboacc.zh-cn.lmo $(C2000MAX_MYOS_ROOTFS_DIR)/usr/lib/lua/luci/i18n/turboacc.zh-cn.lmo
+	ln -sf ../init.d/turboacc $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S90turboacc
+	ln -sf ../init.d/turboacc $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/K10turboacc
+	install -m 0644 -D $(C2000MAX_BOARD_ROOTFS)/etc/config/fstab $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/fstab
+	install -m 0755 -D $(C2000MAX_BOARD_ROOTFS)/usr/bin/ubus-at-daemon $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ubus-at-daemon
+	install -m 0755 -D $(C2000MAX_BOARD_ROOTFS)/usr/bin/tom_modem $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/tom_modem
+	install -m 0644 -D $(C2000MAX_BOARD_ROOTFS)/usr/share/rpcd/acl.d/luci-app-embed.json $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/rpcd/acl.d/luci-app-embed.json
+	install -m 0644 -D $(C2000MAX_BOARD_ROOTFS)/usr/share/luci/menu.d/luci-app-embed.json $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/luci/menu.d/luci-app-embed.json
 	sh $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/MYOS-rootfs-patch.sh \
 		$(C2000MAX_MYOS_ROOTFS_DIR) "$(VERSION_NUMBER)" "$(REVISION)"
 	mkdir -p $(C2000MAX_MYOS_ROOTFS_DIR)/etc/opkg $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config
@@ -317,7 +308,6 @@ define Build/prepare-c2000max-rootfs
 		"	option encryption 'none'" \
 		"	option mlo '0'" \
 		> $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/wireless
-	[ -d $(C2000MAX_FACTORY_LED_ROOTFS) ] || { echo "C2000MAX missing LED rootfs: $(C2000MAX_FACTORY_LED_ROOTFS)"; exit 1; }
 	for path in \
 		sbin/setled \
 		sbin/led.sh \
@@ -362,9 +352,8 @@ define Build/prepare-c2000max-rootfs
 		usr/lib/opkg/info/luci-i18n-nradio-ledctrl-zh-cn.control \
 		usr/lib/opkg/info/luci-i18n-nradio-ledctrl-zh-cn.list \
 		usr/lib/opkg/info/luci-i18n-nradio-ledctrl-zh-cn.prerm; do \
-		[ -e $(C2000MAX_FACTORY_LED_ROOTFS)/$${path} ] || { echo "C2000MAX missing LED file: $${path}"; exit 1; }; \
 		mkdir -p "$$(dirname $(C2000MAX_MYOS_ROOTFS_DIR)/$${path})"; \
-		cp -fpR $(C2000MAX_FACTORY_LED_ROOTFS)/$${path} $(C2000MAX_MYOS_ROOTFS_DIR)/$${path}; \
+		cp -fpR $(C2000MAX_BOARD_ROOTFS)/$${path} $(C2000MAX_MYOS_ROOTFS_DIR)/$${path} || exit 1; \
 	done
 	grep -q "option schedule '0'" $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/ledctrl || \
 		sed -i "/option.*disabled.*'0'/a\\\toption schedule '0'\\n\toption starttime '0:0'\\n\toption endtime '0:0'" $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/ledctrl
@@ -374,7 +363,7 @@ define Build/prepare-c2000max-rootfs
 	grep -q 'schedule:depends("disabled", "1")' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/lib/lua/luci/model/cbi/nradio_adv/ledctrl.lua
 	mkdir -p $(C2000MAX_MYOS_ROOTFS_DIR)/oem/WT9303
 	rm -rf $(C2000MAX_MYOS_ROOTFS_DIR)/oem/WT9303/config
-	cp -fpR $(C2000MAX_FACTORY_LED_ROOTFS)/oem/WT9303/config $(C2000MAX_MYOS_ROOTFS_DIR)/oem/WT9303/config
+	cp -fpR $(C2000MAX_BOARD_ROOTFS)/oem/WT9303/config $(C2000MAX_MYOS_ROOTFS_DIR)/oem/WT9303/config
 	mkdir -p $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d
 	ln -sf ../init.d/wanchk $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/K10wanchk
 	rm -f $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S90wanchk
@@ -573,8 +562,6 @@ define Build/prepare-c2000max-rootfs
 	sh $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/restore-rootfs-modes.sh \
 		$(C2000MAX_MYOS_ROOTFS_DIR) $(C2000MAX_MYOS_ROOTFS_PSEUDO)
 	rm -f $(C2000MAX_MYOS_ROOTFS_DIR)/etc/uci-defaults/99-default-settings-chinese
-	awk 'BEGIN{done=0} /^\tnradio,c2000-max\)/ && !done { print "\tHCMT7987-EMMC|\\"; print "\thcmt7987-emmc|\\"; print; done=1; next } { print } END{if (!done) exit 1}' $(C2000MAX_MYOS_ROOTFS_DIR)/etc/board.d/02_network > $(C2000MAX_MYOS_ROOTFS_DIR)/etc/board.d/02_network.tmp
-	mv $(C2000MAX_MYOS_ROOTFS_DIR)/etc/board.d/02_network.tmp $(C2000MAX_MYOS_ROOTFS_DIR)/etc/board.d/02_network
 	chmod 755 $(C2000MAX_MYOS_ROOTFS_DIR)/etc/board.d/02_network
 	awk 'BEGIN{done=0} /^json_is_a network object && exit 0$$/ && !done { print; print ""; print "case \"$$(board_name)\" in"; print "\tHCMT7987-EMMC|hcmt7987-emmc|nradio,c2000-max)"; print "\t\tucidef_set_interface_lan '\''eth1 hnat'\''"; print "\t\tboard_config_flush"; print "\t\texit 0"; print "\t\t;;"; print "esac"; done=1; next } { print } END{if (!done) exit 1}' $(C2000MAX_MYOS_ROOTFS_DIR)/etc/board.d/99-default_network > $(C2000MAX_MYOS_ROOTFS_DIR)/etc/board.d/99-default_network.tmp
 	mv $(C2000MAX_MYOS_ROOTFS_DIR)/etc/board.d/99-default_network.tmp $(C2000MAX_MYOS_ROOTFS_DIR)/etc/board.d/99-default_network
@@ -685,7 +672,7 @@ define Build/prepare-c2000max-rootfs
 	}
 	mkdir -p $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config $(C2000MAX_MYOS_ROOTFS_DIR)/etc/uci-defaults $(C2000MAX_MYOS_ROOTFS_DIR)/oem/WT9303
 	rm -rf $(C2000MAX_MYOS_ROOTFS_DIR)/oem/WT9303/config
-	cp -fpR $(C2000MAX_FACTORY_LED_ROOTFS)/oem/WT9303/config $(C2000MAX_MYOS_ROOTFS_DIR)/oem/WT9303/config
+	cp -fpR $(C2000MAX_BOARD_ROOTFS)/oem/WT9303/config $(C2000MAX_MYOS_ROOTFS_DIR)/oem/WT9303/config
 	printf '%s\n' \
 		"config system 'board'" \
 		" option name 'WT9303'" \
@@ -926,7 +913,7 @@ define Build/prepare-c2000max-rootfs
 		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/init.d/qmodem_network \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/init.d/c2000max-sim-select
 	sh $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/MYOS-nros-app-patch.sh \
-		$(C2000MAX_MYOS_ROOTFS_DIR) $(C2000MAX_FACTORY_LED_ROOTFS)
+		$(C2000MAX_MYOS_ROOTFS_DIR)
 	# Match MWRT's bounded first-boot scan instead of reading the whole SD data partition.
 	sed -i 's#strings -n 6 "$$rootfs_dev" > "$$dump"#dd if="$$rootfs_dev" bs=1M count=256 2>/dev/null | strings -n 6 > "$$dump"#' \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/uci-defaults/29-myos-nros-app
@@ -3540,7 +3527,7 @@ define Device/nradio_c2000-max
 	wifi-dats wifi-scripts wifi-profile mtwifi-cfg luci-app-mtwifi-cfg \
 	luci-app-store miniupnpd-nftables luci-app-upnp luci-i18n-upnp-zh-cn \
 	python3-light uhttpd uhttpd-mod-ubus \
-	f2fsck mkf2fs e2fsprogs losetup \
+	f2fsck mkf2fs e2fsprogs losetup fdisk \
 	zram-swap kmod-zram \
 	kmod-usb3 kmod-usb-core kmod-usb-xhci-hcd kmod-usb-xhci-mtk \
 	kmod-usb-acm kmod-usb-ehci kmod-usb-ohci kmod-usb-uhci \
@@ -3554,6 +3541,9 @@ define Device/nradio_c2000-max
 	kmod-mhi-net kmod-mhi-wwan-ctrl kmod-mhi-wwan-mbim \
 	kmod-pcie_mhi kmod-qmi_wwan_q kmod-qmi_wwan_f \
 	quectel-CM-5G quectel-CM-5G-M qmodem \
+	mosquitto-ssl lua-mosquitto lua-md5 -luci-app-turboacc \
+	luci-app-diskman luci-app-fancontrol luci-app-eqos-mtk luci-app-wrtbwmon \
+	openssh-sftp-server openssh-sftp-avahi-service wireguard-tools \
 	coreutils-base64 coreutils-nohup coreutils-timeout lyaml \
 	libyaml libudns resolveip libev \
 	libsodium kmod-netlink-diag ip-full libuci-lua \

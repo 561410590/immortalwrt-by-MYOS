@@ -597,18 +597,19 @@ return view.extend({
   ]),this.clientCount));
   this.drawClients();
  },
- copyClient:async function(value){
+ copyClient:async function(value,status=this.clientCopyStatus){
   try{
    if(navigator.clipboard&&window.isSecureContext)await navigator.clipboard.writeText(value);
    else{
     const focus=document.activeElement,field=E('textarea',{'class':'m-copy-buffer',readonly:true},value);
-    document.body.append(field);field.select();
+    const host=status.closest('dialog')||document.body;
+    host.append(field);field.select();
     let copied;
     try{copied=document.execCommand('copy');}finally{field.remove();if(focus)focus.focus();}
     if(!copied)throw new Error('copy');
    }
-   this.clientCopyStatus.textContent='已复制 '+value;
-  }catch(e){this.clientCopyStatus.textContent='复制未成功，请手动选择地址。';}
+   status.textContent='已复制 '+value;
+  }catch(e){status.textContent='复制未成功，请手动选择地址。';}
  },
  drawClients:function(){
   const query=this.clientSearch.value.trim().toLowerCase(),filter=this.clientFilter.value;
@@ -644,6 +645,7 @@ return view.extend({
   ]);select.value=this.performanceMode;
   select.addEventListener('change',()=>{this.performanceMode=select.value;try{localStorage.setItem('myos-liquid-performance-v3',select.value);}catch(_){}this.fullNext=0;this.scheduleNext(50);});
   const themeUpdateStatus=E('p',{class:'m-muted',role:'status',hidden:''});
+  const themeProgress=E('progress',{'aria-label':'主题下载进度',hidden:''});
   const refreshTheme=E('button',{type:'button',class:'m-copy-button',hidden:'',click:()=>location.reload()},'刷新页面');
   const readResult=response=>{
    if(!response.ok)throw new Error();
@@ -659,12 +661,20 @@ return view.extend({
     const started=readResult(await request.post(L.url('admin','myos','theme_install'),
      new URLSearchParams({token:L.env.token}).toString(),
      {headers:{'Content-Type':'application/x-www-form-urlencoded'},timeout:18000}));
+    const size=Number(started.size);
+    const hasSize=Number.isFinite(size)&&size>0;
+    if(hasSize){
+     themeProgress.max=size;
+     themeProgress.value=0;
+     themeProgress.hidden=false;
+    }
     while(this.root.isConnected&&!this.disposed){
      const statusUrl=L.url('admin','myos','theme_install_status')+'?job='+encodeURIComponent(started.job);
      const result=readResult(await request.get(statusUrl,{cache:false,timeout:15000}));
      if(!result.done){
+      if(hasSize)themeProgress.value=result.installing?size:Math.max(0,Number(result.downloaded)||0);
       themeUpdateStatus.textContent=result.installing?'正在安装主题…':
-       '正在下载主题 '+bytes(result.downloaded)+(started.size?' / '+bytes(started.size):'');
+       '正在下载主题 '+bytes(result.downloaded)+(hasSize?' / '+bytes(size):'');
       await new Promise(resolve=>setTimeout(resolve,2000));
       continue;
      }
@@ -677,6 +687,7 @@ return view.extend({
    }catch(error){
     themeUpdateStatus.textContent=error.message||'无法取得安装结果，请重新检查主题版本';
    }finally{
+    themeProgress.hidden=true;
     checkTheme.disabled=installTheme.disabled=false;
    }
   }},'下载并安装主题');
@@ -707,7 +718,10 @@ return view.extend({
    ]),node('label','m-performance-label',['采样模式',select]),
    this.samplingHelp=node('p','m-cell-age'),
    this.simNamesButton=E('button',{type:'button',class:'m-copy-button',hidden:true,click:()=>{if(this.previous)this.refreshSimNames(this.previous);}},'按需读取 SIM 云端名称'),
-   checkTheme,themeUpdateStatus,installTheme,refreshTheme
+   node('div','m-theme-update',[
+    node('div','m-action-buttons',[checkTheme,installTheme,refreshTheme]),
+    themeUpdateStatus,themeProgress
+   ])
   ])));
  },
  initManagement:function(){
@@ -824,6 +838,7 @@ return view.extend({
  showClient:function(c){
   if(this.clientDialog)this.clientDialog.remove();
   const close=E('button',{type:'button',class:'m-icon-button','aria-label':'关闭终端详情'},'×');
+  const copyStatus=E('p',{class:'m-copy-status',role:'status'});
   const dialog=E('dialog',{class:'m-client-dialog','aria-labelledby':'m-client-dialog-title'},[
    node('div','m-background-heading',[E('h2',{id:'m-client-dialog-title'},c.name||'终端详情'),close]),
    badge(c.state,c.state==='无线已关联'?'good':''),
@@ -833,10 +848,10 @@ return view.extend({
     ['发送协商速率',c.tx!=null?(Number(c.tx)/1000).toFixed(1)+' Mbps':null]]),
    node('p','m-cell-age','协商速率不是实际吞吐量；租约和 ARP 记录不证明设备当前在线。'),
    node('div','m-action-buttons',[
-    E('button',{type:'button',class:'m-pill-button',disabled:!c.ip,click:()=>{this.copyClient(c.ip);}},'复制 IP'),
-    E('button',{type:'button',class:'m-pill-button',disabled:!c.mac,click:()=>{this.copyClient(c.mac);}},'复制 MAC'),
+    E('button',{type:'button',class:'m-pill-button',disabled:!c.ip,click:()=>this.copyClient(c.ip,copyStatus)},'复制 IP'),
+    E('button',{type:'button',class:'m-pill-button',disabled:!c.mac,click:()=>this.copyClient(c.mac,copyStatus)},'复制 MAC'),
     link('DHCP 设置','admin/network/dhcp')
-   ])
+   ]),copyStatus
   ]);
   close.addEventListener('click',()=>dialog.close());
   dialog.addEventListener('close',()=>{dialog.remove();if(this.clientDialog===dialog)this.clientDialog=null;});

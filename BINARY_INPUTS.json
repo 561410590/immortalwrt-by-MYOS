@@ -7,22 +7,12 @@
   "notes": "External binary inputs are not claimed as source. No private identity or signing key is supplied.",
   "inputs": [
     {
-      "path": "../factory-openwrt/c2000max-analysis/C2000-788-WT9303_2.1.11.0h-rootfs",
+      "path": "target/linux/mediatek/image/nradio-c2000-max/board-rootfs",
       "kind": "directory",
-      "purpose": "Original runtime libraries and board resources used by the APP integration",
+      "purpose": "Board resources and vendor AT executables installed into the newly compiled root filesystem",
       "models": [
         "c2000-max"
       ]
-    },
-    {
-      "path": "../factory-openwrt/c2000max-analysis/nradio_c2000-max-SD_0305.img",
-      "bytes": 81210508,
-      "sha256": "f20a5011856d163233dd3b3fc4f1c30a59b544841ff09a09ffc7fff5fc208efd",
-      "purpose": "Original SD image used by the MAX rootfs assembly rules",
-      "models": [
-        "c2000-max"
-      ],
-      "optional": false
     },
     {
       "bytes": 1574,

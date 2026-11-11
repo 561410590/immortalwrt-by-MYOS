@@ -113,6 +113,11 @@ mediatek_setup_interfaces()
 	zyxel,nwa50ax-pro)
 		ucidef_set_interface_lan "eth0"
 		;;
+	HCMT7987-EMMC|\
+	hcmt7987-emmc|\
+	nradio,c2000-max)
+		ucidef_set_interface_lan "eth1 hnat"
+		;;
 	cudy,m3000-v1|\
 	cudy,tr3000-v1|\
 	cudy,tr3000-v1-ubootmod|\
