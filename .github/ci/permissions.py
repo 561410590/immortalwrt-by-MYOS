@@ -129,9 +129,11 @@ def main():
                 item = by_path.get(str(parent))
                 if item and item['type'] == 'd' and item['mode'][9] not in 'xt':
                     issues.append([str(parent), 'public Web traversal', item['mode']])
-        if path.startswith(('/etc/uci-defaults/', '/etc/hotplug.d/', '/lib/preinit/')):
+        qmodem = path.startswith(('/usr/share/qmodem/', '/usr/share/mwrt-qmodem/'))
+        if path.startswith(('/etc/uci-defaults/', '/etc/hotplug.d/', '/lib/preinit/')) or (
+                qmodem and ('/vendor/' in path or path.endswith(('/generic.sh', '/modem_util.sh')))):
             sourced.append(entry)
-        if 'qmodem' in path and (path.endswith(('/modem_scan.sh', '/modem_hook.sh')) or '/vendor/' in path):
+        if qmodem and path.endswith(('/modem_scan.sh', '/modem_hook.sh', '/modem_ctrl.sh', '/modem_dial.sh')):
             if mode[3] not in 'xs':
                 issues.append([path, 'QModem execution', mode])
     if '/etc/myos-version' in by_path:
