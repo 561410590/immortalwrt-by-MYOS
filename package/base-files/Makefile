@@ -168,6 +168,7 @@ endif
 
 define Package/base-files/install
 	$(CP) ./files/* $(1)/
+	$(INSTALL_BIN) ./files/bin/board_detect ./files/bin/config_generate ./files/bin/ipcalc.sh $(1)/bin/
 	$(Package/base-files/install-key)
 	$(Package/base-files/nand-support)
 	$(Package/base-files/legacy-sdcard-support)
