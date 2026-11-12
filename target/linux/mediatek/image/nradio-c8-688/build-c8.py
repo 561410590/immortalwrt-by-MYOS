@@ -4,7 +4,6 @@ import argparse
 import hashlib
 import io
 import json
-import lzma
 import os
 from pathlib import Path
 import struct
@@ -44,15 +43,8 @@ def main():
     image = kernel_image.read_bytes()
     if image[56:60] != b'ARM\x64' or struct.unpack_from('<Q', image, 8)[0] != 0:
         raise RuntimeError('C8 FIT load address requires this ARM64 Image with text_offset=0')
-    encoded = lzma.compress(image, format=lzma.FORMAT_ALONE, filters=[{
-        'id': lzma.FILTER_LZMA1, 'dict_size': 8 * 1024 * 1024,
-        'lc': 1, 'lp': 2, 'pb': 2, 'mode': lzma.MODE_NORMAL,
-        'nice_len': 128, 'mf': lzma.MF_BT4}])
-    encoded = encoded[:5] + struct.pack('<Q', len(image)) + encoded[13:]
-    if lzma.decompress(encoded, format=lzma.FORMAT_ALONE) != image:
-        raise RuntimeError('C8 kernel compression check failed')
     compressed = assets / ('kernel-' + KERNEL + '.lzma')
-    compressed.write_bytes(encoded)
+    run(host / 'lzma', 'e', '-lc1', '-lp2', '-pb2', '-d23', kernel_image, compressed)
     its = assets / 'c8-kernel.its'
     its.write_text('''/dts-v1/;
 / {

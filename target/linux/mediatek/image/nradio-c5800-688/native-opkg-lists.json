@@ -1,0 +1,22 @@
+{
+  "script-utils": {"2.40.2-r1":["/usr","/usr/bin","/usr/bin/script","/usr/bin/scriptreplay"]},
+  "coreutils": {"9.7-r1":[""]},
+  "coreutils-stty": {"9.7-r1":["/usr","/usr/libexec","/usr/libexec/stty-coreutils"]},
+  "curl": {"8.12.1-r1":["/usr","/usr/bin","/usr/bin/curl"]},
+  "libcurl4": {"8.12.1-r1":["/usr","/usr/lib","/usr/lib/libcurl.so.4","/usr/lib/libcurl.so.4.8.0"]},
+  "libnghttp2-14": {"1.63.0-r1":["/usr","/usr/lib","/usr/lib/libnghttp2.so.14","/usr/lib/libnghttp2.so.14.28.2"]},
+  "libidn2": {"2.3.7-r1":["/usr","/usr/lib","/usr/lib/libidn2.so","/usr/lib/libidn2.so.0","/usr/lib/libidn2.so.0.4.0"]},
+  "libssh2-1": {"1.11.0-r1":["/usr","/usr/lib","/usr/lib/libssh2.so.1","/usr/lib/libssh2.so.1.0.1"]},
+  "libopenldap": {"2.6.8-r2":["/etc","/etc/openldap","/etc/openldap/ldap.conf","/usr","/usr/lib","/usr/lib/liblber.so.2","/usr/lib/liblber.so.2.0.200","/usr/lib/libldap.so.2","/usr/lib/libldap.so.2.0.200"]},
+  "libzstd": {"1.5.7-r1":["/usr","/usr/lib","/usr/lib/libzstd.so","/usr/lib/libzstd.so.1","/usr/lib/libzstd.so.1.5.7"]},
+  "libunistring": {"1.2-r1":["/usr","/usr/lib","/usr/lib/libunistring.so.5","/usr/lib/libunistring.so.5.1.0"]},
+  "libsasl2": {"2.1.28-r3":["/usr","/usr/lib","/usr/lib/libsasl2.so.3","/usr/lib/libsasl2.so.3.0.0","/usr/lib/sasl2","/usr/lib/sasl2/libanonymous.so","/usr/lib/sasl2/libanonymous.so.3","/usr/lib/sasl2/libanonymous.so.3.0.0","/usr/lib/sasl2/libcrammd5.so","/usr/lib/sasl2/libcrammd5.so.3","/usr/lib/sasl2/libcrammd5.so.3.0.0","/usr/lib/sasl2/libdigestmd5.so","/usr/lib/sasl2/libdigestmd5.so.3","/usr/lib/sasl2/libdigestmd5.so.3.0.0","/usr/lib/sasl2/libplain.so","/usr/lib/sasl2/libplain.so.3","/usr/lib/sasl2/libplain.so.3.0.0","/usr/lib/sasl2/libscram.so","/usr/lib/sasl2/libscram.so.3","/usr/lib/sasl2/libscram.so.3.0.0"]},
+  "libmount1": {"2.40.2-r1":["/usr","/usr/lib","/usr/lib/libmount.so.1","/usr/lib/libmount.so.1.1.0"]},
+  "libsmartcols1": {"2.40.2-r1":["/usr","/usr/lib","/usr/lib/libsmartcols.so.1","/usr/lib/libsmartcols.so.1.1.0"]},
+  "mount-utils": {"2.40.2-r1":["/usr","/usr/bin","/usr/bin/findmnt","/usr/bin/mount","/usr/bin/mountpoint","/usr/bin/umount"]},
+  "bzip2": {"1.0.8-r1":["/bin","/bin/bzip2","/usr","/usr/bin","/usr/bin/bzip2"]},
+  "libacl": {"2.3.2-r2":["/usr","/usr/lib","/usr/lib/libacl.so","/usr/lib/libacl.so.1","/usr/lib/libacl.so.1.1.2302"]},
+  "xz-utils": {"5.6.2-r2":[""]},
+  "xz": {"5.6.2-r2":["/usr","/usr/libexec","/usr/libexec/xz-lzmautils"]},
+  "tar": {"1.35-r1":["/usr","/usr/libexec","/usr/libexec/tar-gnu"]}
+}

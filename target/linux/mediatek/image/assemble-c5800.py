@@ -233,8 +233,9 @@ for name in sorted(required):
 for relative, content in native_dnsmasq_config.items():
     (work / relative).write_bytes(content)
 
-# The donor ROM stripped several installed-package manifests. Recover only
-# matching versions, checking every payload file against the assembled root.
+# The donor ROM stripped several installed-package manifests. Use matching
+# IPKs when present, or the lists recovered from those IPKs in the local build.
+native_lists = json.loads((assets / 'native-opkg-lists.json').read_text())
 recovered_manifests = []
 for name, record in records.items():
     manifest = work / ('usr/lib/opkg/info/' + name + '.list')
@@ -242,15 +243,18 @@ for name, record in records.items():
         continue
     installed_version = re.search(r'^Version: (.+)$', record, re.M)[1]
     candidate = available.get(name)
-    if not candidate or re.search(r'^Version: (.+)$', candidate[1], re.M)[1] != installed_version:
-        raise RuntimeError('Missing same-version package for manifest: ' + name)
-    _, _, _, payload_data = package(candidate[0])
-    with tarfile.open(fileobj=io.BytesIO(payload_data), mode='r:*') as payload:
-        members = [m for m in payload.getmembers() if m.name not in ('.', './')]
-        names = ['/' + m.name.removeprefix('./').rstrip('/') for m in members]
-        absent = [m.name for m in members if not m.isdir()
-                  and not (work / m.name.removeprefix('./')).exists()
-                  and not (work / m.name.removeprefix('./')).is_symlink()]
+    if candidate and re.search(r'^Version: (.+)$', candidate[1], re.M)[1] == installed_version:
+        _, _, _, payload_data = package(candidate[0])
+        with tarfile.open(fileobj=io.BytesIO(payload_data), mode='r:*') as payload:
+            members = [m for m in payload.getmembers() if m.name not in ('.', './')]
+            names = ['/' + m.name.removeprefix('./').rstrip('/') for m in members]
+            files = [path for path, member in zip(names, members) if not member.isdir()]
+    else:
+        names = native_lists.get(name, {}).get(installed_version)
+        if names is None:
+            raise RuntimeError('Missing native package manifest: ' + name + ' ' + installed_version)
+        files = names
+    absent = [path for path in files if not os.path.lexists(work / path.lstrip('/'))]
     if absent:
         raise RuntimeError('Manifest references absent native files: ' + name + ': ' + ', '.join(absent))
     write('usr/lib/opkg/info/' + name + '.list', '\n'.join(names) + '\n')

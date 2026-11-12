@@ -10,6 +10,10 @@ on:
         type: choice
         default: all
         options: [all, C8-688, C5800-688, NBCPE-688, C2000MAX, C2000-Ultra, N5000]
+      models:
+        description: Optional comma-separated model list for rebuilding a subset
+        type: string
+        required: false
 
 concurrency:
   group: myos-nightly
@@ -33,7 +37,7 @@ jobs:
       - id: plan
         env:
           GH_TOKEN: ${{ github.token }}
-          MODEL: ${{ inputs.model || 'all' }}
+          MODEL: ${{ inputs.models || inputs.model || 'all' }}
         run: python3 .github/ci/plan.py
 
   build:
