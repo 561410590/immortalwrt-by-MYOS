@@ -120,7 +120,10 @@ def main():
         if mode[1] != 'r':
             issues.append([path, 'owner cannot read', mode])
         direct = path.startswith(('/bin/', '/sbin/', '/usr/bin/', '/usr/sbin/', '/etc/init.d/', '/usr/libexec/rpcd/', '/www/cgi-bin/'))
-        if direct and mode[3] not in 'xs' and path != '/sbin/rsno-off.sh':
+        # smssend and the modem UI pass pdul.lua to the Lua interpreter.
+        interpreted = path in ('/sbin/rsno-off.sh', '/usr/bin/pdul.lua')
+        bytecode = '/__pycache__/' in path and path.endswith('.pyc')
+        if direct and not interpreted and not bytecode and mode[3] not in 'xs':
             issues.append([path, 'direct executable', mode])
         if path.startswith('/www/'):
             if mode[7] != 'r':
