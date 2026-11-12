@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-theme-myos-new
 PKG_VERSION:=1.2.3
-PKG_RELEASE:=4
+PKG_RELEASE:=5
 PKG_LICENSE:=Apache-2.0
 PKGARCH:=all
 
@@ -13,7 +13,7 @@ define Package/luci-theme-myos-new
   CATEGORY:=LuCI
   SUBMENU:=Themes
   TITLE:=MYOS-NEW universal device console
-  DEPENDS:=+luci-base +luci-compat +rpcd-mod-luci +curl +flock
+  DEPENDS:=+luci-base +luci-compat +rpcd-mod-luci +curl +flock +ip-full +coreutils-timeout
   PKGARCH:=all
 endef
 
@@ -23,6 +23,12 @@ define Package/luci-theme-myos-new/description
 endef
 
 define Build/Compile
+endef
+
+define Package/luci-theme-myos-new/postinst
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] || /etc/init.d/rpcd reload
+exit 0
 endef
 
 define Package/luci-theme-myos-new/install
@@ -46,6 +52,9 @@ define Package/luci-theme-myos-new/install
 	$(INSTALL_DATA) ./root/usr/lib/lua/luci/controller/myos_new.lua $(1)/usr/lib/lua/luci/controller/
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/model
 	$(INSTALL_DATA) ./root/usr/lib/lua/luci/model/myos_liquid.lua $(1)/usr/lib/lua/luci/model/
+	$(INSTALL_DIR) $(1)/usr/libexec/rpcd $(1)/usr/share/rpcd/acl.d
+	$(INSTALL_BIN) ./root/usr/libexec/rpcd/myos-sampling $(1)/usr/libexec/rpcd/
+	$(INSTALL_DATA) ./root/usr/share/rpcd/acl.d/myos-sampling.json $(1)/usr/share/rpcd/acl.d/
 	$(INSTALL_DIR) $(1)/usr/share/myos-new
 	$(INSTALL_DATA) ./root/usr/share/myos-new/update-ca.pem $(1)/usr/share/myos-new/update-ca.pem
 	$(INSTALL_DIR) $(1)/etc/uci-defaults

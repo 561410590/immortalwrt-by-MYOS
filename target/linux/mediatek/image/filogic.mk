@@ -175,7 +175,7 @@ C2000MAX_EXTRA_IPK_PACKAGES := \
 C2000MAX_REMOVE_IPK_PACKAGES := \
 	luci-theme-c2000max-ui luci-theme-mwrt luci-theme-argon luci-theme-bootstrap luci-app-argon-config luci-i18n-argon-config-zh-cn \
 	luci-app-quickstart luci-i18n-quickstart-zh-cn quickstart \
-	luci-app-homeproxy luci-i18n-homeproxy-zh-cn homeproxy sing-box chinadns-ng dns2socks \
+	luci-app-homeproxy luci-i18n-homeproxy-zh-cn homeproxy sing-box \
 	luci-app-ddns-go luci-i18n-ddns-go-zh-cn ddns-go \
 	luci-app-ddnsto ddnsto \
 	luci-app-wol luci-i18n-wol-zh-cn wol etherwake \
@@ -203,6 +203,7 @@ define Build/prepare-c2000max-rootfs
 	ln -sf ../init.d/turboacc $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/K10turboacc
 	install -m 0644 -D $(C2000MAX_BOARD_ROOTFS)/etc/config/fstab $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/fstab
 	install -m 0755 -D $(C2000MAX_BOARD_ROOTFS)/usr/bin/ubus-at-daemon $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ubus-at-daemon
+	install -m 0600 -D $(C2000MAX_BOARD_ROOTFS)/etc/config/ubus-at-daemon $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/ubus-at-daemon
 	install -m 0755 -D $(C2000MAX_BOARD_ROOTFS)/usr/bin/tom_modem $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/tom_modem
 	install -m 0644 -D $(C2000MAX_BOARD_ROOTFS)/usr/share/rpcd/acl.d/luci-app-embed.json $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/rpcd/acl.d/luci-app-embed.json
 	install -m 0644 -D $(C2000MAX_BOARD_ROOTFS)/usr/share/luci/menu.d/luci-app-embed.json $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/luci/menu.d/luci-app-embed.json
@@ -226,7 +227,6 @@ define Build/prepare-c2000max-rootfs
 		awk 'BEGIN{split("$(C2000MAX_REMOVE_IPK_PACKAGES)", pkgs); for (i in pkgs) del[pkgs[i]]=1; skip=0} /^Package: /{skip=($$2 in del)} skip && /^$$/{skip=0; next} !skip{print}' "$$status" > "$$status.tmp"; \
 		mv "$$status.tmp" "$$status"; \
 	fi
-	sed -i 's/192\.168\.7\.1/192.168.66.1/g' $(C2000MAX_MYOS_ROOTFS_DIR)/bin/config_generate
 	mkdir -p $(C2000MAX_MYOS_ROOTFS_DIR)/lib/preinit
 	printf '%s\n' \
 		'src/gz MYOS_core https://mirrors.ustc.edu.cn/openwrt/releases/24.10.5/targets/mediatek/filogic/packages' \
@@ -848,6 +848,10 @@ define Build/prepare-c2000max-rootfs
 	[ -x $(C2000MAX_MYOS_ROOTFS_DIR)/www/cgi-bin/at-ws-info ] || { echo "C2000MAX missing at-webserver CGI"; exit 1; }
 	python3 $(TOPDIR)/target/linux/mediatek/image/finalize-dual-theme.py \
 		$(C2000MAX_MYOS_ROOTFS_DIR) $(TOPDIR)
+	rm -f $(C2000MAX_MYOS_ROOTFS_DIR)/www/luci-static/myos-new/media/c8-688-login.mp4 \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/www/luci-static/myos-new/media/c5800-688-login.mp4
+	sed -i -e '/\/c8-688-login\.mp4$$/d' -e '/\/c5800-688-login\.mp4$$/d' \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/usr/lib/opkg/info/luci-theme-myos-new.list
 	cmp -s $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/luci-app-mtwifi-cfg/wireless-mtk.js \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/www/luci-static/resources/view/network/wireless.js
 	grep -q 'CBIWifiFrequencyValue' $(C2000MAX_MYOS_ROOTFS_DIR)/www/luci-static/resources/view/network/wireless.js
@@ -1022,6 +1026,29 @@ define Build/prepare-c2000max-rootfs
 		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S99ddns-go \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S99homeproxy \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/K10homeproxy
+	# Keep the startup defaults of the booted 202611061200 MAX image.
+	for link in S19wpad S20usbmode S21conntrackd S30radius S45istore S49tasks \
+		S70modemmanager S90openvpn S95microsocks S95smartd S99haproxy \
+		S99mwrt-assurance S99mwrt-fansched S99uuplugin; do \
+		rm -f "$(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/$$link"; \
+	done
+	rm -f $(C2000MAX_MYOS_ROOTFS_DIR)/lib/preinit/90_extract_caldata \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/uci-defaults/99-mtwifi-phy-fix \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/hotplug.d/iface/15-teql
+	# Package overlays can replace the modes on shared directories and files.
+	chmod 0755 $(C2000MAX_MYOS_ROOTFS_DIR)/etc/preinit
+	find $(C2000MAX_MYOS_ROOTFS_DIR)/etc/init.d -type f -exec chmod u+rx,go-w {} +
+	set -e; for path in www usr/lib/lua/luci usr/libexec/rpcd usr/share/ucode usr/share/luci usr/share/rpcd; do \
+		dir="$(C2000MAX_MYOS_ROOTFS_DIR)/$$path"; \
+		[ -d "$$dir" ] || continue; \
+		find "$$dir" -type d -exec chmod 0755 {} +; \
+		find "$$dir" -type f -exec chmod a+r,go-w {} +; \
+	done
+	while IFS="$$(printf '\t')" read -r mode path; do \
+		file="$(C2000MAX_MYOS_ROOTFS_DIR)/$$path"; \
+		[ -e "$$file" ] && [ ! -L "$$file" ] || continue; \
+		chmod "$$mode" "$$file" || exit 1; \
+	done < $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/rootfs-modes-202611061200.tsv
 	python3 $(TOPDIR)/scripts/prepare-public-rootfs.py $(C2000MAX_MYOS_ROOTFS_DIR)
 	$(STAGING_DIR_HOST)/bin/mksquashfs4 $(C2000MAX_MYOS_ROOTFS_DIR) $(C2000MAX_MYOS_ROOTFS) \
 		-nopad -noappend -root-owned -comp xz -Xpreset 9 -Xe -Xlc 0 -Xlp 2 -Xpb 2 \
@@ -3517,7 +3544,7 @@ define Device/nradio_c2000-max
 	kmod-mediatek_hnat \
 	kmod-oaf appfilter luci-app-oaf luci-i18n-oaf-zh-cn \
 	kmod-hwmon-pwmfan \
-	kmod-mt798x-2p5g-phy \
+	mt798x-2p5g-phy-firmware-internal \
 	kmod-ifb kmod-sfp kmod-ebtables \
 	kmod-mtk_wed kmod-mtk_pci kmod-warp \
 	kmod-tun openvpn-openssl libcap-ng liblzo2 liblz4-1 \

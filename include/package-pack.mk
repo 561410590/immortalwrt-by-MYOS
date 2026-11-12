@@ -210,6 +210,13 @@ else
 endif
 	mkdir -p $(PACKAGE_DIR) $$(IDIR_$(1)) $(PKG_INFO_DIR)
 	$(call Package/$(1)/install,$$(IDIR_$(1)))
+	# Set public resource modes before archiving.
+	set -e; for path in www usr/lib/lua/luci usr/share/ucode/luci usr/share/luci; do \
+		dir="$$(IDIR_$(1))/$$$$path"; \
+		[ -d "$$$$dir" ] || continue; \
+		find "$$$$dir" -type d -exec chmod 0755 {} +; \
+		find "$$$$dir" -type f -exec chmod a+r,go-w {} +; \
+	done
 	$(if $(Package/$(1)/install-overlay),mkdir -p $(PACKAGE_DIR) $$(IDIR_$(1))/rootfs-overlay)
 	$(call Package/$(1)/install-overlay,$$(IDIR_$(1))/rootfs-overlay)
 	-find $$(IDIR_$(1)) -name 'CVS' -o -name '.svn' -o -name '.#*' -o -name '*~'| $(XARGS) rm -rf

@@ -118,7 +118,7 @@ endef
 
 define Package/openssh-server-pam
 	$(call Package/openssh/Default)
-	DEPENDS+= +libopenssl +zlib +libpthread +openssh-keygen +libpam
+	DEPENDS+= +libopenssl +zlib +libpthread +openssh-keygen +PACKAGE_openssh-server-pam:libpam
 	TITLE+= server (with PAM support)
 	VARIANT:=with-pam
 	USERID:=sshd=22:sshd=22
@@ -260,7 +260,7 @@ endef
 
 define Package/openssh-sftp-server/install
 	$(INSTALL_DIR) $(1)/usr/lib
-	$(CP) $(PKG_INSTALL_DIR)/usr/lib/sftp-server $(1)/usr/lib/
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/lib/sftp-server $(1)/usr/lib/
 	$(INSTALL_DIR) $(1)/usr/libexec
 	ln -sf ../lib/sftp-server $(1)/usr/libexec/sftp-server
 endef

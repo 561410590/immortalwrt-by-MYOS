@@ -42,13 +42,14 @@ MAKE_FLAGS+= \
 define Package/btop/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/local/bin/btop $(1)/usr/bin/
-	$(INSTALL_DIR) $(1)/usr/share
-	$(CP) $(PKG_INSTALL_DIR)/usr/local/share/btop $(1)/usr/share/
+	$(INSTALL_DIR) $(1)/usr/share/btop/themes
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/local/share/btop/README.md $(1)/usr/share/btop/
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/local/share/btop/themes/*.theme $(1)/usr/share/btop/themes/
 
 	$(INSTALL_DIR) $(1)/etc/profile.d
 	$(CP) $(CURDIR)/files/btop.sh $(1)/etc/profile.d/
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
-	$(CP) $(CURDIR)/files/btop.uci $(1)/etc/uci-defaults/90-btop-migrate-alias
+	$(INSTALL_DATA) $(CURDIR)/files/btop.uci $(1)/etc/uci-defaults/90-btop-migrate-alias
 endef
 
 $(eval $(call BuildPackage,btop))

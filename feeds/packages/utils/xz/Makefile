@@ -66,7 +66,7 @@ define BuildSubPackage
 
   define Package/$(1)/install
 	$(INSTALL_DIR) $$(1)$(if $(3),/usr/libexec,/usr/bin)
-	$(CP) $(PKG_INSTALL_DIR)/usr/bin/$(1) $$(1)$(if $(3),/usr/libexec/$(1)-lzmautils,/usr/bin/$(1))
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/$(1) $$(1)$(if $(3),/usr/libexec/$(1)-lzmautils,/usr/bin/$(1))
   endef
 
   $$(eval $$(call BuildPackage,$(1)))

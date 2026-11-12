@@ -2,10 +2,11 @@
  'use strict';
  const body=document.body;
  const button=document.querySelector('#m-background');
- const model=(body.dataset.deviceModel||'').toLowerCase().replace(/[^a-z0-9]/g,'');
- const board=(body.dataset.deviceBoard||'').toLowerCase();
- const ultra=model.includes('c2000ultra')||(board==='hcmt7987-snsd'&&!model.includes('c2000max'));
- if(!button&&!(ultra&&body.classList.contains('m-auth')))return;
+ const model=(body.dataset.deviceModel||'').toLowerCase().replace(/[^a-z0-9]/g,'').replace(/^nradio/,'');
+ const board=(body.dataset.deviceBoard||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+ const ultra=model==='c2000ultra'||board==='nradioc2000ultra';
+ const ultraLogin=ultra&&body.classList.contains('m-auth');
+ if(!button&&!ultraLogin)return;
  const reduced=matchMedia('(prefers-reduced-motion:reduce)');
  const make=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=text;return n;};
  let database,current=null,mediaURL=null,backdrop=null,backgroundVideo=null,previewVideo=null;
@@ -88,7 +89,12 @@
  }
  function busy(value){choose.disabled=reset.disabled=value;range.disabled=value||!current;}
  const ready=storage(null,false).then(saved=>{if(saved&&saved.blob)apply(saved);})
-  .catch(()=>{status.textContent='无法读取浏览器背景存储，请检查浏览器设置。';});
+  .catch(()=>{status.textContent='无法读取浏览器背景存储，请检查浏览器设置。';})
+  .finally(()=>{
+   if(!ultraLogin)return;
+   body.dataset.backgroundReady='true';
+   window.dispatchEvent(new Event('myos:background'));
+  });
  if(button)button.addEventListener('click',async()=>{await ready;dialog.showModal();syncVideo();});
  dialog.addEventListener('close',syncVideo);
  document.addEventListener('visibilitychange',syncVideo);

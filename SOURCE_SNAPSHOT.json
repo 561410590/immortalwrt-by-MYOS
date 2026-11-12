@@ -1,8 +1,8 @@
 {
-  "snapshot_date": "2026-11-12",
+  "snapshot_date": "2026-11-13",
   "tree": "immortalwrt-mt798x-6.6-c2000max",
   "base_commit": "c88458e977271b41b6a8943dd14940c103c904bd",
-  "source_version": "V3.1.41-202611061200",
+  "source_version": "V3.1.42-202611122300",
   "configuration_target": "nradio_c2000-max",
   "feed_origins": {
     "istore": "a4a02e700e7840ba0d01cc5677a36257864291c8",

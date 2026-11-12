@@ -2,20 +2,16 @@
 (() => {
  'use strict';
  const body=document.body;
- const model=((body.dataset.deviceModel||'')+' '+(body.dataset.deviceBoard||'')).toLowerCase().replace(/[^a-z0-9]/g,'');
- const login=body.classList.contains('m-auth');
- const board=(body.dataset.deviceBoard||'').toLowerCase();
- const ultra=model.includes('c2000ultra')||(board==='hcmt7987-snsd'&&!model.includes('c2000max'));
+ if(!body.classList.contains('m-auth')||!document.querySelector('.m-login form'))return;
+ const model=(body.dataset.deviceModel||'').toLowerCase().replace(/[^a-z0-9]/g,'').replace(/^nradio/,'');
+ const board=(body.dataset.deviceBoard||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+ const ultra=model==='c2000ultra'||board==='nradioc2000ultra';
  let file;
- if(login){
-  if(model.includes('c8688')||board==='hcmt7981-688-emmc')file='c8-688-login.mp4';
-  else if(model.includes('c5800')||board==='hcmt7981-emmc')file='c5800-688-login.mp4';
-  else if(ultra)file='c2000-ultra-promo.mp4';
- }else if(ultra&&document.querySelector('.m-workspace')){
-  file='c2000-ultra-promo.mp4';
- }
+ if(ultra)file='c2000-ultra-promo.mp4';
+ else if(model==='c5800688'||board==='nradioc5800688')file='c5800-688-login.mp4';
+ else if(model==='c8688'||model==='c8new688'||board==='hcmt7981688emmc'||
+  board==='nradiowt9104no2manpernew688')file='c8-688-login.mp4';
  if(!file)return;
- const backgroundClass=login?'m-login-video':'m-ultra-background';
  const host=document.createElement('div');host.className='m-video-backdrop';host.setAttribute('aria-hidden','true');
  const video=document.createElement('video');
  video.muted=true;video.defaultMuted=true;video.autoplay=true;video.loop=true;video.playsInline=true;
@@ -23,19 +19,19 @@
  video.setAttribute('muted','');video.setAttribute('autoplay','');video.setAttribute('loop','');video.setAttribute('playsinline','');
  const script=document.currentScript;
  const source=new URL('media/'+file,script.src);
- if(login)source.search=new URL(script.src).search;
- host.append(video);body.prepend(host);body.classList.add(backgroundClass);
+ source.search=new URL(script.src).search;
+ host.append(video);body.prepend(host);body.classList.add('m-login-video');
  const reduced=matchMedia('(prefers-reduced-motion:reduce)');
  function sync(){
-  const paused=document.hidden||body.classList.contains('m-custom-background')||reduced.matches;
-  host.hidden=body.classList.contains('m-custom-background')||(login&&reduced.matches);
-  if(paused){video.pause();return;}
+  host.hidden=body.classList.contains('m-custom-background')||reduced.matches||
+   (ultra&&body.dataset.backgroundReady!=='true');
+  if(document.hidden||host.hidden){video.pause();return;}
   if(!video.hasAttribute('src'))video.src=source.href;
   const play=video.play();if(play?.catch)play.catch(()=>{});
  }
  video.addEventListener('loadeddata',sync);
- if(login)video.addEventListener('playing',()=>host.classList.add('m-video-ready'),{once:true});
- video.addEventListener('error',()=>{host.remove();body.classList.remove(backgroundClass);});
+ video.addEventListener('playing',()=>host.classList.add('m-video-ready'),{once:true});
+ video.addEventListener('error',()=>{host.remove();body.classList.remove('m-login-video');});
  document.addEventListener('visibilitychange',sync);
  document.addEventListener('pointerdown',sync,{once:true,passive:true});
  reduced.addEventListener('change',sync);

@@ -147,6 +147,7 @@ define Package/dbus/install
 	$(INSTALL_BIN) ./files/dbus.init $(1)/etc/init.d/dbus
 	$(INSTALL_DIR) $(1)/usr/share/dbus-1
 	$(CP) $(PKG_INSTALL_DIR)/usr/share/dbus-1 $(1)/usr/share/
+	$(INSTALL_DIR) $(1)/usr/share/dbus-1/system-services
 endef
 
 define Package/dbus-utils/install

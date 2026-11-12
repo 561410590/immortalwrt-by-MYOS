@@ -8,7 +8,7 @@ local ok_md5, md5 = pcall(require, "md5")
 
 local M = {}
 
-local APP_SOFTWARE_VERSION = "2.2.12.n0.c0"
+local APP_SOFTWARE_VERSION = "2.3.9.n0.c1"
 local CACHE_DIR = "/tmp/myos-nradio-data"
 local BASE_CACHE_SECONDS = 30
 local SIGNAL_CACHE_SECONDS = 3
@@ -2315,9 +2315,53 @@ function M.invalidate()
 	end
 end
 
+function M.app_network_mode()
+	local device, gateway, metric
+	for _, family in ipairs({ "-4", "-6" }) do
+		local routes = util.exec("ip " .. family .. " route show default 2>/dev/null") or ""
+		for line in routes:gmatch("[^\n]+") do
+			local dev = line:match("^default%s.*%sdev%s+(%S+)") or line:match("^default%s+dev%s+(%S+)")
+			local priority = tonumber(line:match("%smetric%s+(%d+)")) or 0
+			if dev and (not metric or priority < metric) then
+				device, gateway, metric = dev, line:match("%svia%s+(%S+)"), priority
+			end
+		end
+		if device then break end
+	end
+	if not device then return "unknown" end
+
+	-- Match the kernel route to netifd's logical uplink. On C5800 the
+	-- wired WAN and the external 5G link can use the same physical port.
+	local candidates, matching_gateway = {}, {}
+	local interfaces = safe_ubus("network.interface", "dump", {}).interface or {}
+	local _, cellular_interface = M.find_qmodem()
+	for _, status in ipairs(interfaces) do
+		if status.up and (status.l3_device == device or status.device == device) then
+			local name = tostring(status.interface or ""):gsub("_[46]$", ""):gsub("v6$", "")
+			local kind
+			if name == cellular_interface or name:match("^cpe%d*$") or status.proto == "wwan" or
+			   status.proto == "qmi" or status.proto == "mbim" then
+				kind = "cellular"
+			elseif name:match("^wan%d*$") then
+				kind = "wired"
+			end
+			if kind then
+				candidates[kind] = true
+				for _, route in ipairs(status.route or {}) do
+					if gateway and route.nexthop == gateway and tonumber(route.mask) == 0 then
+						matching_gateway[kind] = true
+					end
+				end
+			end
+		end
+	end
+	local known = next(matching_gateway) and matching_gateway or candidates
+	if known.wired and not known.cellular then return "wired" end
+	if known.cellular and not known.wired then return "cellular" end
+	return "unknown"
+end
+
 function M.app_software_version()
-	-- Expose the LED feature gate only when its native backend is installed.
-	if M.led_supported() then return "2.2.15.n0.c0" end
 	return APP_SOFTWARE_VERSION
 end
 
