@@ -3538,9 +3538,9 @@ define Build/prepare-n5000-app-rootfs
 	$(STAGING_DIR_HOST)/bin/unsquashfs4 \
 		-pf $(KDIR)/root-n5000-$(1)-app.pseudo \
 		$(IMAGE_ROOTFS) >/dev/null
-	$(STAGING_DIR_HOST)/bin/unsquashfs4 \
+	$(STAGING_DIR_HOST)/bin/unsquashfs4 -excludes \
 		-d $(KDIR)/root-n5000-$(1)-app \
-		$(IMAGE_ROOTFS) >/dev/null
+		$(IMAGE_ROOTFS) dev/console >/dev/null
 	sh $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/MYOS-nros-app-patch.sh \
 		$(KDIR)/root-n5000-$(1)-app $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/cloud-libs
 	$(TARGET_CC) $(TARGET_CFLAGS) -Os -static -Wall -Wextra -Werror \
