@@ -978,7 +978,7 @@ local function status_info()
 	return {
 		global = { netlink = m.up and 1 or 0, uptime = m.uptime,
 			cpu_percent = usage.cpu_percent, mem_percent = usage.mem_percent,
-			net_prefer = "auto" },
+			net_prefer = "auto", net_type = shared.app_network_mode() },
 		cpe = { cpe_item() },
 		link = { { port = 5, mode = 1, speed = 4, status = m.up and 0 or 1 } },
 		wans = { { name = "cpe", status = m.up and 0 or 1, uptime = m.uptime,
@@ -1082,8 +1082,10 @@ local endpoint = (os.getenv("PATH_INFO") or ""):match("^/nradio/app/?(.*)$") or 
 if endpoint == "" then endpoint = "heartbeat" end
 local req, encrypted = request()
 response_trans_id = req.trans_id
+local enabled = local_enabled()
+local authenticated = enabled and endpoint ~= "auth" and authorized(req)
 
-if not local_enabled() then
+if not enabled then
 	json_out({ code = "1", result = "local app disabled", trans_id = req.trans_id }, nil, "404 Not Found")
 	return
 elseif endpoint == "auth" then
@@ -1100,7 +1102,9 @@ elseif endpoint == "auth" then
 elseif endpoint == "signal" and not encrypted then
 	response_trans_id = nil
 	json_out({ data = app_probe_cipher })
-elseif not authorized(req) then
+elseif endpoint == "status" and not encrypted and not authenticated then
+	json_out({ code = 0, result = { global = { net_type = shared.app_network_mode() } } })
+elseif not authenticated then
 	response_trans_id = nil
 	json_out({ code = "1" })
 elseif endpoint == "heartbeat" then
@@ -1109,9 +1113,9 @@ elseif endpoint == "info" then
 	json_out({ code = 0, result = info_result() })
 elseif endpoint == "signal" then
 	if truthy(req.at_signal) then
-		json_out({ code = "0", at_signal = at_signal_item() })
+		json_out({ code = "0", mac = device_id(), at_signal = at_signal_item() })
 	else
-		json_out({ code = "0", signal = { cpe_item() } })
+		json_out({ code = "0", mac = device_id(), signal = { cpe_item() } })
 	end
 elseif endpoint == "status" then
 	json_out({ code = 0, result = status_info() })

@@ -26,6 +26,8 @@ include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/host-build.mk
 include $(INCLUDE_DIR)/cmake.mk
 
+TARGET_CFLAGS += -I$(STAGING_DIR)/usr/include
+
 CMAKE_OPTIONS += \
 	-DSOVERSION=$(PKG_ABI_VERSION)
 

@@ -4,6 +4,9 @@
 'require rpc';
 
 const firmwareStatus = rpc.declare({object:'myos.update',method:'status'});
+const samplingRPC=Object.fromEntries(['fast','link_quality','signals'].map(method=>[
+ method,rpc.declare({object:'myos-sampling',method,reject:true,nobatch:true})
+]));
 const firmwareModels = {c5800688:'c5800-688',c8688:'c8-688',nbcpe688:'nbcpe-688',c2000max:'max',c2000ultra:'ultra',n5000:'n5000'};
 
 const list = v => Array.isArray(v) ? v : [];
@@ -56,6 +59,57 @@ const duration = value => {
 const addresses = items => list(items).map(v=>v.address+(v.mask!=null?'/'+v.mask:'')).join(' · ')||'未分配';
 const same = (a,b) => JSON.stringify(a)===JSON.stringify(b);
 
+const trafficWindow = 60;
+const secondsAgo = seconds => '−'+seconds+' 秒';
+const maxSampleGap = interval => Math.max(12,3*interval/1000);
+const samplingModes={
+ realtime:{label:'实时',fast:1000,slow:30000},
+ responsive:{label:'即时',fast:3000,slow:30000},
+ balanced:{label:'均衡',fast:5000,slow:30000},
+ eco:{label:'省资源',fast:10000,slow:60000}
+};
+const chartHistoryKey='myos-new-chart-history-v1';
+const qualityFields = [
+ ['latency','延迟','ms'],
+ ['jitter','抖动','ms'],
+ ['loss','丢包率','%']
+];
+
+function qualityChart(fields, label){
+ const svg=(tag,attrs)=>{
+  const el=document.createElementNS('http://www.w3.org/2000/svg',tag);
+  Object.entries(attrs).forEach(([key,value])=>el.setAttribute(key,value));
+  return el;
+ };
+ const plot=svg('svg',{viewBox:'0 0 600 70',preserveAspectRatio:'none',role:'img','aria-label':label});
+ [5,35,65].forEach(y=>plot.append(svg('line',{x1:0,y1:y,x2:600,y2:y,class:'m-chart-gridline'})));
+ const series=fields.map(([field])=>{
+  const path=svg('path',{class:'m-quality-line m-quality-'+field,fill:'none','vector-effect':'non-scaling-stroke'});
+  plot.append(path);
+  return [field,path];
+ });
+ const limit=node('span'),middle=node('span');
+ return {
+  root:node('div','m-quality-chart',[node('div','m-quality-scale',[limit,middle,node('span','','0')]),plot]),
+  draw(samples,start,end,max){
+   limit.textContent=max;middle.textContent=max/2;
+   series.forEach(([field,path])=>{
+    let previous=false;
+    const commands=[];
+    for(const sample of samples){
+     if(!Number.isFinite(sample[field])){previous=false;continue;}
+     const x=end>start?1+598*(sample.ts-start)/(end-start):599;
+     const y=65-60*sample[field]/max;
+     const point=x.toFixed(1)+','+y.toFixed(1);
+     if(previous&&!sample.gap)commands.push('L'+point);
+     else commands.push('M'+point+'h0.01');
+     previous=true;
+    }
+    path.setAttribute('d',commands.join(' '));
+   });
+  }
+ };
+}
 
 // Update existing nodes instead of replacing cards under the pointer/focus.
 const patchTree=(old,fresh)=>{
@@ -71,11 +125,19 @@ const patchTree=(old,fresh)=>{
 
 return view.extend({
  handleSave:null,handleSaveApply:null,handleReset:null,
+ sampleRequest:async function(method,endpoint,options){
+  this.rpcRetryAt??={};
+  if(samplingRPC[method]&&Date.now()>=(this.rpcRetryAt[method]||0)){
+   try{return await samplingRPC[method]();}
+   catch(_){this.rpcRetryAt[method]=Date.now()+30000;}
+  }
+  const response=await request.get(L.url('admin','myos',endpoint),{cache:false,...options});
+  if(!response.ok)throw new Error('HTTP '+response.status);
+  return response.json();
+ },
  fetchData:function(full,allowFallback=true){
-  const url=L.url('admin','myos',full===false?'fast':'data')+(full!==false&&this.manualFull?'?fresh=1':'');
-  return request.get(url,{cache:false,timeout:15000}).then(r=>{
-   if(!r.ok)throw new Error('HTTP '+r.status);
-   const d=r.json();
+  const endpoint=full===false?'fast':'data';
+  return this.sampleRequest(endpoint,endpoint,{timeout:15000}).then(d=>{
    if(d.needs_full&&allowFallback)return this.fetchData(true,false);
    if(!d.system||(!d.lite&&!d.board))throw new Error('状态响应无效');return d;
   });
@@ -85,13 +147,16 @@ return view.extend({
   return this.fetchData(true).then(async first=>{
    // Take two real counter samples before the browser paints the dashboard.
    await new Promise(resolve=>setTimeout(resolve,250));
-   const next=await this.fetchData(false);
+   const next=await this.fetchData(false).catch(()=>null);
+   if(!next)return first;
    if(next.boot!==first.boot)return next.lite?this.fetchData(true):next;
    this.initialSample=first;
    return next.lite?this.mergeSample(next,first):next;
   }).catch(e=>({failure:e.message}));
  },
- intervals:function(){return this.performanceMode==='realtime'?{fast:1000,slow:30000}:this.performanceMode==='eco'?{fast:10000,slow:60000}:this.performanceMode==='responsive'?{fast:3000,slow:30000}:{fast:5000,slow:30000};},
+ intervals:function(){
+  return samplingModes[this.performanceMode];
+ },
  scheduleNext:function(delay){
   clearTimeout(this.sampleTimer);
   if(document.hidden||this.paused||!this.root?.isConnected||this.disposed)return;
@@ -103,7 +168,8 @@ return view.extend({
   if(this.refreshing)return this.refreshing;
   if(this.dragging){this.scheduleNext(500);return Promise.resolve();}
   const started=performance.now();
-  const full=force===true||!this.previous||Date.now()>=(this.fullNext||0);
+  const full=force===true||!this.previous||(!this.resumeFast&&Date.now()>=(this.fullNext||0));
+  this.resumeFast=false;
   window.__MYOSDashboardBusy=true;
   this.refreshing=this.fetchData(full).then(d=>{
    if(this.disposed||!this.root.isConnected)return;
@@ -111,7 +177,8 @@ return view.extend({
    this.failures=0;if(this.dragging||this.paused||document.hidden)this.pendingData=d;else{this.pendingData=null;this.update(d);}
   }).catch(e=>{this.failures=(this.failures||0)+1;this.showError(e.message);}).finally(()=>{
    this.refreshing=null;window.__MYOSDashboardBusy=false;
-   const delay=this.failures?Math.min(60000,10000*this.failures):Math.max(250,this.intervals().fast-(performance.now()-started));
+   const interval=this.intervals().fast;
+   const delay=this.failures?Math.min(30000,interval*2**Math.min(this.failures-1,5)):Math.max(250,interval-(performance.now()-started));
    this.scheduleNext(delay);
   });return this.refreshing;
  },
@@ -121,7 +188,8 @@ return view.extend({
   ['ports','uplinks'].forEach(key=>{
    const values=new Map(list(fast[key]).map(p=>[p.name,p]));
    d[key]=list(old[key]).map(port=>{
-    const merged={...port,...values.get(port.name)};
+    const sample=values.get(port.name);
+    const merged={...port,...sample,rx:sample?.rx,tx:sample?.tx};
     if(key==='ports'&&port.carrier!==merged.carrier){
      merged.client_ipv4=[];
      merged.networks=[];
@@ -134,7 +202,7 @@ return view.extend({
  scheduleSignals:function(delay){
   clearTimeout(this.signalTimer);this.signalTimer=null;
   if(document.hidden||this.paused||this.disposed||!this.root?.isConnected||!['c5800688','c8688','nbcpe688','c2000max','c2000ultra'].includes(this.previous?.profile))return;
-  this.signalTimer=setTimeout(()=>this.refreshSignals(),delay==null?1000:delay);
+  this.signalTimer=setTimeout(()=>this.refreshSignals(),delay==null?this.intervals().fast:delay);
  },
  refreshSignals:function(){
   clearTimeout(this.signalTimer);this.signalTimer=null;
@@ -142,10 +210,8 @@ return view.extend({
   if(this.signalRequest)return this.signalRequest;
   if(this.dragging){this.scheduleSignals(1000);return Promise.resolve();}
   const started=performance.now();
-  this.signalRequest=request.get(L.url('admin','myos','modem_refresh')+'?signals=1',{cache:false,timeout:30000})
-   .then(r=>{
-    if(!r.ok)throw new Error('HTTP '+r.status);
-    const data=r.json();
+  this.signalRequest=this.sampleRequest('signals','modem_refresh',{query:{signals:1},timeout:30000})
+   .then(data=>{
     if(this.disposed||!this.root.isConnected)return;
     const signals={};
     Object.entries(data.signals||{}).forEach(([id,value])=>{
@@ -171,7 +237,7 @@ return view.extend({
     if(!this.disposed&&!document.hidden&&!this.dragging&&!this.paused&&this.root.isConnected&&this.previous){
      this.renderModems(this.previous);this.layout?.reconcile(this.previous);
     }
-    this.scheduleSignals(Math.max(250,1000-(performance.now()-started)));
+    this.scheduleSignals(Math.max(250,this.intervals().fast-(performance.now()-started)));
    });
   return this.signalRequest;
  },
@@ -205,14 +271,41 @@ return view.extend({
    .catch(()=>{this.simFailure=true;})
    .finally(()=>{this.simLookup=null;});
  },
+ restoreChartHistory:function(data){
+  try{
+   const saved=JSON.parse(sessionStorage.getItem(chartHistoryKey));
+   if(!data.boot||saved?.boot!==data.boot)return;
+   this.history=list(saved.traffic).filter(p=>p.time>=data.sample-trafficWindow&&p.time<=data.sample);
+   const last=this.history.at(-1);
+   const uplinks=list(data.uplinks).map(u=>u.name).sort();
+   this.trafficGap=!!last&&(!same(saved.uplinks,uplinks)||data.sample-last.time>maxSampleGap(this.intervals().fast));
+   for(const {name} of list(data.uplinks)){
+    const samples=list(saved.quality?.[name]).filter(s=>s.ts>=data.ts-trafficWindow&&s.ts<=data.ts+1);
+    if(samples.length)this.qualityHistory.set(name,{samples,target:samples.at(-1).target});
+   }
+  }catch(_){}
+ },
+ saveChartHistory:function(){
+  if(!this.previous?.boot)return;
+  try{
+   const uplinks=list(this.previous.uplinks).map(u=>u.name).sort();
+   const quality=Object.fromEntries(uplinks.map(name=>[name,this.qualityHistory.get(name)?.samples||[]]));
+   sessionStorage.setItem(chartHistoryKey,JSON.stringify({boot:this.previous.boot,uplinks,traffic:this.history,quality}));
+  }catch(_){}
+ },
  render:function(initial){
-  this.previous=null;this.trafficPrevious=null;this.cpuReading=null;this.history=[];this.saved={};this.parts={};this.events=[];this.portRates={};this.paused=false;this.fullNext=Date.now()+30000;
+  this.previous=null;this.trafficPrevious=null;this.trafficGap=false;this.cpuReading=null;this.history=[];this.saved={};this.parts={};this.events=[];this.portRates={};this.paused=false;
   if(!initial.failure&&this.initialSample){
    this.previous=this.initialSample;
    this.trafficPrevious={sample:this.initialSample.sample,boot:this.initialSample.boot,uplinks:list(this.initialSample.uplinks)};
   }
   this.initialSample=null;this.liveSignals={};this.signalErrors={};
-  this.performanceMode='realtime';try{const v=localStorage.getItem('myos-liquid-performance-v3');if(['realtime','eco','balanced','responsive'].includes(v))this.performanceMode=v;}catch(_){}
+  this.performanceMode='realtime';
+  try{
+   const saved=localStorage.getItem('myos-liquid-performance-v3');
+   if(Object.hasOwn(samplingModes,saved))this.performanceMode=saved;
+  }catch(_){}
+  this.fullNext=Date.now()+this.intervals().slow;
   const slot=name=>this.parts[name]=node('div','m-slot m-slot-'+name);
   this.error=node('div','m-read-error');this.error.hidden=true;
   this.firmwareUpdateEnabled=false;
@@ -223,34 +316,61 @@ return view.extend({
   },[this.firmwareVersion,E('span',{'aria-hidden':'true'},'→')]);
   this.root=node('div','m-dashboard m-home-refined',[
    node('div','m-page-heading',[
-    node('div','m-heading-copy',[node('p','m-eyebrow','MYOS / NETWORK'),node('h1','','网络控制中心')])
+    node('h1','','网络控制中心')
    ]),this.firmwareNotice,this.error,
-   node('div','m-overview-row m-layout-zone',[slot('product'),slot('resources')]),
+   node('div','m-overview-row m-layout-zone',['product','resources','ports','uplinks'].map(slot)),
    node('div','m-dashboard-grid',[
-    node('div','m-main-column m-layout-zone',[slot('traffic'),slot('ports'),slot('clients'),slot('network'),slot('usage')]),
-    node('div','m-side-column m-layout-zone',['modems','wifi','topology','health','management'].map(slot)),
+    node('div','m-main-column m-layout-zone',[slot('traffic'),slot('clients'),slot('network'),slot('usage')]),
+    node('div','m-side-column m-layout-zone',['quality','modems','wifi','topology','health','management'].map(slot)),
     node('div','m-layout-bottom m-layout-zone',['events','controls','version'].map(slot))
    ])
   ]);
   this.initTraffic();
+  this.initQuality();
   this.initClients();
+  this.initPortDialog();
   this.initManagement();
   this.initControls();
-  if(initial.failure)this.showError(initial.failure);else this.update(initial);
-  this.onVisibility=()=>{clearTimeout(this.sampleTimer);clearTimeout(this.signalTimer);this.signalTimer=null;if(!document.hidden){this.fullNext=0;this.scheduleNext(250);this.scheduleSignals(0);}};
+  if(initial.failure)this.showError(initial.failure);else{
+   this.restoreChartHistory(initial);
+   this.update(initial);
+  }
+  this.onVisibility=()=>{
+   clearTimeout(this.sampleTimer);clearTimeout(this.signalTimer);clearTimeout(this.qualityTimer);this.signalTimer=null;
+   if(document.hidden){this.samplingLeftAt=Date.now();this.saveChartHistory();}
+   else this.resumeSampling();
+  };
   document.addEventListener('visibilitychange',this.onVisibility);
-  window.addEventListener('pagehide',()=>{this.disposed=true;clearTimeout(this.sampleTimer);clearTimeout(this.signalTimer);this.signalTimer=null;this.layout?.destroy();},{once:true});
-  window.addEventListener('pageshow',event=>{if(event.persisted){this.disposed=false;this.scheduleNext(250);this.scheduleSignals(0);}});
+  window.addEventListener('pagehide',()=>{this.samplingLeftAt=Date.now();this.saveChartHistory();this.disposed=true;clearTimeout(this.sampleTimer);clearTimeout(this.signalTimer);clearTimeout(this.qualityTimer);this.signalTimer=null;this.layout?.destroy();});
+  window.addEventListener('pageshow',event=>{if(event.persisted){this.disposed=false;this.layout?.reconcile(this.previous);this.resumeSampling();}});
   setTimeout(()=>{
    if(!this.root.isConnected)return;
    if(window.MYOSLayout)this.layout=window.MYOSLayout(this);
-   this.scheduleNext(1000);this.scheduleSignals(0);
+   this.scheduleNext();this.scheduleSignals(0);this.scheduleQuality(0);
    if(typeof IntersectionObserver!=='undefined'){this.chartVisibility=new IntersectionObserver(entries=>{this.chartInView=entries.some(e=>e.isIntersecting);if(this.chartInView&&this.previous)this.drawTraffic(this.previous,this.lastRates?.down,this.lastRates?.up);});this.chartVisibility.observe(this.parts.traffic);}
    window.dispatchEvent(new Event('myos:layout'));
   },0);
   return this.root;
  },
+ resumeSampling:function(){
+  this.pendingData=null;
+  this.resumeFast=!!this.previous;this.fullNext=0;
+  if(this.samplingLeftAt&&Date.now()-this.samplingLeftAt>maxSampleGap(this.intervals().fast)*1000)
+   this.samplingPauseUntil=Date.now()+trafficWindow*1000;
+  this.samplingLeftAt=0;
+  this.setSamplingState('resuming');
+  this.scheduleNext(0);this.scheduleSignals(0);this.scheduleQuality(0);
+ },
+ setSamplingState:function(state){
+  if(!this.samplingState)return;
+  this.samplingState.dataset.state=state;
+  this.samplingState.textContent=state==='error'?'等待重试':state==='resuming'?'恢复采样':this.intervals().fast/1000+' 秒刷新';
+  const resumed=Date.now()<(this.samplingPauseUntil||0);
+  this.samplingNote.hidden=!resumed;
+  this.samplingNote.textContent=resumed?'已恢复采样，空白处为离开页面期间未采集的数据。':'';
+ },
  showError:function(message){
+  this.setSamplingState('error');
   this.error.hidden=false;this.error.textContent='状态更新失败：'+message+'。'+(this.previous?'当前保留上次数据。':'请刷新页面重试。');
  },
  refreshFirmwareNotice:function(){
@@ -286,8 +406,9 @@ return view.extend({
   const trafficDt=base?d.sample-base.sample:0;
   const counters=current.length>0&&current.every(n=>Number.isFinite(n.rx)&&Number.isFinite(n.tx));
   const reboot=base&&d.boot&&base.boot&&d.boot!==base.boot;
-  if(reboot){this.history=[];this.lastRates=null;}
-  if(counters&&base&&!reboot&&trafficDt>0){
+  const maxTrafficInterval=maxSampleGap(this.intervals().fast);
+  if(reboot){this.history=[];this.lastRates=null;this.trafficGap=false;}
+  if(counters&&base&&!reboot&&trafficDt>0&&trafficDt<=maxTrafficInterval){
    const old=new Map(list(base.uplinks).map(n=>[n.name,n]));
    if(current.length===old.size&&current.every(n=>old.has(n.name)&&n.rx>=old.get(n.name).rx&&n.tx>=old.get(n.name).tx)){
     down=current.reduce((v,n)=>v+n.rx-old.get(n.name).rx,0)/trafficDt;
@@ -298,12 +419,17 @@ return view.extend({
    this.trafficPrevious={sample:d.sample,boot:d.boot,uplinks:current.map(n=>({name:n.name,rx:n.rx,tx:n.tx}))};
   if(cpu!=null)this.cpuReading=cpu;
   if(down!=null&&up!=null){
-   this.history.push({down,up,time:d.sample,interval:trafficDt});
-   if(this.history.length>30)this.history.shift();
+   const last=this.history.at(-1);
+   if(last&&d.sample-last.time>maxTrafficInterval)this.trafficGap=true;
+   this.history.push({down,up,time:d.sample,gap:this.trafficGap});
+   this.trafficGap=false;
    this.lastRates={down,up};
   }else if(base&&trafficDt===0&&this.lastRates){
    down=this.lastRates.down;up=this.lastRates.up;
+  }else if(base&&!reboot&&trafficDt>0){
+   this.trafficGap=true;this.lastRates=null;
   }
+  while(this.history[0]?.time<d.sample-trafficWindow)this.history.shift();
   if(dt!==0)this.portRates={};
   if(dt>0&&dt<=90)list(d.ports).forEach(p=>{
    const old=list(prev.ports).find(q=>q.name===p.name);
@@ -312,9 +438,9 @@ return view.extend({
     this.portRates[p.name]={rx:(p.rx-old.rx)/dt,tx:(p.tx-old.tx)/dt};
   });
   this.previous=d;this.error.hidden=true;this.root.classList.remove('m-sampling-paused');
+  this.setSamplingState('live');
   this.refreshFirmwareNotice();
   this.simNamesButton.hidden=d.profile==='n5000';
-  this.samplingHelp.textContent=d.profile==='n5000'?'前者读取 CPU、内存和流量；后者刷新终端与网络状态。后台页面停止采样。':'前者读取 CPU、内存和流量；后者刷新终端与模组缓存。后台页面停止采样。';
 
   if(d.profile==='c2000max'&&this.maxSim){
    list(d.modems).forEach(m=>{
@@ -325,8 +451,9 @@ return view.extend({
    });
   }
 
-  this.recordEvents(d,prev,light);this.renderTopology(d);this.renderHealth(d);this.renderEvents(d);this.renderPorts(d);this.renderProduct(d);
+  this.recordEvents(d,prev,light);this.renderTopology(d);this.renderHealth(d);this.renderEvents(d);this.renderPorts(d);this.renderProduct(d);this.renderUplinks(d);
   this.drawTraffic(d,down,up);this.renderResources(d,cpu);
+  if(!light)this.updateQualityLinks(d);
   if(!light){this.renderModems(d);this.renderNetwork(d);this.renderWifi(d);this.renderClients(d);this.renderVersion(d);}
   if(!light)this.refreshQModem(d);
   if(this.layout)this.layout.reconcile(d);
@@ -389,12 +516,48 @@ return view.extend({
      detail,...(signalError?[node('div','m-cell-age','信号读取失败：'+signalError)]:[])
     ]);
    })):node('p','m-empty','暂无模组缓存，网络接口状态见下方。'),node('div','m-action-buttons',[
-    ...(d.profile==='c2000max'?[E('button',{type:'button',class:'m-copy-button',click:()=>{
-     if(this.modemRefresh)return;
-     this.refreshQModem(this.previous).finally(()=>{this.manualFull=true;this.refreshData(true).finally(()=>{this.manualFull=false;});});
-    }},'读取模组缓存')]:[]),
     link('管理蜂窝',d.profile==='nbcpe688'?'admin/modem-AK68/nets':(d.profile==='c2000ultra'||d.profile==='c2000max')?'admin/modem/qmodem/overview':'admin/modem')]));
   });
+ },
+ initPortDialog:function(){
+  this.portDialogTitle=E('h2',{id:'m-port-dialog-title'},'端口详情');
+  this.portDialogBody=node('div','m-port-dialog-body');
+  const close=E('button',{type:'button',class:'m-icon-button','aria-label':'关闭端口详情',autofocus:''},'×');
+  this.portDialog=E('dialog',{class:'m-client-dialog m-port-dialog','aria-labelledby':'m-port-dialog-title'},[
+   node('div','m-background-heading',[this.portDialogTitle,close]),this.portDialogBody
+  ]);
+  close.addEventListener('click',()=>this.portDialog.close());
+  this.portDialog.addEventListener('close',()=>{
+   const trigger=[...this.parts.ports.querySelectorAll('button[data-port]')].find(button=>button.dataset.port===this.portDialogName);
+   this.portDialogName=null;
+   trigger?.focus({preventScroll:true});
+  });
+  this.parts.ports.addEventListener('click',event=>{
+   const trigger=event.target.closest('button[data-port]');
+   if(!trigger)return;
+   this.portDialogName=trigger.dataset.port;
+   this.updatePortDialog(this.previous,this.portSummaries);
+   this.portDialog.showModal();
+  });
+  this.root.append(this.portDialog);
+ },
+ updatePortDialog:function(d,summaries){
+  const port=list(d?.ports).find(p=>p.name===this.portDialogName);
+  const summary=summaries?.find(p=>p.name===this.portDialogName);
+  if(!port||!summary){
+   if(this.portDialog.open)this.portDialog.close();
+   return;
+  }
+  const title=alias(d,port.name)+' 端口详情';
+  if(this.portDialogTitle.textContent!==title)this.portDialogTitle.textContent=title;
+  const rate=this.portRates[port.name]||{};
+  const lan=port.role==='LAN'&&['c5800688','c8688','nbcpe688'].includes(d.profile);
+  const down=lan?rate.tx:rate.rx,up=lan?rate.rx:rate.tx;
+  patchTree(this.portDialogBody,node('div','m-port-dialog-body',[
+   node('div','m-port-traffic',[node('span','m-download','↓ 下载 '+speed(down).join(' ')),node('span','m-upload','↑ 上传 '+speed(up).join(' '))]),
+   kv([['实际接口',port.name],['角色',port.role],['MAC',port.mac],['MTU',port.mtu],['IP 地址',summary.ips.join(' · ')],
+    ['累计接收',bytes(port.rx)],['累计发送',bytes(port.tx)]])
+  ]));
  },
  renderPorts:function(d){
   const ports=list(d.ports);
@@ -408,34 +571,38 @@ return view.extend({
      if(!ips.length)ips=networks.flatMap(n=>list(n.ipv6).map(ip=>ip.address));
     }
    }
-   return {name:p.name,role:p.role,carrier:p.carrier,speed:p.speed,mac:p.mac,mtu:p.mtu,ips:[...new Set(ips.filter(Boolean))]};
+   return {name:p.name,role:p.role,carrier:p.carrier,speed:p.speed,ips:[...new Set(ips.filter(Boolean))]};
   });
+  this.portSummaries=status;
   this.replace('ports',{ports:status,profile:d.profile},()=>card('端口管理','⌘',
    status.length?node('div','m-port-grid',status.map(p=>{
     const label=alias(d,p.name),desc=p.carrier===true?'链路已连接':p.carrier===false?'未连接':'状态未获取';
-    const detail=E('details',{class:'m-port-details','data-key':p.name},[
-     node('summary','','详情'),kv([['实际接口',p.name],['角色',p.role],['MAC',p.mac],['MTU',p.mtu],
-      ...(p.ips.length>1?[['IP 地址',p.ips.join(' · ')]]:[]),
-      ['累计接收','—','m-port-rx'],['累计发送','—','m-port-tx']])
-    ]);
     return node('div','m-port'+(p.carrier?' up':''),[
-     node('div','m-port-top',[node('div','m-port-socket'),node('span','m-port-led')]),
-     node('strong','',label),node('small','',p.role||'物理网口'),
+     node('div','m-port-title',[node('span','m-port-led'),node('strong','',label)]),
+     node('small','',p.role||'物理网口'),
      badge(p.carrier&&p.speed?String(p.speed).replace(/F$/,' Mbps').replace(/H$/,' Mbps · 半双工').replace(/^(\d+)$/,'$1 Mbps'):desc,p.carrier?'good':''),
      node('div','m-port-ip',p.ips.length?p.ips[0]+(p.ips.length>1?' +'+(p.ips.length-1):''):null),
-     node('div','m-port-traffic',[node('span','m-download'),node('span','m-upload')]),detail
+     E('button',{type:'button',class:'m-port-button','data-port':p.name,'aria-label':label+' 详情','aria-haspopup':'dialog'},'详情')
     ]);
    })):node('p','m-empty','未获取物理网口信息'),link('接口设置','admin/network/network')));
-  this.parts.ports.querySelectorAll('.m-port').forEach((row,index)=>{
-   const p=ports[index],rate=this.portRates[p.name]||{};
-   const lan=p.role==='LAN'&&['c5800688','c8688','nbcpe688'].includes(d.profile);
-   const down=lan?rate.tx:rate.rx,up=lan?rate.rx:rate.tx;
-   for(const [selector,value] of [['.m-download','↓ 下载 '+speed(down).join(' ')],['.m-upload','↑ 上传 '+speed(up).join(' ')],
-    ['.m-port-rx',bytes(p.rx)],['.m-port-tx',bytes(p.tx)]]){
-    const field=row.querySelector(selector);
-    if(field.textContent!==value)field.textContent=value;
-   }
+  if(this.portDialog.open)this.updatePortDialog(d,status);
+ },
+ renderUplinks:function(d){
+  const rows=list(d.uplinks).map(u=>{
+   const nets=list(d.interfaces).filter(n=>n.device===u.name&&n.up===true&&list(n.routes).some(r=>Number(r.mask)===0));
+   const addresses=[...new Set(nets.flatMap(n=>list(n.ipv4).map(ip=>ip.address).concat(list(n.ipv6).map(ip=>ip.address))).filter(Boolean))];
+   const gateways=[...new Set(nets.flatMap(n=>list(n.routes).filter(r=>Number(r.mask)===0).map(r=>r.nexthop)).filter(g=>g&&g!=='0.0.0.0'&&g!=='::'))];
+   return {name:alias(d,u.name),networks:nets.map(n=>n.name).join(' / '),ip:addresses[0],gateway:gateways[0],carrier:u.carrier};
   });
+  this.replace('uplinks',rows,()=>card('当前出口','↗',rows.length?node('div','m-uplink-list',rows.map(r=>
+   node('div','m-uplink-row',[
+    node('div','m-uplink-heading',[
+     node('div','m-uplink-id',[node('strong','',r.name),
+      ...(r.networks&&r.networks!==r.name?[node('small','',r.networks)]:[])]),
+     badge(r.carrier===false?'链路断开':'默认路由',r.carrier===false?'':'blue')
+    ]),
+    kv([['地址',r.ip||'—'],['网关',r.gateway||'—']])
+   ]))):node('p','m-empty','未读取到默认路由')));
  },
  renderNetwork:function(d){
   this.replace('network',{interfaces:d.interfaces,ports:d.ports,profile:d.profile},()=>{
@@ -484,12 +651,124 @@ return view.extend({
    ]);
   });
  },
+ initQuality:function(){
+  this.qualityHistory=new Map();
+  this.qualityLinks=[];
+  this.qualitySelect=E('select',{'class':'m-quality-select','aria-label':'选择 WAN 出口',disabled:''});
+  this.qualitySelect.addEventListener('change',()=>this.drawQuality());
+  this.qualityStatus=E('p',{'class':'m-quality-status','role':'status'});
+  this.qualityLatency=qualityChart(qualityFields.slice(0,2),'Ping 延迟与抖动，单位毫秒');
+  this.qualityLoss=qualityChart(qualityFields.slice(2),'Ping 丢包率，单位百分比');
+  this.qualityLoss.root.classList.add('m-quality-chart-loss');
+  this.qualityAxis=node('div','m-quality-time',[node('span','',secondsAgo(trafficWindow)),node('span','',secondsAgo(trafficWindow/2)),node('span','','最新采样')]);
+  const legend=(field,label,unit)=>{
+   const value=node('strong','','—');
+   this.qualityValues[field]=value;
+   return E('span',{'class':'m-quality-legend',title:field==='latency'?'最新 Ping 往返时间':'最近 3 次探测'},[
+    node('span','m-quality-label',[E('i',{'class':'m-quality-swatch m-quality-'+field,'aria-hidden':'true'}),label]),
+    node('span','m-quality-reading',[value,node('small','',unit)])
+   ]);
+  };
+  this.qualityValues={};
+  this.parts.quality.append(card('WAN 链路质量','↗',node('div','m-quality-body',[
+   node('div','m-quality-legends',qualityFields.slice(0,2).map(args=>legend(...args))),
+   this.qualityLatency.root,
+   node('div','m-quality-legends',[legend(...qualityFields[2])]),
+   this.qualityLoss.root,this.qualityAxis,this.qualityStatus
+  ]),this.qualitySelect));
+  this.drawQuality();
+ },
+ updateQualityLinks:function(d){
+  const links=list(d.uplinks).map(u=>({name:u.name,label:u.label||alias(d,u.name)}));
+  if(same(links,this.qualityLinks))return;
+  const selected=this.qualitySelect.value;
+  this.qualityLinks=links;
+  this.qualitySelect.replaceChildren(...links.map(u=>E('option',{value:u.name},u.label===u.name?u.name:u.label+' · '+u.name)));
+  if(links.some(u=>u.name===selected))this.qualitySelect.value=selected;
+  this.qualitySelect.disabled=!links.length;
+  this.drawQuality();
+  this.scheduleQuality(0);
+ },
+ scheduleQuality:function(delay=this.intervals().fast){
+  clearTimeout(this.qualityTimer);
+  if(document.hidden||this.disposed||!this.root?.isConnected||!this.qualityLinks.length)return;
+  this.qualityTimer=setTimeout(()=>this.refreshQuality(),delay);
+ },
+ refreshQuality:async function(){
+  if(document.hidden||this.disposed||!this.root?.isConnected)return;
+  this.scheduleQuality();
+  if(this.paused||this.parts.quality.hidden||this.qualityPending)return;
+  const links=this.qualityLinks;
+  this.qualityPending=true;
+  try{
+   const {samples}=await this.sampleRequest('link_quality','link_quality',{query:{batch:1},timeout:3500});
+   for(const {name} of links)this.addQualitySample(name,samples?.[name]);
+  }catch(_){
+   for(const {name} of links)this.addQualitySample(name);
+  }finally{
+   this.qualityPending=false;
+   if(!document.hidden&&!this.disposed&&this.root.isConnected)this.drawQuality();
+  }
+ },
+ addQualitySample:function(name,sample){
+  let entry=this.qualityHistory.get(name);
+  if(!entry){entry={samples:[]};this.qualityHistory.set(name,entry);}
+  entry.requestFailed=!Number.isFinite(sample?.ts);
+  if(entry.requestFailed)return;
+  if(sample.target&&entry.target&&sample.target!==entry.target)entry.samples=[];
+  if(sample.target)entry.target=sample.target;
+  if(sample.ts<entry.samples.at(-1)?.ts)entry.samples=[];
+  if(sample.ts===entry.samples.at(-1)?.ts)return;
+  const previous=entry.samples.at(-1);
+  const maxGap=maxSampleGap(this.intervals().fast);
+  sample.gap=!previous||sample.ts-previous.ts>maxGap;
+  if(sample.sent>0){
+   const recent=[...entry.samples.slice(-2),sample].filter(s=>s.sent>0&&s.target===sample.target&&sample.ts-s.ts<=maxGap);
+   const sent=recent.reduce((count,s)=>count+s.sent,0),received=recent.reduce((count,s)=>count+s.received,0);
+   sample.loss=100*(sent-received)/sent;
+   const rtts=recent.map(s=>s.latency).filter(Number.isFinite);
+   if(Number.isFinite(sample.latency)&&rtts.length>1)
+    sample.jitter=rtts.slice(1).reduce((sum,rtt,i)=>sum+Math.abs(rtt-rtts[i]),0)/(rtts.length-1);
+  }
+  entry.samples.push(sample);
+  while(entry.samples[0]?.ts<sample.ts-trafficWindow)entry.samples.shift();
+ },
+ drawQuality:function(){
+  const entry=this.qualityHistory.get(this.qualitySelect.value);
+  const samples=entry?.samples||[],last=samples.at(-1);
+  const end=last?.ts||0,start=end-trafficWindow;
+  const peak=samples.reduce((max,sample)=>Math.max(max,sample.latency||0,sample.jitter||0),0);
+  const step=10**Math.floor(Math.log10(Math.max(peak,10)));
+  const limit=step*[1,2,5,10].find(n=>step*n>=peak);
+  this.qualityLatency.draw(samples,start,end,limit);
+  this.qualityLoss.draw(samples,start,end,100);
+  this.qualityAxis.hidden=!last;
+  qualityFields.forEach(([field])=>{
+   const value=last?.[field];
+   this.qualityValues[field].textContent=Number.isFinite(value)?value.toFixed(field==='loss'&&value%1===0?0:1):'—';
+  });
+  const status=!this.qualityLinks.length?'暂无可用 WAN 出口':entry?.requestFailed?(last?'采样请求失败，保留上次结果':'采样请求失败'):
+   !last?'等待 Ping 采样':last.error==='no_route'?'该出口暂无到探测目标的路由':
+   last.error?'Ping 探测失败':last.received===0?'Ping '+last.target+' · 最新探测超时':'Ping '+last.target;
+  if(this.qualityStatus.textContent!==status)this.qualityStatus.textContent=status;
+ },
  initTraffic:function(){
+  this.samplingState=E('span',{'class':'m-sampling-state','role':'status'});
+  this.samplingNote=E('p',{'class':'m-sampling-note',hidden:''});
+  this.setSamplingState('live');
   this.down=node('strong','m-download','—');this.up=node('strong','m-upload','—');
   this.downUnit=node('small');this.upUnit=node('small');
   this.chart=document.createElementNS('http://www.w3.org/2000/svg','svg');
-  this.chart.setAttribute('viewBox','0 0 600 150');this.chart.setAttribute('preserveAspectRatio','none');this.chart.setAttribute('role','img');this.chart.setAttribute('aria-label','外网出口上下行曲线，横轴为有效采样顺序；每点按实际时间间隔计算平均速率');
+  this.chart.setAttribute('viewBox','0 0 600 150');this.chart.setAttribute('preserveAspectRatio','none');this.chart.setAttribute('role','img');this.chart.setAttribute('aria-label','外网出口上下行曲线，横轴为实际采样时间');
   this.chartEmpty=node('div','m-chart-empty','等待下一次实际采样');
+  this.chartLimit=node('span');
+  this.chartMid=node('span');
+  this.chartScale=node('div','m-chart-scale',[this.chartLimit,this.chartMid,node('span','','0')]);
+  this.chartScale.hidden=true;
+  this.chartTimeStart=node('span');
+  this.chartTimeMiddle=node('span');
+  this.chartTime=node('div','m-chart-time',[this.chartTimeStart,this.chartTimeMiddle,node('span','','最新采样')]);
+  this.chartTime.hidden=true;
   this.trafficUsed=node('strong','','—');
   this.parts.usage.append(card('流量统计','▥',node('div','m-usage-stat',[
    node('span','m-muted','已使用流量'),this.trafficUsed
@@ -498,19 +777,25 @@ return view.extend({
   this.connectionLimit=node('small');
   this.accelerationName=node('strong','m-acceleration-name');
   this.ppeRows=node('div','m-ppe-rows');
+  const reading=(label,direction,value,unit)=>node('div','',[
+   node('span','m-traffic-direction '+direction,label),
+   node('span','m-traffic-reading',[value,unit])
+  ]);
   this.parts.traffic.replaceChildren(card('实时流量','▥',node('div','',[
    node('div','m-traffic-values',[
-    node('div','',[node('label','','↓ 下载'),this.down,document.createTextNode(' '),this.downUnit]),
-    node('div','',[node('label','','↑ 上传'),this.up,document.createTextNode(' '),this.upUnit])
+    reading('下载','m-download',this.down,this.downUnit),
+    reading('上传','m-upload',this.up,this.upUnit)
    ]),
-   node('div','m-chart',[this.chart,this.chartEmpty]),
+   node('div','m-chart-frame',[
+    this.chartScale,node('div','m-chart',[this.chart,this.chartEmpty]),this.chartTime
+   ]),this.samplingNote,
    node('div','m-forwarding',[
     node('div','m-forwarding-summary',[
      node('div','',[node('label','','活动连接数'),this.connectionValue,this.connectionLimit]),
      node('div','',[node('label','','硬件加速'),this.accelerationName])
     ]),this.ppeRows
    ])
-  ])));
+  ]),this.samplingState));
   this.parts.traffic.firstElementChild.classList.add('m-traffic');
  },
  drawTraffic:function(d,down,up){
@@ -518,19 +803,43 @@ return view.extend({
   if(!this.parts.traffic.hidden&&this.chartInView!==false){
    const ns=this.chart.namespaceURI,svg=(tag,attrs)=>{const el=document.createElementNS(ns,tag);Object.entries(attrs).forEach(([k,v])=>el.setAttribute(k,v));return el;};
    if(!this.chartPaths){
-    const frag=document.createDocumentFragment();[20,60,100,140].forEach(y=>frag.append(svg('line',{x1:0,y1:y,x2:600,y2:y,class:'m-chart-gridline'})));
+    const frag=document.createDocumentFragment();[20,80,140].forEach(y=>frag.append(svg('line',{x1:0,y1:y,x2:600,y2:y,class:'m-chart-gridline'})));
     this.chartPaths=['down','up'].map((key,i)=>{
      const fill=svg('path',{class:'m-chart-area '+key}),line=svg('path',{class:'m-chart-line '+key,fill:'none','stroke-width':2.2,'stroke-linecap':'round','stroke-linejoin':'round','vector-effect':'non-scaling-stroke'}),dot=svg('circle',{r:3,class:'m-chart-dot '+key});
      frag.append(fill,line,dot);return {fill,line,dot};
     });this.chart.replaceChildren(frag);
    }
-   const valid=this.history.filter(p=>p.down!=null),max=Math.max(1,...valid.flatMap(p=>[p.down,p.up]));
-   const span=Math.max(1,valid.length-1);
+   const valid=this.history;
+   const peak=Math.max(1,...valid.flatMap(p=>[p.down,p.up]))*8;
+   const unit=10**Math.floor(Math.log10(peak));
+   const max=unit*[1,2,5,10].find(step=>unit*step>=peak)/8;
+   const [amount,label]=speed(max),limit=Number(amount)+' '+label;
+   if(this.chartLimit.textContent!==limit){
+    this.chartLimit.textContent=limit;
+    this.chartMid.textContent=Number(amount)/2;
+   }
+   this.chartScale.hidden=!valid.length;
+   const bottom=140,range=120;
+   const end=Math.max(d.sample||0,valid.at(-1)?.time||0),start=end-trafficWindow;
+   this.chartTimeStart.textContent=secondsAgo(trafficWindow);
+   this.chartTimeMiddle.textContent=secondsAgo(trafficWindow/2);
+   this.chartTime.hidden=!valid.length;
    ['down','up'].forEach((key,index)=>{
     let segment=[],lineD='',areaD='',last=null;
-    const flush=()=>{if(!segment.length)return;const d=segment.map((p,i)=>(i?'L':'M')+p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ');lineD+=d+' ';if(segment.length>1)areaD+=d+' L'+segment[segment.length-1].x.toFixed(1)+',148 L'+segment[0].x.toFixed(1)+',148 Z ';last=segment[segment.length-1];segment=[];};
-    valid.forEach((p,i)=>{segment.push({x:4+i/span*592,y:138-Math.min(122,p[key]/max*122)});});flush();
-    const els=this.chartPaths[index];els.line.setAttribute('d',lineD);els.fill.setAttribute('d',areaD);els.dot.style.display=last?'':'none';if(last){els.dot.setAttribute('cx',last.x);els.dot.setAttribute('cy',last.y);}
+    const flush=()=>{
+     if(!segment.length)return;
+     const d=segment.map((p,i)=>(i?'L':'M')+p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ');
+     lineD+=d+(segment.length===1?'h0.01 ':' ');
+     last=segment[segment.length-1];
+     if(segment.length>1)areaD+=d+` L${last.x.toFixed(1)},${bottom} L${segment[0].x.toFixed(1)},${bottom} Z `;
+     segment=[];
+    };
+    valid.forEach(p=>{
+     if(p.gap)flush();
+     const progress=(p.time-start)/trafficWindow;
+     segment.push({x:4+progress*592,y:bottom-Math.min(range,p[key]/max*range),time:p.time});
+    });flush();
+    const els=this.chartPaths[index];els.line.setAttribute('d',lineD);els.fill.setAttribute('d',areaD);els.dot.style.display=last?.time===end?'':'none';if(last){els.dot.setAttribute('cx',last.x);els.dot.setAttribute('cy',last.y);}
    });
    this.chartEmpty.hidden=valid.length>0;
   }
@@ -587,6 +896,8 @@ return view.extend({
   this.clientCount=badge('正在读取');
   this.clientSummary=node('div','m-cell-age');
   this.clientPager=node('div','m-client-pager');
+  this.clientButtons=[this.clientPageButton(-1),this.clientPageButton(1)];
+  this.clientPager.append(...this.clientButtons);
   this.clientCopyStatus=E('span',{'class':'m-copy-status','role':'status'});
   this.parts.clients.replaceChildren(card('终端与连接','◈',node('div','',[
    node('div','m-client-tools',[this.clientSearch,this.clientFilter,E('button',{type:'button',class:'m-pill-button',click:()=>this.exportClients()},'导出 CSV')]),
@@ -597,18 +908,46 @@ return view.extend({
   ]),this.clientCount));
   this.drawClients();
  },
- copyClient:async function(value){
+ copyClient:async function(value,status=this.clientCopyStatus){
   try{
    if(navigator.clipboard&&window.isSecureContext)await navigator.clipboard.writeText(value);
    else{
     const focus=document.activeElement,field=E('textarea',{'class':'m-copy-buffer',readonly:true},value);
-    document.body.append(field);field.select();
+    const host=status.closest('dialog')||document.body;
+    host.append(field);field.select();
     let copied;
     try{copied=document.execCommand('copy');}finally{field.remove();if(focus)focus.focus();}
     if(!copied)throw new Error('copy');
    }
-   this.clientCopyStatus.textContent='已复制 '+value;
-  }catch(e){this.clientCopyStatus.textContent='复制未成功，请手动选择地址。';}
+   status.textContent='已复制 '+value;
+  }catch(e){status.textContent='复制未成功，请手动选择地址。';}
+ },
+ clientPageButton:function(step){
+  return E('button',{type:'button',class:'m-copy-button',click:()=>{this.clientPage+=step;this.drawClients();}},step<0?'上一页':'下一页');
+ },
+ clientRow:function(client,row){
+  if(!row){
+   const details=E('button',{type:'button',class:'m-copy-button',click:()=>this.showClient(row.client,details)},'详情');
+   const copy=E('button',{type:'button',class:'m-copy-button',click:()=>this.copyClient(row.client.ip)},'IP');
+   row=E('tr',{class:'m-client-row',role:'row'},[
+    E('td',{class:'m-client-id',role:'cell'},[node('strong'),node('div','m-muted m-client-mac')]),
+    E('td',{class:'m-mono m-client-ip',role:'cell'}),
+    E('td',{class:'m-client-link',role:'cell'},[node('span','m-client-state'),node('div','m-muted')]),
+    E('td',{class:'m-client-actions',role:'cell'},node('div','m-copy-actions',[details,copy]))
+   ]);
+  }else if(same(row.client,client))return row;
+  row.client=client;
+  const [id,ip,connection,actions]=row.cells;
+  const state=connection.firstElementChild,copy=actions.firstElementChild.lastElementChild;
+  id.firstElementChild.textContent=client.name||'未命名终端';
+  id.lastElementChild.textContent=client.mac||'';
+  ip.textContent=text(client.ip);
+  state.textContent=client.ssid||client.kind||'';
+  state.classList.toggle('associated',client.state==='无线已关联');
+  connection.lastElementChild.textContent=client.state+(client.signal!=null?' · '+client.signal+' dBm':'');
+  copy.disabled=!client.ip;
+  copy.setAttribute('aria-label','复制IP'+(client.ip?' '+client.ip:''));
+  return row;
  },
  drawClients:function(){
   const query=this.clientSearch.value.trim().toLowerCase(),filter=this.clientFilter.value;
@@ -619,19 +958,34 @@ return view.extend({
   const totalPages=Math.max(1,Math.ceil(clients.length/this.clientPageSize));
   this.clientPage=Math.min(this.clientPage,totalPages-1);
   const shown=clients.slice(this.clientPage*this.clientPageSize,(this.clientPage+1)*this.clientPageSize);
-  const copy=(label,value)=>E('button',{type:'button','class':'m-copy-button',disabled:!value,
-   'aria-label':'复制'+label+(value?' '+value:''),click:()=>this.copyClient(value)},label);
-  this.clientRows.replaceChildren(...(clients.length?shown.map(c=>E('tr',{class:'m-client-row',role:'row'},[
-   E('td',{class:'m-client-id',role:'cell'},[node('strong','',c.name||'未命名终端'),node('div','m-muted m-client-mac',c.mac)]),
-   E('td',{class:'m-mono m-client-ip',role:'cell'},text(c.ip)),
-   E('td',{class:'m-client-link',role:'cell'},[node('span','m-client-state'+(c.state==='无线已关联'?' associated':''),c.ssid||c.kind),
-    node('div','m-muted',c.state+(c.signal!=null?' · '+c.signal+' dBm':''))]),
-   E('td',{class:'m-client-actions',role:'cell'},node('div','m-copy-actions',[E('button',{type:'button',class:'m-copy-button',click:()=>this.showClient(c)},'详情'),copy('IP',c.ip)]))
-  ])):[E('tr',{role:'row'},E('td',{role:'cell',colspan:4},this.clients.length?'没有匹配的终端':'暂无终端记录'))]));
+  const focus=document.activeElement;
+  const rowFocused=this.clientRows.contains(focus);
+  const pagerFocused=this.clientPager.contains(focus);
+  const previousRows=new Map();
+  for(const row of this.clientRows.rows){
+   if(row.client?.mac)previousRows.set(row.client.mac,row);
+  }
+  const rows=shown.length?shown.map(client=>{
+   const row=previousRows.get(client.mac);
+   previousRows.delete(client.mac);
+   return this.clientRow(client,row);
+  }):[E('tr',{role:'row'},E('td',{role:'cell',colspan:4},this.clients.length?'没有匹配的终端':'暂无终端记录'))];
+  rows.forEach((row,index)=>{
+   const current=this.clientRows.rows[index];
+   if(current!==row)this.clientRows.insertBefore(row,current||null);
+  });
+  while(this.clientRows.rows.length>rows.length)this.clientRows.lastElementChild.remove();
   this.clientSummary.textContent='筛选 '+clients.length+' / '+this.clients.length+' 条记录 · 第 '+(this.clientPage+1)+' / '+totalPages+' 页';
-  this.clientPager.replaceChildren(...(totalPages>1?[
-   E('button',{type:'button',class:'m-copy-button',disabled:this.clientPage===0,click:()=>{this.clientPage--;this.drawClients();}},'上一页'),
-   E('button',{type:'button',class:'m-copy-button',disabled:this.clientPage>=totalPages-1,click:()=>{this.clientPage++;this.drawClients();}},'下一页')]:[]));
+  const [prev,next]=this.clientButtons;
+  prev.disabled=this.clientPage===0;
+  next.disabled=this.clientPage>=totalPages-1;
+  this.clientPager.hidden=totalPages===1;
+  if(rowFocused&&(focus.disabled||document.activeElement!==focus)){
+   (this.clientRows.contains(focus)&&!focus.disabled?focus:this.clientSearch).focus({preventScroll:true});
+  }
+  if(pagerFocused&&(focus.disabled||this.clientPager.hidden)){
+   (this.clientPager.hidden?this.clientSearch:focus===prev?next:prev).focus({preventScroll:true});
+  }
  },
  renderClients:function(d){
   this.clientCount.textContent=list(d.clients).length+' 条记录';
@@ -639,11 +993,12 @@ return view.extend({
   this.clients=list(d.clients);this.drawClients();
  },
  initControls:function(){
-  const select=E('select',{'aria-label':'首页采样模式'},[
-   E('option',{value:'realtime'},'实时 · 1 秒 / 30 秒'),E('option',{value:'responsive'},'即时 · 3 秒 / 30 秒'),E('option',{value:'balanced'},'均衡 · 5 秒 / 30 秒'),E('option',{value:'eco'},'省资源 · 10 秒 / 60 秒')
-  ]);select.value=this.performanceMode;
-  select.addEventListener('change',()=>{this.performanceMode=select.value;try{localStorage.setItem('myos-liquid-performance-v3',select.value);}catch(_){}this.fullNext=0;this.scheduleNext(50);});
+  const select=E('select',{'aria-label':'首页采样模式'},
+   Object.entries(samplingModes).map(([value,mode])=>E('option',{value},mode.label+' · '+mode.fast/1000+' 秒 / '+mode.slow/1000+' 秒')));
+  select.value=this.performanceMode;
+  select.addEventListener('change',()=>{this.performanceMode=select.value;this.setSamplingState('live');try{localStorage.setItem('myos-liquid-performance-v3',select.value);}catch(_){}this.fullNext=0;this.scheduleNext(50);this.scheduleSignals(0);this.scheduleQuality(0);});
   const themeUpdateStatus=E('p',{class:'m-muted',role:'status',hidden:''});
+  const themeProgress=E('progress',{'aria-label':'主题下载进度',hidden:''});
   const refreshTheme=E('button',{type:'button',class:'m-copy-button',hidden:'',click:()=>location.reload()},'刷新页面');
   const readResult=response=>{
    if(!response.ok)throw new Error();
@@ -659,12 +1014,20 @@ return view.extend({
     const started=readResult(await request.post(L.url('admin','myos','theme_install'),
      new URLSearchParams({token:L.env.token}).toString(),
      {headers:{'Content-Type':'application/x-www-form-urlencoded'},timeout:18000}));
+    const size=Number(started.size);
+    const hasSize=Number.isFinite(size)&&size>0;
+    if(hasSize){
+     themeProgress.max=size;
+     themeProgress.value=0;
+     themeProgress.hidden=false;
+    }
     while(this.root.isConnected&&!this.disposed){
      const statusUrl=L.url('admin','myos','theme_install_status')+'?job='+encodeURIComponent(started.job);
      const result=readResult(await request.get(statusUrl,{cache:false,timeout:15000}));
      if(!result.done){
+      if(hasSize)themeProgress.value=result.installing?size:Math.max(0,Number(result.downloaded)||0);
       themeUpdateStatus.textContent=result.installing?'正在安装主题…':
-       '正在下载主题 '+bytes(result.downloaded)+(started.size?' / '+bytes(started.size):'');
+       '正在下载主题 '+bytes(result.downloaded)+(hasSize?' / '+bytes(size):'');
       await new Promise(resolve=>setTimeout(resolve,2000));
       continue;
      }
@@ -677,6 +1040,7 @@ return view.extend({
    }catch(error){
     themeUpdateStatus.textContent=error.message||'无法取得安装结果，请重新检查主题版本';
    }finally{
+    themeProgress.hidden=true;
     checkTheme.disabled=installTheme.disabled=false;
    }
   }},'下载并安装主题');
@@ -705,9 +1069,12 @@ return view.extend({
     E('button',{type:'button',class:'m-pill-button',click:()=>this.layout?.picker()},'添加 / 隐藏卡片'),
     E('button',{type:'button',class:'m-pill-button',click:()=>this.layout?.reset()},'恢复默认布局')
    ]),node('label','m-performance-label',['采样模式',select]),
-   this.samplingHelp=node('p','m-cell-age'),
+   node('p','m-cell-age','前者采集流量、系统资源、Ping 和蜂窝信号，后者刷新终端与网络状态。后台页面停止采样。'),
    this.simNamesButton=E('button',{type:'button',class:'m-copy-button',hidden:true,click:()=>{if(this.previous)this.refreshSimNames(this.previous);}},'按需读取 SIM 云端名称'),
-   checkTheme,themeUpdateStatus,installTheme,refreshTheme
+   node('div','m-theme-update',[
+    node('div','m-action-buttons',[checkTheme,installTheme,refreshTheme]),
+    themeUpdateStatus,themeProgress
+   ])
   ])));
  },
  initManagement:function(){
@@ -774,7 +1141,7 @@ return view.extend({
     node('div','m-check-row',[node('span','m-dot'),node('span','','默认出口与系统资源已读取')]),
     node('div','m-check-row',[node('span','m-dot'),node('span','','链路与客户端状态持续采样')])
    ]:rows.slice(0,4).map(r=>node('div','m-health-warning',[node('strong','',r[0]),node('small','',r[1])]))),
-   node('p','m-cell-age','不含主动 Ping、测速或安全漏洞扫描。')
+   node('p','m-cell-age','Ping 延迟、抖动和丢包见 WAN 链路质量。')
   ]),badge(clear?'已检查':'需留意',clear?'good':'warn')));
  },
  recordEvents:function(d,prev,light){
@@ -798,13 +1165,11 @@ return view.extend({
   this.events=this.events.slice(0,40);
  },
  renderEvents:function(d){
-  this.replace('events',this.events.map(e=>({...e})),()=>card('连接事件','event',node('div','',[
+  this.replace('events',this.events.map(e=>({...e})),()=>card('连接事件','event',
    this.events.length?node('ol','m-event-list',this.events.slice(0,6).map(e=>node('li','',[
-    node('span','m-event-dot '+e.tone),node('div','',[node('strong','',e.title),node('small','',e.detail)]),
-    node('time','',new Date(e.time*1000).toLocaleTimeString('zh-CN',{hour12:false}))
-   ]))):node('div','m-event-empty',[glyph('event'),node('strong','','正在观察连接变化'),node('small','','首次读取建立基线，不生成虚构历史。')]),
-   node('p','m-cell-age','仅记录本次页面打开期间的变化，最多 40 条；显示最近 6 条。')
-  ]),badge(this.events.length+' 条')));
+    node('span','m-event-dot '+e.tone),node('time','',new Date(e.time*1000).toLocaleTimeString('zh-CN',{hour12:false})),
+    node('div','',[node('strong','',e.title),node('small','',e.detail)])
+   ]))):node('p','m-muted m-event-quiet','暂无连接变化'),badge('本次页面 · '+this.events.length+' 条')));
  },
  exportClients:function(){
   const query=this.clientSearch.value.trim().toLowerCase(),filter=this.clientFilter.value;
@@ -821,9 +1186,10 @@ return view.extend({
   document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
   this.clientCopyStatus.textContent='已导出当前筛选结果，共 '+rows.length+' 条记录。';
  },
- showClient:function(c){
+ showClient:function(c,trigger){
   if(this.clientDialog)this.clientDialog.remove();
   const close=E('button',{type:'button',class:'m-icon-button','aria-label':'关闭终端详情'},'×');
+  const copyStatus=E('p',{class:'m-copy-status',role:'status'});
   const dialog=E('dialog',{class:'m-client-dialog','aria-labelledby':'m-client-dialog-title'},[
    node('div','m-background-heading',[E('h2',{id:'m-client-dialog-title'},c.name||'终端详情'),close]),
    badge(c.state,c.state==='无线已关联'?'good':''),
@@ -833,13 +1199,20 @@ return view.extend({
     ['发送协商速率',c.tx!=null?(Number(c.tx)/1000).toFixed(1)+' Mbps':null]]),
    node('p','m-cell-age','协商速率不是实际吞吐量；租约和 ARP 记录不证明设备当前在线。'),
    node('div','m-action-buttons',[
-    E('button',{type:'button',class:'m-pill-button',disabled:!c.ip,click:()=>{this.copyClient(c.ip);}},'复制 IP'),
-    E('button',{type:'button',class:'m-pill-button',disabled:!c.mac,click:()=>{this.copyClient(c.mac);}},'复制 MAC'),
+    E('button',{type:'button',class:'m-pill-button',disabled:!c.ip,click:()=>this.copyClient(c.ip,copyStatus)},'复制 IP'),
+    E('button',{type:'button',class:'m-pill-button',disabled:!c.mac,click:()=>this.copyClient(c.mac,copyStatus)},'复制 MAC'),
     link('DHCP 设置','admin/network/dhcp')
-   ])
+   ]),copyStatus
   ]);
   close.addEventListener('click',()=>dialog.close());
-  dialog.addEventListener('close',()=>{dialog.remove();if(this.clientDialog===dialog)this.clientDialog=null;});
+  dialog.addEventListener('close',()=>{
+   dialog.remove();
+   if(this.clientDialog!==dialog)return;
+   this.clientDialog=null;
+   const row=c.mac&&[...this.clientRows.rows].find(entry=>entry.client?.mac===c.mac);
+   const target=trigger?.isConnected?trigger:row?.querySelector('.m-client-actions button')||this.clientSearch;
+   target.focus({preventScroll:true});
+  });
   document.body.append(dialog);this.clientDialog=dialog;dialog.showModal();
  },
 

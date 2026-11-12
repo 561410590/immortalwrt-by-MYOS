@@ -7,7 +7,7 @@
  const box=document.createElement('section');
  box.id='m-notices';box.setAttribute('aria-label','系统通知');document.body.append(box);
  const cards=new Map(),rank={critical:0,warn:1,info:2};
- let state={},busy=false,timer,homePaused=false,mediaOpen=false;
+ let state={},busy=false,timer,expiryTimer,homePaused=false,mediaOpen=false;
  try{state=JSON.parse(sessionStorage.getItem(key)||'{}')||{};}catch(_){}
  let events=Array.isArray(state.events)?state.events:[],dismissed=Array.isArray(state.dismissed)?state.dismissed:[];
  function save(){
@@ -35,6 +35,17 @@
  }
  function remove(id){
   const card=cards.get(id);if(!card)return;cards.delete(id);motion(card,true);
+ }
+ function expireLinks(){
+  clearTimeout(expiryTimer);
+  const now=Date.now();
+  const remaining=events.filter(event=>{
+   if(event.expires>now)return true;
+   remove(event.id);
+   return false;
+  });
+  if(remaining.length!==events.length){events=remaining;save();}
+  if(events.length)expiryTimer=setTimeout(expireLinks,Math.min(...events.map(event=>event.expires))-now);
  }
  function render(list){
   const wanted=list.filter(n=>n&&n.id&&!(n.closable&&dismissed.includes(n.id)))
@@ -91,6 +102,7 @@
    if(!response.ok)throw new Error('HTTP '+response.status);
    const data=await response.json(),now=Date.now();links(data,now);
    events=events.filter(n=>n.expires>now);save();render([...(Array.isArray(data.notices)?data.notices:[]),...events]);
+   expireLinks();
   }catch(_){/* A failed read is not a physical disconnect. Keep existing notices. */}
   finally{busy=false;}
  }
@@ -105,9 +117,9 @@
   new MutationObserver(records=>records.forEach(r=>r.addedNodes.forEach(relocate))).observe(main,{childList:true});}
  window.addEventListener('myos:sampling-state',e=>{homePaused=!!e.detail?.paused;});
  window.addEventListener('myos:media-state',e=>{mediaOpen=!!e.detail?.active;});
- function run(){clearInterval(timer);tick();timer=setInterval(tick,30000);}
- document.addEventListener('visibilitychange',()=>{if(!document.hidden)tick();});
- window.addEventListener('pagehide',()=>clearInterval(timer));
+ function run(){clearInterval(timer);expireLinks();tick();timer=setInterval(tick,30000);}
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden){expireLinks();tick();}});
+ window.addEventListener('pagehide',()=>{clearInterval(timer);clearTimeout(expiryTimer);});
  window.addEventListener('pageshow',e=>{if(e.persisted)run();});
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run);else run();
 })();

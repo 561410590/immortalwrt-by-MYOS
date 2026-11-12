@@ -36,6 +36,8 @@ define Package/qmodem/install
 	find $(1) -type d -exec chmod 0755 {} +
 	find $(1)/www -type f -exec chmod 0644 {} +
 	chmod 0755 $(1)/etc/init.d/* $(1)/usr/share/qmodem/*.sh $(1)/usr/libexec/rpcd/*
+	chmod 0644 $(1)/etc/uci-defaults/luci-app-qmodem \
+		$(addprefix $(1)/usr/share/qmodem/vendor/,foxconn.sh meig.sh sierra.sh simcom.sh telit.sh)
 endef
 
 $(eval $(call BuildPackage,quectel-CM-5G-M))

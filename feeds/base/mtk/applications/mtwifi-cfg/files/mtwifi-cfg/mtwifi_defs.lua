@@ -16,7 +16,6 @@
 
 local mtwifi_defs = {}
 
-mtwifi_defs.dbdc_init_ifname = "ra0"
 mtwifi_defs.max_mbssid = 16
 mtwifi_defs.max_acl_entry = 129
 
@@ -50,6 +49,7 @@ mtwifi_defs.vif_cfgs = {
     ["RTSThreshold"] = "2347",
     ["HT_AMSDU"] = "1",
     ["HT_AutoBA"] = "1",
+    ["HT_BAWinSize"] = "1024",
     ["HT_GI"] = "1",
     ["HT_LDPC"] = "1",
     ["HT_OpMode"] = "0",
@@ -57,25 +57,35 @@ mtwifi_defs.vif_cfgs = {
     ["HT_STBC"] = "1",
     ["IgmpSnEnable"] = "0",
     ["RRMEnable"] = "1",
-    ["FtSupport"] = "0",
+    ["WNMEnable"] = "0",
     ["VHT_BW_SIGNAL"] = "0",
     ["VHT_LDPC"] = "1",
     ["VHT_SGI"] = "1",
     ["VHT_STBC"] = "1",
-    ["MuMimoDlEnable"] = "1",
-    ["MuMimoUlEnable"] = "1",
+    ["MuMimoDlEnable"] = "0",
+    ["MuMimoUlEnable"] = "0",
     ["MuOfdmaDlEnable"] = "1",
     ["MuOfdmaUlEnable"] = "1",
+    ["PpMuMimoDlEnable"] = "0",
+    ["PpMuMimoUlEnable"] = "0",
+    ["PpOfdmaDlEnable"] = "1",
+    ["PpOfdmaUlEnable"] = "1",
     ["DLSCapable"] = "0",
     ["WdsEnable"] = "0",
     ["WscConfMode"] = "0",
     ["TxRate"] = "0",
+    ["DtimPeriod"] = "1",
 }
 
 mtwifi_defs.vif_cfgs_idx = {
     ["WPAPSK"] = "12345678",
     ["SSID"] = "",
     ["RADIUS_Key"] = "",
+}
+
+mtwifi_defs.vif_mac = {
+    ["MacAddress"] = "",
+    -- ["MldAddr"] = "",
 }
 
 mtwifi_defs.vif_acl = {
@@ -86,9 +96,7 @@ mtwifi_defs.vif_acl = {
 mtwifi_defs.chip_cfgs = {
     -- uci config = dat config, default value
     ["beacon_int"] = { "BeaconPeriod" , "100"},
-    ["dtim_period"] = { "DtimPeriod", "1"},
     ["whnat"] = { "WHNAT", "1"},
-    ["bandsteering"] = { "BandSteering", "0"},
 }
 
 mtwifi_defs.reinstall_cfgs = {
@@ -100,10 +108,6 @@ mtwifi_defs.iwpriv_ap_cfgs = {
     -- uci config = iwpriv set cmd , default value
     ["kicklow"] = {"KickStaRssiLow", "0"},
     ["assocthres"] = {"AssocReqRssiThres" , "0"},
-    ["steeringthresold"] = {"Steeringthresold" , "0"},
-    ["HtBw"] = {"HtBw" , "0"},
-    ["VhtBw"] = {"VhtBw" , "0"},
-    ["HtBssCoex"] = {"HtBssCoex" , "0"},
 }
 
 mtwifi_defs.enc2dat = {
@@ -113,13 +117,13 @@ mtwifi_defs.enc2dat = {
     ["sae-mixed"] = {"WPA2PSKWPA3PSK", "AES"},
     ["psk2+tkip+ccmp"] = {"WPA2PSK", "TKIPAES"},
     ["psk2+tkip+aes"] = {"WPA2PSK", "TKIPAES"},
-    ["psk2+tkip"] = {"WPA2PSK", "AES"},
+    ["psk2+tkip"] = {"WPA2PSK", "TKIP"},
     ["psk2+ccmp"] = {"WPA2PSK", "AES"},
     ["psk2+aes"] = {"WPA2PSK", "AES"},
     ["psk2"] = {"WPA2PSK", "AES"},
     ["psk+tkip+ccmp"] = {"WPAPSK", "AES"},
     ["psk+tkip+aes"] = {"WPAPSK", "AES"},
-    ["psk+tkip"] = {"WPAPSK", "TKIP"},
+    ["psk+tkip"] = {"WPAPSK", "AES"},
     ["psk+ccmp"] = {"WPAPSK", "AES"},
     ["psk+aes"] = {"WPAPSK", "AES"},
     ["psk"] = {"WPAPSK", "AES"},

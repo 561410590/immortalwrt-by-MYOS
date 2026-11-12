@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=wwan
 PKG_VERSION:=2019.04.29
-PKG_RELEASE=6
+PKG_RELEASE=7
 
 PKG_LICENSE:=GPL-2.0
 PKG_LICENSE_FILES:=
@@ -23,7 +23,7 @@ endef
 
 define Package/wwan/install
 	$(INSTALL_DIR) $(1)/lib/netifd/proto/
-	$(CP) ./files/wwan.sh $(1)/lib/netifd/proto/
+	$(INSTALL_BIN) ./files/wwan.sh $(1)/lib/netifd/proto/
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/usb
 	$(INSTALL_BIN) ./files/wwan.usb $(1)/etc/hotplug.d/usb/00_wwan.sh
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/usbmisc

@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=python-charset-normalizer
 PKG_VERSION:=3.3.2
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PYPI_NAME:=charset-normalizer
 PKG_HASH:=f30c3cb33b24454a82faecaf01b19c18562b1e89558fb6c56de4d9118a032fd5
@@ -36,6 +36,11 @@ A library that helps you read text from an unknown charset encoding.
 Motivated by chardet, I'm trying to resolve the issue by taking a new
 approach. All IANA character set names for which the Python core library
 provides codecs are supported.
+endef
+
+define Py3Package/python3-charset-normalizer/install
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/normalizer $(1)/usr/bin/
 endef
 
 $(eval $(call Py3Package,python3-charset-normalizer))

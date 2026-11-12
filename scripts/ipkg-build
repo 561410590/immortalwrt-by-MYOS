@@ -179,6 +179,9 @@ for file_mode in $file_modes; do
 	chown "$uid:$gid" "$pkg_dir/$path"
 	chmod  "$mode" "$pkg_dir/$path"
 done
+if [ -n "${MYOS_IPK_MODE_SCRIPT:-}" ]; then
+	python3 "$MYOS_IPK_MODE_SCRIPT" "$pkg_dir" "$pkg"
+fi
 $TAR -X "$tmp_dir"/tarX --format=gnu --numeric-owner --sort=name -cpf - --mtime="$TIMESTAMP" . | gzip -n - > "$tmp_dir"/data.tar.gz
 
 installed_size=$(zcat < "$tmp_dir"/data.tar.gz | wc -c)

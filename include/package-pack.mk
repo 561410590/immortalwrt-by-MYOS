@@ -7,6 +7,7 @@ ifndef DUMP
 endif
 
 IPKG_STATE_DIR:=$(TARGET_DIR)/usr/lib/opkg
+C2000ULTRA_MODES_DIR:=$(TOPDIR)/target/linux/mediatek/image/nradio-c2000-ultra
 
 # Generates a make statement to return a wildcard for candidate ipkg files
 # 1: package name
@@ -201,7 +202,8 @@ $(_endef)
     $$(PACK_$(1)) : export DESCRIPTION=$$(Package/$(1)/description)
     $$(PACK_$(1)) : export PATH=$$(TARGET_PATH_PKG)
     $$(PACK_$(1)) : export PKG_SOURCE_DATE_EPOCH:=$(PKG_SOURCE_DATE_EPOCH)
-    $(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)): $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk
+    $(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)): $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk \
+	$(C2000ULTRA_MODES_DIR)/restore-modes.py $(C2000ULTRA_MODES_DIR)/ipk-modes.tsv
 	rm -rf $$(IDIR_$(1))
 ifeq ($$(CONFIG_USE_APK),)
 	$$(call remove_ipkg_files,$(1),$$(call opkg_package_files,$(call gen_package_wildcard,$(1))))
@@ -210,6 +212,13 @@ else
 endif
 	mkdir -p $(PACKAGE_DIR) $$(IDIR_$(1)) $(PKG_INFO_DIR)
 	$(call Package/$(1)/install,$$(IDIR_$(1)))
+	# Set public resource modes before archiving.
+	set -e; for path in www usr/lib/lua/luci usr/share/ucode/luci usr/share/luci; do \
+		dir="$$(IDIR_$(1))/$$$$path"; \
+		[ -d "$$$$dir" ] || continue; \
+		find "$$$$dir" -type d -exec chmod 0755 {} +; \
+		find "$$$$dir" -type f -exec chmod a+r,go-w {} +; \
+	done
 	$(if $(Package/$(1)/install-overlay),mkdir -p $(PACKAGE_DIR) $$(IDIR_$(1))/rootfs-overlay)
 	$(call Package/$(1)/install-overlay,$$(IDIR_$(1))/rootfs-overlay)
 	-find $$(IDIR_$(1)) -name 'CVS' -o -name '.svn' -o -name '.#*' -o -name '*~'| $(XARGS) rm -rf
@@ -275,7 +284,8 @@ ifeq ($(CONFIG_USE_APK),)
 		$($(1)_COMMANDS) \
 	)
 
-	$(FAKEROOT) $(STAGING_DIR_HOST)/bin/bash $(SCRIPT_DIR)/ipkg-build -m "$(FILE_MODES)" $$(IDIR_$(1)) $$(PDIR_$(1))
+	MYOS_IPK_MODE_SCRIPT="$(C2000ULTRA_MODES_DIR)/restore-modes.py" \
+		$(FAKEROOT) $(STAGING_DIR_HOST)/bin/bash $(SCRIPT_DIR)/ipkg-build -m "$(FILE_MODES)" $$(IDIR_$(1)) $$(PDIR_$(1))
 else
 	mkdir -p $$(ADIR_$(1))/
 	mkdir -p $$(IDIR_$(1))/lib/apk/packages/

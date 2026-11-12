@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=python-pyserial
 PKG_VERSION:=3.5
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 
 PYPI_NAME:=pyserial
 PKG_HASH:=3c77e014170dfffbd816e6ffc205e9842efb10be9f58ec16d3e8675b4925cddb
@@ -40,6 +40,11 @@ This module encapsulates the access for the serial port. It provides
 backends for Python running on Windows, OSX, Linux, BSD (possibly any
 POSIX compliant system) and IronPython. The module named "serial"
 automatically selects the appropriate backend.
+endef
+
+define Py3Package/python3-pyserial/install
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/pyserial-miniterm $(PKG_INSTALL_DIR)/usr/bin/pyserial-ports $(1)/usr/bin/
 endef
 
 $(eval $(call Py3Package,python3-pyserial))

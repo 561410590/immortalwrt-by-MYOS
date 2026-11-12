@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=ubus
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL=$(PROJECT_GIT)/project/ubus.git
@@ -60,12 +60,12 @@ CMAKE_OPTIONS += \
 
 define Package/ubus/install
 	$(INSTALL_DIR) $(1)/bin
-	$(CP) $(PKG_INSTALL_DIR)/usr/bin/ubus $(1)/bin/
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/ubus $(1)/bin/
 endef
 
 define Package/ubusd/install
 	$(INSTALL_DIR) $(1)/sbin
-	$(CP) $(PKG_INSTALL_DIR)/usr/sbin/ubusd $(1)/sbin/
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/ubusd $(1)/sbin/
 endef
 
 define Package/libubus/install

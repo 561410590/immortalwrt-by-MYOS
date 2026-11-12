@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=umbim
-PKG_RELEASE:=25
+PKG_RELEASE:=26
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL=$(PROJECT_GIT)/project/umbim.git
@@ -38,7 +38,8 @@ TARGET_CFLAGS += \
 define Package/umbim/install
 	$(INSTALL_DIR) $(1)/sbin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/umbim $(1)/sbin/
-	$(CP) ./files/* $(1)/
+	$(INSTALL_DIR) $(1)/lib/netifd/proto
+	$(INSTALL_BIN) ./files/lib/netifd/proto/mbim.sh $(1)/lib/netifd/proto/
 endef
 
 $(eval $(call BuildPackage,umbim))

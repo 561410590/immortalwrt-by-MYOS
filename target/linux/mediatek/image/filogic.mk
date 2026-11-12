@@ -249,6 +249,17 @@ define Build/prepare-c2000ultra-app-rootfs
 	ln -sf ../init.d/uuplugin $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/S99uuplugin
 	ln -sf ../init.d/openclash $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/K15openclash
 	ln -sf ../init.d/passwall $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/K15passwall
+	# Package overlays can replace the modes on shared directories and files.
+	chmod 0755 $(KDIR)/root-c2000ultra-$(1)-app/etc/preinit
+	find $(KDIR)/root-c2000ultra-$(1)-app/etc/init.d -type f -exec chmod u+rx,go-w {} +
+	set -e; for path in www usr/lib/lua/luci usr/libexec/rpcd usr/share/ucode usr/share/luci usr/share/rpcd; do \
+		dir="$(KDIR)/root-c2000ultra-$(1)-app/$$path"; \
+		[ -d "$$dir" ] || continue; \
+		find "$$dir" -type d -exec chmod 0755 {} +; \
+		find "$$dir" -type f -exec chmod a+r,go-w {} +; \
+	done
+	python3 $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-ultra/restore-modes.py \
+		$(KDIR)/root-c2000ultra-$(1)-app
 	python3 $(TOPDIR)/scripts/prepare-public-rootfs.py $(KDIR)/root-c2000ultra-$(1)-app
 	$(STAGING_DIR_HOST)/bin/mksquashfs4 \
 		$(KDIR)/root-c2000ultra-$(1)-app \

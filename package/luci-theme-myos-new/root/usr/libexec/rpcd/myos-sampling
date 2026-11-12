@@ -1,0 +1,23 @@
+#!/usr/bin/lua
+
+if arg[1] == "list" then
+    print('{"fast":{},"link_quality":{},"signals":{}}')
+    return
+end
+
+if arg[1] ~= "call" then os.exit(1) end
+
+local controller = require "luci.controller.myos_new"
+local method = arg[2]
+local data
+if method == "fast" then
+    data = controller.fast_data()
+elseif method == "link_quality" then
+    data = controller.link_quality_data()
+elseif method == "signals" then
+    data = controller.collect_modem_refresh(true)
+else
+    os.exit(1)
+end
+
+print(require("luci.jsonc").stringify(data))

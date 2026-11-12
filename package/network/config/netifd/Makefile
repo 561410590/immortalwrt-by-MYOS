@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=netifd
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL=$(PROJECT_GIT)/project/netifd.git
@@ -42,8 +42,14 @@ define Package/netifd/install
 	$(INSTALL_DIR) $(1)/sbin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/netifd $(1)/sbin/
 	$(CP) ./files/* $(1)/
+	$(INSTALL_BIN) ./files/sbin/devstatus ./files/sbin/ifstatus ./files/sbin/ifup $(1)/sbin/
+	$(INSTALL_BIN) ./files/etc/init.d/network $(1)/etc/init.d/
+	$(INSTALL_BIN) ./files/lib/netifd/dhcp.script $(1)/lib/netifd/
+	$(INSTALL_BIN) ./files/lib/netifd/proto/dhcp.sh $(1)/lib/netifd/proto/
+	$(INSTALL_BIN) ./files/usr/share/udhcpc/default.script $(1)/usr/share/udhcpc/
+	$(INSTALL_DATA) ./files/lib/network/config.sh $(1)/lib/network/
 	$(INSTALL_DIR) $(1)/etc/udhcpc.user.d/
-	$(CP) \
+	$(INSTALL_DATA) \
 		$(PKG_BUILD_DIR)/scripts/utils.sh \
 		$(PKG_BUILD_DIR)/scripts/netifd-proto.sh \
 		$(1)/lib/netifd/
