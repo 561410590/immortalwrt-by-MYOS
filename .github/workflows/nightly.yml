@@ -69,6 +69,14 @@ jobs:
           ref: ${{ needs.prepare.outputs.inputs_ref }}
           ssh-key: ${{ secrets.MYOS_INPUTS_SSH_KEY }}
           path: private-inputs
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /jammy-build-debs.tar.part*
+            /${{ matrix.branch }}.tar.gz*
+            /${{ matrix.branch }}.patch
+            ${{ matrix.model != 'C2000MAX' && '/factory.tar.gz*' || '' }}
+            ${{ matrix.branch == 'main' && '/main-binaries.tar.gz*' || '/Xray-core-26.10.10.tar.gz' }}
+            ${{ matrix.branch == 'main' && '/mwrt.tar.gz*' || '' }}
           persist-credentials: false
       - name: Merge upstream userspace
         run: python3 automation/.github/ci/upstream.py --source source --output logs/upstream.json
