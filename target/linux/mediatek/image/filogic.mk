@@ -209,9 +209,9 @@ define Build/prepare-c2000ultra-app-rootfs
 	$(STAGING_DIR_HOST)/bin/unsquashfs4 \
 		-pf $(KDIR)/root-c2000ultra-$(1)-app.pseudo \
 		$(IMAGE_ROOTFS) >/dev/null
-	$(STAGING_DIR_HOST)/bin/unsquashfs4 \
+	$(STAGING_DIR_HOST)/bin/unsquashfs4 -excludes \
 		-d $(KDIR)/root-c2000ultra-$(1)-app \
-		$(IMAGE_ROOTFS) >/dev/null
+		$(IMAGE_ROOTFS) dev/console >/dev/null
 	sh $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/MYOS-nros-app-patch.sh \
 		$(KDIR)/root-c2000ultra-$(1)-app $(C2000MAX_FACTORY_LED_ROOTFS)
 	$(TARGET_CC) $(TARGET_CFLAGS) -Os -static -Wall -Wextra -Werror \
