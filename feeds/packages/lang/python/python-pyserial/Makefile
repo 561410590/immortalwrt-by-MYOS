@@ -42,6 +42,11 @@ POSIX compliant system) and IronPython. The module named "serial"
 automatically selects the appropriate backend.
 endef
 
+define Py3Package/python3-pyserial/install
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/pyserial-miniterm $(PKG_INSTALL_DIR)/usr/bin/pyserial-ports $(1)/usr/bin/
+endef
+
 $(eval $(call Py3Package,python3-pyserial))
 $(eval $(call BuildPackage,python3-pyserial))
 $(eval $(call BuildPackage,python3-pyserial-src))

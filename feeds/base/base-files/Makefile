@@ -93,6 +93,7 @@ define ImageConfigOptions
 	echo 'pi_preinit_net_messages="$(CONFIG_TARGET_PREINIT_SHOW_NETMSG)"' >>$(1)/lib/preinit/00_preinit.conf
 	echo 'pi_preinit_no_failsafe_netmsg="$(CONFIG_TARGET_PREINIT_SUPPRESS_FAILSAFE_NETMSG)"' >>$(1)/lib/preinit/00_preinit.conf
 	echo 'pi_preinit_no_failsafe="$(CONFIG_TARGET_PREINIT_DISABLE_FAILSAFE)"' >>$(1)/lib/preinit/00_preinit.conf
+	chmod 0644 $(1)/lib/preinit/00_preinit.conf
 ifeq ($(CONFIG_TARGET_DEFAULT_LAN_IP_FROM_PREINIT),y)
 	mkdir -p $(1)/etc/board.d
 	echo '. /lib/functions/uci-defaults.sh' >$(1)/etc/board.d/99-lan-ip
@@ -168,6 +169,7 @@ endif
 
 define Package/base-files/install
 	$(CP) ./files/* $(1)/
+	$(INSTALL_BIN) ./files/bin/board_detect ./files/bin/config_generate ./files/bin/ipcalc.sh $(1)/bin/
 	$(Package/base-files/install-key)
 	$(Package/base-files/nand-support)
 	$(Package/base-files/legacy-sdcard-support)

@@ -27,6 +27,7 @@ Build/Compile = $(Build/Compile/Default)
 
 define Package/urandom-seed/install
 	$(CP) ./files/* $(1)/
+	chmod 0755 $(1)/etc/init.d/urandom_seed $(1)/sbin/urandom_seed
 endef
 
 $(eval $(call BuildPackage,urandom-seed))

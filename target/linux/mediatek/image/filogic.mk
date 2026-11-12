@@ -3570,6 +3570,20 @@ define Build/prepare-n5000-app-rootfs
 	ln -sf ../init.d/uuplugin $(KDIR)/root-n5000-$(1)-app/etc/rc.d/S99uuplugin
 	ln -sf ../init.d/openclash $(KDIR)/root-n5000-$(1)-app/etc/rc.d/K15openclash
 	ln -sf ../init.d/passwall $(KDIR)/root-n5000-$(1)-app/etc/rc.d/K15passwall
+	# Package overlays can replace the modes on shared directories and files.
+	chmod 0755 $(KDIR)/root-n5000-$(1)-app/etc/preinit
+	find $(KDIR)/root-n5000-$(1)-app/etc/init.d -type f -exec chmod u+rx,go-w {} +
+	set -e; for path in www usr/lib/lua/luci usr/libexec/rpcd usr/share/ucode usr/share/luci usr/share/rpcd; do \
+		dir="$(KDIR)/root-n5000-$(1)-app/$$path"; \
+		[ -d "$$dir" ] || continue; \
+		find "$$dir" -type d -exec chmod 0755 {} +; \
+		find "$$dir" -type f -exec chmod a+r,go-w {} +; \
+	done
+	chmod go-w $(KDIR)/root-n5000-$(1)-app/etc/banner \
+		$(KDIR)/root-n5000-$(1)-app/etc/config/mwrt_led $(KDIR)/root-n5000-$(1)-app/etc/config/uuplugin \
+		$(KDIR)/root-n5000-$(1)-app/etc/luci-uploads $(KDIR)/root-n5000-$(1)-app/etc/luci-uploads/.placeholder \
+		$(KDIR)/root-n5000-$(1)-app/usr/share/myos-nros
+	python3 $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/apply-rootfs-modes.py $(KDIR)/root-n5000-$(1)-app
 	python3 $(TOPDIR)/scripts/prepare-public-rootfs.py $(KDIR)/root-n5000-$(1)-app
 	$(STAGING_DIR_HOST)/bin/mksquashfs4 \
 		$(KDIR)/root-n5000-$(1)-app \

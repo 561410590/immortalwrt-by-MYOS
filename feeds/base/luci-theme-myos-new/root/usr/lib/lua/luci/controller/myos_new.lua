@@ -6,6 +6,7 @@ function index()
     page.dependent = false
     entry({"admin", "myos", "data"}, call("snapshot")).leaf = true
     entry({"admin", "myos", "fast"}, call("fast_snapshot")).leaf = true
+    entry({"admin", "myos", "link_quality"}, call("link_quality")).leaf = true
     entry({"admin", "myos", "acceleration"}, call("acceleration")).leaf = true
     entry({"admin", "myos", "sim_names"}, call("sim_names")).leaf = true
     entry({"admin", "myos", "modem_refresh"}, call("modem_refresh")).leaf = true
@@ -254,14 +255,14 @@ local function native_dashboard_signal(s)
 end
 
 -- Keep request-driven modem reads separate from CPU and traffic snapshots.
-function modem_refresh()
+function collect_modem_refresh(signals_only)
     local uci,json,sys=require("luci.model.uci").cursor(),require "luci.jsonc",require "luci.sys"
     local bus=require("ubus").connect()
     local result={refreshed={},errors={}}
     if bus then
         local board=bus:call("system","board",{}) or {}
         local profile=device_profile(board)
-        if luci.http.formvalue("signals")=="1" and profile~="c5800688" then
+        if signals_only and profile~="c5800688" then
             -- Return SIM and radio metadata from the same source as each signal read.
             result.signals={}
             local function put(id,signal)
@@ -373,6 +374,11 @@ function modem_refresh()
     else
         result.errors.service="无法连接信号服务"
     end
+    return result
+end
+
+function modem_refresh()
+    local result=collect_modem_refresh(luci.http.formvalue("signals")=="1")
     luci.http.prepare_content("application/json")
     luci.http.header("Cache-Control","no-store")
     luci.http.write_json(result)
@@ -556,14 +562,171 @@ local function merge_fast(full,fast)
     full.connections=fast.connections;full.connection_limit=fast.connection_limit;full.temperatures=fast.temperatures
     for _,key in ipairs({"ports","uplinks"}) do
         local byname={};for _,p in ipairs(fast[key] or {}) do byname[p.name]=p end
-        for _,p in ipairs(full[key] or {}) do for k,v in pairs(byname[p.name] or {}) do p[k]=v end end
+        for _,p in ipairs(full[key] or {}) do
+            local sample=byname[p.name] or {}
+            for k,v in pairs(sample) do p[k]=v end
+            p.rx=sample.rx;p.tx=sample.tx
+        end
     end
     return full
 end
-function fast_snapshot()
+function fast_data()
     local perf=require "luci.model.myos_liquid"
-    output(perf.fast(perf.cached("portmeta")))
+    return perf.fast(perf.cached("portmeta"))
 end
+
+function fast_snapshot()
+    output(fast_data())
+end
+
+local function link_sample_time()
+    local seconds, micros = require("nixio").gettimeofday()
+    return seconds + micros / 1000000
+end
+
+local link_target = "www.baidu.com"
+
+local function link_families(links)
+    local exec = require("luci.sys").exec
+    local families = {}
+    for _, family in ipairs({"-4", "-6"}) do
+        local needed = false
+        for _, link in ipairs(links) do
+            if not families[link.name] then needed = true; break end
+        end
+        if not needed then break end
+        local routes = exec("exec /sbin/ip " .. family .. " -o route show table all default 2>/dev/null") or ""
+        for line in routes:gmatch("[^\n]+") do
+            if line:match("^default ") then
+                for device in line:gmatch("%sdev%s+(%S+)") do
+                    if not families[device] then families[device] = family end
+                end
+            end
+        end
+    end
+    return families
+end
+
+local function start_link_probe(nixio, device, family)
+    local reader, writer = nixio.pipe()
+    if not reader then return end
+    local pid = nixio.fork()
+    if pid == 0 then
+        reader:close()
+        if nixio.dup(writer, nixio.stdout) and nixio.dup(writer, nixio.stderr) then
+            writer:close()
+            nixio.setenv("LC_ALL", "C")
+            nixio.exec("/usr/bin/timeout", "2", "/bin/ping", family, "-n", "-I", device,
+                "-s", "16", "-c", "1", "-W", "1", "-w", "1", link_target)
+        end
+        os.exit(127)
+    end
+    writer:close()
+    if pid then return reader, pid end
+    reader:close()
+end
+
+local function parse_link_probe(body)
+    local sent, received = body:match("(%d+) packets transmitted,%s*(%d+)[^\n]-received")
+    sent, received = tonumber(sent), tonumber(received)
+    local sample = {ts=link_sample_time(), target=link_target, sent=sent, received=received}
+    if not sent or sent==0 then
+        sample.error = "probe_failed"
+        return sample
+    end
+    sample.loss = 100 * (sent - received) / sent
+
+    sample.latency = tonumber(body:match("seq=%d+[^\n]-time=([%d.]+)"))
+    return sample
+end
+
+local function valid_link_device(name)
+    return type(name) == "string" and #name <= 15 and name:match("^[%w_.:-]+$")
+end
+
+local function collect_link_quality(perf, devices)
+    local nixio = require "nixio"
+    local samples, pending = {}, {}
+    local function recent_sample(key)
+        local cached = perf.cached(key)
+        local age = cached.ts and link_sample_time() - cached.ts
+        if cached.target == link_target and age and age >= 0 and age < 0.65 then return cached end
+    end
+    -- Single-device and batch requests take the same locks in the same order.
+    table.sort(devices)
+    for _, name in ipairs(devices) do
+        local key = "link-quality-" .. name:gsub("[^%w]", function(c) return string.format("_%02x", c:byte()) end)
+        local sample = recent_sample(key)
+        if not sample then
+            local path = perf.path(key .. "-lock")
+            local lock = path and nixio.open(path, "w", "rw-------")
+            if lock and not lock:lock("lock") then
+                lock:close()
+                sample = {ts=link_sample_time(), target=link_target, error="probe_failed"}
+            else
+                sample = recent_sample(key)
+                if sample then
+                    if lock then lock:close() end
+                else
+                    pending[#pending + 1] = {name=name, key=key, lock=lock}
+                end
+            end
+        end
+        samples[name] = sample
+    end
+    if #pending == 0 then return samples end
+
+    local families = link_families(pending)
+    for _, link in ipairs(pending) do
+        local family = families[link.name]
+        if family then link.reader, link.pid = start_link_probe(nixio, link.name, family) end
+    end
+    for _, link in ipairs(pending) do
+        local sample
+        if link.reader then
+            local body = link.reader:readall(4096) or ""
+            link.reader:close()
+            nixio.waitpid(link.pid)
+            sample = parse_link_probe(body)
+        else
+            sample = {ts=link_sample_time(), target=link_target,
+                error=families[link.name] and "probe_failed" or "no_route"}
+        end
+        perf.save(link.key, sample)
+        if link.lock then link.lock:close() end
+        samples[link.name] = sample
+    end
+    return samples
+end
+
+function link_quality_data(device)
+    local perf = require "luci.model.myos_liquid"
+    local devices = {}
+    for _, uplink in ipairs(perf.cached("portmeta").uplinks or {}) do
+        if (not device or uplink.name == device) and valid_link_device(uplink.name) then
+            devices[#devices + 1] = uplink.name
+        end
+    end
+    local samples = collect_link_quality(perf, devices)
+    if device then return samples[device] end
+    return {samples=samples}
+end
+
+function link_quality()
+    if luci.http.formvalue("batch") == "1" then return output(link_quality_data()) end
+    local device = luci.http.formvalue("device")
+    if not valid_link_device(device) then
+        luci.http.status(400, "Invalid interface")
+        return output({error="invalid_interface"})
+    end
+    local sample = link_quality_data(device)
+    if not sample then
+        luci.http.status(404, "Uplink unavailable")
+        return output({error="no_uplink"})
+    end
+    output(sample)
+end
+
 local function read_acceleration()
     local p=require "luci.model.myos_liquid"
     local old=p.cached("acceleration")

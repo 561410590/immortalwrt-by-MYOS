@@ -594,15 +594,19 @@ local function json_out(data, extra_header, status)
 	io.write("Access-Control-Allow-Origin: *\r\n")
 	io.write("Access-Control-Allow-Headers: Origin,X-Requested-With,Content-Type,Authorization,X-Access-Token\r\n")
 	io.write("Access-Control-Allow-Methods: POST,GET,OPTIONS,PUT\r\n\r\n")
-	io.write(cjson.encode(data) or "{}")
+	-- The App expects [[]] for a device without a cellular modem.
+	local encoded = data.signal and require("luci.jsonc").stringify(data) or cjson.encode(data)
+	io.write(encoded or "{}")
 end
 
 local endpoint = (os.getenv("PATH_INFO") or ""):match("^/nradio/app/?(.*)$") or "heartbeat"
 if endpoint == "" then endpoint = "heartbeat" end
 local req, encrypted = request()
 response_trans_id = req.trans_id
+local enabled = local_enabled()
+local authenticated = enabled and endpoint ~= "auth" and authorized(req)
 
-if not local_enabled() then
+if not enabled then
 	json_out({ code = "1", result = "local app disabled", trans_id = req.trans_id }, nil, "404 Not Found")
 	return
 elseif endpoint == "auth" then
@@ -616,16 +620,20 @@ elseif endpoint == "auth" then
 			json_out({ code = "0", token = token, timeout = 3600, trans_id = req.trans_id }, "Set-Cookie: " .. app_session.cookie(token))
 		end
 	end
-elseif endpoint == "signal" and not encrypted then
+elseif endpoint == "signal" and not encrypted and not authenticated then
 	response_trans_id = nil
 	json_out({ data = app_probe_cipher })
-elseif not authorized(req) then
+elseif endpoint == "status" and not encrypted and not authenticated then
+	json_out({ code = 0, result = { global = { net_type = shared.app_network_mode() } } })
+elseif not authenticated then
 	response_trans_id = nil
 	json_out({ code = "1" })
 elseif endpoint == "heartbeat" then
 	json_out({ code = "0" })
 elseif endpoint == "info" then
 	json_out({ code = 0, result = info_result() })
+elseif endpoint == "signal" then
+	json_out({ code = "0", mac = device_id(), signal = { {} } })
 elseif endpoint == "status" then
 	json_out({ code = 0, result = status_info() })
 elseif endpoint == "speed" then

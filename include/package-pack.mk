@@ -201,6 +201,10 @@ $(_endef)
     $$(PACK_$(1)) : export DESCRIPTION=$$(Package/$(1)/description)
     $$(PACK_$(1)) : export PATH=$$(TARGET_PATH_PKG)
     $$(PACK_$(1)) : export PKG_SOURCE_DATE_EPOCH:=$(PKG_SOURCE_DATE_EPOCH)
+    ifeq ($(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_n5000),y)
+      $(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)) : export MYOS_N5000_ROOTFS_MODES := $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/apply-rootfs-modes.py
+      $(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)) : $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/apply-rootfs-modes.py $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/rootfs-modes.tsv
+    endif
     $(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)): $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk
 	rm -rf $$(IDIR_$(1))
 ifeq ($$(CONFIG_USE_APK),)
@@ -210,6 +214,13 @@ else
 endif
 	mkdir -p $(PACKAGE_DIR) $$(IDIR_$(1)) $(PKG_INFO_DIR)
 	$(call Package/$(1)/install,$$(IDIR_$(1)))
+	# Set public resource modes before archiving.
+	set -e; for path in www usr/lib/lua/luci usr/share/ucode/luci usr/share/luci; do \
+		dir="$$(IDIR_$(1))/$$$$path"; \
+		[ -d "$$$$dir" ] || continue; \
+		find "$$$$dir" -type d -exec chmod 0755 {} +; \
+		find "$$$$dir" -type f -exec chmod a+r,go-w {} +; \
+	done
 	$(if $(Package/$(1)/install-overlay),mkdir -p $(PACKAGE_DIR) $$(IDIR_$(1))/rootfs-overlay)
 	$(call Package/$(1)/install-overlay,$$(IDIR_$(1))/rootfs-overlay)
 	-find $$(IDIR_$(1)) -name 'CVS' -o -name '.svn' -o -name '.#*' -o -name '*~'| $(XARGS) rm -rf

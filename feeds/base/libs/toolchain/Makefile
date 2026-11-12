@@ -574,6 +574,7 @@ ifeq ($(CONFIG_EXTERNAL_TOOLCHAIN),)
 	$(CP) \
 		$(TOOLCHAIN_DIR)/lib/libc.so* \
 		$(1)/lib/
+	chmod 0755 $(1)/lib/$(LD_MUSL_NAME)
 	$(LN) ../../lib/$(LD_MUSL_NAME) $(1)/usr/bin/ldd
   endef
 

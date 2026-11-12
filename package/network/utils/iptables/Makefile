@@ -682,11 +682,13 @@ endef
 define Package/libip4tc/install
 	$(INSTALL_DIR) $(1)/usr/lib
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libip4tc.so.* $(1)/usr/lib/
+	find $(1)/usr/lib -type f -name 'libip4tc.so.*' -exec chmod 0755 {} +
 endef
 
 define Package/libip6tc/install
 	$(INSTALL_DIR) $(1)/usr/lib
 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libip6tc.so.* $(1)/usr/lib/
+	find $(1)/usr/lib -type f -name 'libip6tc.so.*' -exec chmod 0755 {} +
 endef
 
 define Package/libiptext/install
@@ -715,7 +717,7 @@ define BuildPlugin
 	$(INSTALL_DIR) $$(1)/usr/lib/iptables
 	for m in $(patsubst xt_%,ipt_%,$(2)) $(patsubst ipt_%,xt_%,$(2)) $(patsubst xt_%,ip6t_%,$(2)) $(patsubst ip6t_%,xt_%,$(2)); do \
 		if [ -f $(PKG_INSTALL_DIR)/usr/lib/iptables/lib$$$$$$$${m}.so ]; then \
-			$(CP) $(PKG_INSTALL_DIR)/usr/lib/iptables/lib$$$$$$$${m}.so $$(1)/usr/lib/iptables/ ; \
+			$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/lib/iptables/lib$$$$$$$${m}.so $$(1)/usr/lib/iptables/ ; \
 		fi; \
 	done
 	$(3)

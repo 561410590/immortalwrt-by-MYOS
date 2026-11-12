@@ -124,6 +124,7 @@ endef
 define Package/ucode/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(CP) $(PKG_INSTALL_DIR)/usr/bin/u* $(1)/usr/bin/
+	chmod 0755 $(1)/usr/bin/ucode
 endef
 
 define Package/libucode/install

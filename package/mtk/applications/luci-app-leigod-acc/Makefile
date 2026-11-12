@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-leigod-acc
 PKG_VERSION:=2
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -23,6 +23,8 @@ endef
 
 define Package/luci-app-leigod-acc/install
 	$(CP) ./files/* $(1)/
+	find $(1)/www -type d -exec chmod 0755 {} +
+	find $(1)/www -type f -exec chmod 0644 {} +
 	chmod 0755 $(1)/usr/libexec/leigod-pause $(1)/etc/uci-defaults/99-luci-leigod
 endef
 

@@ -38,6 +38,11 @@ approach. All IANA character set names for which the Python core library
 provides codecs are supported.
 endef
 
+define Py3Package/python3-charset-normalizer/install
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/normalizer $(1)/usr/bin/
+endef
+
 $(eval $(call Py3Package,python3-charset-normalizer))
 $(eval $(call BuildPackage,python3-charset-normalizer))
 $(eval $(call BuildPackage,python3-charset-normalizer-src))

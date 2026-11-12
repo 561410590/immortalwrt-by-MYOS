@@ -179,6 +179,9 @@ for file_mode in $file_modes; do
 	chown "$uid:$gid" "$pkg_dir/$path"
 	chmod  "$mode" "$pkg_dir/$path"
 done
+if [ -n "$MYOS_N5000_ROOTFS_MODES" ]; then
+	python3 "$MYOS_N5000_ROOTFS_MODES" "$pkg_dir" || exit 1
+fi
 $TAR -X "$tmp_dir"/tarX --format=gnu --numeric-owner --sort=name -cpf - --mtime="$TIMESTAMP" . | gzip -n - > "$tmp_dir"/data.tar.gz
 
 installed_size=$(zcat < "$tmp_dir"/data.tar.gz | wc -c)

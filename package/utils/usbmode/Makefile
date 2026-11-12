@@ -68,7 +68,7 @@ define Package/usb-modeswitch/install
 		> $(1)/etc/usb-mode.json
 	$(INSTALL_CONF) ./files/usbmode.hotplug $(1)/etc/hotplug.d/usb/20-usb_mode
 	$(INSTALL_BIN) ./files/usbmode.init $(1)/etc/init.d/usbmode
-	$(CP) $(PKG_INSTALL_DIR)/usr/sbin/usbmode $(1)/sbin/
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/usbmode $(1)/sbin/
 endef
 
 $(eval $(call BuildPackage,usb-modeswitch))

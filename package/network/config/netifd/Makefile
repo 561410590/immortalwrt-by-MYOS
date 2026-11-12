@@ -42,6 +42,8 @@ define Package/netifd/install
 	$(INSTALL_DIR) $(1)/sbin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/netifd $(1)/sbin/
 	$(CP) ./files/* $(1)/
+	chmod 0755 $(1)/etc/init.d/network $(1)/sbin/devstatus $(1)/sbin/ifstatus $(1)/sbin/ifup \
+		$(1)/lib/netifd/dhcp.script $(1)/lib/netifd/proto/dhcp.sh $(1)/usr/share/udhcpc/default.script
 	$(INSTALL_DIR) $(1)/etc/udhcpc.user.d/
 	$(CP) \
 		$(PKG_BUILD_DIR)/scripts/utils.sh \
