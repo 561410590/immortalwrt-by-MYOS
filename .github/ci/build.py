@@ -22,6 +22,7 @@ KERNEL = json.loads((LOGS / 'upstream.json').read_text())['kernel']
 BRANCH = os.environ['BRANCH']
 MODEL = os.environ['MODEL']
 MAKE_VERSION = VERSION if BRANCH == 'main' else 'V' + VERSION
+MAKE_OPTIONS = ['CONFIG_CCACHE=y', 'VERSION_NUMBER=' + MAKE_VERSION]
 MAIN_PROFILES = {'C8-688': 'nradio_c8-688', 'C5800-688': 'nradio_c5800-688',
                  'NBCPE-688': 'nradio_nbcpe-688'}
 LOGS.mkdir(exist_ok=True)
@@ -77,7 +78,6 @@ def prepare():
     shutil.rmtree(INPUTS)
     config = SOURCE / '.config'
     text = re.sub(r'(?m)^CONFIG_VERSION_NUMBER=.*$', 'CONFIG_VERSION_NUMBER="' + MAKE_VERSION + '"', config.read_text())
-    text = re.sub(r'(?m)^(?:# CONFIG_CCACHE is not set|CONFIG_CCACHE=.*)$', 'CONFIG_CCACHE=y', text)
     if MODEL in MAIN_PROFILES:
         text = re.sub(r'(?m)^(?:# )?CONFIG_TARGET_(?:mediatek_filogic_DEVICE_\S+|PROFILE=\S+).*\n', '', text)
         text += f'CONFIG_TARGET_mediatek_filogic_DEVICE_{MAIN_PROFILES[MODEL]}=y\n'
@@ -132,12 +132,12 @@ def main():
     if stage in ('prepare', 'all'):
         prepare()
     if stage in ('download', 'all'):
-        run('download', ['make', 'download', '-j8', 'V=s'])
+        run('download', ['make', 'download', '-j8', 'V=s', *MAKE_OPTIONS])
     targets = {'tools': 'tools/install', 'toolchain': 'toolchain/install',
                'kernel': 'target/linux/compile', 'packages': 'package/compile', 'compile': ''}
     if stage in targets or stage == 'all':
         target = targets.get(stage, '')
-        run(stage, ['make', *([target] if target else []), '-j' + str(os.cpu_count()), 'V=s', 'VERSION_NUMBER=' + MAKE_VERSION])
+        run(stage, ['make', *([target] if target else []), '-j' + str(os.cpu_count()), 'V=s', *MAKE_OPTIONS])
     if stage not in ('assemble', 'all'):
         return 0
     record = assemble(MODEL)
