@@ -890,7 +890,7 @@ local function wifi_item_for_index(list, index)
 	return list and list[index]
 end
 
-local function apply_wifi(req)
+function apply_wifi(req)
 	if type(req.list) ~= "table" or #req.list == 0 or #req.list > 8 then return false end
 	local sections = {}
 	uci:foreach("wireless", "wifi-iface", function(s)
@@ -1145,7 +1145,7 @@ local function set_firewall_block(mac, block)
 	return block and present or not present
 end
 
-local function set_client_access(mac, switch, hostname)
+function set_client_access(mac, switch, hostname)
 	mac = normalize_mac(mac)
 	if not valid_mac(mac) then return nil end
 	if hostname ~= nil then
@@ -1199,7 +1199,7 @@ local function status_info()
 	return {
 		global = { netlink = m.up and 1 or 0, uptime = m.uptime,
 			cpu_percent = usage.cpu_percent, mem_percent = usage.mem_percent,
-			net_prefer = "auto" },
+			net_prefer = "auto", net_type = shared.app_network_mode() },
 		cpe = shared and shared.cpe_items() or { cpe_item() },
 		link = { { port = 5, mode = 1, speed = 4, status = m.up and 0 or 1 } },
 		wans = { { name = "cpe", status = m.up and 0 or 1, uptime = m.uptime,
@@ -1399,9 +1399,9 @@ function action_signal()
 	end
 	if not require_auth(req) then return end
 	if truthy(req.at_signal) then
-		return reply({ code = "0", at_signal = at_signal_item() }, req)
+		return reply({ code = "0", mac = device_id(), at_signal = at_signal_item() }, req)
 	end
-	cached_reply("signal", response_ttl, req, function() return { code = "0", signal = shared and shared.cpe_items() or { cpe_item() } } end)
+	cached_reply("signal", response_ttl, req, function() return { code = "0", mac = device_id(), signal = shared and shared.cpe_items() or { cpe_item() } } end)
 end
 
 function action_info()
@@ -1411,8 +1411,12 @@ function action_info()
 end
 
 function action_status()
-	local req = request()
-	if not require_auth(req) then return end
+	local req, encrypted = request()
+	if not local_enabled() or encrypted then
+		if not require_auth(req) then return end
+	elseif not authorized(req) then
+		return reply({ code = 0, result = { global = { net_type = shared.app_network_mode() } } }, req)
+	end
 	cached_reply("status", response_ttl, req, function() return { code = 0, result = status_info() } end)
 end
 

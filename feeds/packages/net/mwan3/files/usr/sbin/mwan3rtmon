@@ -142,9 +142,57 @@ mwan3_rtmon_route_handle()
 	fi
 }
 
+is_ipv6_probe_route()
+{
+	local route="${1#Deleted }" address
+
+	# odhcpd sends its NDP probe through a short-lived, direct /128 route.
+	case "${route#* }" in
+		dev\ *\ proto\ static\ metric\ 128\ pref\ medium) ;;
+		*) return 1 ;;
+	esac
+	address="${route%% *}"
+	address="${address%/128}"
+	case "$address" in
+		*/*) return 1 ;;
+		*:*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+sync_ipv6_probe_route()
+{
+	local route="${1#Deleted }" address current
+
+	address="${route%% *}"
+	address="${address%/128}"
+
+	if [ "$route" = "$1" ]; then
+		$IPS -! add mwan3_connected_ipv6 "$address" || return 1
+	else
+		# Keep the entry if the same destination still has a learned or static route.
+		current=$($IP6 route show table main exact "$address/128") || return 1
+		case $'\n'"$current" in
+			*$'\n'"$address "*|*$'\n'"$address/128 "*) ;;
+			*) $IPS -! del mwan3_connected_ipv6 "$address" || return 1 ;;
+		esac
+	fi
+	return 0
+}
+
 main()
 {
-	local IP family
+	local IP family ipv6_policy=0 next=
+
+	check_ipv6_policy()
+	{
+		local enabled configured_family
+		config_get_bool enabled "$1" enabled 0
+		config_get configured_family "$1" family ipv4
+		if [ "$enabled" -eq 1 ] && [ "$configured_family" = ipv6 ]; then
+			ipv6_policy=1
+		fi
+	}
 
 	mwan3_init
 
@@ -156,6 +204,7 @@ main()
 			exit 1
 		fi
 		IP="$IP6"
+		config_foreach check_ipv6_policy interface
 	else
 		IP="$IP4"
 	fi
@@ -163,8 +212,25 @@ main()
 		read -r monitor_pid
 		trap_with_arg func_trap "$monitor_pid" SIGINT SIGTERM SIGKILL
 		KILL -SIGSTOP $$
-		while IFS='' read -r line; do
+		while [ -n "$next" ] || IFS='' read -r line; do
+			if [ -n "$next" ]; then
+				line=$next
+				next=
+			fi
 			[ -z "${line##*table*}" ] && continue
+			if [ "$family" = ipv6 ] && [ "$ipv6_policy" -eq 0 ] && is_ipv6_probe_route "$line"; then
+				case "$line" in
+					Deleted\ *) ;;
+					*)
+						# A queued add/delete pair leaves the main table unchanged.
+						if IFS='' read -r -t 0 && IFS='' read -r next && [ "$next" = "Deleted $line" ]; then
+							next=
+							continue
+						fi
+						;;
+				esac
+				sync_ipv6_probe_route "$line" && continue
+			fi
 			LOG debug "handling route update $family '$line'"
 			mwan3_rtmon_route_handle "$line" "$family"
 		done

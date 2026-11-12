@@ -99,15 +99,37 @@
   update:'M4 8a9 9 0 1 1-1 8M4 3v5h5M12 7v10M8 11l4-4 4 4',
   bolt:'M13 2 4 14h7l-1 8 10-13h-7z',
   globe:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M3 12h18M12 3c-5 5-5 13 0 18 5-5 5-13 0-18',
-  power:'M12 2v10M6 5a9 9 0 1 0 12 0'
+  power:'M12 2v10M6 5a9 9 0 1 0 12 0',
+  gamepad:'M8 8h8a5 5 0 0 1 5 4l1 5a2 2 0 0 1-3 2l-4-4H9l-4 4a2 2 0 0 1-3-2l1-5a5 5 0 0 1 5-4zM7 10v5m-2-2h4m6-1h.01m3 2h.01',
+  rocket:'M9 15c-2-5 3-11 12-12 0 9-6 14-11 12l-1 1-2-2zM9 10H6l-3 4h4m7 1v3l-4 3v-4m6-8h.01M6 18l-3 3',
+  controller:'M4 5h16v10H4zM8 19h8m-4-4v4M7 10h2m-1-1v2m7-1h.01m2 0h.01',
+  family:'M3 5h18v8c0 5-5 8-9 9-4-1-9-4-9-9zM8 11a2 2 0 1 0 4 0 2 2 0 1 0-4 0m5 2a1.5 1.5 0 1 0 3 0 1.5 1.5 0 1 0-3 0M7 17c0-3 6-3 6 0m0 1c0-2 4-2 4 0',
+  trace:'M3 12h4l3-7 4 14 3-7h4M3 4v16h18',
+  tunnel:'M4 20V9a8 8 0 0 1 16 0v11M8 20V9a4 4 0 0 1 8 0v11M3 20h18m-9-9v6',
+  filter:'M3 4h18l-7 8v6l-4 2v-8z',
+  fan:'M14 12a2 2 0 1 1-4 0 2 2 0 1 1 4 0m-3-2C7 5 9 2 12 2c4 0 4 5 1 8m1 1c5-4 8-2 8 1 0 4-5 4-8 1m-1 1c4 5 2 8-1 8-4 0-4-5-1-8m-1-1c-5 4-8 2-8-1 0-4 5-4 8-1',
+  folder:'M3 6h7l2 2h9v12H3zM3 11h18',
+  disk:'M4 4h16v16H4zM16 11a4 4 0 1 1-8 0 4 4 0 1 1 8 0m-4 0h.01m3 4 3 3',
+  storage:'M6 3h8l4 4v14H6zM9 3v6m3-6v6m3-4v4M9 17h6',
+  sliders:'M4 6h5m4 0h7M4 12h10m4 0h2M4 18h2m4 0h10M9 4v4m5 2v4m-8 2v4',
+  multipath:'M4 12h4l4-7h8M8 12l4 7h8m-3-3 3 3-3 3m0-20 3 3-3 3',
+  proxy:'M3 7h15m-4-4 4 4-4 4M21 17H6m4-4-4 4 4 4',
+  layers:'m12 3 9 5-9 5-9-5zm-9 9 9 5 9-5m-18 4 9 5 9-5',
+  vpnlock:'M12 3 4 6v6c0 4 4 8 8 9 4-1 8-5 8-9V6zM9 11h6v5H9zm1 0V9a2 2 0 0 1 4 0v2',
+  palette:'M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1-4 2 2 0 0 1 1-4h3a3 3 0 0 0 3-3c0-4-4-7-9-7zM7 10h.01m3-3h.01m5 0h.01m3 2h.01'
  };
  const iconNames={overview:'status',realtime:'chart',routes:'network',nftables:'shield',firewall:'shield',logs:'log',factory_logs:'log',processes:'chip',
   mwan3:'network',interface:'network',member:'network',policy:'shield',rule:'log',notify:'message',globals:'globe',dhcp:'globe',uhttpd:'globe',
   mwrt_wizard:'bolt',admin:'key',password:'key',dropbear:'terminal',sshkeys:'key',repokeys:'key','package-manager':'box',
   myos_theme:'services',startup:'power',crontab:'clock',mounts:'drive',leds:'bolt',myos_update:'update',myos_system:'drive',flash:'drive',myos_nros:'globe',reboot:'power',
   mt5700:'modem',qmodem:'modem',nets:'modem',cellscan:'modem',smsc:'message',smstrun:'message',at:'terminal',at2:'terminal',traffic_dividing:'network',
-  wireless:'wifi',factory_guest:'wifi',diagnostics:'terminal',troubleshooting:'terminal',turboacc:'bolt',qiyougamebooster:'bolt',
-  passwall:'shield',passwall2:'shield',shadowsocksr:'shield',adguardhome:'shield',openclash:'shield',upnp:'network',vpn:'shield',nas:'drive',istore:'store'};
+  wireless:'wifi',factory_guest:'wifi',diagnostics:'terminal',troubleshooting:'terminal',turboacc:'bolt',qiyougamebooster:'gamepad',
+  passwall:'proxy',passwall2:'layers',shadowsocksr:'tunnel',adguardhome:'filter',openclash:'globe',upnp:'network',vpn:'shield',nas:'drive',istore:'store',
+  acc:'rocket',uuplugin:'controller',oaf:'family',appfilter:'filter','omr-tracker':'trace','shadowsocks-libev':'proxy',
+  fancontrol:'fan',mwrt_fan:'fan',c8_fan:'fan',openvpn:'vpnlock','glorytun-tcp':'tunnel',wireguard:'key',eqos:'sliders',
+  mptcp:'multipath',openmptcprouter:'multipath',ttyd:'terminal',quickfile:'folder',diskman:'disk',myos_sd:'storage',
+  release_ram:'chip',mwrt_assurance:'trace',mwrt_failover_status:'trace',usage:'chart',channel_analysis:'wifi',
+  iptables:'shield',switch:'network',mwrtstyle2:'palette',nbcpe_clients:'network',settings:'system',webui:'modem'};
  const make=(tag,cls,text)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(text!=null)el.textContent=text;return el;};
  const menuMotion=new Map();
  function animateFold(group,content,summary,event,requested){
@@ -135,18 +157,21 @@
   siblings.forEach((el,i)=>{const dy=before[i]-after[i];if(Math.abs(dy)>.5)play(el,[{transform:'translateY('+dy+'px)'},{transform:'translateY(0)'}]);});
   changes.forEach(item=>{if(item.expanded)play(item.content,[{opacity:0,transform:'translateY(-5px)'},{opacity:1,transform:'translateY(0)'}]);});
  }
- function enterView(){
-  const panel=document.querySelector('#view')||document.querySelector('#maincontent');
-  if(!panel||reduce.matches)return;
-  const animate=()=>{
-   const heading=panel.querySelector('.m-page-heading,.cbi-map-title,h2');
-   if(heading)heading.animate([{opacity:0,transform:'translateY(5px)'},{opacity:1,transform:'translateY(0)'}],{duration:180,easing:'cubic-bezier(.2,.8,.2,1)'});
-  };
-  if(panel.id==='view'&&panel.querySelector('.spinning')){
-   const observer=new MutationObserver(()=>{if(!panel.querySelector(':scope > .spinning')){observer.disconnect();animate();}});
-   observer.observe(panel,{childList:true});
-  }else animate();
+ const compactTabs=matchMedia('(max-width:760px), (max-width:1024px) and (pointer:coarse)');
+ function revealTab(link){
+  if(!compactTabs.matches||!link)return;
+  const strip=link.closest('ul'),bounds=strip.getBoundingClientRect(),tab=link.getBoundingClientRect();
+  if(tab.left<bounds.left+6)strip.scrollBy({left:tab.left-bounds.left-6});
+  else if(tab.right>bounds.right-6)strip.scrollBy({left:tab.right-bounds.right+6});
  }
+ function revealActiveTabs(){
+  document.querySelectorAll('#tabmenu .active>a, #maincontent ul.cbi-tabmenu>.cbi-tab>a').forEach(revealTab);
+ }
+ compactTabs.addEventListener('change',revealActiveTabs);
+ document.addEventListener('cbi-tab-active',e=>{
+  const tabs=e.target.parentElement?.previousElementSibling;
+  if(tabs?.matches('ul.cbi-tabmenu'))revealTab(tabs.querySelector('.cbi-tab>a'));
+ },true);
  const icon=(name,fallback)=>{
   const key=String(name).toLowerCase(),kind=iconNames[key]||key,ns='http://www.w3.org/2000/svg';
   const wrap=make('span','m-nav-icon'),svg=document.createElementNS(ns,'svg'),path=document.createElementNS(ns,'path');
@@ -217,6 +242,7 @@
     if(active)renderTabs(active,url.concat(active.name),depth+1);
    };
    if(current&&dispatch.length>=3)renderTabs(current,parts,3);
+   revealActiveTabs();
   }catch(error){nav.replaceChildren(make('p','m-error','导航载入失败，请刷新重试。'));}
  }
  document.querySelector('#m-menu-search').addEventListener('input',e=>{
@@ -225,5 +251,5 @@
   [...nav.querySelectorAll('details')].reverse().forEach(d=>{resetFold(d);d.hidden=!!q&&![...d.querySelectorAll('a')].some(a=>!a.hidden);if(q&&!d.hidden)d.open=true;});
  });
  nav.addEventListener('click',e=>{if(e.target.closest('a')&&open)drawer(false,e.detail===0);});
- enterView();load();
+ load();
 })();

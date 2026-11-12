@@ -1,0 +1,10 @@
+{
+	"myos-sampling": {
+		"description": "Read MYOS dashboard samples",
+		"read": {
+			"ubus": {
+				"myos-sampling": [ "fast", "link_quality", "signals" ]
+			}
+		}
+	}
+}

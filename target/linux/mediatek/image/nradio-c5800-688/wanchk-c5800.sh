@@ -108,33 +108,15 @@ check_iface_up() {
 	ubus call "network.interface.$1" status|jsonfilter -e '$["up"]'|grep -qsw true
 }
 
-get_delta() {
-	local _nbyte=$1
-	local _obyte=$2
-	local _delta=0
-
-	if [ "$_obyte" != "0" ];then
-		_delta=$((_nbyte - _obyte))
-	fi
-
-	if [ $_delta -lt 0 ];then
-		echo "0"
-		return
-	fi
-
-	echo "$_delta"
+is_ipv6_iface() {
+	case "$1" in
+		*6*) return 0 ;;
+		*) return 1 ;;
+	esac
 }
 
 get_def_route_if() {
 	ip route show|grep -sw default|awk '{print $5}'
-}
-
-get_l3_device() {
-	ubus call "network.interface.$1" status|jsonfilter -e '$["l3_device"]'
-}
-
-get_device() {
-	ubus call "network.interface.$1" status|jsonfilter -e '$["device"]'
 }
 
 get_if_dns() {
@@ -146,7 +128,7 @@ get_if_def_route() {
 }
 
 check_stats() {
-	local _device=
+	local _device="$1"
 	local _dir=
 	local _rxf=
 	local _rxb=0
@@ -154,7 +136,6 @@ check_stats() {
 	local _res=1
 	local _lim="$2"
 
-	_device=$(get_device "$1")
 	_dir="/sys/class/net/$_device/statistics"
 	_rxf="$_dir/rx_bytes"
 
@@ -162,9 +143,11 @@ check_stats() {
 		return "$_res"
 	fi
 
-	_rxb=$(cat "$_rxf")
-
-	_rxd=$(get_delta "$_rxb" "$gOrx")
+	IFS= read -r _rxb < "$_rxf"
+	if [ "$gOrx" != 0 ]; then
+		_rxd=$((_rxb - gOrx))
+		[ "$_rxd" -ge 0 ] || _rxd=0
+	fi
 
 	if [ "$_rxd" -ge "$_lim" ]; then
 		_res=0
@@ -182,7 +165,7 @@ check_dns() {
 	local _pids=
 	local _dns_fail_info="dns check fail"
 
-	if echo "$_iface"|grep -sq "6" ;then
+	if is_ipv6_iface "$_iface" ;then
 		_dns="$g6Pdns"
 		_dns_fail_info="dns6 check fail"
 	else
@@ -221,7 +204,7 @@ check_ping() {
 	local _ping_fail_info="ping check fail"
 	local v6="-4"
 
-	if echo "$_iface"|grep -sq "6" ;then
+	if is_ipv6_iface "$_iface" ;then
 		_gipaddr="$g6Eips"
 		_ping_fail_info="ping6 check fail"
 		v6="-6"
@@ -265,6 +248,7 @@ check_all() {
 	local _ifaces_label="$3"
 	local _l3="$4"
 	local _Ostatus="$5"
+	local _device="$6"
 
 	set_route "$_ifaces" "$_ifaces_label" "$_l3"
 
@@ -285,21 +269,21 @@ check_all() {
 	fi
 
 	# Check user RX
-	if check_stats "$_ifaces" "$_limit"; then
+	if check_stats "$_device" "$_limit"; then
 		return 0
 	fi
 
 	if [ $gCpe -eq 1 -a "$gIPCheck" == "1" ]; then
 		if [ "$_Ostatus" == "up" ];then
 			connstat=$(cpetools.sh -i "$_nets" -c connstat)
-			if echo "$_ifaces_label"|grep -sq "6" ;then
+			if is_ipv6_iface "$_ifaces_label" ;then
 				connstat_item=$(echo "$connstat"|jsonfilter -e '$["IPV6"]')
 			else
 				connstat_item=$(echo "$connstat"|jsonfilter -e '$["IPV4"]')
 			fi
 
 			if [ "$connstat_item" == "1" ];then
-				if echo "$_ifaces_label"|grep -sq "6" ;then
+				if is_ipv6_iface "$_ifaces_label" ;then
 					g6ATtime=$(((g6ATtime+1)%6))
 					if [ $g6ATtime -ne 0 ];then
 						return 0
@@ -374,11 +358,10 @@ sync_mesh_netstatus(){
 get_wanchk_state_name(){
 	local _iface="$1"
 	local _net="${_iface%%_*}"
-	if ! echo "$_iface"|grep -sq "_4" ;then
-		echo "$_iface"
-	else
-		echo "$_net"
-	fi
+	case "$_iface" in
+		*_4*) echo "$_net" ;;
+		*) echo "$_iface" ;;
+	esac
 }
 
 set_wanchk_state(){
@@ -398,7 +381,7 @@ set_net_status() {
 	if [ $gCpe -eq 1 ];then
 		net_label="cellular"
 	fi
-	if echo "$_ifaces_label"|grep -sq "6" ;then
+	if is_ipv6_iface "$_ifaces_label" ;then
 		net_type="v6"
 	fi
 	logclient -i custom -m "[net] $net_label $net_type $_status"
@@ -435,7 +418,7 @@ set_route() {
 	_route=""
 
 	network_flush_cache
-	if echo "$_ifaces_label"|grep -sq "6" ;then
+	if is_ipv6_iface "$_ifaces_label" ;then
 		network_get_gateway6 "_route" "$_iface" 1
 		_oldroute=$g6OldRoute
 		_oldl3=$g6OldL3
@@ -462,7 +445,7 @@ set_route() {
 				ip $v6 route add table "$table" default dev $_l3
 			fi
 			#log_info "_iface:$_iface,ip $v6 route add table $table default via $_route dev $_l3"
-			if echo "$_ifaces_label"|grep -sq "6" ;then
+			if is_ipv6_iface "$_ifaces_label" ;then
 				g6OldL3="$_l3"
 				g6OldRoute="$_route"
 			else
@@ -624,6 +607,7 @@ check_net6_using()
 	return 0
 }
 check_main(){
+	local _netdev= _ifstatus=
 	_Nstatus="down"
 	_nets="$1"
 	_ifaces="$2"
@@ -635,7 +619,7 @@ check_main(){
 	_do_restart=0
 	_ip_diff_check=0
 
-	if echo "$_ifaces_label"|grep -sq "6" ;then
+	if is_ipv6_iface "$_ifaces_label" ;then
 		_failcnt=$g6Rcnt
 		_info="v6"
 		_first="$g6First"
@@ -644,7 +628,10 @@ check_main(){
 		_first="$gFirst"
 	fi
 
-	_l3=$(get_l3_device "$_ifaces")
+	_l3=
+	_ifstatus=$(ubus call "network.interface.$_ifaces" status |
+		jsonfilter -e '_l3=@.l3_device' -e '_netdev=@.device')
+	eval "$_ifstatus"
 
 	if [ "$gIPCheck" == "1" ];then
 		if  check_net_using "$_nets" &&  [ $gCpe -eq 1 ];then
@@ -659,7 +646,8 @@ check_main(){
 
 	if [ $_ip_diff_check -eq 2 -o $_ip_diff_check -eq 1 ];then
 		if [ -n "$_info" ];then
-			tik=$(awk -F '.' '{print $1}' /proc/uptime)
+			read -r tik _idle < /proc/uptime
+			tik=${tik%%.*}
 			local diff_time=$((tik-gV6Renewtime))
 			if [ $diff_time -ge 20 ];then
 				gV6Renewtime=$tik
@@ -672,7 +660,7 @@ check_main(){
 		fi
 	fi
 
-	if check_all "$_nets" "$_ifaces" "$_ifaces_label" "$_l3" "$_Ostatus" ; then
+	if check_all "$_nets" "$_ifaces" "$_ifaces_label" "$_l3" "$_Ostatus" "$_netdev" ; then
 		_Nstatus="up"
 		_failcnt=0
 	fi
@@ -724,7 +712,7 @@ check_main(){
 		fi
 	fi
 
-	if echo "$_ifaces_label"|grep -sq "6" ;then
+	if is_ipv6_iface "$_ifaces_label" ;then
 		g6Rcnt=$_failcnt
 		g6First=0
 	else
@@ -756,14 +744,9 @@ check_ip6(){
 				gV6="$_ip6"
 			fi
 
-			ip_info=$(ip address show dev "$_l3"|grep "inet6 "|grep -v "fe80")
-			[ -z "$ip_info" ] && return 2
-			#first_ip=$(echo "$ip_info"|awk '{print $2}'|sed -n "1p")
-			#if ! echo "$first_ip" |grep "$_ip6";then
-			#	log_info "first_ip :$first_ip"
-			#	ip address del $first_ip dev "$_l3"
-			#	log_info "$_l3 has't correct ip[$ip_info][$_ip6]" && return 2
-			#fi
+			if ! ip address show dev "$_l3" | awk '/inet6 / && !/fe80/ { found=1; exit } END { exit !found }'; then
+				return 2
+			fi
 		fi
 	fi
 	return $ret
@@ -910,7 +893,7 @@ check_one_protocal(){
 			return 1
 		fi
 	fi
-	if  echo "$_ifaces_label"|grep -sq "6" && ! check_net6_using "$_nets" ;then
+	if  is_ipv6_iface "$_ifaces_label" && ! check_net6_using "$_nets" ;then
 		return 1
 	fi
 
@@ -951,7 +934,7 @@ check_one_protocal(){
 				fi
 			fi
 		else
-			if [ $gCpe -eq 1 ] && ! echo "$_ifaces_label"|grep -sq "6" ;then
+			if [ $gCpe -eq 1 ] && ! is_ipv6_iface "$_ifaces_label" ;then
 				dhcp_result=$(get_if_dns "$_ifaces")
 				if [ -z "$dhcp_result" ];then
 					async_sleep "$gWait"

@@ -8,7 +8,7 @@ local ok_md5, md5 = pcall(require, "md5")
 
 local M = {}
 
-local APP_SOFTWARE_VERSION = "2.2.12.n0.c0"
+local APP_SOFTWARE_VERSION = "2.3.9.n0.c1"
 local CACHE_DIR = "/tmp/myos-nradio-data"
 local BASE_CACHE_SECONDS = 30
 local SIGNAL_CACHE_SECONDS = 3
@@ -2080,9 +2080,13 @@ end
 
 local LED_ENGINE = "/usr/bin/mwrt-ledsched"
 
+local function native_led_supported()
+	return fs.access("/etc/init.d/ledctrl") and fs.access("/usr/bin/ledctrl.sh")
+end
+
 function M.led_supported()
 	if not (ok_fs and type(fs.access) == "function") then return false end
-	if not fs.access(LED_ENGINE) then return false end
+	if not fs.access(LED_ENGINE) and not native_led_supported() then return false end
 	-- At least one LED whose brightness we can actually drive.
 	local names = fs.dir and fs.dir("/sys/class/leds")
 	if not names then return false end
@@ -2096,7 +2100,7 @@ function M.led_supported()
 end
 
 function M.led_tick()
-	if not M.led_supported() then return true end
+	if not M.led_supported() or not fs.access(LED_ENGINE) then return true end
 	if not acquire_lock("app_led") then return false end
 	local ok, result = pcall(function()
 		-- Lua 5.1's os.execute returns the raw exit status; 0 means applied.
@@ -2134,6 +2138,9 @@ function M.led(data)
 		return { code = 0, result = { led = -1, schedule = 0 } }
 	end
 	local settings = require("luci.model.uci").cursor()
+	local native = not fs.access(LED_ENGINE)
+	local config, section = "mwrt_led", "main"
+	if native then config, section = "ledctrl", "ledctrl" end
 
 	-- The APP sends partial updates (only the field the user touched), so a
 	-- missing key must leave the corresponding setting alone.
@@ -2144,7 +2151,9 @@ function M.led(data)
 		if value ~= "0" and value ~= "1" then
 			return { code = 2, message = "Invalid LED setting" }
 		end
-		if value == "0" then
+		if native then
+			values.disabled = value == "0" and "1" or "0"
+		elseif value == "0" then
 			values.manual = "off"
 		else
 			-- Back to whatever the schedule says.
@@ -2162,7 +2171,9 @@ function M.led(data)
 		if value ~= "0" and value ~= "1" then
 			return { code = 2, message = "Invalid LED setting" }
 		end
-		if value == "1" then
+		if native then
+			values.schedule = value
+		elseif value == "1" then
 			values.enabled, values.mode = "1", "schedule"
 		else
 			values.enabled = "0"
@@ -2188,41 +2199,59 @@ function M.led(data)
 			settings = require("luci.model.uci").cursor()
 			local changed = false
 			for option, value in pairs(values) do
-				if settings:get("mwrt_led", "main", option) ~= value then
-					if not settings:set("mwrt_led", "main", option, value) then
-						settings:unload("mwrt_led")
+				if settings:get(config, section, option) ~= value then
+					if not settings:set(config, section, option, value) then
+						settings:unload(config)
 						return "Cannot update LED settings"
 					end
 					changed = true
 				end
 			end
 			for option in pairs(clear) do
-				if settings:get("mwrt_led", "main", option) then
-					settings:delete("mwrt_led", "main", option)
+				if settings:get(config, section, option) then
+					settings:delete(config, section, option)
 					changed = true
 				end
 			end
-			if changed and not settings:commit("mwrt_led") then
-				settings:unload("mwrt_led")
+			if changed and not settings:commit(config) then
+				settings:unload(config)
 				return "Cannot save LED settings"
+			end
+			if native then
+				if values.disabled == "0" and safe_ubus("ledctrl", "get", {}).status == "off" then
+					if safe_ubus("ledctrl", "set", { status = "on" }).status ~= "on" then
+						return "Cannot clear the LED override"
+					end
+				end
+				-- The native daemon reads its schedule when it starts.
+				if os.execute("/etc/init.d/ledctrl restart >/dev/null 2>&1") ~= 0 then
+					return "Cannot apply LED settings"
+				end
 			end
 		end)
 		release_lock("app_led")
 		if not ok or failure then
 			return { code = 2, message = ok and failure or "Cannot save LED settings" }
 		end
-		if not M.led_tick() then
+		if not native and not M.led_tick() then
 			return { code = 2, message = "Cannot apply LED settings" }
 		end
 		settings = require("luci.model.uci").cursor()
 	end
 
-	local now_disabled, now_schedule = led_state(settings)
+	local now_disabled, now_schedule
+	if native then
+		now_disabled = settings:get(config, section, "disabled") == "1" or
+			safe_ubus("ledctrl", "get", {}).status == "off"
+		now_schedule = settings:get(config, section, "schedule") == "1"
+	else
+		now_disabled, now_schedule = led_state(settings)
+	end
 	return { code = 0, result = {
 		led = now_disabled and 0 or 1,
 		schedule = now_schedule and 1 or 0,
-		start_time = settings:get("mwrt_led", "main", "starttime") or "0:0",
-		end_time = settings:get("mwrt_led", "main", "endtime") or "0:0"
+		start_time = settings:get(config, section, "starttime") or "0:0",
+		end_time = settings:get(config, section, "endtime") or "0:0"
 	} }
 end
 
@@ -2483,9 +2512,53 @@ function M.app_device_name()
 	return name and name ~= "" and name or (M.is_native_c5800() and "C5800-688" or "C2000-788")
 end
 
+function M.app_network_mode()
+	local device, gateway, metric
+	for _, family in ipairs({ "-4", "-6" }) do
+		local routes = util.exec("ip " .. family .. " route show default 2>/dev/null") or ""
+		for line in routes:gmatch("[^\n]+") do
+			local dev = line:match("^default%s.*%sdev%s+(%S+)") or line:match("^default%s+dev%s+(%S+)")
+			local priority = tonumber(line:match("%smetric%s+(%d+)")) or 0
+			if dev and (not metric or priority < metric) then
+				device, gateway, metric = dev, line:match("%svia%s+(%S+)"), priority
+			end
+		end
+		if device then break end
+	end
+	if not device then return "unknown" end
+
+	-- Match the kernel route to netifd's logical uplink. On C5800 the
+	-- wired WAN and the external 5G link can use the same physical port.
+	local candidates, matching_gateway = {}, {}
+	local interfaces = safe_ubus("network.interface", "dump", {}).interface or {}
+	local _, cellular_interface = M.find_qmodem()
+	for _, status in ipairs(interfaces) do
+		if status.up and (status.l3_device == device or status.device == device) then
+			local name = tostring(status.interface or ""):gsub("_[46]$", ""):gsub("v6$", "")
+			local kind
+			if name == cellular_interface or name:match("^cpe%d*$") or status.proto == "wwan" or
+			   status.proto == "qmi" or status.proto == "mbim" then
+				kind = "cellular"
+			elseif name:match("^wan%d*$") then
+				kind = "wired"
+			end
+			if kind then
+				candidates[kind] = true
+				for _, route in ipairs(status.route or {}) do
+					if gateway and route.nexthop == gateway and tonumber(route.mask) == 0 then
+						matching_gateway[kind] = true
+					end
+				end
+			end
+		end
+	end
+	local known = next(matching_gateway) and matching_gateway or candidates
+	if known.wired and not known.cellular then return "wired" end
+	if known.cellular and not known.wired then return "cellular" end
+	return "unknown"
+end
+
 function M.app_software_version()
-	-- Expose the LED feature gate only when its native backend is installed.
-	if M.led_supported() then return "2.2.15.n0.c0" end
 	return APP_SOFTWARE_VERSION
 end
 

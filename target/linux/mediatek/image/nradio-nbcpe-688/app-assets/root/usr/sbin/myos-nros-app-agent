@@ -1242,7 +1242,7 @@ local function handle(topic, payload)
 		end
 		reply(name, data, false)
 	end
-	-- Expose fixed reports and narrowly scoped SMS/LED actions. No arbitrary shell path.
+	-- Expose fixed reports and controls handled by this device.
 	if event == "heartbeat" then
 		reply_request("heartbeat", { code = "0", errcode = "0" })
 	elseif event == "time" then
@@ -1257,6 +1257,11 @@ local function handle(topic, payload)
 		reply_request("intinfo", intinfo())
 	elseif event == "wifistatus" then
 		reply_request("wifistatus", wifistatus())
+	elseif event == "wifiset" and topic:match("^kp/" .. ID .. "/") then
+		local control = require "luci.controller.nradio.app"
+		local applied = control.apply_wifi({ list = req.wifiset })
+		reply_request("wifiset", { code = applied and 0 or 1 })
+		if applied then reply_request("wifistatus", wifistatus()) end
 	elseif event == "runtime" then
 		reply_request("runtime", runtime())
 	elseif event == "speed" then
@@ -1273,7 +1278,16 @@ local function handle(topic, payload)
 		reply_request("wifiauth", { wifiauth = -1 })
 	elseif event == "terminal" or event == "client" then
 		if req.client and (req.switch ~= nil or req.hostname ~= nil) then
-			reply_request(event, { code = 2, result = "unsupported on MYOS" })
+			if not topic:match("^kp/" .. ID .. "/") then return end
+			local control = require "luci.controller.nradio.app"
+			local saved = control.set_client_access(req.client, req.switch, req.hostname)
+			if saved then
+				local result = terminal()
+				result.code = 0
+				reply_request(event, result)
+			else
+				reply_request(event, { code = 1, result = "client update failed" })
+			end
 		else
 			reply_request(event, terminal())
 		end
