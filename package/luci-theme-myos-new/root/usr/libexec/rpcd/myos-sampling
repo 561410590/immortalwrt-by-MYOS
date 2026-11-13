@@ -1,17 +1,19 @@
 #!/usr/bin/lua
 
 if arg[1] == "list" then
-    print('{"fast":{},"link_quality":{},"signals":{}}')
+    print('{"fast":{"traffic_since":"string","quality_since":"string"},"link_quality":{},"signals":{}}')
     return
 end
 
 if arg[1] ~= "call" then os.exit(1) end
 
 local controller = require "luci.controller.myos_new"
+local json = require "luci.jsonc"
 local method = arg[2]
 local data
 if method == "fast" then
-    data = controller.fast_data()
+    local params = json.parse(io.read("*a")) or {}
+    data = controller.fast_data(params.traffic_since, params.quality_since)
 elseif method == "link_quality" then
     data = controller.link_quality_data()
 elseif method == "signals" then
@@ -20,4 +22,4 @@ else
     os.exit(1)
 end
 
-print(require("luci.jsonc").stringify(data))
+print(json.stringify(data))

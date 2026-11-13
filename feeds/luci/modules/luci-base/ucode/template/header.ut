@@ -7,7 +7,7 @@
 	include(`themes/${theme}/header`);
 -%}
 
-<script src="{{ resource }}/luci.js?v={# PKG_VERSION #}-{{ pkgs_update_time }}-{{ theme == 'myos-new' ? '20261112-theme-sampling5' : '20261112-theme-polish1' }}"></script>
+<script src="{{ resource }}/luci.js?v={# PKG_VERSION #}-{{ pkgs_update_time }}-{{ theme == 'myos-new' ? '20261113-theme-dashboard1' : '20261112-theme-polish1' }}"></script>
 <script>
 	L = new LuCI({{ replace(`${ {
 		media          : media,
