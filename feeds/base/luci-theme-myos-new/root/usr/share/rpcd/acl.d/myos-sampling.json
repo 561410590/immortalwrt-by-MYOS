@@ -1,10 +1,14 @@
 {
 	"myos-sampling": {
-		"description": "Read MYOS dashboard samples",
+    "description": "Read MYOS dashboard samples and configure Ping target",
 		"read": {
 			"ubus": {
 				"myos-sampling": [ "fast", "link_quality", "signals" ]
-			}
+      },
+      "uci": [ "myos_ping" ]
+    },
+    "write": {
+      "uci": [ "myos_ping" ]
 		}
 	}
 }
