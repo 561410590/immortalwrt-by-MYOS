@@ -2,6 +2,35 @@
 local M={}
 local fs,json=require "nixio.fs",require "luci.jsonc"
 local directory="/tmp/myos-new-v121"
+local default_ping_target="www.baidu.com"
+
+function M.parse_ping_target(value)
+ if type(value)~="string" then return end
+ value=value:match("^%s*(.-)%s*$"):lower()
+ if value=="" then return "" end
+ if value:find(":",1,true) then
+  if #value<=45 and value:match("^[%x:.]+$") and require("luci.ip").IPv6(value) then return value,"-6" end
+  return
+ end
+ if value:match("^[%d.]+$") then
+  if require("luci.ip").IPv4(value) then return value,"-4" end
+  return
+ end
+ local name=value:gsub("%.$","")
+ if #name>253 or not name:match("^[a-z0-9][a-z0-9.%-]*$") or name:find("..",1,true) then return end
+ for label in name:gmatch("[^.]+") do
+  if #label>63 or label:sub(1,1)=="-" or label:sub(-1)=="-" then return end
+ end
+ return value
+end
+
+function M.ping_settings()
+ local cursor=require("uci").cursor()
+ local custom,family=M.parse_ping_target(cursor:get("myos_ping","main","target"))
+ custom=custom or ""
+ return {target=custom~="" and custom or default_ping_target,custom=custom},family
+end
+
 function M.read(path,limit)
  local n=fs.stat(path,"size")
  if n and n>(limit or 1048576) then return "" end
@@ -100,6 +129,37 @@ function M.nbcpe()
  local stamp=fs.stat("/tmp/cpe_cell-AK68.file","mtime");m.cache_age=stamp and math.max(0,os.time()-stamp)
  return m
 end
+function M.net_counters()
+ local stats={}
+ for name,rest in M.read("/proc/net/dev"):gmatch("([^%s]+):%s+([^\n]+)") do
+  local values={};for v in rest:gmatch("%d+") do values[#values+1]=tonumber(v) end
+  stats[name]={rx=values[1],tx=values[9]}
+ end
+ return stats
+end
+function M.interface_devices(interfaces, uci)
+ local devices={}
+ for _,net in ipairs(interfaces) do
+  devices[net.interface]=net.l3_device or net.device or uci:get("network",net.interface,"device")
+ end
+ return devices
+end
+function M.default_uplinks(interfaces, devices)
+ local uplinks={}
+ for _,net in ipairs(interfaces) do
+  local device=devices[net.interface]
+  if device and device:sub(1,1)=="@" then device=devices[device:sub(2)] end
+  if net.interface~="loopback" and net.up and device and device~="br-lan" and device~="lo" and not device:match("^tun") and not device:match("^wg") then
+   for _,route in ipairs(net.route or {}) do
+    if tonumber(route.mask)==0 and (route.target=="0.0.0.0" or route.target=="::") then
+     uplinks[device]=true
+     break
+    end
+   end
+  end
+ end
+ return uplinks
+end
 function M.fast(meta)
  local now=os.time();local uptime=tonumber(M.read("/proc/uptime"):match("^[%d.]+"))
  local result={lite=true,ts=now,sample=uptime,system={uptime=uptime,localtime=now},ports={},uplinks={},temperatures={}}
@@ -113,11 +173,7 @@ function M.fast(meta)
  for n in M.read("/proc/loadavg"):gmatch("[%d.]+") do result.system.load[#result.system.load+1]=tonumber(n)*65536;if #result.system.load==3 then break end end
  result.connections=tonumber(M.read("/proc/sys/net/netfilter/nf_conntrack_count"));result.connection_limit=tonumber(M.read("/proc/sys/net/netfilter/nf_conntrack_max"))
  local t=tonumber(M.read("/sys/class/thermal/thermal_zone0/temp"));if t then result.temperatures={{name="CPU",value=t/1000}} end
- local stats={}
- for name,rest in M.read("/proc/net/dev"):gmatch("([%w_.%-]+):%s*([^\n]+)") do
-  local values={};for v in rest:gmatch("%d+") do values[#values+1]=tonumber(v) end
-  stats[name]={rx=values[1],tx=values[9]}
- end
+ local stats=M.net_counters()
  local function dev(n)
   if not tostring(n):match("^[%w_.:%-]+$") then return nil end
   local base="/sys/class/net/"..n

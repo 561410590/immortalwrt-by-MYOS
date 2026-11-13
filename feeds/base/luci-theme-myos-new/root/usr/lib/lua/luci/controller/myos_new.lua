@@ -7,6 +7,7 @@ function index()
     entry({"admin", "myos", "data"}, call("snapshot")).leaf = true
     entry({"admin", "myos", "fast"}, call("fast_snapshot")).leaf = true
     entry({"admin", "myos", "link_quality"}, call("link_quality")).leaf = true
+    entry({"admin", "myos", "ping_target"}, post("save_ping_target")).leaf = true
     entry({"admin", "myos", "acceleration"}, call("acceleration")).leaf = true
     entry({"admin", "myos", "sim_names"}, call("sim_names")).leaf = true
     entry({"admin", "myos", "modem_refresh"}, call("modem_refresh")).leaf = true
@@ -570,13 +571,13 @@ local function merge_fast(full,fast)
     end
     return full
 end
-function fast_data()
+function fast_data(traffic_since, quality_since)
     local perf=require "luci.model.myos_liquid"
-    return perf.fast(perf.cached("portmeta"))
+    return require("luci.model.myos_history").attach(perf.fast(perf.cached("portmeta")), traffic_since, quality_since)
 end
 
 function fast_snapshot()
-    output(fast_data())
+    output(fast_data(luci.http.formvalue("traffic_since"), luci.http.formvalue("quality_since")))
 end
 
 local function link_sample_time()
@@ -584,12 +585,29 @@ local function link_sample_time()
     return seconds + micros / 1000000
 end
 
-local link_target = "www.baidu.com"
+function save_ping_target()
+    local perf = require "luci.model.myos_liquid"
+    local target = perf.parse_ping_target(luci.http.formvalue("target"))
+    if target == nil then
+        luci.http.status(400, "Invalid Ping target")
+        return output({error="请输入域名、IPv4 或 IPv6 地址"})
+    end
+    local cursor = require("luci.model.uci").cursor()
+    local settings = perf.ping_settings()
+    if target ~= settings.custom then
+        if not cursor:set("myos_ping", "main", "target", target) or not cursor:commit("myos_ping") then
+            luci.http.status(500, "Ping target save failed")
+            return output({error="保存 Ping 目标失败"})
+        end
+        settings = perf.ping_settings()
+    end
+    output(settings)
+end
 
-local function link_families(links)
+local function link_families(links, target_family)
     local exec = require("luci.sys").exec
     local families = {}
-    for _, family in ipairs({"-4", "-6"}) do
+    for _, family in ipairs(target_family and {target_family} or {"-4", "-6"}) do
         local needed = false
         for _, link in ipairs(links) do
             if not families[link.name] then needed = true; break end
@@ -607,7 +625,7 @@ local function link_families(links)
     return families
 end
 
-local function start_link_probe(nixio, device, family)
+local function start_link_probe(nixio, device, family, target)
     local reader, writer = nixio.pipe()
     if not reader then return end
     local pid = nixio.fork()
@@ -617,7 +635,7 @@ local function start_link_probe(nixio, device, family)
             writer:close()
             nixio.setenv("LC_ALL", "C")
             nixio.exec("/usr/bin/timeout", "2", "/bin/ping", family, "-n", "-I", device,
-                "-s", "16", "-c", "1", "-W", "1", "-w", "1", link_target)
+                "-s", "16", "-c", "1", "-W", "1", "-w", "1", target)
         end
         os.exit(127)
     end
@@ -626,10 +644,10 @@ local function start_link_probe(nixio, device, family)
     reader:close()
 end
 
-local function parse_link_probe(body)
+local function parse_link_probe(body, target)
     local sent, received = body:match("(%d+) packets transmitted,%s*(%d+)[^\n]-received")
     sent, received = tonumber(sent), tonumber(received)
-    local sample = {ts=link_sample_time(), target=link_target, sent=sent, received=received}
+    local sample = {ts=link_sample_time(), target=target, sent=sent, received=received}
     if not sent or sent==0 then
         sample.error = "probe_failed"
         return sample
@@ -644,13 +662,13 @@ local function valid_link_device(name)
     return type(name) == "string" and #name <= 15 and name:match("^[%w_.:-]+$")
 end
 
-local function collect_link_quality(perf, devices)
+local function collect_link_quality(perf, devices, target, target_family)
     local nixio = require "nixio"
     local samples, pending = {}, {}
     local function recent_sample(key)
         local cached = perf.cached(key)
         local age = cached.ts and link_sample_time() - cached.ts
-        if cached.target == link_target and age and age >= 0 and age < 0.65 then return cached end
+        if cached.target == target and age and age >= 0 and age < 0.65 then return cached end
     end
     -- Single-device and batch requests take the same locks in the same order.
     table.sort(devices)
@@ -662,7 +680,7 @@ local function collect_link_quality(perf, devices)
             local lock = path and nixio.open(path, "w", "rw-------")
             if lock and not lock:lock("lock") then
                 lock:close()
-                sample = {ts=link_sample_time(), target=link_target, error="probe_failed"}
+                sample = {ts=link_sample_time(), target=target, error="probe_failed"}
             else
                 sample = recent_sample(key)
                 if sample then
@@ -676,10 +694,10 @@ local function collect_link_quality(perf, devices)
     end
     if #pending == 0 then return samples end
 
-    local families = link_families(pending)
+    local families = link_families(pending, target_family)
     for _, link in ipairs(pending) do
         local family = families[link.name]
-        if family then link.reader, link.pid = start_link_probe(nixio, link.name, family) end
+        if family then link.reader, link.pid = start_link_probe(nixio, link.name, family, target) end
     end
     for _, link in ipairs(pending) do
         local sample
@@ -687,9 +705,9 @@ local function collect_link_quality(perf, devices)
             local body = link.reader:readall(4096) or ""
             link.reader:close()
             nixio.waitpid(link.pid)
-            sample = parse_link_probe(body)
+            sample = parse_link_probe(body, target)
         else
-            sample = {ts=link_sample_time(), target=link_target,
+            sample = {ts=link_sample_time(), target=target,
                 error=families[link.name] and "probe_failed" or "no_route"}
         end
         perf.save(link.key, sample)
@@ -699,17 +717,18 @@ local function collect_link_quality(perf, devices)
     return samples
 end
 
-function link_quality_data(device)
+function link_quality_data(device, meta)
     local perf = require "luci.model.myos_liquid"
     local devices = {}
-    for _, uplink in ipairs(perf.cached("portmeta").uplinks or {}) do
+    for _, uplink in ipairs((meta or perf.cached("portmeta")).uplinks or {}) do
         if (not device or uplink.name == device) and valid_link_device(uplink.name) then
             devices[#devices + 1] = uplink.name
         end
     end
-    local samples = collect_link_quality(perf, devices)
+    local settings, family = perf.ping_settings()
+    local samples = collect_link_quality(perf, devices, settings.target, family)
     if device then return samples[device] end
-    return {samples=samples}
+    return {samples=samples,ping=settings}
 end
 
 function link_quality()
@@ -757,6 +776,9 @@ function acceleration()
 end
 function snapshot()
     local perf=require "luci.model.myos_liquid"
+    local history=require "luci.model.myos_history"
+    local traffic_since=luci.http.formvalue("traffic_since")
+    local quality_since=luci.http.formvalue("quality_since")
     local previous=perf.cached("snapshot")
     local fast=perf.fast(previous)
     local explicit=luci.http.formvalue and luci.http.formvalue("fresh")=="1"
@@ -771,7 +793,7 @@ function snapshot()
                 break
             end
         end
-        if not port_changed then return output(merge_fast(previous,fast)) end
+        if not port_changed then return output(history.attach(merge_fast(previous,fast),traffic_since,quality_since)) end
     end
     local fs, json, util = require "nixio.fs", require "luci.jsonc", require "luci.util"
     local uci = require("luci.model.uci").cursor()
@@ -817,11 +839,9 @@ function snapshot()
     result.connections=tonumber(rd("/proc/sys/net/netfilter/nf_conntrack_count"))
     result.connection_limit=tonumber(rd("/proc/sys/net/netfilter/nf_conntrack_max"))
     result.mac=devices["br-lan"] and devices["br-lan"].macaddr
-    local bydev, uplinks = {}, {}
-    local interface_devices={}
-    for _,net in ipairs(interfaces) do
-        interface_devices[net.interface]=net.l3_device or net.device or uci:get("network",net.interface,"device")
-    end
+    local bydev = {}
+    local interface_devices=perf.interface_devices(interfaces,uci)
+    local uplinks=perf.default_uplinks(interfaces,interface_devices)
     for _, net in ipairs(interfaces) do
         if net.interface ~= "loopback" then
             local ipv6=util.clone(net["ipv6-address"] or {},true)
@@ -842,14 +862,6 @@ function snapshot()
             if item.device then
                 bydev[item.device]=bydev[item.device] or {}
                 append(bydev[item.device],item)
-            end
-            for _, route in ipairs(item.routes) do
-                if net.up and tonumber(route.mask)==0 and (route.target=="0.0.0.0" or route.target=="::") then
-                    local d=item.device
-                    if d and d~="br-lan" and d~="lo" and not d:match("^tun") and not d:match("^wg") then
-                        uplinks[d]=true
-                    end
-                end
             end
         end
     end
@@ -1049,5 +1061,5 @@ function snapshot()
     local meta={profile=profile,boot=result.boot,ports={},uplinks={}}
     for _,k in ipairs({"ports","uplinks"}) do for _,p in ipairs(result[k]) do meta[k][#meta[k]+1]={name=p.name,label=p.label} end end
     perf.save("portmeta",meta)
-    output(result)
+    output(history.attach(result,traffic_since,quality_since))
 end
