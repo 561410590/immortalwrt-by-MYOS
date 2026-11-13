@@ -26,6 +26,8 @@ KEEP_LOCAL = {
 TAKE_UPSTREAM = {
     'feeds/packages': ('net/v2ray-geodata/Makefile',),
     'feeds/nas': ('network/services/ddnsto/Makefile',),
+    # QuickStart is disabled in the firmware profiles. Keep its view aligned with upstream assets.
+    'feeds/nas_luci': ('luci/luci-app-quickstart/luasrc/view/quickstart/main.htm',),
 }
 QUICKSTART = 'luci/luci-app-quickstart/luasrc/controller/quickstart.lua'
 ISTORE_ENHANCE = 'luci/luci-app-istoreenhance/Makefile'
