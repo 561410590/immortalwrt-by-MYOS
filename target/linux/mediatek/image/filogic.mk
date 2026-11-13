@@ -205,6 +205,7 @@ define Build/prepare-c2000max-rootfs
 	install -m 0755 -D $(C2000MAX_BOARD_ROOTFS)/usr/bin/ubus-at-daemon $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ubus-at-daemon
 	install -m 0600 -D $(C2000MAX_BOARD_ROOTFS)/etc/config/ubus-at-daemon $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/ubus-at-daemon
 	install -m 0755 -D $(C2000MAX_BOARD_ROOTFS)/usr/bin/tom_modem $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/tom_modem
+	install -m 0644 -D $(C2000MAX_BOARD_ROOTFS)/etc/config/embed_simcard $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/embed_simcard
 	install -m 0644 -D $(C2000MAX_BOARD_ROOTFS)/usr/share/rpcd/acl.d/luci-app-embed.json $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/rpcd/acl.d/luci-app-embed.json
 	install -m 0644 -D $(C2000MAX_BOARD_ROOTFS)/usr/share/luci/menu.d/luci-app-embed.json $(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/luci/menu.d/luci-app-embed.json
 	sh $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/MYOS-rootfs-patch.sh \

@@ -1,0 +1,4 @@
+config general 'general'
+	option slot 'simcard1'
+
+config webui 'webui'
