@@ -18,7 +18,11 @@ def read_modes(package):
             key, mode, relative = row.rstrip('\n').split('\t', 2)
             if package and key != package:
                 continue
-            modes[Path(relative)] = (None if package else key, int(mode, 8))
+            path = Path(relative)
+            # Image assembly already sets the public Web tree's permissions.
+            if not package and path.parts[:1] == ('www',):
+                continue
+            modes[path] = (None if package else key, int(mode, 8))
     return modes
 
 
