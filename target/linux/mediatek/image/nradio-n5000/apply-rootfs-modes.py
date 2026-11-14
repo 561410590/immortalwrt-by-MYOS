@@ -20,7 +20,11 @@ def main(root):
         if line.startswith('#'):
             continue
         kind, mode, name = line.split('\t', 2)
-        modes[reference_path(Path(name))] = (kind, int(mode, 8))
+        path = Path(name)
+        # Image assembly already sets the public Web tree's permissions.
+        if path.parts[:1] == ('www',):
+            continue
+        modes[reference_path(path)] = (kind, int(mode, 8))
 
     for directory, _, files in os.walk(root):
         parent = Path(directory)
