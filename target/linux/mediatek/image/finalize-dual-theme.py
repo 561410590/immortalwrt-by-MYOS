@@ -46,9 +46,10 @@ for rel in ('dispatcher.uc', 'template/header.ut'):
     dst.chmod(0o644)
 
 # Carry the rebuilt shared JavaScript into MAX's custom root filesystem.
-dst = root / 'www/luci-static/resources/luci.js'
-shutil.copyfile(src / 'staging_dir/target-aarch64_cortex-a53_musl/root-mediatek/www/luci-static/resources/luci.js', dst)
-dst.chmod(0o644)
+for rel in ('www/luci-static/resources/luci.js', 'www/luci-static/resources/ui.js'):
+    dst = root / rel
+    shutil.copyfile(src / 'staging_dir/target-aarch64_cortex-a53_musl/root-mediatek' / rel, dst)
+    dst.chmod(0o644)
 
 # Install the system page without the retired theme selector.
 dst = root / 'www/luci-static/resources/view/system/system.js'
@@ -98,6 +99,9 @@ update_link = root / 'etc/rc.d/S99myos-update'
 if update_link.is_symlink() or update_link.exists():
     update_link.unlink()
 update_link.symlink_to('../init.d/myos-update')
+connections_link = root / 'etc/rc.d/S99myos-connections'
+if not connections_link.is_symlink():
+    connections_link.symlink_to('../init.d/myos-connections')
 
 # Match the sole installed theme, including clean-ROM UCI registration.
 cfg = root / 'etc/config/luci'

@@ -1,0 +1,249 @@
+#!/usr/bin/python3
+import ctypes
+import hashlib
+import json
+import os
+import secrets
+import signal
+import socket
+import ssl
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+STATE = Path("/tmp/myos-support")
+RELAY_HOST = "mayebano.shop"
+RELAY_PORT = 46224
+RELAY_TLS_NAME = "myos-support"
+OPERATOR_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBwoXfJbc9P9GA7/75FrPXWD8nSb+7pTMr3VOM/2qYas"
+RELAY_CERTIFICATE = """-----BEGIN CERTIFICATE-----
+MIIBnDCCAUKgAwIBAgIUWpaZx37rRFQOx9KVb9+mpa3Q558wCgYIKoZIzj0EAwIw
+FzEVMBMGA1UEAwwMbXlvcy1zdXBwb3J0MB4XDTI2MTExNDAzMzQxMVoXDTMxMTEx
+MzAzMzQxMVowFzEVMBMGA1UEAwwMbXlvcy1zdXBwb3J0MFkwEwYHKoZIzj0CAQYI
+KoZIzj0DAQcDQgAEhJdbwC6c8vctbFBvqKisL9AEwfqnvl/sNUbQ42pfeKd/ryuh
+LGIWDE9JkR/KyroZ3ryAZjA+mPf+m/3psu7ZLqNsMGowHQYDVR0OBBYEFEQuV7TK
+bg235Otbp6DqxvJR4nC3MB8GA1UdIwQYMBaAFEQuV7TKbg235Otbp6DqxvJR4nC3
+MA8GA1UdEwEB/wQFMAMBAf8wFwYDVR0RBBAwDoIMbXlvcy1zdXBwb3J0MAoGCCqG
+SM49BAMCA0gAMEUCIAKe7Jn0CHvvYdBdkN9URAmDKA+m9ltBOUNfJ2haMnN2AiEA
+vqIVr79Bb3KDFwmHowkTrLIIZERwM1+/nLEpa+sG4IU=
+-----END CERTIFICATE-----
+"""
+SSH_PORT = 46225
+
+
+def receive(stream):
+    data = bytearray()
+    while len(data) < 8192:
+        chunk = stream.recv(1)
+        if not chunk:
+            raise EOFError("中继连接已断开")
+        if chunk == b"\n":
+            return json.loads(data)
+        data.extend(chunk)
+    raise ValueError("中继响应过长")
+
+
+def send(stream, message):
+    stream.sendall(json.dumps(message).encode() + b"\n")
+
+
+def pipe(source, target):
+    try:
+        while data := source.recv(65536):
+            target.sendall(data)
+    except OSError:
+        pass
+    finally:
+        for stream in (source, target):
+            try:
+                stream.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+
+def ssh_server():
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.unshare(0x00020000) != 0:
+        raise OSError(ctypes.get_errno(), "无法隔离报修 SSH 公钥")
+    subprocess.run(["mount", "--make-rprivate", "/"], check=True)
+    subprocess.run(["mount", "--bind", STATE / "keys", "/etc/dropbear"], check=True)
+    os.execv("/usr/sbin/dropbear", [
+        "/usr/sbin/dropbear", "-F", "-E", "-s", "-j", "-k",
+        "-p", f"127.0.0.1:{SSH_PORT}", "-r", "/etc/dropbear/host_key",
+        "-P", str(STATE / "dropbear.pid"),
+    ])
+
+
+def state(text):
+    staging = STATE / "status.new"
+    staging.write_text(text + "\n")
+    staging.replace(STATE / "status")
+
+
+def run():
+    os.umask(0o077)
+    endpoint = RELAY_HOST
+    context = ssl.create_default_context(cadata=RELAY_CERTIFICATE)
+    token = secrets.token_hex(32)
+    # The relay protocol calls this field "mac". New sessions use a random identity.
+    session_id = hashlib.sha256(token.encode()).hexdigest().upper()
+    state("正在连接 " + endpoint)
+    keys = STATE / "keys"
+    keys.mkdir()
+    (keys / "authorized_keys").write_text(OPERATOR_KEY + "\n")
+    public = subprocess.check_output(["dropbearkey", "-t", "ed25519", "-f", keys / "host_key"],
+                                    text=True, stderr=subprocess.DEVNULL)
+    host_key = next(" ".join(item.split()[:2]) for item in public.splitlines()
+                    if item.startswith("ssh-ed25519 "))
+    server = subprocess.Popen([sys.executable, __file__, "ssh-server"], start_new_session=True)
+    channels = set()
+    channels_lock = threading.Lock()
+    def stop(*_):
+        raise SystemExit()
+
+    def addresses():
+        public = subprocess.check_output(["/usr/libexec/myos-mayebano-aaaa"], text=True).split()
+        if public:
+            return public
+        try:
+            return list(dict.fromkeys(item[4][0] for item in
+                        socket.getaddrinfo(endpoint, None, socket.AF_INET6, socket.SOCK_STREAM)))
+        except socket.gaierror:
+            return []
+
+    def dial(address, interface):
+        raw = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        try:
+            if interface:
+                raw.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, interface.encode() + b"\0")
+            raw.settimeout(4)
+            raw.connect((address, RELAY_PORT))
+            return context.wrap_socket(raw, server_hostname=RELAY_TLS_NAME)
+        except BaseException:
+            raw.close()
+            raise
+
+    def open_channel(address, interface, request):
+        local_port = {"ssh": SSH_PORT, "web": 80}.get(request.get("service"))
+        if local_port is None:
+            return
+        try:
+            with socket.create_connection(("127.0.0.1", local_port), timeout=3) as local, dial(address, interface) as remote:
+                with channels_lock:
+                    channels.add(remote)
+                try:
+                    send(remote, {"action": "attach", "mac": session_id, "channel": request["open"]})
+                    if not receive(remote).get("ok"):
+                        return
+                    remote.settimeout(None)
+                    local.settimeout(None)
+                    outgoing = threading.Thread(target=pipe, args=(local, remote), daemon=True)
+                    outgoing.start()
+                    pipe(remote, local)
+                    outgoing.join()
+                finally:
+                    with channels_lock:
+                        channels.discard(remote)
+        except (OSError, ValueError, EOFError):
+            pass
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    try:
+        deadline = time.monotonic() + 3600
+        while time.monotonic() < deadline:
+            if server.poll() is not None:
+                raise RuntimeError("报修 SSH 服务启动失败")
+            try:
+                resolved = addresses()
+            except OSError as error:
+                state("解析中继失败 " + endpoint + " " + str(error))
+                time.sleep(2)
+                continue
+            if not resolved:
+                state("中继域名暂无 IPv6 地址 " + endpoint)
+                time.sleep(2)
+                continue
+            routes = subprocess.check_output(["ip", "-6", "route", "show", "default"], text=True)
+            interfaces = [""]
+            for route in routes.splitlines():
+                fields = route.split()
+                if "dev" in fields:
+                    interface = fields[fields.index("dev") + 1]
+                    if interface not in interfaces:
+                        interfaces.append(interface)
+            for address, interface in ((addr, dev) for addr in resolved for dev in interfaces):
+                try:
+                    with dial(address, interface) as connection:
+                        send(connection, {
+                            "action": "register", "mac": session_id,
+                            "token": token, "host_key": host_key,
+                        })
+                        result = receive(connection)
+                        if not result.get("ok"):
+                            raise ValueError(result.get("error", "中继拒绝登记"))
+                        code = result.get("code")
+                        if not isinstance(code, str) or len(code) != 4 or not code.isascii() or not code.isdecimal():
+                            raise ValueError("中继未分配 4 位动态密码")
+                        (STATE / "code").write_text(code + "\n")
+                        state("已连接 " + endpoint + " · IPv6")
+                        connection.settimeout(0.5)
+                        next_ping = time.monotonic() + 10
+                        while time.monotonic() < deadline:
+                            if server.poll() is not None:
+                                raise RuntimeError("报修 SSH 已退出")
+                            if time.monotonic() >= next_ping:
+                                send(connection, {"ping": True})
+                                next_ping = time.monotonic() + 10
+                            try:
+                                first = connection.recv(1)
+                            except TimeoutError:
+                                continue
+                            if not first:
+                                raise EOFError("中继连接已断开")
+                            connection.settimeout(5)
+                            data = first
+                            while not data.endswith(b"\n") and len(data) < 8192:
+                                part = connection.recv(1)
+                                if not part:
+                                    raise EOFError("中继连接已断开")
+                                data += part
+                            request = json.loads(data)
+                            connection.settimeout(0.5)
+                            if "open" in request:
+                                threading.Thread(target=open_channel, args=(address, interface, request), daemon=True).start()
+                    break
+                except (OSError, EOFError, ValueError) as error:
+                    (STATE / "code").unlink(missing_ok=True)
+                    state("连接中继失败 " + endpoint + " " + str(error))
+            time.sleep(2)
+    finally:
+        (STATE / "code").unlink(missing_ok=True)
+        with channels_lock:
+            for stream in channels:
+                try:
+                    stream.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+        try:
+            os.killpg(server.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        session_dir = STATE / "sessions"
+        if session_dir.is_dir():
+            for session in session_dir.iterdir():
+                subprocess.run(["ubus", "call", "session", "destroy",
+                                json.dumps({"ubus_rpc_session": session.name})], check=False)
+        state("已关闭")
+
+
+if __name__ == "__main__":
+    if sys.argv[-1] == "ssh-server":
+        ssh_server()
+    else:
+        try:
+            run()
+        except (OSError, ValueError, RuntimeError, KeyError, StopIteration) as error:
+            state("报修启动失败 " + str(error))

@@ -7,7 +7,7 @@
 	include(`themes/${theme}/header`);
 -%}
 
-<script src="{{ resource }}/luci.js?v={# PKG_VERSION #}-{{ pkgs_update_time }}-{{ theme == 'myos-new' ? '20261113-theme-dashboard1' : '20261112-theme-polish1' }}"></script>
+<script src="{{ resource }}/luci.js?v={# PKG_VERSION #}-{{ pkgs_update_time }}-{{ theme == 'myos-new' ? '20261115-max-overview1-wan-quality2' : '20261112-theme-polish1' }}{{ theme == 'myos-new' && join('/', ctx.path ?? []) == 'admin/myos' ? '-home-density1-outlet1' : '' }}{{ join('/', ctx.path ?? []) == 'admin/system/flash' ? '-max-local-keep2' : '' }}{{ join('/', ctx.path ?? []) == 'admin/system/myos_update' ? '-max-ota-keep1' : '' }}{{ (join('/', ctx.path ?? []) == 'admin/mwrtstore' || join('/', ctx.path ?? []) == 'admin/system/package-manager') ? '-max-mwrt-store1165-source1' : '' }}"></script>
 <script>
 	L = new LuCI({{ replace(`${ {
 		media          : media,

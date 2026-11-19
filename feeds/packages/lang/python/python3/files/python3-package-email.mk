@@ -17,6 +17,9 @@ $(call Package/python3/Default/description)
 This package contains the email module.
 endef
 
-$(eval $(call Py3BasePackage,python3-email, \
-	/usr/lib/python$(PYTHON3_VERSION)/email \
-))
+PYTHON3_EMAIL_DIR:=/usr/lib/python$(PYTHON3_VERSION)/email
+$(eval $(call Py3BasePackage,python3-email,$(PYTHON3_EMAIL_DIR)))
+
+define Py3Package/python3-email/filespec
++|$(PYTHON3_EMAIL_DIR)|0644|0755
+endef

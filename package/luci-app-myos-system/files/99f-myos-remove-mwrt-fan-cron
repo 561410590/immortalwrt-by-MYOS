@@ -1,0 +1,7 @@
+#!/bin/sh
+
+# Sysupgrade keeps the root crontab. Remove the entry added by the old package.
+crontab=/etc/crontabs/root
+if [ -f "$crontab" ]; then
+	sed -i '\|^\* \* \* \* \* /usr/bin/mwrt-fansched apply >/dev/null 2>&1$|d' "$crontab"
+fi

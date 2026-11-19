@@ -1,0 +1,32 @@
+#!/usr/bin/lua
+local fs = require "nixio.fs"
+local nixio = require "nixio"
+local session = require "myos_nradio_app_session"
+local root = "/tmp/myos-support/"
+local peer = os.getenv("SSH_CONNECTION") or ""
+if not peer:match("^127%.0%.0%.1 %d+ 127%.0%.0%.1 46225$") or not fs.access(root .. "code") then
+	os.exit(1)
+end
+fs.mkdir(root .. "sessions", "0700")
+if not fs.access(root .. "sessions", "w") then os.exit(1) end
+
+local random = io.open("/dev/urandom", "rb")
+if not random then os.exit(1) end
+local bytes = random:read(16)
+random:close()
+local csrf = bytes:gsub(".", function(value) return string.format("%02x", value:byte()) end)
+local sid = session.create(csrf)
+if sid == "" then os.exit(1) end
+
+local handle = nixio.open(root .. "sessions/" .. sid, "w", "0600")
+if not handle then
+	session.destroy(sid)
+	os.exit(1)
+end
+handle:close()
+if not fs.access(root .. "code") then
+	session.destroy(sid)
+	fs.unlink(root .. "sessions/" .. sid)
+	os.exit(1)
+end
+print(sid)

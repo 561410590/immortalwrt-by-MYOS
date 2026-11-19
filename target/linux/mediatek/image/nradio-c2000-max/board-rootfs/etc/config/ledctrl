@@ -1,0 +1,5 @@
+config service 'ledctrl'
+	option 'disabled' '0'
+	option schedule '0'
+	option starttime '0:0'
+	option endtime '0:0'

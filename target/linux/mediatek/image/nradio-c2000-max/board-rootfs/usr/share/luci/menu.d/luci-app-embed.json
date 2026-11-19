@@ -1,0 +1,31 @@
+{
+  "admin/embedded/": {
+    "title": "模组管理",
+    "order": 61,
+    "action": {
+      "type": "firstchild"
+    },
+    "depends": {
+      "acl": [ "luci-app-embed" ]
+    }   
+  },
+
+  "admin/embedded/page": {
+    "title": "mode webui",
+    "order": 1,
+    "action": {
+      "type": "view",
+      "path": "embed/htmlview"
+    }
+  },
+
+    "admin/embedded/simcard": {
+    "title": "SIM卡选择和设置",
+    "order": 2,
+    "action": {
+      "type": "view",
+      "path": "embed/simcard"
+    }
+  }
+
+}

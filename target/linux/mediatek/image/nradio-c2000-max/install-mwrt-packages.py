@@ -15,7 +15,7 @@ def fields(text):
     return dict(line.split(': ', 1) for line in text.splitlines() if ': ' in line and not line.startswith(' '))
 
 def records(text):
-    return {fields(p)['Package']: p for p in re.split(r'\n\s*\n', text.strip()) if 'Package' in fields(p)}
+    return {fields(p)['Package']: p for p in text.strip().split('\n\n') if 'Package' in fields(p)}
 
 def provides(meta):
     return [meta['Package']] + [re.split(r'[ (]', p.strip())[0] for p in meta.get('Provides', '').split(',') if p.strip()]

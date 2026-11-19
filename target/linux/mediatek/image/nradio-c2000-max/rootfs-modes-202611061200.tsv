@@ -111,7 +111,7 @@
 0755	usr/lib/libattr.so.1.1.2502
 0755	usr/lib/libblkid.so.1.1.0
 0644	usr/lib/libbpf.so.1.5.0
-0771	usr/lib/libbz2.so.1.0.8
+0755	usr/lib/libbz2.so.1.0.8
 0755	usr/lib/libcap-ng.so.0.0.0
 0755	usr/lib/libcap.so.2.69
 0755	usr/lib/libcom_err.so.0.0

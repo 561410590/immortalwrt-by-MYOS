@@ -169,6 +169,8 @@
 				"/sbin/firstboot -r -y": [ "exec" ],
 				"/sbin/reboot": [ "exec" ],
 				"/sbin/sysupgrade --force /tmp/firmware.bin": [ "exec" ],
+				"/sbin/sysupgrade --force -f /tmp/myos-update/local-keep.tgz /tmp/firmware.bin": [ "exec" ],
+				"/sbin/sysupgrade -f /tmp/myos-update/local-keep.tgz /tmp/firmware.bin": [ "exec" ],
 				"/sbin/sysupgrade -n --force /tmp/firmware.bin": [ "exec" ],
 				"/sbin/sysupgrade --force -k /tmp/firmware.bin": [ "exec" ],
 				"/sbin/sysupgrade --force -u /tmp/firmware.bin": [ "exec" ],

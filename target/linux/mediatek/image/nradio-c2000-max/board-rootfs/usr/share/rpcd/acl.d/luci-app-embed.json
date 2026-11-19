@@ -1,0 +1,22 @@
+{
+  "luci-app-embed": {
+    "description": "Grant access to the embedded page menu for luci-app-embed",
+    "read": {
+      "cgi-io": [ "exec" ],
+      "ubus": {
+        "sh": ["*"]
+      },
+      "uci": ["embed_simcard", "cpesel"],
+      "file": {
+        "/sys/class/gpio/cpe-sel1/value": ["write"],
+        "/sys/class/gpio/cpe-sel0/value": ["write"],
+        "/sys/class/gpio/cpe-pwr/value": ["write"],
+        "/bin/sh": ["exec"]
+      }
+    },
+    "write": {
+      "cgi-io": [ "exec" ],
+      "uci": ["embed_simcard", "cpesel"]
+    }
+  }
+}

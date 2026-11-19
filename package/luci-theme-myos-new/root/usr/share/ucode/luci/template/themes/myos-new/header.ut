@@ -1,5 +1,16 @@
 {%
  const board = ubus.call('system', 'board') ?? {};
+ const model = replace(lc(board.model ?? ''), /[^a-z0-9]/g, '');
+ const device = replace(lc(board.board_name ?? ''), /[^a-z0-9]/g, '');
+ const color = uci.get('myos_appearance', 'main', 'background_color') ?? '';
+ let login_video = '';
+ if (model in ['c2000ultra', 'nradioc2000ultra'] || device == 'nradioc2000ultra')
+  login_video = 'c2000-ultra-promo.mp4';
+ else if (model in ['c5800688', 'nradioc5800688'] || device == 'nradioc5800688')
+  login_video = 'c5800-688-login.mp4';
+ else if (model in ['c8688', 'nradioc8688', 'c8new688', 'nradioc8new688'] ||
+          device in ['hcmt7981688emmc', 'nradiowt9104no2manpernew688'])
+  login_video = 'c8-688-login.mp4';
  http.prepare_content('text/html; charset=UTF-8');
 -%}
 <!doctype html>
@@ -10,8 +21,8 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f5f5f7">
 <title>MYOS-NEW · {{ entityencode(board.hostname ?? 'OpenWrt') }}</title>
-<link rel="icon" type="image/png" href="{{ media }}/brand.png?v=1">
-<link rel="apple-touch-icon" href="{{ media }}/brand.png?v=1">
+<link rel="icon" type="image/png" href="{{ media }}/brand.png?v=2">
+<link rel="apple-touch-icon" href="{{ media }}/brand.png?v=2">
 <script>
 document.documentElement.dataset.glass = matchMedia('(prefers-contrast:more), (prefers-reduced-transparency:reduce)').matches ? 'solid' : 'frosted';
 document.documentElement.dataset.appearance = 'light';
@@ -23,22 +34,22 @@ document.querySelector('meta[name="theme-color"]').content = document.documentEl
 </script>
 <link rel="stylesheet" href="{{ media }}/style.css?v=20261111-allmodels1">
 <link rel="stylesheet" href="{{ media }}/liquid.css?v=20261105-black-frost">
-<link rel="stylesheet" href="{{ media }}/refine.css?v=20261113-theme-dashboard1">
+<link rel="stylesheet" href="{{ media }}/refine.css?v=20261114-c8-feedback2-wan-quality2{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-home-density1-tablet1-outlet1' : '' }}">
 {% if (node?.css): %}<link rel="stylesheet" href="{{ resource }}/{{ node.css }}">{% endif %}
 {% if (css): %}<style>{{ css }}</style>{% endif %}
 <script src="{{ dispatcher.build_url('admin/translations', dispatcher.lang) }}"></script>
 <script src="{{ resource }}/cbi.js"></script>
 </head>
-<body class="myos-new{% if (blank_page): %} m-auth{% endif %}" data-home="{{ dispatcher.build_url('admin/myos') }}" data-device-model="{{ entityencode(board.model ?? '', true) }}" data-device-board="{{ entityencode(board.board_name ?? '', true) }}">
+<body class="myos-new{% if (blank_page): %} m-auth{% endif %}" data-home="{{ dispatcher.build_url('admin/myos') }}" data-device-model="{{ entityencode(board.model ?? '', true) }}" data-device-board="{{ entityencode(board.board_name ?? '', true) }}" data-background-color="{{ entityencode(color, true) }}"{% if (login_video): %} data-login-video="{{ login_video }}" data-login-video-enabled="{{ uci.get('myos_appearance', 'main', 'login_video') == '1' ? '1' : '0' }}"{% endif %}>
 {% if (!blank_page): %}
 <a class="m-skip" href="#maincontent">跳至内容</a>
 <aside class="m-sidebar" id="m-sidebar" aria-label="主导航">
- <a class="m-brand" href="{{ dispatcher.build_url('admin/myos') }}"><img class="m-brand-mark" src="{{ media }}/brand.png" alt="MYOS"><span>MYOS<span class="m-new">NEW</span></span></a>
+ <a class="m-brand" href="{{ dispatcher.build_url('admin/myos') }}"><img class="m-brand-mark" src="{{ media }}/brand.png?v=2" alt="MYOS"><span>MYOS<span class="m-new">NEW</span></span></a>
  <div class="m-sidebar-device">{{ entityencode(board.model ?? 'OpenWrt') }}</div>
  <label class="m-search"><span aria-hidden="true">⌕</span><input id="m-menu-search" type="search" placeholder="搜索设置" aria-label="搜索设置"></label>
  <a class="m-home" href="{{ dispatcher.build_url('admin/myos') }}"><span class="m-nav-icon">⌂</span>首页</a>
  <nav id="m-menu"><p class="m-muted">正在载入导航…</p></nav>
- <div class="m-sidebar-bottom"><button type="button" class="m-unlock-trigger" aria-label="固件版本，连续点击八次打开插件认证">{{ entityencode(board.release?.version ?? '') }}</button><div><a href="https://nradio.mayebano.shop/" target="_blank" rel="noopener noreferrer">打赏支持</a><a href="https://laoshenshiwo.cn/" target="_blank" rel="noopener noreferrer">冠名支持</a></div><small>MYOS-NEW · LuCI</small></div>
+ <div class="m-sidebar-bottom"><button type="button" class="m-unlock-trigger" aria-label="固件版本，连续点击八次打开插件认证">{{ entityencode(board.release?.version ?? '') }}</button><small>MYOS-NEW · LuCI</small></div>
 </aside>
 <button id="m-scrim" class="m-scrim" aria-label="关闭导航" hidden></button>
 <div class="m-workspace">

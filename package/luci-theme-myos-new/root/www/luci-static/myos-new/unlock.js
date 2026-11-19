@@ -8,7 +8,7 @@
  function create(){
   dialog=make('dialog','m-unlock');dialog.setAttribute('aria-labelledby','m-unlock-title');dialog.setAttribute('aria-describedby','m-unlock-description');
   const close=make('button','m-unlock-close','×');close.type='button';close.setAttribute('aria-label','关闭插件认证');close.addEventListener('click',()=>dialog.close());
-  const logo=make('img','m-unlock-logo');logo.src=L.media('brand.png');logo.alt='MYOS';
+  const logo=make('img','m-unlock-logo');logo.src=L.media('brand.png')+'?v=2';logo.alt='MYOS';
   const brand=make('p','m-unlock-brand','MYOS-NEW');
   const title=make('h2','','代理插件');title.id='m-unlock-title';
   const description=make('p','m-unlock-description','输入插件口令，验证后显示已安装的代理插件菜单。');description.id='m-unlock-description';

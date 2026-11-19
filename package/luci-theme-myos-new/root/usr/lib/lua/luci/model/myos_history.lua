@@ -28,13 +28,16 @@ end
 local function traffic_rate(previous, current, elapsed)
     if not previous or not current or elapsed <= 0 or elapsed > 3 then return end
     local rx, tx, count = 0, 0, 0
+    local links = {}
     for name, value in pairs(current) do
         local old = previous[name]
         if not old or value.rx < old.rx or value.tx < old.tx then return end
-        rx, tx, count = rx + value.rx - old.rx, tx + value.tx - old.tx, count + 1
+        local down, up = value.rx - old.rx, value.tx - old.tx
+        rx, tx, count = rx + down, tx + up, count + 1
+        links[name] = {down=down / elapsed, up=up / elapsed}
     end
     for name in pairs(previous) do if not current[name] then return end end
-    if count > 0 then return rx / elapsed, tx / elapsed end
+    if count > 0 then return rx / elapsed, tx / elapsed, links end
 end
 
 local function read_uplinks()
@@ -58,6 +61,10 @@ function M.run(kind)
     local key = "history-" .. kind
     local saved = perf.cached(key)
     local points = saved.boot == boot and saved.points or {}
+    local last_probe = {}
+    for _, point in ipairs(points) do
+        for name, sample in pairs(point.samples or {}) do last_probe[name] = sample.ts end
+    end
     local previous, last_time, gap, uplinks, target
     if saved.boot == boot then target = saved.target end
     local next_routes = 0
@@ -70,17 +77,24 @@ function M.run(kind)
         if uplinks then
             if kind == "traffic" then
                 local current = traffic_counters(uplinks)
-                local down, up = traffic_rate(previous, current, started - (last_time or started))
+                local down, up, links = traffic_rate(previous, current, started - (last_time or started))
                 if down then
-                    points[#points+1] = {time=started, down=down, up=up, gap=gap or nil}
+                    points[#points+1] = {time=started, down=down, up=up, gap=gap or nil, links=links}
                 end
                 previous, last_time, gap = current, started, not down
             else
                 local quality = controller.link_quality_data(nil, {uplinks=uplinks})
                 if target ~= quality.ping.target then
                     points, target = {}, quality.ping.target
+                    last_probe = {}
                 end
-                local samples = quality.samples
+                local samples = {}
+                for name, sample in pairs(quality.samples) do
+                    if sample.ts ~= last_probe[name] then
+                        last_probe[name] = sample.ts
+                        samples[name] = sample
+                    end
+                end
                 if next(samples) then points[#points+1] = {time=uptime(), samples=samples} end
             end
             local now = uptime()

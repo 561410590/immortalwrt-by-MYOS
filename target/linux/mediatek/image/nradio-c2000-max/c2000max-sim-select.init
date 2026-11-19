@@ -290,7 +290,7 @@ at_command() {
 }
 
 apply_sim() {
-	local cur="$1" mapping target target_gpio target_slot vendor_slot gpio_prefix payload result
+	local cur="$1" switch_live="$2" mapping target target_gpio target_slot vendor_slot gpio_prefix payload result
 	local manufacturer platform operation_failed=0 command_status
 	mapping="$(uci -q get cpesel.sim.gval)"
 	target="$(resolve_target "$mapping" "$cur")" || { fail_selection "SIM 卡槽映射无效"; return 1; }
@@ -304,7 +304,20 @@ apply_sim() {
 	vendor_slot="$((target_slot + 1))"
 	case "$manufacturer" in huawei|fibocom) vendor_slot="$target_slot" ;; esac
 	set_status switching "正在切换目标 SIM"
+	logger -t c2000max-sim-select "Switching to logical SIM $cur"
 	selection_started=1
+	if [ "$switch_live:$manufacturer:$platform" = 1:huawei:hisilicon ]; then
+		local alias
+		config_get alias "$modem_section" alias
+		if [ "$modem_section" = 2_1 ] || [ "$alias" = 2_1 ]; then
+			# HVSST disconnects the old SIM. Stop its monitor and release the leases first.
+			ubus call service delete "{\"name\":\"qmodem_network\",\"instance\":\"modem_$modem_section\"}" >/dev/null 2>&1 ||
+				logger -t c2000max-sim-select "Could not stop the old dial worker"
+			ubus call network.interface.2_1v6 down >/dev/null 2>&1
+			ubus call network.interface.2_1 down >/dev/null 2>&1
+			leases_released=1
+		fi
+	fi
 	# Only an explicit selection changes the SIM; replies never gate dialing.
 	if [ "$manufacturer:$platform" = huawei:hisilicon ]; then
 		result="$(at_command 'AT^HVSST=1,0')"
@@ -336,12 +349,17 @@ apply_sim() {
 }
 
 run_selection() {
-	local cur="$1" booting="$2" status dial_status
+	local cur="$1" booting="$2" status dial_status switch_live=1 leases_released=0
+	[ "$booting" != 1 ] || switch_live=0
 	selection_started=0
-	apply_sim "$cur"
+	apply_sim "$cur" "$switch_live"
 	status=$?
 	if [ "$booting" != 1 ] && [ "$selection_started" = 1 ]; then
-		/etc/init.d/qmodem_network restart >/dev/null 2>&1
+		if [ "$leases_released" = 1 ]; then
+			/etc/init.d/qmodem_network start >/dev/null 2>&1
+		else
+			/etc/init.d/qmodem_network restart >/dev/null 2>&1
+		fi
 		dial_status=$?
 		if [ "$dial_status" -ne 0 ]; then
 			fail_selection "拨号服务返回错误"

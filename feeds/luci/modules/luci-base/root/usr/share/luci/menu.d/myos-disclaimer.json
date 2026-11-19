@@ -1,0 +1,10 @@
+{
+	"admin/myos_disclaimer": {
+		"action": {
+			"type": "function",
+			"module": "luci.controller.admin.myos_disclaimer",
+			"function": "handle",
+			"post": true
+		}
+	}
+}

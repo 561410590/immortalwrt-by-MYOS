@@ -15,6 +15,40 @@ var callSystemValidateFirmwareImage = rpc.declare({
 	expect: { '': { valid: false, forcable: true } }
 });
 
+var callKeepItems = rpc.declare({ object: 'myos.update', method: 'status' });
+var callPackLocal = rpc.declare({
+	object: 'myos.update', method: 'pack_local', params: [ 'keep_items' ]
+});
+var keepLabels = {
+	wifi: _('Wi-Fi 名称、加密方式和密码'), sim: _('SIM 卡槽设置'),
+	fan: _('风扇设置'), led: _('指示灯设置')
+};
+
+function keepOptions(items) {
+	var mode = E('select', { 'class': 'cbi-input-select' }, [
+		E('option', { value: 'keep' }, _('完整保留配置')),
+		E('option', { value: 'discard' }, _('不保留配置')),
+		E('option', { value: 'select' }, _('按项保留配置'))
+	]);
+	var choices = items.map(function(item) {
+		var input = E('input', { type: 'checkbox' });
+		return { item: item, input: input,
+			label: E('label', {}, [ input, ' ', keepLabels[item] ]) };
+	});
+	var fields = E('div', { hidden: true }, choices.map(function(choice) {
+		return E('div', {}, choice.label);
+	}).concat(E('p', {}, _('仅保留勾选的内容，其余配置恢复默认。'))));
+	mode.addEventListener('change', function() { fields.hidden = mode.value !== 'select'; });
+	return {
+		mode: mode,
+		element: E('div', {}, [ E('label', {}, [ _('配置保留方式'), ' ', mode ]), fields ]),
+		selected: function() {
+			return choices.filter(function(choice) { return choice.input.checked; })
+				.map(function(choice) { return choice.item; });
+		}
+	};
+}
+
 function findStorageSize(procmtd, procpart) {
 	var kernsize = 0, rootsize = 0, wholesize = 0;
 
@@ -203,7 +237,16 @@ return view.extend({
 			}, this, ev.target))
 			.then(L.bind(function(btn, reply) {
 				return fs.exec('/sbin/sysupgrade', [ '--test', '/tmp/firmware.bin' ])
-					.then(function(res) { reply.push(res); return reply; });
+				.then(function(res) {
+					reply.push(res);
+					if (!reply[1].allow_backup) return reply;
+					return callKeepItems().then(function(status) {
+						reply.push((status.keep_items || []).filter(function(item) {
+							return Object.hasOwn(keepLabels, item);
+						}));
+						return reply;
+					}, function() { return reply; });
+				});
 			}, this, ev.target))
 			.then(L.bind(function(btn, res) {
 				/* sysupgrade opts table  [0]:checkbox element [1]:check condition [2]:args to pass */
@@ -218,6 +261,7 @@ return view.extend({
 				    allow_backup = res[1].allow_backup,
 				    is_too_big = (storage_size > 0 && res[0].size > storage_size),
 				    body = [];
+			var selection = res[3] && res[3].length ? keepOptions(res[3]) : null;
 
 				body.push(E('p', _("The flash image was uploaded. Below is the checksum and file size listed, compare them with the original file to ensure data integrity. <br /> Click 'Continue' below to start the flash procedure.")));
 				body.push(E('ul', {}, [
@@ -226,7 +270,7 @@ return view.extend({
 					res[0].sha256sum ? E('li', {}, '%s: %s'.format(_('SHA256'), res[0].sha256sum)) : ''
 				]));
 
-				body.push(E('p', {}, E('label', { 'class': 'btn' }, [
+			body.push(selection ? selection.element : E('p', {}, E('label', { 'class': 'btn' }, [
 					opts.keep[0], ' ', _('Keep settings and retain the current configuration')
 				])));
 
@@ -267,7 +311,7 @@ return view.extend({
 
 				var cntbtn = E('button', {
 					'class': 'btn cbi-button-action important',
-					'click': ui.createHandlerFn(this, 'handleSysupgradeConfirm', btn, opts),
+				'click': ui.createHandlerFn(this, 'handleSysupgradeConfirm', btn, opts, selection),
 				}, [ _('Continue') ]);
 
 				if (res[2].code != 0) {
@@ -278,13 +322,16 @@ return view.extend({
 					])));
 				};
 
-				if ((!is_valid || is_too_big || res[2].code != 0) && is_forceable) {
-					body.push(E('p', {}, E('label', { 'class': 'btn alert-message danger' }, [
-						opts.force[0], ' ', _('Force upgrade'),
-						E('br'), E('br'),
-						_('Select \'Force upgrade\' to flash the image even if the image format check fails. Use only if you are sure that the firmware is correct and meant for your device!')
-					])));
-					cntbtn.disabled = true;
+				var needsForce = !is_valid || is_too_big || res[2].code != 0;
+				if (is_forceable) {
+					var forceLabel = [ opts.force[0], ' ', _('Force upgrade') ];
+					if (needsForce)
+						forceLabel.push(E('br'), E('br'),
+							_('Select \'Force upgrade\' to flash the image even if the image format check fails. Use only if you are sure that the firmware is correct and meant for your device!'));
+					body.push(E('p', {}, E('label', {
+						'class': needsForce ? 'btn alert-message danger' : 'btn'
+					}, forceLabel)));
+					cntbtn.disabled = needsForce;
 				};
 
 
@@ -298,7 +345,7 @@ return view.extend({
 				]));
 
 				opts.force[0].addEventListener('change', function(ev) {
-					cntbtn.disabled = !ev.target.checked;
+					cntbtn.disabled = needsForce && !ev.target.checked;
 				});
 
 				opts.keep[0].addEventListener('change', function(ev) {
@@ -306,6 +353,11 @@ return view.extend({
 					opts.backup_pkgs[0].disabled = !ev.target.checked;
 
 				});
+			if (selection) selection.mode.addEventListener('change', function() {
+				var full = selection.mode.value === 'keep';
+				opts.keep[0].checked = full;
+				opts.skip_orig[0].disabled = opts.backup_pkgs[0].disabled = !full;
+			});
 
 				ui.showModal(_('Flash image?'), body);
 			}, this, ev.target))
@@ -315,7 +367,20 @@ return view.extend({
 			}, this, ev.target));
 	},
 
-	handleSysupgradeConfirm: function(btn, opts, ev) {
+	handleSysupgradeConfirm: function(btn, opts, selection, ev) {
+		var items = selection && selection.mode.value === 'select' ? selection.selected() : [];
+		if (items.length) {
+			return callPackLocal(items.join(',')).then(L.bind(function(result) {
+				if (!result.path) throw new Error(result.error || _('所选配置打包失败'));
+				this.startSysupgrade(btn, opts, result.path);
+			}, this)).catch(function(error) {
+				ui.addNotification(null, E('p', {}, error.message), 'danger');
+			});
+		}
+		this.startSysupgrade(btn, opts);
+	},
+
+	startSysupgrade: function(btn, opts, archive) {
 		btn.firstChild.data = _('Flashing…');
 
 		ui.showModal(_('Flashing…'), [
@@ -326,18 +391,33 @@ return view.extend({
 
 		for (var key in opts)
 			/* if checkbox == condition add args to sysupgrade */
-			if (opts[key][0].checked == opts[key][1])
+			if (!opts[key][0].disabled && opts[key][0].checked == opts[key][1] &&
+				(!archive || key === 'force'))
 				args.push(opts[key][2]);
+		if (opts.keep[0].disabled) args.push('-n');
+		if (archive) args.push('-f', archive);
 
 		args.push('/tmp/firmware.bin');
 
-		/* Currently the sysupgrade rpc call will not return, hence no promise handling */
-		fs.exec('/sbin/sysupgrade', args);
+		var reconnect = function() { ui.awaitReconnect(window.location.host); };
+		var showFailure = function(message) {
+			ui.hideModal();
+			ui.addNotification(null, E('p', {}, message), 'danger');
+		};
 
-		if (opts['keep'][0].checked)
-			ui.awaitReconnect(window.location.host);
-		else
-			ui.awaitReconnect('192.168.1.1', 'immortalwrt.lan');
+		/* The connection normally closes when sysupgrade stops LuCI. */
+		return fs.exec('/sbin/sysupgrade', args).then(function(result) {
+			if (result.code)
+				showFailure(result.stderr || _('The sysupgrade command failed with code %d').format(result.code));
+			else
+				reconnect();
+		}, function(error) {
+			if (error.name === 'PermissionError' || error.name === 'InvalidArgumentError' ||
+			    error.name === 'NotFoundError')
+				showFailure(error.message);
+			else
+				reconnect();
+		});
 	},
 
 	handleBackupList: function(ev) {

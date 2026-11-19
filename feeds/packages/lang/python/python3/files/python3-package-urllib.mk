@@ -17,6 +17,9 @@ $(call Package/python3/Default/description)
 This package contains the URL handling modules.
 endef
 
-$(eval $(call Py3BasePackage,python3-urllib, \
-	/usr/lib/python$(PYTHON3_VERSION)/urllib \
-))
+PYTHON3_URLLIB_DIR:=/usr/lib/python$(PYTHON3_VERSION)/urllib
+$(eval $(call Py3BasePackage,python3-urllib,$(PYTHON3_URLLIB_DIR)))
+
+define Py3Package/python3-urllib/filespec
++|$(PYTHON3_URLLIB_DIR)|0644|0755
+endef

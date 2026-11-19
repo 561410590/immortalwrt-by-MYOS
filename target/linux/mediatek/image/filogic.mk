@@ -143,23 +143,25 @@ C2000MAX_ROOTFS_ID := $(VERSION_NUMBER)-$(REVISION)
 C2000MAX_EXTRA_IPK_PACKAGES := \
 	flock ip6tables-nft iptables-mod-socket kmod-ipt-socket kmod-ipt-nat-extra iptables-mod-nat-extra python3-ctypes luci-app-uugamebooster mt5700-web-go luci-app-mt5700-web \
 	luci-theme-myos-new luci-app-myos-system luci-light cgi-io bc jq libreadline8 libncurses6 terminfo \
+	luci-base luci-mod-system luci-app-package-manager dnsmasq-full nftables-json libnettle8 libgmp10 \
 	resize2fs fstools block-mount losetup libsmartcols1 libblkid1 libuuid1 f2fsck mkf2fs libf2fs6 \
 	luci-app-store taskd luci-lib-taskd luci-lib-xterm \
 	quickfile luci-app-quickfile luci-i18n-quickfile-zh-cn luci-nginx nginx-ssl nginx-mod-luci nginx-mod-ubus nginx-ssl-util uwsgi uwsgi-cgi-plugin uwsgi-syslog-plugin uwsgi-luci-support \
 	openvpn-openssl kmod-tun libcap-ng liblzo2 liblz4-1 \
 	luci-app-openvpn luci-i18n-openvpn-zh-cn \
-	luci-compat luci-lib-jsonc kmod-oaf appfilter luci-app-oaf luci-i18n-oaf-zh-cn \
+	luci-compat luci-lib-jsonc luci-lib-docker kmod-oaf appfilter luci-app-oaf luci-i18n-oaf-zh-cn \
 	kmod-leds-gpio \
 	zram-swap kmod-zram \
 	script-utils coreutils-stty \
 	miniupnpd-nftables luci-app-upnp luci-i18n-upnp-zh-cn \
 	iwinfo libiwinfo20230701 libiwinfo-data rpcd-mod-iwinfo fancontrol \
-	libpython3-3.11 python3-base python3-light libbz2-1.0 zlib \
+	libpython3-3.11 python3-base python3-light python3-codecs python3-openssl python3-email python3-urllib libbz2-1.0 zlib \
 	bash \
 	coreutils-base64 coreutils-nohup coreutils-timeout lyaml \
 	libyaml libudns resolveip libev \
 	libsodium ip-full libuci-lua libbpf1 \
 	libelf1 libip4tc2 libip6tc2 iptables-mod-tproxy iptables-mod-extra kmod-ipt-extra libpcap1 ipset \
+	ca-certificates tini btrfs-progs \
 	libipset13 tc-full conntrack conntrackd \
 	libnetfilter-cthelper0 libnetfilter-cttimeout1 libnetfilter-queue1 libltdl7 \
 	liblua5.3-5.3 \
@@ -354,7 +356,10 @@ define Build/prepare-c2000max-rootfs
 		usr/lib/opkg/info/luci-i18n-nradio-ledctrl-zh-cn.list \
 		usr/lib/opkg/info/luci-i18n-nradio-ledctrl-zh-cn.prerm; do \
 		mkdir -p "$$(dirname $(C2000MAX_MYOS_ROOTFS_DIR)/$${path})"; \
-		cp -fpR $(C2000MAX_BOARD_ROOTFS)/$${path} $(C2000MAX_MYOS_ROOTFS_DIR)/$${path} || exit 1; \
+		case "$$path" in \
+			*.prerm) install -m 0755 $(C2000MAX_BOARD_ROOTFS)/$$path $(C2000MAX_MYOS_ROOTFS_DIR)/$$path ;; \
+			*) cp -fpR $(C2000MAX_BOARD_ROOTFS)/$$path $(C2000MAX_MYOS_ROOTFS_DIR)/$$path ;; \
+		esac || exit 1; \
 	done
 	grep -q "option schedule '0'" $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/ledctrl || \
 		sed -i "/option.*disabled.*'0'/a\\\toption schedule '0'\\n\toption starttime '0:0'\\n\toption endtime '0:0'" $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/ledctrl
@@ -412,7 +417,8 @@ define Build/prepare-c2000max-rootfs
 		status="$(C2000MAX_MYOS_ROOTFS_DIR)/usr/lib/opkg/status"; \
 		refresh=0; \
 		case "$$pkg" in libip4tc2|libip6tc2|iptables-mod-extra) refresh=1 ;; esac; \
-		case "$$pkg" in luci-theme-myos-new|luci-app-myos-system|luci-light|luci-nginx|luci-lib-xterm|luci-app-upnp|luci-i18n-upnp-zh-cn|cgi-io|fstools|block-mount|losetup|libsmartcols1|libblkid1|libuuid1|f2fsck|mkf2fs|libf2fs6|iwinfo|libiwinfo20230701|libiwinfo-data|fancontrol|mt5700-web-go|luci-app-mt5700-web) refresh=1 ;; esac; \
+		case "$$pkg" in luci-base|luci-mod-system|luci-app-package-manager|dnsmasq-full) refresh=1 ;; esac; \
+		case "$$pkg" in luci-theme-myos-new|luci-app-myos-system|luci-light|luci-nginx|luci-lib-xterm|luci-app-upnp|luci-i18n-upnp-zh-cn|cgi-io|fstools|block-mount|losetup|libsmartcols1|libblkid1|libuuid1|f2fsck|mkf2fs|f2fs-tools|libf2fs6|iwinfo|libiwinfo20230701|libiwinfo-data|fancontrol|mt5700-web-go|luci-app-mt5700-web) refresh=1 ;; esac; \
 		if [ "$$refresh" = 0 ] && [ -f "$$status" ] && grep -q "^Package: $${pkg}$$" "$$status"; then continue; fi; \
 		ipk=""; \
 		for cand in $(TOPDIR)/bin/packages/aarch64_cortex-a53/*/$${pkg}_*.ipk \
@@ -470,7 +476,21 @@ define Build/prepare-c2000max-rootfs
 					if [ -f "$$status" ]; then \
 						kernelver="$$(awk 'BEGIN{p=0} /^Package: kernel$$/{p=1; next} p && /^Version: /{sub(/^Version: /, ""); print; exit} p && /^$$/{p=0}' "$$status")"; \
 					fi; \
-					awk -v kernelver="$$kernelver" 'BEGIN{has_status=0; has_time=0} /^Status: /{has_status=1} /^Installed-Time: /{has_time=1} kernelver != "" && /^Depends: /{gsub(/kernel[[:space:]]*\(=[^)]*\)/, "kernel (=" kernelver ")")} {print} END{if (!has_status) print "Status: install ok installed"; if (!has_time) print "Installed-Time: 1772529460"; print ""}' $(C2000MAX_EXTRA_IPK_TMP)/control/control >> "$$status"; \
+					awk -v kernelver="$$kernelver" ' \
+						/^Status: / { state = $$0; next } \
+						/^Installed-Time: / { installed_time = $$0; next } \
+						kernelver != "" && /^Depends: / { gsub(/kernel[[:space:]]*\(=[^)]*\)/, "kernel (=" kernelver ")") } \
+						{ fields[++count] = $$0 } \
+						END { \
+							for (i = 1; i <= count; i++) { \
+								print fields[i]; \
+								if (fields[i] ~ /^Package: /) { \
+									print (state ? state : "Status: install ok installed"); \
+									print (installed_time ? installed_time : "Installed-Time: 1772529460"); \
+								} \
+							} \
+							print ""; \
+						}' $(C2000MAX_EXTRA_IPK_TMP)/control/control >> "$$status"; \
 				fi; \
 			fi; \
 		fi; \
@@ -895,6 +915,10 @@ define Build/prepare-c2000max-rootfs
 		$(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/rpcd/ucode/qmodem_sms
 	install -m 0644 -D $(TOPDIR)/package/mtk/applications/c2000max-5g/files/luci-app-qmodem-next/www/luci-static/resources/qmodem/sms.js \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/www/luci-static/resources/qmodem/sms.js
+	$(STAGING_DIR_HOSTPKG)/bin/po2lmo $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/qmodem.zh-cn.po \
+		$(KDIR)/c2000max-qmodem.zh-cn.lmo
+	install -m 0644 -D $(KDIR)/c2000max-qmodem.zh-cn.lmo \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/usr/lib/lua/luci/i18n/qmodem.zh-cn.lmo
 	cp -fpR $(TOPDIR)/package/mtk/applications/c2000max-5g/files/rootfs/usr/libexec/rpcd $(C2000MAX_MYOS_ROOTFS_DIR)/usr/libexec/
 	cp -fp $(TOPDIR)/package/mtk/applications/c2000max-5g/files/rootfs/etc/config/qmodem $(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/qmodem
 	cp -fp $(TOPDIR)/package/mtk/applications/c2000max-5g/files/rootfs/etc/init.d/pcie_mhi $(C2000MAX_MYOS_ROOTFS_DIR)/etc/init.d/pcie_mhi
@@ -977,6 +1001,8 @@ define Build/prepare-c2000max-rootfs
 	ln -sf ../init.d/c2000max-sim-select $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S97c2000max-sim-select
 	rm -f $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S??qmodem_network
 	ln -sf ../init.d/qmodem_network $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S98qmodem_network
+	ln -sf ../init.d/dual-pdp $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S99dual-pdp
+	ln -sf ../init.d/dual-pdp-smart $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S99dual-pdp-smart
 	rm -f $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S??ubus-at-daemon
 	ln -sf ../init.d/ubus-at-daemon $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S18ubus-at-daemon
 	[ -x $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/ubus-at-daemon ] && [ -x $(C2000MAX_MYOS_ROOTFS_DIR)/usr/bin/tom_modem ]
@@ -1030,7 +1056,7 @@ define Build/prepare-c2000max-rootfs
 	# Keep the startup defaults of the booted 202611061200 MAX image.
 	for link in S19wpad S20usbmode S21conntrackd S30radius S45istore S49tasks \
 		S70modemmanager S90openvpn S95microsocks S95smartd S99haproxy \
-		S99mwrt-assurance S99mwrt-fansched S99uuplugin; do \
+		S99mwrt-assurance S99uuplugin; do \
 		rm -f "$(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/$$link"; \
 	done
 	rm -f $(C2000MAX_MYOS_ROOTFS_DIR)/lib/preinit/90_extract_caldata \
@@ -1050,7 +1076,10 @@ define Build/prepare-c2000max-rootfs
 		[ -e "$$file" ] && [ ! -L "$$file" ] || continue; \
 		chmod "$$mode" "$$file" || exit 1; \
 	done < $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/rootfs-modes-202611061200.tsv
-	python3 $(TOPDIR)/scripts/prepare-public-rootfs.py $(C2000MAX_MYOS_ROOTFS_DIR)
+	python3 $(TOPDIR)/target/linux/mediatek/image/install-myos-support.py \
+		$(C2000MAX_MYOS_ROOTFS_DIR) $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max
+	python3 $(TOPDIR)/../immortalwrt-mt798x-6.6/target/linux/mediatek/image/install-kunpeng-ai.py \
+		$(C2000MAX_MYOS_ROOTFS_DIR) $(STAGING_DIR_HOST)/bin/opkg --myos-runtime
 	$(STAGING_DIR_HOST)/bin/mksquashfs4 $(C2000MAX_MYOS_ROOTFS_DIR) $(C2000MAX_MYOS_ROOTFS) \
 		-nopad -noappend -root-owned -comp xz -Xpreset 9 -Xe -Xlc 0 -Xlp 2 -Xpb 2 \
 		-b 1048576 -no-xattrs \
@@ -3540,9 +3569,13 @@ define Device/nradio_c2000-max
   BOARD_NAME := HCMT7987-EMMC
   SUPPORTED_DEVICES += nradio,c2000-max HCMT7987-EMMC HCMT7987-SNSD
   DEVICE_PACKAGES := \
+	kmod-nft-queue \
 	luci-theme-myos-new luci-app-myos-system flock ip6tables-nft iptables-mod-socket kmod-ipt-socket kmod-ipt-nat-extra iptables-mod-nat-extra python3-ctypes luci-app-uugamebooster mt5700-web-go luci-app-mt5700-web \
 	libip4tc libip6tc iptables-mod-extra kmod-ipt-extra \
+	ca-certificates tini btrfs-progs \
+	luci-lib-docker ttyd \
 	kmod-mediatek_hnat \
+	python3-codecs python3-openssl python3-urllib \
 	kmod-oaf appfilter luci-app-oaf luci-i18n-oaf-zh-cn \
 	kmod-hwmon-pwmfan \
 	mt798x-2p5g-phy-firmware-internal \

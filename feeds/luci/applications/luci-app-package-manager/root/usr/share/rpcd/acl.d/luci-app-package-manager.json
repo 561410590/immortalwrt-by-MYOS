@@ -6,6 +6,8 @@
 			"file": {
 				"/usr/libexec/package-manager-call list-installed": [ "exec" ],
 				"/usr/libexec/package-manager-call list-available": [ "exec" ],
+				"/usr/libexec/mwrt-store-call list": [ "exec" ],
+				"/usr/libexec/mwrt-store-call icon *": [ "exec" ],
 				"/etc/opkg.conf": [ "read" ],
 				"/etc/opkg/*.conf": [ "read" ],
 				"/etc/apk/repositories": [ "read" ],
@@ -24,6 +26,7 @@
 				"/usr/libexec/package-manager-call update": [ "exec" ],
 				"/usr/libexec/package-manager-call upgrade": [ "exec" ],
 				"/usr/libexec/package-manager-call upgrade *": [ "exec" ],
+				"/usr/libexec/mwrt-store-call install *": [ "exec" ],
 				"/etc/opkg.conf": [ "write" ],
 				"/etc/opkg/*.conf": [ "write" ],
 				"/etc/apk/repositories": [ "write" ],

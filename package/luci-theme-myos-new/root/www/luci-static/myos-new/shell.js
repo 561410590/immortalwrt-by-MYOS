@@ -183,21 +183,117 @@
  document.querySelector('.m-home .m-nav-icon').replaceWith(icon('home'));
  function brandWizard(element){
   const brand=element.querySelector?.('.qsw-brand');if(!brand)return;
-  const logo=make('img');logo.src=L.media('brand.png');logo.alt='MYOS';
+  const logo=make('img');logo.src=L.media('brand.png')+'?v=2';logo.alt='MYOS';
   brand.replaceChildren(logo,make('span','','MYOS-NEW'));
   const close=element.querySelector('.qsw-close');if(close)close.replaceChildren(icon('close'));
  }
  brandWizard(document.body);
  new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(brandWizard))).observe(document.body,{childList:true});
+ const page=(L.env.dispatchpath||[]).slice(0,3).join('/');
+ document.body.dataset.myosPage=page;
+ const modemWebPages=new Set(['admin/modem/webui','admin/modem/mt5700','admin/modem-AK68/webui']);
+ window.MYOSAppearance={
+  load: fetch(L.url('admin','myos','appearance'),{cache:'no-store'}).then(response=>{
+   if(!response.ok)throw new Error('读取外观设置失败');
+   return response.json();
+  }),
+  async save(setting,value){
+   const response=await fetch(L.url('admin','myos','appearance_save'),{method:'POST',body:new URLSearchParams({
+    token:L.env.token,setting,value:typeof value==='string'?value:JSON.stringify(value)
+   })});
+   if(!response.ok||!(await response.json()).saved)throw new Error('保存外观设置失败');
+  }
+ };
+ window.MYOSAppearance.load.catch(()=>{});
+ const shortcuts=make('details','m-shortcuts'),shortcutButton=make('summary','m-icon-button','⋯');
+ shortcutButton.title='快捷菜单';
+ shortcutButton.setAttribute('aria-label','快捷菜单');
+ const shortcutPanel=make('div','m-shortcut-panel'),shortcutLinks=make('div');
+ const editShortcuts=make('button','m-pill-button','编辑快捷菜单');editShortcuts.type='button';
+ shortcutPanel.append(shortcutLinks,editShortcuts);
+ shortcuts.append(shortcutButton,shortcutPanel);
+ document.querySelector('#m-background').before(shortcuts);
+ const shortcutIcons={home:'首页',wifi:'无线',network:'网络',terminal:'终端',box:'软件包',
+  chart:'图表',drive:'存储',bolt:'闪电',shield:'盾牌',settings:'设置'};
+ let shortcutItems=[];
+ let shortcutsOpenByDefault=false;
+ editShortcuts.disabled=true;
+ function renderShortcuts(){
+  shortcutLinks.replaceChildren(...shortcutItems.map(item=>{
+   const anchor=make('a','m-menu-link');
+   anchor.href=L.url(...item.path.split('/'));
+   if(modemWebPages.has(item.path)){anchor.target='_blank';anchor.rel='noopener';}
+   anchor.append(icon(item.icon),make('span','',item.title));
+   return anchor;
+  }));
+ }
+ window.MYOSAppearance.load.then(settings=>{
+  shortcutItems=Array.isArray(settings.shortcuts)?settings.shortcuts.filter(item=>
+   typeof item?.title==='string'&&/^admin\/[\w/-]+$/.test(item.path)&&Object.hasOwn(shortcutIcons,item.icon)):[];
+  shortcutsOpenByDefault=settings.shortcuts_open===true;
+  shortcuts.open=shortcutsOpenByDefault;
+  renderShortcuts();
+ }).catch(()=>{}).finally(()=>{editShortcuts.disabled=false;});
+ editShortcuts.addEventListener('click',()=>{
+  const dialog=make('dialog','m-client-dialog m-shortcut-dialog');
+  const title=make('h2','','编辑快捷菜单');title.id='m-shortcut-title';
+  dialog.setAttribute('aria-labelledby',title.id);
+  const form=make('form'),rows=make('div','m-shortcut-rows'),controls=make('div','m-background-actions');
+  const defaultOpen=make('input');defaultOpen.type='checkbox';defaultOpen.checked=shortcutsOpenByDefault;
+  const defaultOpenLabel=make('label','m-shortcut-default');defaultOpenLabel.append(defaultOpen,make('span','','默认展开快捷菜单'));
+  const add=make('button','m-pill-button','添加');add.type='button';
+  const save=make('button','cbi-button cbi-button-apply','保存');save.type='submit';
+  const cancel=make('button','cbi-button','取消');cancel.type='button';
+  const status=make('p','m-muted');status.setAttribute('role','status');
+  const appendRow=(item={})=>{
+   const row=make('fieldset'),label=make('input'),path=make('input'),select=make('select');
+   label.name='title';label.maxLength=32;label.required=true;label.value=item.title||'';
+   path.name='path';path.maxLength=128;path.required=true;path.value=item.path||'';
+   path.placeholder='admin/network/wireless';path.pattern='/?admin/[A-Za-z0-9_\\/\\-]+';
+   select.name='icon';
+   Object.entries(shortcutIcons).forEach(([key,text])=>{
+    const option=make('option','',text);option.value=key;select.append(option);
+   });
+   select.value=item.icon||'home';
+   const preview=make('span','m-shortcut-icon-preview');preview.setAttribute('aria-hidden','true');
+   const updateIcon=()=>preview.replaceChildren(icon(select.value));
+   select.addEventListener('change',updateIcon);updateIcon();
+   const remove=make('button','m-pill-button','删除');remove.type='button';
+   remove.addEventListener('click',()=>{row.remove();add.disabled=false;});
+   row.append(...[['提示文字',label],['跳转路径',path],['内置图标',select]].map(([text,input])=>{
+    const field=make('label','',text);field.append(input);return field;
+   }),preview,remove);
+   rows.append(row);add.disabled=rows.children.length>=4;
+  };
+  shortcutItems.forEach(appendRow);
+  add.addEventListener('click',()=>appendRow());
+  cancel.addEventListener('click',()=>dialog.close());
+  controls.append(add,save,cancel);form.append(defaultOpenLabel,rows,controls,status);dialog.append(title,form);
+  form.addEventListener('submit',async event=>{
+   event.preventDefault();save.disabled=true;
+   const items=[...rows.children].map(row=>({
+    title:row.querySelector('[name=title]').value.trim(),
+    path:row.querySelector('[name=path]').value.replace(/^\//,''),
+    icon:row.querySelector('[name=icon]').value
+   }));
+   try{
+    await window.MYOSAppearance.save('shortcuts',items);
+    await window.MYOSAppearance.save('shortcuts_open',defaultOpen.checked?'1':'0');
+    shortcutsOpenByDefault=defaultOpen.checked;
+    shortcuts.open=shortcutsOpenByDefault;
+    shortcutItems=items;renderShortcuts();dialog.close();
+   }catch(_){status.textContent='快捷菜单未保存，请检查路径和提示文字。';}
+   finally{save.disabled=false;}
+  });
+  dialog.addEventListener('close',()=>dialog.remove());
+  document.body.append(dialog);dialog.showModal();
+ });
+ const menuRequest=L.require('ui').then(ui=>ui.menu.load(true).then(tree=>({ui,tree})));
+ window.MYOSMenu=menuRequest.then(({tree})=>tree);
+ window.MYOSMenu.catch(()=>{});
  async function load(){
   try{
-   const ui=await L.require('ui');let tree=await ui.menu.load();
-   let branch=tree;for(const part of (L.env.dispatchpath||[]).slice(0,3))branch=branch?.children?.[part];
-   // Plugin activation can add routes while the browser still holds the old menu.
-   if(!branch){
-    ui.menu.flushCache();const request=await L.require('request');
-    tree=(await request.get(L.url('admin/menu'),{cache:false})).json();
-   }
+   const {ui,tree}=await menuRequest;
    const children=n=>ui.menu.getChildren(n).filter(c=>!c.hidden&&c.satisfied!==false&&c.title);
    const path=location.pathname.replace(/\/$/,'');
    const home=document.querySelector('.m-home');
@@ -217,6 +313,7 @@
     }
     if(['firstchild','alias'].includes(node.action?.type)&&children(node).length)return null;
     const a=make('a','m-menu-link');a.append(icon(node.name,parts[1]),make('span','',label));a.href=L.url(...parts);a.dataset.label=label;
+    if(modemWebPages.has(key)){a.target='_blank';a.rel='noopener';}
     const url=new URL(a.href,location.href).pathname;
     if(path===url||path.startsWith(url+'/')){a.classList.add('active');a.setAttribute('aria-current','page');title=label;}
     return a;

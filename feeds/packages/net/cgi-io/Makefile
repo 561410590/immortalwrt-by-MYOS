@@ -8,7 +8,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=cgi-io
-PKG_RELEASE:=22
+PKG_RELEASE:=23
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL=$(PROJECT_GIT)/project/cgi-io.git
@@ -33,12 +33,6 @@ endef
 
 define Package/cgi-io/description
   This package contains an cgi utility that is useful for up/downloading files
-endef
-
-define Build/Prepare
-	$(call Build/Prepare/Default)
-	# Keep firmware multipart staging off tmpfs while an older upload still exists.
-	$(SED) 's@open("/tmp", O_TMPFILE@open(!strcmp(st.filename, "/tmp/firmware.bin") ? "/overlay" : "/tmp", O_TMPFILE@' $(PKG_BUILD_DIR)/main.c
 endef
 
 define Package/cgi-io/install

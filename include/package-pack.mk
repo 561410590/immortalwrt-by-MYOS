@@ -219,6 +219,8 @@ endif
 	done
 	$(if $(Package/$(1)/install-overlay),mkdir -p $(PACKAGE_DIR) $$(IDIR_$(1))/rootfs-overlay)
 	$(call Package/$(1)/install-overlay,$$(IDIR_$(1))/rootfs-overlay)
+	# The MAX build directory can pass writable ACL modes to package payloads.
+	find $$(IDIR_$(1)) \( -type f -o -type d \) -perm /022 ! -perm -1000 -exec chmod go-w {} +
 	-find $$(IDIR_$(1)) -name 'CVS' -o -name '.svn' -o -name '.#*' -o -name '*~'| $(XARGS) rm -rf
 	@( \
 		find $$(IDIR_$(1)) -name lib\*.so\* -or -name \*.ko | awk -F/ '{ print $$$$NF }'; \
@@ -258,7 +260,7 @@ endif
 	$(INSTALL_DIR) $$(PDIR_$(1))/tmp
 
 ifeq ($(CONFIG_USE_APK),)
-	mkdir -p $$(IDIR_$(1))/CONTROL
+	$(INSTALL_DIR) $$(IDIR_$(1))/CONTROL
 	(cd $$(IDIR_$(1))/CONTROL; \
 		( \
 			echo "$$$$CONTROL"; \
