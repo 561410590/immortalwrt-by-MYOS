@@ -1,0 +1,3252 @@
+#!/bin/sh
+
+COREUTILS_SORT="${C2000_COREUTILS_SORT:-/usr/libexec/sort-coreutils}"
+COREUTILS_STAT="${C2000_COREUTILS_STAT:-/usr/libexec/stat-coreutils}"
+sort()
+{
+	if [ -x "$COREUTILS_SORT" ]; then "$COREUTILS_SORT" "$@"; else command sort "$@"; fi
+}
+stat()
+{
+	if [ -x "$COREUTILS_STAT" ]; then "$COREUTILS_STAT" "$@"; else command stat "$@"; fi
+}
+
+RUNTIME_DIR="${C2000_TRAFFIC_RUNTIME:-/tmp/c2000max-traffic}"
+PERSIST_DIR="${C2000_TRAFFIC_PERSIST_DIR:-/etc/c2000max-traffic}"
+TOTALS_FILE="$RUNTIME_DIR/totals.tsv"
+SNAPSHOT_FILE="$RUNTIME_DIR/conntrack.tsv"
+UPDATED_FILE="$RUNTIME_DIR/updated"
+FLUSHED_FILE="$RUNTIME_DIR/flushed"
+HISTORY_FILE="$RUNTIME_DIR/history.tsv"
+AUDIT_FILE="$RUNTIME_DIR/audit.tsv"
+AUDIT_PROFILED_FILE="$RUNTIME_DIR/audit.profiled"
+RECENT_AUDIT_FILE="${C2000_TRAFFIC_RECENT_AUDIT_FILE:-$RUNTIME_DIR/audit-recent.tsv}"
+RECENT_AUDIT_READY_FILE="${C2000_TRAFFIC_RECENT_AUDIT_READY_FILE:-$RUNTIME_DIR/audit-recent.ready}"
+RECENT_AUDIT_WINDOW=150
+LOCK_FILE="$RUNTIME_DIR/collector.lock"
+PROFILE_LOCK_FILE="${C2000_TRAFFIC_PROFILE_LOCK:-$RUNTIME_DIR/profile.lock}"
+DAEMON_PID_FILE="$RUNTIME_DIR/daemon.pid"
+PERSIST_FILE="$PERSIST_DIR/usage.tsv"
+HISTORY_PERSIST_FILE="$PERSIST_DIR/history.tsv"
+AUDIT_PERSIST_FILE="$PERSIST_DIR/audit.tsv"
+HNAT_DIR="${C2000_HNAT_DIR:-/sys/kernel/debug/hnat}"
+OAF_SYSCTL_DIR="${C2000_OAF_SYSCTL_DIR:-/proc/sys/oaf}"
+JSHN_LIB="${C2000_JSHN_LIB:-/usr/share/libubox/jshn.sh}"
+FEATURE_DIR="${C2000_FEATURE_DIR:-/etc/c2000max-traffic}"
+FEATURE_FILE="${C2000_FEATURE_FILE:-$FEATURE_DIR/feature.cfg}"
+if [ -n "${C2000_FEATURE_STATE_DIR:-}" ]; then
+	FEATURE_STATE_DEFAULT="$C2000_FEATURE_STATE_DIR"
+elif [ -n "${C2000_FEATURE_DIR+x}" ]; then
+	FEATURE_STATE_DEFAULT="$FEATURE_DIR/.c2000max-features"
+else
+	FEATURE_STATE_DEFAULT="$PERSIST_DIR/features"
+fi
+FEATURES_DIR="${C2000_FEATURES_DIR:-$FEATURE_STATE_DEFAULT}"
+FEATURE_ACTIVE_FILE="${C2000_FEATURE_ACTIVE_FILE:-${C2000_FEATURE_ACTIVE_PTR:-$FEATURES_DIR/active}}"
+FEATURE_LIBRARIES_DIR="${C2000_FEATURE_LIBRARIES_DIR:-${C2000_FEATURE_LIBRARY_DIR:-$FEATURES_DIR/libraries}}"
+FEATURE_PROFILE_OVERRIDE="${C2000_FEATURE_PROFILE:-${C2000_FEATURE_PROFILE_ID:-}}"
+FEATURE_META_FILE="${C2000_FEATURE_META_FILE:-${C2000_FEATURE_META:-$PERSIST_DIR/feature.meta}}"
+POLICY_TABLE="c2000_appaudit"
+POLICY_HASH_FILE="$RUNTIME_DIR/policy.hash"
+POLICY_COUNT_FILE="$RUNTIME_DIR/policy.count"
+POLICY_DNS_COUNT_FILE="$RUNTIME_DIR/policy.dns-count"
+POLICY_BYPASS_COUNT_FILE="$RUNTIME_DIR/policy.bypass-count"
+POLICY_ERROR_FILE="$RUNTIME_DIR/policy.error"
+POLICY_MODE_FILE="$RUNTIME_DIR/policy.control-mode"
+POLICY_REFRESH_FILE="$RUNTIME_DIR/policy.refreshed"
+AUDIT_DIAG_FILE="$RUNTIME_DIR/audit-diagnostics"
+OAF_CONFIG_DEVICE="${C2000_OAF_CONFIG_DEVICE:-/dev/appfilter}"
+DOMAIN_HELPER="${C2000_TRAFFIC_DOMAIN_HELPER:-/usr/libexec/c2000max-feature-domains.uc}"
+DNSMASQ_POLICY_FILE="c2000max-appaudit.conf"
+FLOW_BYPASS_MARK="0x00800000"
+CATALOG_CACHE_SCHEMA=2
+POLICY_DOMAIN_CACHE_SCHEMA=2
+POLICY_REFRESH_INTERVAL=60
+
+valid_profile_id()
+{
+	local profile="$1"
+
+	[ "${#profile}" -eq 64 ] || return 1
+	case "$profile" in *[!0-9A-Fa-f]*) return 1 ;; esac
+	return 0
+}
+
+valid_app_id()
+{
+	local app="$1" type index
+
+	case "$app" in ''|0*|*[!0-9]*) return 1 ;; esac
+	[ "${#app}" -le 5 ] || return 1
+	type=$((app / 1000))
+	index=$((app % 1000))
+	[ "$type" -ge 1 ] && [ "$type" -le 32 ] &&
+		[ "$index" -ge 1 ] && [ "$index" -le 512 ]
+}
+
+normalize_profile_id()
+{
+	valid_profile_id "$1" || return 1
+	printf '%s\n' "$1" | tr 'A-F' 'a-f'
+}
+
+feature_file_sha()
+{
+	[ -r "$1" ] || return 1
+	sha256sum "$1" 2>/dev/null | awk '{print tolower($1)}'
+}
+
+active_feature_profile()
+{
+	local profile
+
+	profile="$FEATURE_PROFILE_OVERRIDE"
+	if [ -n "$profile" ]; then
+		normalize_profile_id "$profile"
+		return $?
+	fi
+	if [ -r "$FEATURE_ACTIVE_FILE" ]; then
+		IFS= read -r profile < "$FEATURE_ACTIVE_FILE"
+		if valid_profile_id "$profile"; then
+			normalize_profile_id "$profile"
+			return 0
+		fi
+	fi
+	feature_file_sha "$FEATURE_FILE"
+}
+
+oaf_profile_epoch()
+{
+	local generation
+
+	[ -r "$OAF_SYSCTL_DIR/feature_generation" ] || return 1
+	generation="$(cat "$OAF_SYSCTL_DIR/feature_generation" 2>/dev/null)"
+	case "$generation" in ''|*[!0-9]*) return 1 ;; esac
+	generation=$((generation & 8191))
+	[ "$generation" -ne 0 ] || return 1
+	printf '%s\n' "$generation"
+}
+
+profile_feature_file()
+{
+	local profile active library current_sha
+
+	profile="$(normalize_profile_id "$1")" || return 1
+	library="$FEATURE_LIBRARIES_DIR/$profile/feature.cfg"
+	if [ -r "$library" ]; then
+		PROFILE_FEATURE_FILE="$library"
+		return 0
+	fi
+	active="$(active_feature_profile 2>/dev/null)"
+	current_sha="$(feature_file_sha "$FEATURE_FILE" 2>/dev/null)"
+	if [ "$profile" = "$active" ] && [ "$profile" = "$current_sha" ]; then
+		PROFILE_FEATURE_FILE="$FEATURE_FILE"
+		return 0
+	fi
+	return 1
+}
+
+resolve_feature_profile()
+{
+	local requested="$1" profile library
+
+	if [ -n "$requested" ]; then
+		profile="$(normalize_profile_id "$requested")" || return 1
+		library="$FEATURE_LIBRARIES_DIR/$profile/feature.cfg"
+		[ -r "$library" ] || return 1
+		PROFILE_FEATURE_FILE="$library"
+	else
+		profile="$(active_feature_profile)" || return 1
+		profile_feature_file "$profile" || return 1
+	fi
+	RESOLVED_PROFILE="$profile"
+}
+
+legacy_audit_profile()
+{
+	local profile
+
+	profile="$(uci -q get c2000max_traffic.audit.ruleset 2>/dev/null)"
+	if valid_profile_id "$profile"; then
+		normalize_profile_id "$profile"
+	else
+		active_feature_profile
+	fi
+}
+
+load_status_feature_metadata()
+{
+	local profile feature meta values rest meta_sha meta_version meta_format meta_apps trusted=0
+
+	profile="$(active_feature_profile 2>/dev/null)"
+	feature="$FEATURE_FILE"
+	if valid_profile_id "$profile" && profile_feature_file "$profile"; then
+		feature="$PROFILE_FEATURE_FILE"
+		meta="$FEATURE_LIBRARIES_DIR/$profile/profile.meta"
+		if [ -r "$meta" ]; then
+			values="$(awk -F= '
+				$1=="sha256" { sha=tolower($2) }
+				$1=="version" { version=$2 }
+				$1=="format" { format=$2 }
+				$1=="apps" { apps=$2 }
+				END { print sha "|" version "|" format "|" apps }
+			' "$meta" 2>/dev/null)"
+			meta_sha="${values%%|*}"; rest="${values#*|}"
+			meta_version="${rest%%|*}"; rest="${rest#*|}"
+			meta_format="${rest%%|*}"; meta_apps="${rest#*|}"
+			if [ "$meta_sha" = "$profile" ] &&
+			   { [ "$meta_format" = v3.0 ] || [ "$meta_format" = v4.0 ] ||
+			     [ "$meta_format" = v4.1 ] ||
+			     [ "$meta_format" = v4.2 ]; }; then
+				case "$meta_version" in
+					v[0-9]*)
+						case "$meta_version" in *[!A-Za-z0-9._+-]*) ;;
+							*) [ "${#meta_version}" -le 64 ] && trusted=1 ;;
+						esac
+						;;
+				esac
+				case "$meta_apps" in ''|0|0[0-9]*|*[!0-9]*) trusted=0 ;;
+					*) [ "$meta_apps" -le 16384 ] 2>/dev/null || trusted=0 ;;
+				esac
+			fi
+		fi
+	fi
+
+	FEATURE_STATUS_PROFILE="$profile"
+	FEATURE_STATUS_PATH="$feature"
+	if [ "$trusted" -eq 1 ]; then
+		FEATURE_STATUS_VERSION="$meta_version"
+		FEATURE_STATUS_FORMAT="$meta_format"
+		FEATURE_STATUS_APPS="$meta_apps"
+		FEATURE_STATUS_META=1
+		return 0
+	fi
+	FEATURE_STATUS_VERSION="$(awk '$1=="#version" {print $2; exit}' "$feature" 2>/dev/null)"
+	FEATURE_STATUS_FORMAT="$(awk '$1=="#format" {print $2; exit}' "$feature" 2>/dev/null)"
+	FEATURE_STATUS_APPS="$(awk '/^[0-9]+[[:space:]]+[^:]+:\[/ {ids[$1]=1} \
+		END {for (id in ids) n++; print n+0}' "$feature" 2>/dev/null)"
+	FEATURE_STATUS_META=0
+}
+
+profile_lock_acquire()
+{
+	local mode="$1" owner_var="$2"
+
+	eval "$owner_var=0"
+	[ "${C2000_TRAFFIC_PROFILE_LOCK_HELD:-0}" != 1 ] || return 0
+	mkdir -p "$RUNTIME_DIR" "$(dirname "$PROFILE_LOCK_FILE")" || return 1
+	exec 5> "$PROFILE_LOCK_FILE" || return 1
+	case "$mode" in
+		exclusive) flock -x 5 || return 1 ;;
+		shared) flock -s 5 || return 1 ;;
+		*) return 1 ;;
+	esac
+	C2000_TRAFFIC_PROFILE_LOCK_HELD=1
+	export C2000_TRAFFIC_PROFILE_LOCK_HELD
+	eval "$owner_var=1"
+}
+
+profile_lock_release()
+{
+	local owner_var="$1" owned=0
+
+	eval "owned=\${$owner_var:-0}"
+	[ "$owned" -eq 1 ] || return 0
+	flock -u 5
+	unset C2000_TRAFFIC_PROFILE_LOCK_HELD
+	eval "$owner_var=0"
+}
+
+collector_lock_acquire()
+{
+	local mode="$1" owner_var="$2"
+
+	eval "$owner_var=0"
+	[ "${C2000_TRAFFIC_COLLECTOR_LOCK_HELD:-0}" != 1 ] || return 0
+	mkdir -p "$RUNTIME_DIR" || return 1
+	exec 9> "$LOCK_FILE" || return 1
+	case "$mode" in
+		blocking) flock -x 9 || return 1 ;;
+		nonblocking) flock -n 9 || return 2 ;;
+		*) return 1 ;;
+	esac
+	C2000_TRAFFIC_COLLECTOR_LOCK_HELD=1
+	AUDIT_LOCK_HELD=1
+	export C2000_TRAFFIC_COLLECTOR_LOCK_HELD
+	eval "$owner_var=1"
+}
+
+collector_lock_release()
+{
+	local owner_var="$1" owned=0
+
+	eval "owned=\${$owner_var:-0}"
+	[ "$owned" -eq 1 ] || return 0
+	AUDIT_LOCK_HELD=0
+	flock -u 9
+	unset C2000_TRAFFIC_COLLECTOR_LOCK_HELD
+	eval "$owner_var=0"
+}
+
+storage_limit_bytes()
+{
+	local megabytes
+
+	case "$C2000_TRAFFIC_STORAGE_LIMIT_BYTES" in
+		''|*[!0-9]*) ;;
+		*)
+			[ "$C2000_TRAFFIC_STORAGE_LIMIT_BYTES" -gt 0 ] 2>/dev/null && {
+				printf '%s\n' "$C2000_TRAFFIC_STORAGE_LIMIT_BYTES"
+				return 0
+			}
+			;;
+	esac
+	megabytes="$(uci -q get c2000max_traffic.config.storage_limit_mb)"
+	case "$megabytes" in ''|*[!0-9]*) megabytes=100 ;; esac
+	[ "$megabytes" -ge 1 ] 2>/dev/null || megabytes=1
+	[ "$megabytes" -le 2048 ] 2>/dev/null || megabytes=2048
+	printf '%s\n' "$((megabytes * 1024 * 1024))"
+}
+
+file_size()
+{
+	local size
+
+	# BusyBox wc reads regular files byte by byte. Audit history may reach the
+	# configured 100 MB default, and this helper runs during every sample and
+	# status poll, so use the explicitly depended-on coreutils stat fast path.
+	size="$(stat -c '%s' "$1" 2>/dev/null)"
+	case "$size" in ''|*[!0-9]*) size="$(wc -c < "$1" 2>/dev/null)" ;; esac
+	case "$size" in ''|*[!0-9]*) size=0 ;; esac
+	printf '%s\n' "$size"
+}
+
+trim_oldest_rows()
+{
+	local file="$1" keep="$2" size tmp
+
+	[ -f "$file" ] || return 0
+	size="$(file_size "$file")"
+	[ "$size" -gt "$keep" ] 2>/dev/null || return 0
+	tmp="${file}.trim"
+	if [ "$keep" -le 0 ] 2>/dev/null; then
+		: > "$tmp" || return 1
+	else
+		# Logs are oldest-first. tail -c keeps the newest byte range and the
+		# first (possibly partial) TSV row is discarded to preserve validity.
+		tail -c "$keep" "$file" 2>/dev/null | sed '1d' > "$tmp" || return 1
+	fi
+	mv "$tmp" "$file"
+}
+
+enforce_storage_limit()
+{
+	local limit history_size audit_size audit_budget ready_tmp
+
+	limit="$(storage_limit_bytes)"
+	history_size="$(file_size "$HISTORY_FILE")"
+	audit_size="$(file_size "$AUDIT_FILE")"
+	[ $((history_size + audit_size)) -gt "$limit" ] || return 0
+
+	# The minute history is small and powers the overview chart. Preserve it
+	# first, then evict the oldest hourly application rows until the combined
+	# logical log size is within the configured budget.
+	audit_budget=$((limit - history_size))
+	[ "$audit_budget" -ge 0 ] || audit_budget=0
+	trim_oldest_rows "$AUDIT_FILE" "$audit_budget" || return 1
+	audit_size="$(file_size "$AUDIT_FILE")"
+	[ $((history_size + audit_size)) -le "$limit" ] ||
+		trim_oldest_rows "$HISTORY_FILE" "$((limit - audit_size))" || return 1
+
+	# Trimming only evicts oldest rows, so the newest-150 cache remains valid.
+	# Refresh its source-size marker to prevent the next polling request from
+	# needlessly rebuilding the cache from the bounded-but-potentially-large log.
+	if [ -f "$RECENT_AUDIT_FILE" ]; then
+		ready_tmp="${RECENT_AUDIT_READY_FILE}.$$"
+		file_size "$AUDIT_FILE" > "$ready_tmp" &&
+			mv "$ready_tmp" "$RECENT_AUDIT_READY_FILE"
+	fi
+}
+
+migrate_audit_profiles_unlocked()
+{
+	local profile tmp
+
+	[ -f "$AUDIT_PROFILED_FILE" ] && return 0
+	[ -s "$AUDIT_FILE" ] || { : > "$AUDIT_PROFILED_FILE"; return 0; }
+	awk -F '\t' 'NF == 12 { found=1; exit } END { exit !found }' \
+		"$AUDIT_FILE" 2>/dev/null || { : > "$AUDIT_PROFILED_FILE"; return 0; }
+	# Upgrade defaults bind audit.ruleset before any feature switch.  Prefer
+	# that immutable old profile when upgrading legacy 12-column rows; using
+	# the newly active profile here would silently rename historical APPIDs.
+	profile="$(legacy_audit_profile)" || return 1
+	tmp="${AUDIT_FILE}.profile.$$"
+	rm -f "$RECENT_AUDIT_READY_FILE"
+	awk -F '\t' -v OFS='\t' -v profile="$profile" '
+		NF == 12 { print $0,profile; next }
+		NF >= 13 { print }
+	' "$AUDIT_FILE" > "$tmp" && mv "$tmp" "$AUDIT_FILE" && : > "$AUDIT_PROFILED_FILE"
+}
+
+rebuild_recent_audit_cache()
+{
+	local legacy cutoff retention tmp candidates ready_tmp size
+
+	legacy="$(legacy_audit_profile 2>/dev/null)"
+	if ! valid_profile_id "$legacy"; then
+		legacy="$(active_feature_profile 2>/dev/null)" || return 1
+	fi
+	retention="$(uci -q get c2000max_traffic.audit.retention_days)"
+	case "$retention" in ''|*[!0-9]*) retention=30 ;; esac
+	[ "$retention" -ge 1 ] 2>/dev/null || retention=1
+	[ "$retention" -le 90 ] 2>/dev/null || retention=90
+	cutoff=$(( $(date +%s) - retention * 86400 ))
+	tmp="${RECENT_AUDIT_FILE}.$$"
+	candidates="${RECENT_AUDIT_FILE}.candidates.$$"
+	ready_tmp="${RECENT_AUDIT_READY_FILE}.$$"
+	mkdir -p "$RUNTIME_DIR" || return 1
+
+	# audit.tsv can grow to the configured storage ceiling, so scan it only
+	# while recovering a missing cache (normally once at boot).  Steady-state
+	# sampling updates the bounded cache incrementally below.
+	awk -F '\t' -v OFS='\t' -v legacy="$legacy" -v cutoff="$cutoff" '
+		function valid_appid(id,type,idx) {
+			type=int(id/1000); idx=id%1000;
+			return type>=1 && type<=32 && idx>=1 && idx<=512;
+		}
+		function valid_profile(p) {
+			return length(p)==64 && p !~ /[^0-9A-Fa-f]/;
+		}
+		NF >= 12 && valid_appid($5+0) && ($12+0) >= cutoff {
+			p=(NF >= 13 && valid_profile($13)) ? tolower($13) : legacy;
+			print $12+0,$1+0,$2,$3,$4,$5+0,p;
+		}
+		' "$AUDIT_FILE" > "$candidates" 2>/dev/null || {
+			rm -f "$tmp" "$candidates" "$ready_tmp"
+			return 1
+		}
+	# ash has no portable pipefail.  Keep each producer in its own checked
+	# stage so an awk/sort write failure cannot publish a partial cache.  GNU
+	# sort (an explicit package dependency) opens -o only after reading input,
+	# allowing the potentially large recovery stage to be sorted in place.
+	if ! LC_ALL=C sort -t "$(printf '\t')" -k1,1nr -k2,2nr -k3,3 \
+		-k7,7 -k6,6n -o "$candidates" "$candidates" ||
+	   ! head -n "$RECENT_AUDIT_WINDOW" "$candidates" > "$tmp"; then
+		rm -f "$tmp" "$candidates" "$ready_tmp"
+		return 1
+	fi
+	rm -f "$candidates"
+	mv "$tmp" "$RECENT_AUDIT_FILE" || {
+		rm -f "$tmp" "$ready_tmp"
+		return 1
+	}
+	size="$(file_size "$AUDIT_FILE")"
+	if ! printf '%s\n' "$size" > "$ready_tmp" ||
+	   ! mv "$ready_tmp" "$RECENT_AUDIT_READY_FILE"; then
+		rm -f "$ready_tmp"
+		return 1
+	fi
+}
+
+ensure_recent_audit_cache()
+{
+	# Every in-process audit mutation removes the ready marker before changing
+	# audit.tsv and restores it only after atomically updating the cache. Avoid
+	# even a wc/stat walk of the large history on the frequent polling path.
+	[ -f "$RECENT_AUDIT_FILE" ] && [ -r "$RECENT_AUDIT_READY_FILE" ] && return 0
+	rebuild_recent_audit_cache
+}
+
+snapshot_recent_audit_cache()
+{
+	local output="$1" before after attempt=0
+	RECENT_AUDIT_SNAPSHOT_STALE=0
+
+	# The sampler publishes both files with rename(2): audit-recent.tsv is
+	# always a complete, bounded (150-row) generation, while the ready marker
+	# is absent during an update.  Take a stable snapshot without waiting for
+	# collector.lock, which can be held for a large audit.tsv merge.  This is
+	# the normal LuCI polling path; the locked recovery path below is needed
+	# only when the cache is genuinely missing (normally first boot).
+	while [ "$attempt" -lt 3 ]; do
+		before="$(cat "$RECENT_AUDIT_READY_FILE" 2>/dev/null)" || before=""
+		case "$before" in ''|*[!0-9]*) attempt=$((attempt + 1)); continue ;; esac
+		if ! cp "$RECENT_AUDIT_FILE" "$output" 2>/dev/null; then
+			rm -f "$output"
+			attempt=$((attempt + 1))
+			continue
+		fi
+		after="$(cat "$RECENT_AUDIT_READY_FILE" 2>/dev/null)" || after=""
+		if [ "$before" = "$after" ]; then
+			return 0
+		fi
+		rm -f "$output"
+		attempt=$((attempt + 1))
+	done
+	# merge_audit() intentionally removes the marker before it streams the
+	# potentially large accounting log.  The old cache remains a complete
+	# rename-published generation throughout that transaction, so serving that
+	# at-most-one-sample-stale snapshot is preferable to blocking the whole LuCI
+	# view behind collector.lock.  A failed cache update removes the cache too.
+	if cp "$RECENT_AUDIT_FILE" "$output" 2>/dev/null; then
+		RECENT_AUDIT_SNAPSHOT_STALE=1
+		return 0
+	fi
+	rm -f "$output"
+	return 1
+}
+
+update_recent_audit_cache()
+{
+	local deltas="$1" profile="$2" now="$3" cutoff="$4" force_unknown="$5"
+	local tmp candidates ready_tmp size
+
+	valid_profile_id "$profile" || return 1
+	tmp="${RECENT_AUDIT_FILE}.$$"
+	candidates="${RECENT_AUDIT_FILE}.candidates.$$"
+	ready_tmp="${RECENT_AUDIT_READY_FILE}.$$"
+	rm -f "$RECENT_AUDIT_READY_FILE"
+	[ -f "$RECENT_AUDIT_FILE" ] || : > "$RECENT_AUDIT_FILE"
+
+	# Cache rows are: last_seen, hour, device id, IP, display name, APPID,
+	# immutable profile SHA.  Combining at most 150 cached rows with this
+	# sample's deltas keeps polling O(150), independent of audit.tsv size.
+	awk -F '\t' -v OFS='\t' -v profile="$profile" -v now="$now" \
+		-v cutoff="$cutoff" -v force_unknown="$force_unknown" '
+		function valid_appid(id,type,idx) {
+			type=int(id/1000); idx=id%1000;
+			return type>=1 && type<=32 && idx>=1 && idx<=512;
+		}
+		function valid_profile(p) {
+			return length(p)==64 && p !~ /[^0-9A-Fa-f]/;
+		}
+		function remember(seen,bucket,dev,ip,name,app,prof, key) {
+			if (seen < cutoff || dev=="" || !valid_appid(app) || !valid_profile(prof)) return;
+			key=bucket SUBSEP dev SUBSEP prof SUBSEP app;
+			if (!(key in latest) || seen >= latest[key]) {
+				latest[key]=seen; hour[key]=bucket; device[key]=dev;
+				if (ip != "" || !(key in address)) address[key]=ip;
+				if (name != "" || !(key in label)) label[key]=name;
+				appid[key]=app; ruleset[key]=tolower(prof);
+			}
+		}
+		FILENAME == ARGV[1] && NF >= 7 {
+			remember($1+0,$2+0,$3,$4,$5,$6+0,tolower($7)); next;
+		}
+		FILENAME == ARGV[2] && NF >= 8 && !force_unknown {
+			remember($7+0,($7+0)-(($7+0)%3600),$1,$2,$3,$8+0,profile);
+		}
+		END {
+			for (key in latest)
+				print latest[key],hour[key],device[key],address[key],label[key],appid[key],ruleset[key];
+		}
+		' "$RECENT_AUDIT_FILE" "$deltas" > "$candidates" || {
+			rm -f "$tmp" "$candidates" "$ready_tmp"
+			return 1
+		}
+	if ! LC_ALL=C sort -t "$(printf '\t')" -k1,1nr -k2,2nr -k3,3 \
+		-k7,7 -k6,6n -o "$candidates" "$candidates" ||
+	   ! head -n "$RECENT_AUDIT_WINDOW" "$candidates" > "$tmp"; then
+		rm -f "$tmp" "$candidates" "$ready_tmp"
+		return 1
+	fi
+	rm -f "$candidates"
+	mv "$tmp" "$RECENT_AUDIT_FILE" || {
+		rm -f "$tmp" "$ready_tmp"
+		return 1
+	}
+	size="$(file_size "$AUDIT_FILE")"
+	if ! printf '%s\n' "$size" > "$ready_tmp" ||
+	   ! mv "$ready_tmp" "$RECENT_AUDIT_READY_FILE"; then
+		rm -f "$ready_tmp"
+		return 1
+	fi
+}
+
+migrate_audit_profiles()
+{
+	local rc profile_owned=0
+
+	[ -f "$AUDIT_PROFILED_FILE" ] && return 0
+	profile_lock_acquire shared profile_owned || return 1
+	if [ "${AUDIT_LOCK_HELD:-0}" = 1 ]; then
+		migrate_audit_profiles_unlocked
+		rc=$?
+		profile_lock_release profile_owned
+		return "$rc"
+	fi
+	exec 6> "$LOCK_FILE" || { profile_lock_release profile_owned; return 1; }
+	flock -x 6 || { profile_lock_release profile_owned; return 1; }
+	migrate_audit_profiles_unlocked
+	rc=$?
+	flock -u 6
+	profile_lock_release profile_owned
+	return "$rc"
+}
+
+ensure_runtime()
+{
+	mkdir -p "$RUNTIME_DIR" "$PERSIST_DIR" || return 1
+	[ -f "$TOTALS_FILE" ] || {
+		if [ -s "$PERSIST_FILE" ]; then
+			cp "$PERSIST_FILE" "$TOTALS_FILE" || return 1
+		else
+			: > "$TOTALS_FILE" || return 1
+		fi
+	}
+	[ -f "$HISTORY_FILE" ] || {
+		if [ -s "$HISTORY_PERSIST_FILE" ]; then
+			cp "$HISTORY_PERSIST_FILE" "$HISTORY_FILE" || return 1
+		else
+			: > "$HISTORY_FILE" || return 1
+		fi
+	}
+	[ -f "$AUDIT_FILE" ] || {
+		rm -f "$AUDIT_PROFILED_FILE"
+		rm -f "$RECENT_AUDIT_FILE" "$RECENT_AUDIT_READY_FILE"
+		if [ -s "$AUDIT_PERSIST_FILE" ]; then
+			cp "$AUDIT_PERSIST_FILE" "$AUDIT_FILE" || return 1
+		else
+			: > "$AUDIT_FILE" || return 1
+		fi
+	}
+	migrate_audit_profiles || return 1
+	# Rebuilding publishes two cache files and must be serialized with the
+	# sampler's audit/cache transaction.  Status, catalog and audit-history RPCs
+	# call ensure_runtime() without the collector lock and do not consume this
+	# cache; the sampler and recent-audit RPC enter with AUDIT_LOCK_HELD=1.
+	[ "${AUDIT_LOCK_HELD:-0}" = 1 ] || return 0
+	ensure_recent_audit_cache
+}
+
+audit_enabled()
+{
+	[ "$(uci -q get c2000max_traffic.audit.enabled)" = 1 ]
+}
+
+control_rule_configured_section()
+{
+	local section="$1" enabled match_mode apps categories
+
+	config_get_bool enabled "$section" enabled 1
+	[ "$enabled" -eq 1 ] || return 0
+	config_get match_mode "$section" match_mode ""
+	config_get apps "$section" apps ""
+	config_get categories "$section" categories ""
+	case "$match_mode" in
+		app) [ -n "$apps" ] || return 0 ;;
+		category) [ -n "$categories" ] || return 0 ;;
+		*) [ -n "$apps$categories" ] || return 0 ;;
+	esac
+	CONTROL_RULE_FOUND=1
+}
+
+control_rule_configured()
+{
+	local CONTROL_RULE_FOUND=0
+
+	. /lib/functions.sh
+	config_load c2000max_traffic
+	config_foreach control_rule_configured_section schedule
+	[ "$CONTROL_RULE_FOUND" -eq 1 ]
+}
+
+application_engine_needed()
+{
+	# Traffic history is optional, but an enabled application-control rule still
+	# needs OAF to classify flows. Previously disabling audit silently removed
+	# every category rule even though LuCI kept the rule enabled.
+	audit_enabled || control_rule_configured
+}
+
+statistics_enabled()
+{
+	[ "$(uci -q get c2000max_traffic.config.enabled)" = 1 ]
+}
+
+ensure_audit_engine()
+{
+	local waited=0
+
+	application_engine_needed || return 0
+	[ -r "$OAF_SYSCTL_DIR/version" ] && return 0
+	[ -x /etc/init.d/c2000max-appfilter ] || return 1
+	# A full-image boot normally starts this service while audit is disabled,
+	# so rc.common legitimately leaves it inactive.  The later LuCI commit is
+	# tracked by c2000max-traffic, not by an already-running appfilter instance.
+	# Recover here before compiling an nft policy that consumes OAF secmarks.
+	/etc/init.d/c2000max-appfilter start >/dev/null 2>&1 || return 1
+	while [ "$waited" -lt 10 ]; do
+		[ -r "$OAF_SYSCTL_DIR/version" ] && return 0
+		sleep 1
+		waited=$((waited + 1))
+	done
+	return 1
+}
+
+network_device()
+{
+	local network="$1" status device
+
+	[ -n "$network" ] || return 1
+	status="$(ubus call "network.interface.${network}" status 2>/dev/null)"
+	device="$(printf '%s' "$status" | jsonfilter -e '@.l3_device' 2>/dev/null)"
+	[ -n "$device" ] ||
+		device="$(printf '%s' "$status" | jsonfilter -e '@.device' 2>/dev/null)"
+	[ -n "$device" ] || return 1
+	printf '%s\n' "$device"
+}
+
+valid_network_device()
+{
+	[ -n "$1" ] && [ "${#1}" -le 15 ] || return 1
+	case "$1" in *[!A-Za-z0-9_.:@-]*) return 1 ;; *) return 0 ;; esac
+}
+
+lan_devices()
+{
+	local lan bridge path port
+
+	lan="$(network_device lan 2>/dev/null || true)"
+	valid_network_device "$lan" || lan=br-lan
+	{
+		for bridge in "$lan"; do
+			valid_network_device "$bridge" && printf '%s\n' "$bridge"
+		done
+		for bridge in "$lan"; do
+			valid_network_device "$bridge" || continue
+			[ -d "/sys/class/net/$bridge/brif" ] || continue
+			for path in "/sys/class/net/$bridge/brif"/*; do
+				[ -e "$path" ] || continue
+				port="${path##*/}"
+				valid_network_device "$port" && printf '%s\n' "$port"
+			done
+		done
+	} | awk 'NF && !seen[$0]++'
+}
+
+cellular_network()
+{
+	local network section alias state
+
+	network="$(uci -q get c2000max.ethernet.cellular_interface)"
+	if [ -n "$network" ]; then
+		printf '%s\n' "$network"
+		return 0
+	fi
+
+	for section in $(uci -q show qmodem 2>/dev/null |
+		sed -n 's/^qmodem\.\([^.=]*\)=modem-device$/\1/p'); do
+		state="$(uci -q get "qmodem.${section}.state")"
+		[ "$state" != disabled ] || continue
+		alias="$(uci -q get "qmodem.${section}.alias")"
+		printf '%s\n' "${alias:-$section}"
+		return 0
+	done
+
+	return 1
+}
+
+device_is_cellular()
+{
+	local device="$1" cell_network cell_device configured
+
+	[ -n "$device" ] || return 1
+	cell_network="$(cellular_network 2>/dev/null)"
+	cell_device="$(network_device "$cell_network" 2>/dev/null)"
+	configured="$(uci -q get "network.${cell_network}.device")"
+
+	[ "$device" = "$cell_device" ] ||
+		[ "$device" = "$configured" ] ||
+		[ "$device" = "$cell_network" ]
+}
+
+build_hosts()
+{
+	local output="$1" raw tmp devices dev
+	raw="${output}.raw"
+	tmp="${output}.tmp"
+	devices="${output}.devices"
+
+	: > "$raw" || return 1
+	lan_devices > "$devices" || return 1
+	[ -s "$devices" ] || printf '%s\n' br-lan > "$devices"
+	if [ -r /tmp/dhcp.leases ]; then
+		awk 'NF >= 4 { print $3 "\t" tolower($2) "\t" (($4 == "*") ? "" : $4) }' \
+			/tmp/dhcp.leases >> "$raw"
+	fi
+	# Preserve a previously learned name while DHCP/neighbor tables are between
+	# refreshes. The current lease rows above take precedence in the final join.
+	if [ -r "$TOTALS_FILE" ]; then
+		awk -F '\t' 'NF >= 3 && $1 != "" && $2 != "" && $3 != "" {
+			print $2 "\t" tolower($1) "\t" $3
+		}' "$TOTALS_FILE" >> "$raw"
+	fi
+	while IFS= read -r dev; do
+		valid_network_device "$dev" || continue
+		ip neigh show dev "$dev" 2>/dev/null |
+			awk '{ mac=""; for (i=1; i<=NF; i++) if ($i=="lladdr") mac=$(i+1); if (mac!="") print $1 "\t" tolower(mac) "\t" }' \
+				>> "$raw"
+		ip -6 neigh show dev "$dev" 2>/dev/null |
+			awk '{ mac=""; for (i=1; i<=NF; i++) if ($i=="lladdr") mac=$(i+1); if (mac!="") print $1 "\t" tolower(mac) "\t" }' \
+				>> "$raw"
+		ip -o address show dev "$dev" 2>/dev/null |
+			awk '{ split($4, a, "/"); print a[1] "\t@router\tC2000MAX" }' >> "$raw"
+	done < "$devices"
+	if [ -r /proc/net/arp ]; then
+		awk 'FILENAME == ARGV[1] { lan[$1]=1; next }
+			FILENAME == ARGV[2] && FNR > 1 && ($6 in lan) && $4 != "00:00:00:00:00:00" {
+				print $1 "\t" tolower($4) "\t"
+			}' "$devices" /proc/net/arp >> "$raw"
+	fi
+
+	awk -F '\t' 'function validmac(value) {
+			return value ~ /^[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]$/
+		}
+		BEGIN { OFS="\t" }
+		$1 != "" {
+			ip=$1; mac=tolower($2); name=$3;
+			if (mac != "" && mac != "00:00:00:00:00:00") key[ip]=mac;
+			else if (!(ip in key)) key[ip]=ip;
+			if (name != "" && !(ip in names)) names[ip]=name;
+			if (name != "" && validmac(mac) && !(mac in macnames)) macnames[mac]=name;
+		}
+		END {
+			for (ip in key) {
+				name=names[ip]; if (name == "" && (key[ip] in macnames)) name=macnames[key[ip]];
+				print ip, key[ip], name;
+			}
+		}' "$raw" | sort -t "$(printf '\t')" -k1,1 > "$tmp" && mv "$tmp" "$output"
+	rm -f "$devices"
+}
+
+default_uplink_class()
+{
+	local device
+
+	device="$(ip -4 route get 1.1.1.1 2>/dev/null |
+		sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n 1)"
+	if device_is_cellular "$device"; then
+		printf '%s\n' fiveg
+	else
+		printf '%s\n' other
+	fi
+}
+
+build_mark_map()
+{
+	local output="$1" rules mark table route_dev class decimal hex
+	rules="${output}.rules"
+
+	: > "$output" || return 1
+	ip -4 rule show 2>/dev/null |
+		sed -n 's/.*fwmark \([^ /]*\)\(\/[^ ]*\)\{0,1\}.*lookup \([^ ]*\).*/\1 \3/p' > "$rules"
+	while read -r mark table; do
+		[ -n "$mark" ] && [ -n "$table" ] || continue
+		route_dev="$(ip -4 route show table "$table" default 2>/dev/null |
+			sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n 1)"
+		[ -n "$route_dev" ] || continue
+		class=other
+		device_is_cellular "$route_dev" && class=fiveg
+		case "$mark" in
+			0x*|0X*)
+				hex="${mark#0x}"; hex="${hex#0X}"
+				case "$hex" in ''|*[!0-9A-Fa-f]*) continue ;; esac
+				decimal=$((mark))
+				;;
+			*[!0-9]*|'') continue ;;
+			*) decimal=$((mark)) ;;
+		esac
+		printf '%s\t%s\n' "$decimal" "$class" >> "$output"
+	done < "$rules"
+}
+
+sync_hardware_mib()
+{
+	local counter_node lock_held=0
+
+	# Reading the MediaTek MIB is a read-clear walk over live FOE entries.  It is
+	# useful only for traffic accounting and must not run merely because audit or
+	# application control is enabled.  Keeping this hard gate here also protects
+	# explicit mib-sync calls made by acceleration lifecycle scripts.
+	statistics_enabled || return 0
+
+	if [ "${C2000MAX_ACCEL_LOCKS_HELD:-0}" != 1 ]; then
+		exec 8> /var/lock/c2000max-hnat.lock || return 1
+		# A traffic sample already owns collector.lock. Never wait here for an
+		# accelerator transition which may itself be waiting for a final sample.
+		# Skipping one read-clear walk is safe: the hardware counters remain for
+		# the next cycle, whereas blocking forms a permanent EQOS/traffic deadlock.
+		if ! flock -n 8; then
+			exec 8>&-
+			return 0
+		fi
+		lock_held=1
+	fi
+
+	if [ "$(cat "$HNAT_DIR/hook_toggle" 2>/dev/null)" = enabled ]; then
+		counter_node="$HNAT_DIR/mib_sync"
+		[ -r "$counter_node" ] || counter_node="$HNAT_DIR/all_entry"
+		if [ -r "$counter_node" ]; then
+			# mib_sync calls hnat_get_count() for each live FOE entry without
+			# rendering the full table. Controller-enforced type-7 accounting
+			# transfers each read-clear MIB delta to conntrack before snapshot.
+			timeout 5 sh -c 'cat "$1" >/dev/null' sh "$counter_node" \
+				2>/dev/null || true
+		fi
+	fi
+
+	[ "$lock_held" -ne 1 ] || flock -u 8
+}
+
+read_conntrack()
+{
+	local output="$1" tmp
+	tmp="${output}.tmp"
+
+	: > "$tmp" || return 1
+	timeout 8 conntrack -L -f ipv4 -o extended,id >> "$tmp" 2>/dev/null || true
+	timeout 8 conntrack -L -f ipv6 -o extended,id >> "$tmp" 2>/dev/null || true
+	mv "$tmp" "$output"
+}
+
+parse_conntrack()
+{
+	local hosts="$1" raw="$2" output="$3" tmp expected_epoch
+	tmp="${output}.tmp"
+	expected_epoch="$(oaf_profile_epoch 2>/dev/null || true)"
+
+	awk -F '\t' -v expected_epoch="$expected_epoch" 'function number(s, value, i, digit) {
+			if (s !~ /^0[xX][0-9a-fA-F]+$/) return s + 0;
+			s=tolower(substr(s, 3)); value=0;
+			for (i=1; i<=length(s); i++) {
+				digit=index("0123456789abcdef", substr(s, i, 1)) - 1;
+				value=value * 16 + digit;
+			}
+			return value;
+		}
+		function valid_appid(id, type, idx) {
+			id += 0; type=int(id / 1000); idx=id % 1000;
+			return type >= 1 && type <= 32 && idx >= 1 && idx <= 512;
+		}
+		BEGIN { OFS="\t" }
+		FILENAME == ARGV[1] {
+			hostkey[$1]=$2; hostname[$1]=$3; next;
+		}
+		FILENAME == ARGV[2] {
+			delete src; delete dst; delete bytes;
+			nsrc=ndst=nbytes=0; mark=0; secmark=0; id="";
+			n=split($0, f, /[[:space:]]+/);
+			for (i=1; i<=n; i++) {
+				split(f[i], kv, "=");
+				if (kv[1]=="src") src[++nsrc]=kv[2];
+				else if (kv[1]=="dst") dst[++ndst]=kv[2];
+				else if (kv[1]=="bytes") bytes[++nbytes]=number(kv[2]);
+				else if (kv[1]=="mark") mark=number(kv[2]);
+				else if (kv[1]=="secmark") secmark=number(kv[2]);
+				else if (kv[1]=="id") id=kv[2];
+			}
+			if (nsrc < 2 || ndst < 2 || nbytes < 2) next;
+			client=""; up=down=0; remote="";
+			if ((src[1] in hostkey) && hostkey[src[1]] != "@router") {
+				client=src[1]; remote=dst[1]; up=bytes[1]; down=bytes[2];
+			} else if ((src[2] in hostkey) && hostkey[src[2]] != "@router") {
+				client=src[2]; remote=dst[2]; up=bytes[2]; down=bytes[1];
+			} else next;
+			# Exclude router management and traffic between local clients.
+			if (remote in hostkey) next;
+			key=hostkey[client];
+			if (key == "" || key == "@router") key=client;
+			if (id == "") id=src[1] ":" dst[1] ":" src[2] ":" dst[2];
+			raw_appid=secmark % 65536;
+			raw_epoch=int(secmark / 65536) % 8192;
+			appid=valid_appid(raw_appid) ? raw_appid : 0;
+			# A terminal APPID is meaningful only for the feature generation
+			# which published it.  This prevents numeric IDs from a previous
+			# native/OAF profile being renamed or blocked as a different app.
+			if (expected_epoch != "" && raw_appid != 0 &&
+			    raw_epoch != expected_epoch+0) appid=0;
+			# APP_ID 1 is the terminal "not identified" sentinel.  The valid
+			# OAF encoding is type*1000+index (type 1..32, index 1..512);
+			# normalize every sentinel or malformed value to application 0.
+			# Backward-compatible read for unmodified OAF, but never interpret
+			# mwan3 routing marks below the OAF application range as APP_ID.
+			if (expected_epoch == "" && appid == 0 && raw_appid == 0 &&
+			    valid_appid(mark % 65536))
+				appid=mark % 65536;
+			print id, key, sprintf("%.0f", up), sprintf("%.0f", down),
+				mark, client, hostname[client], appid;
+		}' "$hosts" "$raw" > "$tmp" && mv "$tmp" "$output"
+}
+
+record_audit_diagnostics()
+{
+	local raw="$1" current="$2" total identified unknown secmarks hits
+
+	total="$(awk -F '\t' 'NF >= 8 { n++ } END { print n+0 }' "$current")"
+	identified="$(awk -F '\t' '
+		function valid(id,t,i) { t=int(id/1000); i=id%1000; return t>=1 && t<=32 && i>=1 && i<=512 }
+		valid($8+0) { n++ } END { print n+0 }' "$current")"
+	unknown="$(awk -F '\t' '$8 == 0 { n++ } END { print n+0 }' "$current")"
+	secmarks="$(awk '
+		function number(s, value, i, digit) {
+			if (s !~ /^0[xX][0-9a-fA-F]+$/) return s + 0;
+			s=tolower(substr(s, 3)); value=0;
+			for (i=1; i<=length(s); i++) {
+				digit=index("0123456789abcdef", substr(s, i, 1)) - 1;
+				value=value * 16 + digit;
+			}
+			return value;
+		}
+		{
+			for (i=1; i<=NF; i++) if ($i ~ /^secmark=/) {
+				split($i, kv, "="); if (number(kv[2]) != 0) n++;
+			}
+		}
+		END { print n+0 }' "$raw")"
+	hits="$(awk 'function valid(id,t,i) { t=int(id/1000); i=id%1000; return t>=1 && t<=32 && i>=1 && i<=512 }
+		NR > 1 && valid($2+0) { n++ } END { print n+0 }' \
+		/proc/net/af_visit 2>/dev/null || true)"
+	{
+		printf 'total=%s\n' "$total"
+		printf 'identified=%s\n' "$identified"
+		printf 'unknown=%s\n' "$unknown"
+		printf 'secmarks=%s\n' "$secmarks"
+		printf 'kernel_hits=%s\n' "${hits:-0}"
+	} > "$AUDIT_DIAG_FILE.tmp" && mv "$AUDIT_DIAG_FILE.tmp" "$AUDIT_DIAG_FILE"
+}
+
+calculate_deltas()
+{
+	local marks="$1" old="$2" current="$3" output="$4" fallback="$5" now="$6"
+	local tmp="${output}.tmp"
+
+	[ -f "$old" ] || : > "$old"
+	awk -F '\t' -v OFS='\t' -v fallback="$fallback" -v now="$now" '
+		FILENAME == ARGV[1] { markclass[$1]=$2; next }
+		FILENAME == ARGV[2] { oldkey[$1]=$2; oldup[$1]=$3+0; olddown[$1]=$4+0; next }
+		FILENAME == ARGV[3] {
+			up=$3+0; down=$4+0;
+			if (($1 in oldkey) && oldkey[$1] == $2) {
+				up -= oldup[$1]; down -= olddown[$1];
+			}
+			if (up < 0) up=$3+0;
+			if (down < 0) down=$4+0;
+			class=markclass[$5];
+			if (class == "") class=fallback;
+			if (class != "fiveg" && class != "other") class="unknown";
+			if (up > 0 || down > 0)
+				print $2, $6, $7, class, sprintf("%.0f", up),
+					sprintf("%.0f", down), now, $8+0;
+		}' "$marks" "$old" "$current" > "$tmp" && mv "$tmp" "$output"
+}
+
+merge_totals()
+{
+	local deltas="$1" tmp="${TOTALS_FILE}.tmp"
+
+	awk -F '\t' -v OFS='\t' '
+		FILENAME == ARGV[1] && $0 !~ /^#/ {
+			key=$1; ip[key]=$2; name[key]=$3;
+			fu[key]=$4+0; fd[key]=$5+0; ou[key]=$6+0; od[key]=$7+0;
+			uu[key]=$8+0; ud[key]=$9+0; seen[key]=$10+0; next;
+		}
+		FILENAME == ARGV[2] {
+			key=$1; if ($2!="") ip[key]=$2; if ($3!="") name[key]=$3;
+			if ($4=="fiveg") { fu[key]+=$5; fd[key]+=$6; }
+			else if ($4=="other") { ou[key]+=$5; od[key]+=$6; }
+			else { uu[key]+=$5; ud[key]+=$6; }
+			seen[key]=$7; next;
+		}
+		END {
+			for (key in seen)
+				print key, ip[key], name[key], sprintf("%.0f",fu[key]),
+					sprintf("%.0f",fd[key]), sprintf("%.0f",ou[key]),
+					sprintf("%.0f",od[key]), sprintf("%.0f",uu[key]),
+					sprintf("%.0f",ud[key]), seen[key];
+		}' "$TOTALS_FILE" "$deltas" > "$tmp" && mv "$tmp" "$TOTALS_FILE"
+}
+
+merge_audit()
+{
+	local deltas="$1" now="$2" retention cutoff bucket tmp history current sorted
+	local profile legacy_profile force_unknown=1
+
+	audit_enabled && force_unknown=0
+	profile="$(active_feature_profile)" || return 1
+	legacy_profile="$(legacy_audit_profile 2>/dev/null)"
+	valid_profile_id "$legacy_profile" || legacy_profile="$profile"
+	retention="$(uci -q get c2000max_traffic.audit.retention_days)"
+	case "$retention" in ''|*[!0-9]*) retention=30 ;; esac
+	[ "$retention" -ge 1 ] 2>/dev/null || retention=1
+	[ "$retention" -le 90 ] 2>/dev/null || retention=90
+	cutoff=$((now - retention * 86400))
+	bucket=$((now - now % 3600))
+	tmp="${AUDIT_FILE}.tmp.$$"
+	history="${AUDIT_FILE}.history.$$"
+	current="${AUDIT_FILE}.current.$$"
+	sorted="${AUDIT_FILE}.sorted.$$"
+
+	# Migration/backfill: traffic accumulated before this feature existed has
+	# no defensible APP_ID. Seed it once as application 0 while preserving the
+	# already known 5G/broadband/unknown uplink split for every device.
+	if [ ! -s "$AUDIT_FILE" ] && [ -s "$TOTALS_FILE" ]; then
+		awk -F '\t' -v OFS='\t' -v bucket="$bucket" -v profile="$legacy_profile" '
+			$0 !~ /^#/ && NF >= 10 {
+				print bucket,$1,$2,$3,0,$4,$5,$6,$7,$8,$9,$10,profile
+			}' "$TOTALS_FILE" > "$AUDIT_FILE"
+	fi
+
+	rm -f "$RECENT_AUDIT_READY_FILE"
+	: > "$history" || return 1
+	# audit.tsv is ordered oldest first.  Closed hours are immutable, so stream
+	# them straight to a history file and keep only the current hour in awk's
+	# associative arrays.  This bounds peak RAM by active device/app pairs
+	# instead of the configured (up to 100 MB) retention log.
+	if ! awk -F '\t' -v OFS='\t' -v bucket="$bucket" -v cutoff="$cutoff" \
+		-v force_unknown="$force_unknown" -v profile="$profile" \
+		-v legacy="$legacy_profile" -v history="$history" '
+		function valid_appid(id,type,idx) {
+			type=int(id/1000); idx=id%1000;
+			return type>=1 && type<=32 && idx>=1 && idx<=512;
+		}
+		FILENAME == ARGV[1] && NF >= 12 && $1 >= cutoff {
+			p=(NF >= 13 && length($13) == 64 && $13 !~ /[^0-9A-Fa-f]/) ? tolower($13) : legacy;
+			a=$5+0; if (a != 0 && !valid_appid(a)) a=0;
+			if (($1+0) < bucket) {
+				print $1+0,$2,$3,$4,a,$6+0,$7+0,$8+0,$9+0,$10+0,$11+0,$12+0,p >> history;
+				next;
+			}
+			idx=$1 SUBSEP $2 SUBSEP p SUBSEP a;
+			when[idx]=$1; dev[idx]=$2; ip[idx]=$3; name[idx]=$4; app[idx]=a;
+			prof[idx]=p;
+			fu[idx]+=$6; fd[idx]+=$7; ou[idx]+=$8; od[idx]+=$9;
+			uu[idx]+=$10; ud[idx]+=$11; seen[idx]=$12+0; next;
+		}
+		FILENAME == ARGV[2] && NF >= 8 {
+			a=$8+0; if (force_unknown || !valid_appid(a)) a=0;
+			idx=bucket SUBSEP $1 SUBSEP profile SUBSEP a;
+			when[idx]=bucket; dev[idx]=$1; if ($2!="") ip[idx]=$2;
+			if ($3!="") name[idx]=$3; app[idx]=a; prof[idx]=profile;
+			if ($4=="fiveg") { fu[idx]+=$5; fd[idx]+=$6; }
+			else if ($4=="other") { ou[idx]+=$5; od[idx]+=$6; }
+			else { uu[idx]+=$5; ud[idx]+=$6; }
+			seen[idx]=$7+0;
+		}
+		END {
+			close(history);
+			for (idx in when)
+				print when[idx],dev[idx],ip[idx],name[idx],app[idx],
+					sprintf("%.0f",fu[idx]),sprintf("%.0f",fd[idx]),
+					sprintf("%.0f",ou[idx]),sprintf("%.0f",od[idx]),
+					sprintf("%.0f",uu[idx]),sprintf("%.0f",ud[idx]),seen[idx],prof[idx];
+		}' "$AUDIT_FILE" "$deltas" > "$current"; then
+		rm -f "$tmp" "$history" "$current" "$sorted"
+		return 1
+	fi
+	if ! sort -t "$(printf '\t')" -k1,1n -k2,2 -k13,13 -k5,5n \
+		"$current" > "$sorted" ||
+	   ! { cat "$history" "$sorted" > "$tmp" && mv "$tmp" "$AUDIT_FILE"; }; then
+		rm -f "$tmp" "$history" "$current" "$sorted"
+		return 1
+	fi
+	rm -f "$history" "$current" "$sorted"
+	# audit.tsv is the accounting source of truth and has already been atomically
+	# committed above.  The recent-150 view is a disposable derivative: failing
+	# it must not make the sampler retain its old conntrack snapshot and apply
+	# this same delta twice on the next run.  Invalidate it for a locked rebuild
+	# on the next request/sample, but report the durable merge as successful.
+	if ! update_recent_audit_cache "$deltas" "$profile" "$now" "$cutoff" "$force_unknown"; then
+		rm -f "$RECENT_AUDIT_FILE" "$RECENT_AUDIT_READY_FILE"
+		logger -t c2000max-traffic "recent application cache update failed; scheduled rebuild" 2>/dev/null || true
+	fi
+	return 0
+}
+
+append_history()
+{
+	local now="$1" interval points last tmp totals
+
+	interval="$(uci -q get c2000max_traffic.config.history_interval)"
+	points="$(uci -q get c2000max_traffic.config.history_points)"
+	case "$interval" in ''|*[!0-9]*) interval=60 ;; esac
+	case "$points" in ''|*[!0-9]*) points=1440 ;; esac
+	[ "$interval" -ge 10 ] 2>/dev/null || interval=10
+	[ "$points" -ge 10 ] 2>/dev/null || points=10
+	[ "$points" -le 2880 ] 2>/dev/null || points=2880
+	last="$(tail -n 1 "$HISTORY_FILE" 2>/dev/null | cut -f1)"
+	case "$last" in ''|*[!0-9]*) last=0 ;; esac
+	[ $((now - last)) -ge "$interval" ] || return 0
+
+	totals="$(awk -F '\t' '$0 !~ /^#/ && NF >= 10 {
+		fu += $4; fd += $5; ou += $6; od += $7; uu += $8; ud += $9
+	} END { printf "%.0f\t%.0f\t%.0f\t%.0f\t%.0f\t%.0f", fu,fd,ou,od,uu,ud }' \
+		"$TOTALS_FILE")" || return 1
+	printf '%s\t%s\n' "$now" "$totals" >> "$HISTORY_FILE" || return 1
+	tmp="${HISTORY_FILE}.tmp"
+	tail -n "$points" "$HISTORY_FILE" > "$tmp" && mv "$tmp" "$HISTORY_FILE"
+}
+
+valid_policy_mac()
+{
+	case "$1" in
+		[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+list_has_word()
+{
+	local words="$1" wanted="$2" word
+	for word in $words; do
+		[ "$word" = "$wanted" ] && return 0
+	done
+	return 1
+}
+
+time_to_minutes()
+{
+	local value="$1" hour minute
+	case "$value" in
+		[0-2][0-9]:[0-5][0-9]) ;;
+		*) return 1 ;;
+	esac
+	hour="${value%:*}"; minute="${value#*:}"
+	hour="${hour#0}"; minute="${minute#0}"
+	[ -n "$hour" ] || hour=0
+	[ -n "$minute" ] || minute=0
+	[ "$hour" -le 23 ] || return 1
+	TIME_MINUTES=$((hour * 60 + minute))
+}
+
+schedule_active_now()
+{
+	local section="$1" enabled days start end start_min end_min windows window
+	local window_day window_range window_start window_end today yesterday now_min
+	local hour minute matched=1
+
+	config_get_bool enabled "$section" enabled 1
+	[ "$enabled" -eq 1 ] || return 1
+	today="$(date +%w)"; yesterday=$(((today + 6) % 7))
+	hour="$(date +%H)"; minute="$(date +%M)"
+	hour="${hour#0}"; minute="${minute#0}"
+	[ -n "$hour" ] || hour=0; [ -n "$minute" ] || minute=0
+	now_min=$((hour * 60 + minute))
+
+	# New rules store one or more independent weekday intervals as
+	#   <weekday>@HH:MM-HH:MM
+	# This represents e.g. Monday 10:00-12:00 and Tuesday 01:00-05:00 in one
+	# rule.  Cross-midnight intervals use the previous selected weekday after
+	# midnight.  Legacy days/start/end options remain a lossless fallback.
+	config_get windows "$section" time_windows ""
+	if [ -n "$windows" ]; then
+		for window in $windows; do
+			window_day="${window%%@*}"
+			window_range="${window#*@}"
+			window_start="${window_range%%-*}"
+			window_end="${window_range#*-}"
+			case "$window_day" in [0-6]) ;; *) continue ;; esac
+			time_to_minutes "$window_start" || continue; start_min="$TIME_MINUTES"
+			time_to_minutes "$window_end" || continue; end_min="$TIME_MINUTES"
+			if [ "$start_min" -eq "$end_min" ]; then
+				[ "$window_day" = "$today" ] && return 0
+			elif [ "$start_min" -lt "$end_min" ]; then
+				[ "$window_day" = "$today" ] &&
+					[ "$now_min" -ge "$start_min" ] &&
+					[ "$now_min" -lt "$end_min" ] && return 0
+			elif [ "$window_day" = "$today" ] && [ "$now_min" -ge "$start_min" ]; then
+				return 0
+			elif [ "$window_day" = "$yesterday" ] && [ "$now_min" -lt "$end_min" ]; then
+				return 0
+			fi
+		done
+		return 1
+	fi
+	config_get days "$section" days "0 1 2 3 4 5 6"
+	config_get start "$section" start "00:00"
+	config_get end "$section" end "00:00"
+	time_to_minutes "$start" || return 1; start_min="$TIME_MINUTES"
+	time_to_minutes "$end" || return 1; end_min="$TIME_MINUTES"
+
+	# Equal endpoints mean the whole selected day. Cross-midnight rules use
+	# yesterday's selection for their after-midnight segment.
+	if [ "$start_min" -eq "$end_min" ]; then
+		list_has_word "$days" "$today"
+	elif [ "$start_min" -lt "$end_min" ]; then
+		list_has_word "$days" "$today" &&
+			[ "$now_min" -ge "$start_min" ] && [ "$now_min" -lt "$end_min" ]
+	elif [ "$now_min" -ge "$start_min" ]; then
+		list_has_word "$days" "$today"
+	else
+		[ "$now_min" -lt "$end_min" ] && list_has_word "$days" "$yesterday"
+	fi
+}
+
+policy_mac_set()
+{
+	local values="$1" value sep=""
+	POLICY_MAC_SET=""
+	POLICY_MAC_WORDS=""
+	for value in $values; do
+		valid_policy_mac "$value" || continue
+		value="$(printf '%s' "$value" | tr 'A-F' 'a-f')"
+		POLICY_MAC_SET="${POLICY_MAC_SET}${sep}${value}"
+		POLICY_MAC_WORDS="${POLICY_MAC_WORDS}${POLICY_MAC_WORDS:+ }${value}"
+		sep=", "
+	done
+}
+
+build_policy_domain_index()
+{
+	local output="$1" tmp native_index="" helper_rc cache_file cache_key cache_tmp
+
+	tmp="${output}.tmp.$$"
+	cache_file="${output}.profile"
+	cache_key="${POLICY_DOMAIN_CACHE_SCHEMA}:${POLICY_ACTIVE_PROFILE}"
+	# Library profiles are immutable and named by the feature.cfg SHA-256.  The
+	# old collector reparsed all 14k features in ucode every ten seconds before
+	# discovering that the nft policy hash had not changed.  Reuse the validated
+	# domain index until the active content-addressed profile (or schema) changes.
+	if [ -f "$output" ] && [ "$(cat "$cache_file" 2>/dev/null)" = "$cache_key" ]; then
+		return 0
+	fi
+	: > "$tmp" || return 1
+	if [ ! -r "$POLICY_FEATURE_FILE" ]; then
+		mv "$tmp" "$output" || return 1
+		cache_tmp="${cache_file}.tmp.$$"
+		printf '%s\n' "$cache_key" > "$cache_tmp" && mv "$cache_tmp" "$cache_file"
+		return $?
+	fi
+	[ -r "$(dirname "$POLICY_FEATURE_FILE")/domains.tsv" ] &&
+		native_index="$(dirname "$POLICY_FEATURE_FILE")/domains.tsv"
+	if command -v ucode >/dev/null 2>&1 && [ -r "$DOMAIN_HELPER" ]; then
+		# Cache misses occur only at boot/profile activation.  Keep that one full
+		# parse below routing/softirq housekeeping priority on the dual A53 SoC.
+		nice -n 19 ucode "$DOMAIN_HELPER" "$POLICY_FEATURE_FILE" "$native_index" \
+			> "${tmp}.raw" 2>/dev/null
+		helper_rc=$?
+		[ "$helper_rc" -eq 0 ] || { rm -f "$tmp" "${tmp}.raw"; return 1; }
+		LC_ALL=C sort -t "$(printf '\t')" -k1,1n -k2,2 -u \
+			"${tmp}.raw" > "$tmp" || { rm -f "$tmp" "${tmp}.raw"; return 1; }
+		rm -f "${tmp}.raw"
+	fi
+	awk -F '\t' -v OFS='\t' '
+		function validappid(id,type,idx) {
+			if (id !~ /^[0-9]+$/) return 0;
+			type=int(id/1000); idx=id%1000;
+			return type>=1 && type<=32 && idx>=1 && idx<=512;
+		}
+		function validdomain(value,n,label,i) {
+			if (length(value)<3 || length(value)>253 || value !~ /^[a-z0-9.-]+$/ ||
+			    value ~ /^\./ || value ~ /\.$/ || value ~ /\.\./) return 0;
+			n=split(value,label,"."); if (n<2) return 0;
+			for (i=1;i<=n;i++)
+				if (length(label[i])<1 || length(label[i])>63 ||
+				    label[i] !~ /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/) return 0;
+			return 1;
+		}
+		NF==2 && validappid($1) && validdomain($2) && !seen[$1 SUBSEP $2]++ {
+			if (rows++ >= 65536) exit 2;
+			print $1,$2;
+		}
+	' "$tmp" > "${tmp}.checked" || {
+		rm -f "$tmp" "${tmp}.checked"; return 1;
+	}
+	mv "${tmp}.checked" "$output" || { rm -f "$tmp"; return 1; }
+	rm -f "$tmp"
+	cache_tmp="${cache_file}.tmp.$$"
+	printf '%s\n' "$cache_key" > "$cache_tmp" && mv "$cache_tmp" "$cache_file" || {
+		rm -f "$cache_tmp"; return 1;
+	}
+}
+
+compile_schedule_domains()
+{
+	local section="$1" selector="$2" app_elements="$3" key domains count domain
+
+	[ -n "${POLICY_SET_FILE:-}" ] && [ -n "${POLICY_DNSMASQ_RULE_FILE:-}" ] &&
+		[ -r "${POLICY_DOMAIN_INDEX:-}" ] || return 0
+	key="$(printf '%s\n%s\n' "$POLICY_ACTIVE_PROFILE" "$section" |
+		sha256sum | awk '{print substr($1,1,12)}')"
+	case "$key" in ???????* ) ;; *) return 1 ;; esac
+	domains="$RUNTIME_DIR/policy-domains.$key"
+	awk -F '\t' -v wanted="$app_elements" '
+		BEGIN {
+			gsub(/,/," ",wanted); n=split(wanted,ids,/[[:space:]]+/);
+			for (i=1;i<=n;i++) if (ids[i] ~ /^[0-9]+$/) selected[ids[i]]=1;
+		}
+		($1 in selected) && !seen[$2]++ {
+			if (kept < 4096) { print $2; kept++ } else truncated=1;
+		}
+		END { if (truncated) exit 2 }
+	' "$POLICY_DOMAIN_INDEX" > "$domains"
+	case "$?" in 0) ;; 2) POLICY_DNS_TRUNCATED=1 ;; *) rm -f "$domains"; return 1 ;; esac
+	count="$(awk 'END {print NR+0}' "$domains")"
+	case "$count" in ''|*[!0-9]*) rm -f "$domains"; return 1 ;; esac
+	[ "$count" -gt 0 ] || { rm -f "$domains"; return 0; }
+	{
+		printf '\tset dns4_%s {\n' "$key"
+		printf '\t\ttype ipv4_addr;\n\t\tflags timeout;\n\t\ttimeout 1h;\n\t}\n'
+		printf '\tset dns6_%s {\n' "$key"
+		printf '\t\ttype ipv6_addr;\n\t\tflags timeout;\n\t\ttimeout 1h;\n\t}\n'
+	} >> "$POLICY_SET_FILE"
+	printf '\t\t%s ip daddr @dns4_%s ct mark set ct mark | %s counter %s comment "dns4_%s"\n' \
+		"$selector" "$key" "$FLOW_BYPASS_MARK" "${POLICY_VERDICT:-drop}" "$key" >> "$POLICY_RULE_FILE"
+	printf '\t\t%s ip6 daddr @dns6_%s ct mark set ct mark | %s counter %s comment "dns6_%s"\n' \
+		"$selector" "$key" "$FLOW_BYPASS_MARK" "${POLICY_VERDICT:-drop}" "$key" >> "$POLICY_RULE_FILE"
+	if [ -n "${POLICY_DNS_REDIRECT_RULE_FILE:-}" ]; then
+		printf '\t\t%s udp dport 53 counter redirect to :53 comment "dns_udp_%s"\n' \
+			"$selector" "$key" >> "$POLICY_DNS_REDIRECT_RULE_FILE"
+		printf '\t\t%s tcp dport 53 counter redirect to :53 comment "dns_tcp_%s"\n' \
+			"$selector" "$key" >> "$POLICY_DNS_REDIRECT_RULE_FILE"
+	fi
+	while IFS= read -r domain; do
+		printf 'nftset=/%s/4#inet#%s#dns4_%s,6#inet#%s#dns6_%s\n' \
+			"$domain" "$POLICY_TABLE" "$key" "$POLICY_TABLE" "$key" \
+			>> "$POLICY_DNSMASQ_RULE_FILE"
+	done < "$domains"
+	POLICY_DNS_DOMAIN_COUNT=$((POLICY_DNS_DOMAIN_COUNT + count))
+	POLICY_DNS_SCHEDULE_COUNT=$((POLICY_DNS_SCHEDULE_COUNT + 1))
+	rm -f "$domains"
+}
+
+compile_schedule()
+{
+	local section="$1" mode match_mode apps categories category category_ids="" ruleset
+	local devices whitelist selector expanded normalized app_count rest truncated app_elements
+
+	config_get ruleset "$section" ruleset ""
+	valid_profile_id "$ruleset" || return 0
+	[ "$ruleset" = "$POLICY_ACTIVE_PROFILE" ] || return 0
+	schedule_active_now "$section" || return 0
+	config_get mode "$section" target "all"
+	config_get apps "$section" apps ""
+	config_get categories "$section" categories ""
+	config_get match_mode "$section" match_mode ""
+	case "$match_mode" in
+		category) apps="" ;;
+		app) categories="" ;;
+	esac
+	for category in $categories; do
+		case "$category" in ''|*[!0-9]*) continue ;; esac
+		category_ids="$category_ids $category"
+	done
+	if [ -n "$category_ids" ] && [ -r "${POLICY_CATALOG_FILE:-}" ]; then
+		# Native iKuai profiles expose semantic category IDs which are deliberately
+		# different from their internal OAF storage shard.  Expand from the same
+		# immutable catalog used by LuCI, never from #class in feature.cfg.
+		expanded="$(awk -F '\t' -v wanted="$category_ids" '
+			function valid(id,type,idx) { type=int(id/1000); idx=id%1000; return type>=1 && type<=32 && idx>=1 && idx<=512 }
+			BEGIN { n=split(wanted, ids, /[[:space:]]+/); for (i=1;i<=n;i++) if (ids[i]!="") selected[ids[i]+0]=1 }
+			NF >= 4 && (($3+0) in selected) && valid($1+0) && !seen[$1]++ { print $1 }
+		' "$POLICY_CATALOG_FILE")"
+		apps="$apps $expanded"
+	fi
+	[ -n "$apps" ] || return 0
+	selector="iifname \"${POLICY_LAN_DEVICE:-br-lan}\""
+
+	case "$mode" in
+		selected)
+			config_get devices "$section" devices ""
+			policy_mac_set "$devices"
+			[ -n "$POLICY_MAC_SET" ] || return 0
+			selector="$selector ether saddr { $POLICY_MAC_SET }"
+			;;
+		all)
+			config_get whitelist "$section" whitelist ""
+			policy_mac_set "$whitelist"
+			[ -z "$POLICY_MAC_SET" ] ||
+				selector="$selector ether saddr != { $POLICY_MAC_SET }"
+			;;
+		*) return 0 ;;
+	esac
+
+	# One anonymous nft set keeps a whole category/library at O(1) lookup and
+	# avoids emitting thousands of sequential drop rules.  Bound each schedule
+	# so malformed UCI input cannot create an unreasonably large nft transaction.
+	normalized="$(printf '%s\n' "$apps" | awk '
+		function valid(id,type,idx) { type=int(id/1000); idx=id%1000; return type>=1 && type<=32 && idx>=1 && idx<=512 }
+		{
+			for (i=1; i<=NF; i++) {
+				id=$i+0; if (!valid(id) || seen[id]++) continue;
+				if (kept >= 4096) { truncated=1; continue }
+				values=values (kept ? ", " : "") id; kept++;
+			}
+		}
+		END { print kept "|" (truncated ? 1 : 0) "|" values }
+	')"
+	app_count="${normalized%%|*}"
+	rest="${normalized#*|}"
+	truncated="${rest%%|*}"
+	app_elements="${rest#*|}"
+	case "$app_count" in ''|*[!0-9]*) return 0 ;; esac
+	[ "$app_count" -gt 0 ] || return 0
+	[ "$truncated" != 1 ] || POLICY_TRUNCATED=1
+	[ -n "${POLICY_ACTIVE_EPOCH_HEX:-}" ] || return 0
+	[ -z "${POLICY_PRIORITY_APP_FILE:-}" ] ||
+		printf '%s\n' "$app_elements" | tr ',' '\n' >> "$POLICY_PRIORITY_APP_FILE"
+	[ -z "${POLICY_FORCE_SCOPE_FILE:-}" ] ||
+		printf '%s\t%s\n' "$mode" "$POLICY_MAC_WORDS" >> "$POLICY_FORCE_SCOPE_FILE"
+	if [ "${POLICY_CONTROL_MODE:-seamless}" = strict ] &&
+	   [ -n "${POLICY_MARK_RULE_FILE:-}" ]; then
+		printf '\t\t%s ct mark set ct mark | %s meta mark set meta mark | %s comment "app_strict_up"\n' \
+			"$selector" "$FLOW_BYPASS_MARK" "$FLOW_BYPASS_MARK" >> "$POLICY_MARK_RULE_FILE"
+		# QUIC hides the hostname/payload before OAF can assign a selected APPID.
+		# Reject only UDP/443 in the active policy scope so clients immediately
+		# retry over inspectable TCP/TLS; no established allowed stream is sent
+		# through the CPU by this fallback rule.
+		printf '\t\t%s udp dport 443 ct mark set ct mark | %s counter reject comment "app_strict_quic_fallback"\n' \
+			"$selector" "$FLOW_BYPASS_MARK" >> "$POLICY_RULE_FILE"
+	fi
+	compile_schedule_domains "$section" "$selector" "$app_elements" ||
+		POLICY_COMPILE_FAILED=1
+	printf '\t\t%s ct secmark & 0x1fff0000 == %s ct secmark & 0x0000ffff { %s } ct mark set ct mark | %s counter %s\n' \
+		"$selector" "$POLICY_ACTIVE_EPOCH_HEX" "$app_elements" "$FLOW_BYPASS_MARK" \
+		"${POLICY_VERDICT:-drop}" >> "$POLICY_RULE_FILE"
+	POLICY_ACTIVE_COUNT=$((POLICY_ACTIVE_COUNT + app_count))
+}
+
+invalidate_acceleration_cache()
+{
+	local command
+
+	if [ -e "$HNAT_DIR/hnat_entry" ]; then
+		exec 8> /var/lock/c2000max-hnat.lock || true
+		flock -x 8 2>/dev/null || true
+		for command in 3 5 7; do
+			printf '%s -1\n' "$command" > "$HNAT_DIR/hnat_entry" 2>/dev/null || true
+		done
+		flock -u 8 2>/dev/null || true
+	fi
+	nft flush flowtable inet fw4 ft 2>/dev/null || true
+}
+
+unknown_policy_conntracks()
+{
+	local targets="$1" output="$2" raw expected_epoch
+
+	raw="${output}.raw"
+	expected_epoch="$(oaf_profile_epoch 2>/dev/null || true)"
+	read_conntrack "$raw" || return 1
+	awk -F '\t' -v OFS='\t' -v expected_epoch="$expected_epoch" '
+		function number(value, result, i, digit) {
+			if (value !~ /^0[xX][0-9a-fA-F]+$/) return value+0;
+			value=tolower(substr(value,3)); result=0;
+			for (i=1; i<=length(value); i++) {
+				digit=index("0123456789abcdef",substr(value,i,1))-1;
+				result=result*16+digit;
+			}
+			return result;
+		}
+		function validappid(id,type,idx) {
+			type=int(id/1000); idx=id%1000;
+			return type>=1 && type<=32 && idx>=1 && idx<=512;
+		}
+		FILENAME == ARGV[1] { if ($1 != "") target[$1]=1; next; }
+		FILENAME == ARGV[2] {
+			delete src; delete dst; delete sport; delete dport;
+			nsrc=ndst=nsport=ndport=0; secmark=0; proto="";
+			n=split($0, fields, /[[:space:]]+/);
+			for (i=1; i<=n; i++) {
+				if (proto == "" && fields[i] ~ /^(tcp|udp|udplite|sctp|dccp|icmp|icmpv6|gre)$/)
+					proto=fields[i];
+				split(fields[i], pair, "=");
+				if (pair[1] == "src") src[++nsrc]=pair[2];
+				else if (pair[1] == "dst") dst[++ndst]=pair[2];
+				else if (pair[1] == "sport") sport[++nsport]=pair[2];
+				else if (pair[1] == "dport") dport[++ndport]=pair[2];
+				else if (pair[1] == "secmark") secmark=number(pair[2]);
+			}
+			if (proto == "" || nsrc < 2 || ndst < 2) next;
+			if (!(src[1] in target) && !(dst[1] in target) &&
+			    !(src[2] in target) && !(dst[2] in target)) next;
+			appid=secmark%65536; epoch=int(secmark/65536)%8192;
+			if (validappid(appid) && (expected_epoch == "" || epoch == expected_epoch+0)) next;
+			family=(index(src[1], ":") || index(dst[1], ":")) ? "ipv6" : "ipv4";
+			key=family SUBSEP proto SUBSEP src[1] SUBSEP dst[1] SUBSEP sport[1] SUBSEP dport[1];
+			if (!seen[key]++) print family,proto,src[1],dst[1],sport[1],dport[1];
+		}' "$targets" "$raw" > "$output"
+	local rc=$?
+	rm -f "$raw"
+	return "$rc"
+}
+
+build_policy_targets()
+{
+	local scopes="$1" hosts="$2" targets="$3" macs="$4"
+
+	[ -s "$scopes" ] || {
+		: > "$hosts"; : > "$targets"; : > "$macs"; return 0;
+	}
+	build_hosts "$hosts" || return 1
+	awk -F '\t' -v OFS='\t' '
+		FILENAME == ARGV[1] {
+			rule++; mode[rule]=$1;
+			n=split($2, values, /[[:space:]]+/);
+			for (i=1; i<=n; i++) {
+				mac=tolower(values[i]); if (mac == "") continue;
+				if ($1 == "selected") selected[mac]=1;
+				else if ($1 == "all") whitelist[rule SUBSEP mac]=1;
+			}
+			next;
+		}
+		FILENAME == ARGV[2] && $1 != "" && $2 != "@router" {
+			ip=$1; key=tolower($2); affected=(key in selected);
+			for (i=1; i<=rule && !affected; i++)
+				if (mode[i] == "all" && !((i SUBSEP key) in whitelist)) affected=1;
+			if (affected && !seen[ip SUBSEP key]++) print ip,key;
+		}' "$scopes" "$hosts" > "$targets" || return 1
+	awk -F '\t' '
+		function validmac(value) {
+			return value ~ /^[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]$/
+		}
+		FILENAME == ARGV[1] && $1 == "selected" {
+			n=split($2, values, /[[:space:]]+/);
+			for (i=1; i<=n; i++) { mac=tolower(values[i]); if (validmac(mac)) wanted[mac]=1; }
+			next;
+		}
+		FILENAME == ARGV[2] { mac=tolower($2); if (validmac(mac)) wanted[mac]=1; }
+		END { for (mac in wanted) print mac; }
+	' "$scopes" "$targets" | sort > "$macs"
+}
+
+force_recheck_policy_clients()
+{
+	local scopes="$1" hosts targets macs unknown family proto src dst sport dport
+
+	[ -s "$scopes" ] || return 0
+	hosts="$RUNTIME_DIR/policy-force-hosts.tsv"
+	targets="$RUNTIME_DIR/policy-force-targets.tsv"
+	macs="$RUNTIME_DIR/policy-force-macs"
+	unknown="$RUNTIME_DIR/policy-force-unknown.tsv"
+	build_policy_targets "$scopes" "$hosts" "$targets" "$macs" || {
+		rm -f "$hosts" "$targets" "$macs"; return 1;
+	}
+	unknown_policy_conntracks "$targets" "$unknown" || {
+		rm -f "$hosts" "${hosts}.raw" "${hosts}.devices" "$targets" "$macs" "$unknown";
+		return 1;
+	}
+
+	# Preserve the latest hardware counters, then invalidate only PPE entries
+	# belonging to devices covered by an active rule. HNAT stays enabled and
+	# unrelated devices retain their bound entries.
+	if [ -e "$HNAT_DIR/hnat_entry" ]; then
+		exec 8> /var/lock/c2000max-hnat.lock || true
+		flock -x 8 2>/dev/null || true
+		C2000MAX_ACCEL_LOCKS_HELD=1 sync_hardware_mib || true
+		while IFS= read -r key; do
+			valid_policy_mac "$key" || continue
+			printf '8 %s\n' "$key" > "$HNAT_DIR/hnat_entry" 2>/dev/null || true
+		done < "$macs"
+		while IFS="$(printf '\t')" read -r ip _key; do
+			# A MAC eviction covers every IPv4/IPv6 address for that client and
+			# avoids rescanning the PPE table once per privacy address.
+			valid_policy_mac "$_key" && continue
+			case "$ip" in
+				*:* ) printf '10 %s\n' "$ip" > "$HNAT_DIR/hnat_entry" 2>/dev/null || true ;;
+				*.* ) printf '9 %s\n' "$ip" > "$HNAT_DIR/hnat_entry" 2>/dev/null || true ;;
+			esac
+		done < "$targets"
+		flock -u 8 2>/dev/null || true
+	fi
+	nft flush flowtable inet fw4 ft 2>/dev/null || true
+	while IFS="$(printf '\t')" read -r family proto src dst sport dport; do
+		case "$family:$proto" in
+			ipv4:tcp|ipv4:udp|ipv4:udplite|ipv4:sctp|ipv4:dccp|\
+			ipv6:tcp|ipv6:udp|ipv6:udplite|ipv6:sctp|ipv6:dccp)
+				case "$sport:$dport" in *[!0-9:]*|:|*:|:*) continue ;; esac
+				timeout 4 conntrack -D -f "$family" -p "$proto" -s "$src" -d "$dst" \
+					--sport "$sport" --dport "$dport" >/dev/null 2>&1 || true
+				;;
+			ipv4:icmp|ipv4:gre|ipv6:icmpv6|ipv6:gre)
+				timeout 4 conntrack -D -f "$family" -p "$proto" -s "$src" -d "$dst" \
+					>/dev/null 2>&1 || true
+				;;
+		esac
+	done < "$unknown"
+	rm -f "$hosts" "${hosts}.raw" "${hosts}.devices" "$targets" "$macs" "$unknown"
+}
+
+reset_audit_connections_locked()
+{
+	local hosts="$RUNTIME_DIR/audit-reset-hosts.tsv" ip key family
+
+	build_hosts "$hosts" || return 1
+	while IFS="$(printf '\t')" read -r ip key _name; do
+		[ -n "$ip" ] && [ "$key" != @router ] || continue
+		case "$ip" in
+			*:* ) family=ipv6 ;;
+			*.* ) family=ipv4 ;;
+			* ) continue ;;
+		esac
+		# OAF cannot reclassify an old connection whose accounting counter is
+		# already beyond the selected first-N-packet window.  Delete only client
+		# sessions when auditing starts or its feature database is reloaded; the
+		# applications reconnect immediately and unrelated router sessions stay up.
+		conntrack -D -f "$family" -s "$ip" >/dev/null 2>&1 || true
+		conntrack -D -f "$family" -d "$ip" >/dev/null 2>&1 || true
+	done < "$hosts"
+	rm -f "$hosts"
+	: > "$SNAPSHOT_FILE"
+	invalidate_acceleration_cache
+}
+
+reset_audit_connections()
+{
+	local profile_owned=0 collector_owned=0 rc
+
+	profile_lock_acquire exclusive profile_owned || return 1
+	collector_lock_acquire blocking collector_owned || {
+		profile_lock_release profile_owned
+		return 1
+	}
+	ensure_runtime && reset_audit_connections_locked
+	rc=$?
+	collector_lock_release collector_owned
+	profile_lock_release profile_owned
+	return "$rc"
+}
+
+rebaseline_audit_connections_locked()
+{
+	local hosts="$RUNTIME_DIR/audit-rebaseline-hosts.tsv"
+	local raw="$RUNTIME_DIR/audit-rebaseline.raw"
+	local current="$RUNTIME_DIR/audit-rebaseline.current"
+	local rc=1
+
+	# Capture the counters which exist at the feature-generation boundary, but
+	# do not delete conntracks or flush PPE/flowtable.  The kernel generation
+	# tag makes pre-switch APPIDs unreadable under the new catalog; established
+	# flows can age out naturally instead of reconnecting in one CPU storm.
+	sysctl -qw net.netfilter.nf_conntrack_acct=1 2>/dev/null || true
+	if build_hosts "$hosts" &&
+	   read_conntrack "$raw" &&
+	   parse_conntrack "$hosts" "$raw" "$current" &&
+	   mv "$current" "$SNAPSHOT_FILE"; then
+		rc=0
+	fi
+	rm -f "$hosts" "${hosts}.raw" "$raw" "$current"
+	return "$rc"
+}
+
+rebaseline_audit_connections()
+{
+	local profile_owned=0 collector_owned=0 rc
+
+	profile_lock_acquire exclusive profile_owned || return 1
+	collector_lock_acquire blocking collector_owned || {
+		profile_lock_release profile_owned
+		return 1
+	}
+	ensure_runtime && rebaseline_audit_connections_locked
+	rc=$?
+	collector_lock_release collector_owned
+	profile_lock_release profile_owned
+	return "$rc"
+}
+
+compile_policy_bypass()
+{
+	local mode="$1" scopes="$2" hosts targets macs ip4_values ip6_values count
+
+	POLICY_BYPASS_COUNT=0
+	case "$mode" in
+		deep)
+			printf '\t\tiifname "%s" ct mark set ct mark | %s meta mark set meta mark | %s comment "app_deep_up"\n' \
+				"$POLICY_LAN_DEVICE" "$FLOW_BYPASS_MARK" "$FLOW_BYPASS_MARK" >> "$POLICY_MARK_RULE_FILE"
+			printf '\t\toifname "%s" ct mark set ct mark | %s meta mark set meta mark | %s comment "app_deep_down"\n' \
+				"$POLICY_LAN_DEVICE" "$FLOW_BYPASS_MARK" "$FLOW_BYPASS_MARK" >> "$POLICY_MARK_RULE_FILE"
+			POLICY_BYPASS_COUNT=-1
+			return 0
+			;;
+		strict) ;;
+		*) return 0 ;;
+	esac
+	hosts="$RUNTIME_DIR/policy-bypass-hosts.tsv"
+	targets="$RUNTIME_DIR/policy-bypass-targets.tsv"
+	macs="$RUNTIME_DIR/policy-bypass-macs"
+	build_policy_targets "$scopes" "$hosts" "$targets" "$macs" || {
+		rm -f "$hosts" "$targets" "$macs"; return 1;
+	}
+	ip4_values="$(awk -F '\t' '$1 !~ /:/ && $1 ~ /^[0-9.]+$/ && !seen[$1]++ {
+		printf "%s%s", separator, $1; separator=", "
+	}' "$targets")"
+	ip6_values="$(awk -F '\t' 'index($1,":") && $1 ~ /^[0-9A-Fa-f:]+$/ && !seen[$1]++ {
+		printf "%s%s", separator, $1; separator=", "
+	}' "$targets")"
+	if [ -n "$ip4_values" ]; then
+		printf '\tset strict_clients4 {\n\t\ttype ipv4_addr;\n\t\telements = { %s };\n\t}\n' \
+			"$ip4_values" >> "$POLICY_SET_FILE"
+		printf '\t\toifname "%s" ip daddr @strict_clients4 ct mark set ct mark | %s meta mark set meta mark | %s comment "app_strict_down4"\n' \
+			"$POLICY_LAN_DEVICE" "$FLOW_BYPASS_MARK" "$FLOW_BYPASS_MARK" >> "$POLICY_MARK_RULE_FILE"
+		printf '\t\tiifname "%s" ip saddr @strict_clients4 ct mark set ct mark | %s meta mark set meta mark | %s comment "app_strict_up4"\n' \
+			"$POLICY_LAN_DEVICE" "$FLOW_BYPASS_MARK" "$FLOW_BYPASS_MARK" >> "$POLICY_MARK_RULE_FILE"
+	fi
+	if [ -n "$ip6_values" ]; then
+		printf '\tset strict_clients6 {\n\t\ttype ipv6_addr;\n\t\telements = { %s };\n\t}\n' \
+			"$ip6_values" >> "$POLICY_SET_FILE"
+		printf '\t\toifname "%s" ip6 daddr @strict_clients6 ct mark set ct mark | %s meta mark set meta mark | %s comment "app_strict_down6"\n' \
+			"$POLICY_LAN_DEVICE" "$FLOW_BYPASS_MARK" "$FLOW_BYPASS_MARK" >> "$POLICY_MARK_RULE_FILE"
+		printf '\t\tiifname "%s" ip6 saddr @strict_clients6 ct mark set ct mark | %s meta mark set meta mark | %s comment "app_strict_up6"\n' \
+			"$POLICY_LAN_DEVICE" "$FLOW_BYPASS_MARK" "$FLOW_BYPASS_MARK" >> "$POLICY_MARK_RULE_FILE"
+	fi
+	count="$(awk -F '\t' '$2 != "" && !seen[$2]++ {n++} END {print n+0}' "$targets")"
+	case "$count" in ''|*[!0-9]*) count=0 ;; esac
+	POLICY_BYPASS_COUNT="$count"
+	rm -f "$hosts" "${hosts}.raw" "${hosts}.devices" "$targets" "$macs"
+}
+
+emit_dnsmasq_confdir()
+{
+	local section="$1" disabled confdir
+
+	config_get_bool disabled "$section" disabled 0
+	[ "$disabled" -eq 0 ] || return 0
+	config_get confdir "$section" confdir "/tmp/dnsmasq${section:+.$section}.d"
+	confdir="${confdir%%,*}"
+	case "$confdir" in
+		/*) ;;
+		*) return 0 ;;
+	esac
+	case "$confdir" in *[!A-Za-z0-9_./:@+-]*) return 0 ;; esac
+	printf '%s\n' "$confdir"
+}
+
+dnsmasq_confdirs()
+{
+	if [ -n "${C2000_TRAFFIC_DNSMASQ_CONFDIRS:-}" ]; then
+		printf '%s\n' $C2000_TRAFFIC_DNSMASQ_CONFDIRS
+		return 0
+	fi
+	[ -r /lib/functions.sh ] || return 0
+	. /lib/functions.sh
+	config_load dhcp
+	config_foreach emit_dnsmasq_confdir dnsmasq
+}
+
+reload_dnsmasq_policy()
+{
+	[ "${C2000_TRAFFIC_NO_DNSMASQ_RELOAD:-0}" = 1 ] && return 0
+	[ -x /etc/init.d/dnsmasq ] || return 0
+	/etc/init.d/dnsmasq reload >/dev/null 2>&1
+}
+
+sync_oaf_priority_apps()
+{
+	local source="$1" normalized json
+
+	[ -e "$OAF_CONFIG_DEVICE" ] || return 0
+	normalized="${source}.normalized.$$"
+	awk '
+		function valid(id,type,idx) {
+			type=int(id/1000); idx=id%1000;
+			return type>=1 && type<=32 && idx>=1 && idx<=512;
+		}
+		{
+			gsub(/,/," ");
+			for (i=1;i<=NF;i++) if (valid($i+0) && !seen[$i+0]++) print $i+0;
+		}
+	' "$source" | LC_ALL=C sort -n > "$normalized" || {
+		rm -f "$normalized"; return 1;
+	}
+	# This existing OAF control plane is verdict-neutral while oaf.enable=0;
+	# R20.4 also uses it as a matcher-priority bitmap so nft-selected APPIDs are
+	# tested before the audit-wide native rule scan consumes its packet budget.
+	printf '{"op":3}\n' > "$OAF_CONFIG_DEVICE" 2>/dev/null || {
+		rm -f "$normalized"; return 1;
+	}
+	if [ -s "$normalized" ]; then
+		json="$(awk 'BEGIN {printf "{\"op\":1,\"data\":{\"apps\":["}
+			{printf "%s%s", separator, $1; separator=","}
+			END {print "]}}"}' "$normalized")"
+		printf '%s\n' "$json" > "$OAF_CONFIG_DEVICE" 2>/dev/null || {
+			rm -f "$normalized"; return 1;
+		}
+	fi
+	rm -f "$normalized"
+}
+
+remove_dnsmasq_policy()
+{
+	local dirs dir target changed=0
+
+	dirs="$RUNTIME_DIR/dnsmasq-confdirs.$$"
+	dnsmasq_confdirs | LC_ALL=C sort -u > "$dirs" || { rm -f "$dirs"; return 1; }
+	while IFS= read -r dir; do
+		[ -n "$dir" ] || continue
+		target="$dir/$DNSMASQ_POLICY_FILE"
+		[ -e "$target" ] || continue
+		rm -f "$target" || { rm -f "$dirs"; return 1; }
+		changed=1
+	done < "$dirs"
+	rm -f "$dirs"
+	[ "$changed" -eq 0 ] || reload_dnsmasq_policy
+}
+
+sync_dnsmasq_policy()
+{
+	local source="$1" dirs dir target tmp changed=0
+
+	[ -s "$source" ] || { remove_dnsmasq_policy; return $?; }
+	dirs="$RUNTIME_DIR/dnsmasq-confdirs.$$"
+	dnsmasq_confdirs | LC_ALL=C sort -u > "$dirs" || { rm -f "$dirs"; return 1; }
+	while IFS= read -r dir; do
+		[ -n "$dir" ] || continue
+		mkdir -p "$dir" || { rm -f "$dirs"; return 1; }
+		target="$dir/$DNSMASQ_POLICY_FILE"
+		cmp -s "$source" "$target" 2>/dev/null && continue
+		tmp="$target.new.$$"
+		cp "$source" "$tmp" && chmod 0644 "$tmp" && mv -f "$tmp" "$target" || {
+			rm -f "$tmp" "$dirs"; return 1;
+		}
+		changed=1
+	done < "$dirs"
+	rm -f "$dirs"
+	[ "$changed" -eq 0 ] || reload_dnsmasq_policy
+}
+
+clear_audit_policy_locked()
+{
+	nft delete table inet "$POLICY_TABLE" 2>/dev/null || true
+	remove_dnsmasq_policy || true
+	: > "$POLICY_HASH_FILE"
+	printf '0\n' > "$POLICY_COUNT_FILE"
+	printf '0\n' > "$POLICY_DNS_COUNT_FILE"
+	printf '0\n' > "$POLICY_BYPASS_COUNT_FILE"
+	: > "$POLICY_ERROR_FILE"
+	printf '%s\n' none > "$POLICY_MODE_FILE"
+	: > "$RUNTIME_DIR/policy.priority-apps"
+	sync_oaf_priority_apps "$RUNTIME_DIR/policy.priority-apps" || true
+}
+
+clear_audit_policy()
+{
+	local profile_owned=0 rc
+
+	profile_lock_acquire shared profile_owned || return 1
+	mkdir -p "$RUNTIME_DIR" || { profile_lock_release profile_owned; return 1; }
+	exec 7> "$RUNTIME_DIR/policy.lock" || {
+		profile_lock_release profile_owned
+		return 1
+	}
+	flock -x 7 || { profile_lock_release profile_owned; return 1; }
+	clear_audit_policy_locked
+	rc=$?
+	flock -u 7
+	profile_lock_release profile_owned
+	return "$rc"
+}
+
+apply_audit_policy_locked()
+{
+	local nft_bin rule_file block_file set_file mark_file dns_redirect_file dnsmasq_file
+	local domain_index apply_file scope_file hash old_hash error control_mode current_profile_sha
+	local generation epoch priority_app_file priority_app_build_file
+
+	application_engine_needed || { clear_audit_policy_locked; return 0; }
+	[ -r /proc/sys/oaf/version ] || {
+		printf '%s\n' '应用审计引擎尚未就绪' > "$POLICY_ERROR_FILE"
+		return 1
+	}
+	nft_bin="$(command -v nft 2>/dev/null)"
+	[ -n "$nft_bin" ] || {
+		printf '%s\n' 'nft 命令不可用' > "$POLICY_ERROR_FILE"
+		return 1
+	}
+
+	rule_file="$RUNTIME_DIR/policy.nft"
+	block_file="$RUNTIME_DIR/policy.block.nft"
+	set_file="$RUNTIME_DIR/policy.sets.nft"
+	mark_file="$RUNTIME_DIR/policy.mark.nft"
+	dns_redirect_file="$RUNTIME_DIR/policy.dns-redirect.nft"
+	dnsmasq_file="$RUNTIME_DIR/policy.dnsmasq.conf"
+	domain_index="$RUNTIME_DIR/policy.domains.tsv"
+	scope_file="$RUNTIME_DIR/policy.scopes"
+	priority_app_file="$RUNTIME_DIR/policy.priority-apps"
+	priority_app_build_file="${priority_app_file}.new"
+	POLICY_RULE_FILE="$block_file"
+	POLICY_SET_FILE="$set_file"
+	POLICY_MARK_RULE_FILE="$mark_file"
+	POLICY_DNS_REDIRECT_RULE_FILE="$dns_redirect_file"
+	POLICY_DNSMASQ_RULE_FILE="$dnsmasq_file"
+	POLICY_DOMAIN_INDEX="$domain_index"
+	POLICY_FORCE_SCOPE_FILE="$scope_file"
+	# Build the next matcher-priority list out of sight.  The periodic collector
+	# used to truncate the published file before scanning the large domain
+	# index, leaving diagnostics empty for several seconds on every pass.
+	POLICY_PRIORITY_APP_FILE="$priority_app_build_file"
+	POLICY_ACTIVE_COUNT=0
+	POLICY_TRUNCATED=0
+	POLICY_DNS_TRUNCATED=0
+	POLICY_DNS_DOMAIN_COUNT=0
+	POLICY_DNS_SCHEDULE_COUNT=0
+	POLICY_BYPASS_COUNT=0
+	POLICY_COMPILE_FAILED=0
+	POLICY_ACTIVE_EPOCH_HEX=""
+	POLICY_LAN_DEVICE="$(network_device lan 2>/dev/null || true)"
+	valid_network_device "$POLICY_LAN_DEVICE" || POLICY_LAN_DEVICE=br-lan
+	control_mode="$(uci -q get c2000max_traffic.audit.control_mode)"
+	case "$control_mode" in seamless|force|strict|deep) ;; *) control_mode=seamless ;; esac
+	# Seamless classification cannot reliably catch a whole category after PPE
+	# offload. Promote only active application-control configurations to the
+	# selective strict path; unrelated clients remain fully hardware accelerated.
+	if [ "$control_mode" = seamless ] && control_rule_configured; then
+		control_mode=strict
+	fi
+	printf '%s\n' "$control_mode" > "$POLICY_MODE_FILE"
+	POLICY_CONTROL_MODE="$control_mode"
+	[ "$control_mode" = seamless ] && POLICY_VERDICT=drop || POLICY_VERDICT=reject
+	for apply_file in "$block_file" "$set_file" "$mark_file" "$dns_redirect_file" \
+		"$dnsmasq_file" "$scope_file" "$priority_app_build_file"; do
+		: > "$apply_file" || return 1
+	done
+	generation="$(oaf_profile_epoch 2>/dev/null || true)"
+	if [ -n "$generation" ]; then
+		epoch=$((generation << 16))
+		POLICY_ACTIVE_EPOCH_HEX="$(printf '0x%08x' "$epoch")"
+	fi
+	POLICY_ACTIVE_PROFILE="$(active_feature_profile 2>/dev/null)"
+	current_profile_sha="$(feature_file_sha "$FEATURE_FILE" 2>/dev/null)"
+	POLICY_FEATURE_FILE=""
+	POLICY_CATALOG_FILE=""
+	if [ -n "$POLICY_ACTIVE_EPOCH_HEX" ] &&
+	   [ "$POLICY_ACTIVE_PROFILE" = "$current_profile_sha" ] &&
+	   valid_profile_id "$POLICY_ACTIVE_PROFILE" &&
+	   profile_feature_file "$POLICY_ACTIVE_PROFILE"; then
+		POLICY_FEATURE_FILE="$PROFILE_FEATURE_FILE"
+		if load_profile_catalog "$POLICY_ACTIVE_PROFILE"; then
+			POLICY_CATALOG_FILE="$PROFILE_CATALOG_FILE"
+		else
+			POLICY_ACTIVE_PROFILE=""
+			POLICY_FEATURE_FILE=""
+		fi
+	else
+		POLICY_ACTIVE_PROFILE=""
+	fi
+	build_policy_domain_index "$domain_index" || {
+		printf '%s\n' '无法生成 DNS 域名索引' > "$POLICY_ERROR_FILE"
+		return 1
+	}
+
+	. /lib/functions.sh
+	config_load c2000max_traffic
+	config_foreach compile_schedule schedule
+	[ "$POLICY_COMPILE_FAILED" -eq 0 ] || {
+		printf '%s\n' '应用管控规则编译失败' > "$POLICY_ERROR_FILE"
+		return 1
+	}
+	compile_policy_bypass "$control_mode" "$scope_file" || {
+		printf '%s\n' '受控终端 HNAT 绕过规则编译失败' > "$POLICY_ERROR_FILE"
+		return 1
+	}
+	{
+		printf 'table inet %s {\n' "$POLICY_TABLE"
+		cat "$set_file"
+		if [ -s "$mark_file" ]; then
+			printf '\tchain mark_control {\n'
+			printf '\t\ttype filter hook forward priority -150; policy accept;\n'
+			cat "$mark_file"
+			printf '\t}\n'
+		fi
+		if [ -s "$dns_redirect_file" ]; then
+			printf '\tchain dns_redirect {\n'
+			printf '\t\ttype nat hook prerouting priority -105; policy accept;\n'
+			cat "$dns_redirect_file"
+			printf '\t}\n'
+		fi
+		printf '\tchain block {\n'
+		printf '\t\ttype filter hook forward priority -148; policy accept;\n'
+		cat "$block_file"
+		printf '\t}\n'
+		printf '}\n'
+	} > "$rule_file"
+
+	hash="$({ cat "$rule_file" "$dnsmasq_file"; printf 'control_mode=%s\nprofile=%s\n' \
+		"$control_mode" "$POLICY_ACTIVE_PROFILE"; } |
+		sha256sum | awk '{print $1}')"
+	old_hash="$(cat "$POLICY_HASH_FILE" 2>/dev/null)"
+	if [ "$hash" = "$old_hash" ] &&
+	   $nft_bin list table inet "$POLICY_TABLE" >/dev/null 2>&1; then
+		sync_oaf_priority_apps "$priority_app_build_file" || {
+			printf '%s\n' '无法同步应用识别优先列表' > "$POLICY_ERROR_FILE"
+			return 1
+		}
+		mv -f "$priority_app_build_file" "$priority_app_file" || {
+			printf '%s\n' '无法原子发布应用识别优先列表' > "$POLICY_ERROR_FILE"
+			return 1
+		}
+		printf '%s\n' "$POLICY_ACTIVE_COUNT" > "$POLICY_COUNT_FILE"
+		printf '%s\n' "$POLICY_DNS_DOMAIN_COUNT" > "$POLICY_DNS_COUNT_FILE"
+		printf '%s\n' "$POLICY_BYPASS_COUNT" > "$POLICY_BYPASS_COUNT_FILE"
+		sync_dnsmasq_policy "$dnsmasq_file" || {
+			printf '%s\n' 'dnsmasq DNS 动态集合配置加载失败' > "$POLICY_ERROR_FILE"
+			return 1
+		}
+		if [ "$POLICY_TRUNCATED" -eq 1 ] || [ "$POLICY_DNS_TRUNCATED" -eq 1 ]; then
+			printf '%s\n' '部分超大应用/域名列表已按 4096 条上限截断' > "$POLICY_ERROR_FILE"
+		else
+			: > "$POLICY_ERROR_FILE"
+		fi
+		return 0
+	fi
+
+	apply_file="$RUNTIME_DIR/policy.apply.nft"
+	: > "$apply_file" || return 1
+	if $nft_bin list table inet "$POLICY_TABLE" >/dev/null 2>&1; then
+		printf 'delete table inet %s\n' "$POLICY_TABLE" >> "$apply_file"
+	fi
+	cat "$rule_file" >> "$apply_file" || return 1
+	if ! error="$($nft_bin -c -f "$apply_file" 2>&1)"; then
+		printf '%s\n' "${error:-应用阻断规则语法校验失败}" > "$POLICY_ERROR_FILE"
+		return 1
+	fi
+	# Deleting the old table and creating the replacement in one nft batch is
+	# atomic, so packets never observe a temporary no-policy window.
+	if ! error="$($nft_bin -f "$apply_file" 2>&1)"; then
+		printf '%s\n' "${error:-应用阻断规则加载失败}" > "$POLICY_ERROR_FILE"
+		return 1
+	fi
+	if ! sync_dnsmasq_policy "$dnsmasq_file"; then
+		printf '%s\n' 'dnsmasq DNS 动态集合配置加载失败' > "$POLICY_ERROR_FILE"
+		return 1
+	fi
+	if ! sync_oaf_priority_apps "$priority_app_build_file"; then
+		printf '%s\n' '无法同步应用识别优先列表' > "$POLICY_ERROR_FILE"
+		return 1
+	fi
+	if ! mv -f "$priority_app_build_file" "$priority_app_file"; then
+		printf '%s\n' '无法原子发布应用识别优先列表' > "$POLICY_ERROR_FILE"
+		return 1
+	fi
+	printf '%s\n' "$POLICY_ACTIVE_COUNT" > "$POLICY_COUNT_FILE"
+	printf '%s\n' "$POLICY_DNS_DOMAIN_COUNT" > "$POLICY_DNS_COUNT_FILE"
+	printf '%s\n' "$POLICY_BYPASS_COUNT" > "$POLICY_BYPASS_COUNT_FILE"
+	if [ "$POLICY_TRUNCATED" -eq 1 ] || [ "$POLICY_DNS_TRUNCATED" -eq 1 ]; then
+		printf '%s\n' '部分超大应用/域名列表已按 4096 条上限截断' > "$POLICY_ERROR_FILE"
+	else
+		: > "$POLICY_ERROR_FILE"
+	fi
+	case "$control_mode" in
+		force|strict)
+			# Force re-evaluation remains targeted. In strict mode the rules loaded
+			# above keep only those clients out of PPE/flowtable afterwards.
+			if ! force_recheck_policy_clients "$scope_file"; then
+				printf '%s\n' '受控终端连接重检失败，将在下次采样时重试' > "$POLICY_ERROR_FILE"
+				return 1
+			fi
+			;;
+		deep)
+			# Diagnostic mode is intentionally disruptive: every LAN flow is kept
+			# on the CPU path and all current client sessions are rebuilt once.
+			reset_audit_connections_locked || {
+				printf '%s\n' '全局深度模式连接重建失败' > "$POLICY_ERROR_FILE"
+				return 1
+			}
+			;;
+	esac
+	printf '%s\n' "$hash" > "$POLICY_HASH_FILE"
+}
+
+apply_audit_policy()
+{
+	local profile_owned=0 collector_owned=0 rc
+
+	if application_engine_needed && ! ensure_audit_engine; then
+		ensure_runtime >/dev/null 2>&1 || true
+		printf '%s\n' '应用审计引擎启动失败，请查看 c2000max-appfilter 日志' > \
+			"$POLICY_ERROR_FILE"
+		return 1
+	fi
+
+	profile_lock_acquire shared profile_owned || return 1
+	ensure_runtime || {
+		profile_lock_release profile_owned
+		return 1
+	}
+	collector_lock_acquire blocking collector_owned || {
+		profile_lock_release profile_owned
+		return 1
+	}
+	exec 7> "$RUNTIME_DIR/policy.lock" || {
+		collector_lock_release collector_owned
+		profile_lock_release profile_owned
+		return 1
+	}
+	flock -x 7 || {
+		collector_lock_release collector_owned
+		profile_lock_release profile_owned
+		return 1
+	}
+	apply_audit_policy_locked
+	rc=$?
+	flock -u 7
+	collector_lock_release collector_owned
+	profile_lock_release profile_owned
+	return "$rc"
+}
+
+flush_totals_locked()
+{
+	local tmp
+
+	tmp="${PERSIST_FILE}.tmp"
+	cp "$TOTALS_FILE" "$tmp" && mv "$tmp" "$PERSIST_FILE" || return 1
+	tmp="${HISTORY_PERSIST_FILE}.tmp"
+	cp "$HISTORY_FILE" "$tmp" && mv "$tmp" "$HISTORY_PERSIST_FILE" || return 1
+	tmp="${AUDIT_PERSIST_FILE}.tmp"
+	cp "$AUDIT_FILE" "$tmp" && mv "$tmp" "$AUDIT_PERSIST_FILE" || return 1
+	date +%s > "$FLUSHED_FILE"
+}
+
+flush_totals()
+{
+	local profile_owned=0 collector_owned=0 rc
+
+	profile_lock_acquire shared profile_owned || return 1
+	collector_lock_acquire blocking collector_owned || {
+		profile_lock_release profile_owned
+		return 1
+	}
+	ensure_runtime && flush_totals_locked
+	rc=$?
+	collector_lock_release collector_owned
+	profile_lock_release profile_owned
+	return "$rc"
+}
+
+persist_audit_profiles()
+{
+	local tmp profile_owned=0 collector_owned=0 rc=0
+
+	profile_lock_acquire shared profile_owned || return 1
+	collector_lock_acquire blocking collector_owned || {
+		profile_lock_release profile_owned
+		return 1
+	}
+	if ensure_runtime; then
+		tmp="${AUDIT_PERSIST_FILE}.tmp"
+		cp "$AUDIT_FILE" "$tmp" && mv "$tmp" "$AUDIT_PERSIST_FILE" || rc=1
+	else
+		rc=1
+	fi
+	collector_lock_release collector_owned
+	profile_lock_release profile_owned
+	[ "$rc" -eq 0 ] || return "$rc"
+	printf '{"success":true,"profiled":true}\n'
+}
+
+sample_once_locked()
+{
+	local hosts="$RUNTIME_DIR/hosts.tsv" marks="$RUNTIME_DIR/marks.tsv"
+	local raw="$RUNTIME_DIR/conntrack.raw" current="$RUNTIME_DIR/conntrack.current"
+	local deltas="$RUNTIME_DIR/deltas.tsv" fallback now flush_interval last_flush
+	local last_policy_refresh
+
+	sysctl -qw net.netfilter.nf_conntrack_acct=1 2>/dev/null || true
+	build_hosts "$hosts" || return 1
+	build_mark_map "$marks" || return 1
+	fallback="$(default_uplink_class)"
+	now="$(date +%s)"
+	last_policy_refresh="$(cat "$POLICY_REFRESH_FILE" 2>/dev/null)"
+	case "$last_policy_refresh" in ''|*[!0-9]*) last_policy_refresh=0 ;; esac
+	# UCI reloads and profile activation apply policy immediately.  The collector
+	# only needs a minute-level fallback for schedule boundaries/recovery; doing a
+	# full policy compile at the 10-second accounting cadence spawned a hot ucode
+	# domain parser continuously on the 512 MB router.
+	if [ $((now - last_policy_refresh)) -ge "$POLICY_REFRESH_INTERVAL" ]; then
+		if apply_audit_policy; then
+			printf '%s\n' "$now" > "$POLICY_REFRESH_FILE"
+		else
+			logger -t c2000max-traffic "application policy update failed"
+		fi
+	fi
+	sync_hardware_mib
+	read_conntrack "$raw" || return 1
+	parse_conntrack "$hosts" "$raw" "$current" || return 1
+	record_audit_diagnostics "$raw" "$current" || return 1
+	calculate_deltas "$marks" "$SNAPSHOT_FILE" "$current" "$deltas" "$fallback" "$now" || return 1
+	merge_audit "$deltas" "$now" || return 1
+	merge_totals "$deltas" || return 1
+	append_history "$now" || return 1
+	enforce_storage_limit || return 1
+	mv "$current" "$SNAPSHOT_FILE" || return 1
+	printf '%s\n' "$now" > "$UPDATED_FILE"
+
+	flush_interval="$(uci -q get c2000max_traffic.config.flush_interval)"
+	case "$flush_interval" in ''|*[!0-9]*) flush_interval=3600 ;; esac
+	last_flush="$(cat "$FLUSHED_FILE" 2>/dev/null)"
+	case "$last_flush" in ''|*[!0-9]*) last_flush=0 ;; esac
+	[ $((now - last_flush)) -lt "$flush_interval" ] || flush_totals
+}
+
+sample_once()
+{
+	local mode="${1:-blocking}" profile_owned=0 collector_owned=0 rc
+
+	case "$mode" in blocking|nonblocking) ;; *) return 1 ;; esac
+	profile_lock_acquire shared profile_owned || return 1
+	collector_lock_acquire "$mode" collector_owned
+	rc=$?
+	if [ "$rc" -eq 2 ]; then
+		profile_lock_release profile_owned
+		return 0
+	elif [ "$rc" -ne 0 ]; then
+		profile_lock_release profile_owned
+		return "$rc"
+	fi
+	ensure_runtime && sample_once_locked
+	rc=$?
+	collector_lock_release collector_owned
+	profile_lock_release profile_owned
+	return "$rc"
+}
+
+build_feature_catalog()
+{
+	local output="$1" feature="${2:-$FEATURE_FILE}" tmp
+	tmp="${output}.tmp.$$"
+
+	: > "$tmp" || return 1
+	[ -r "$feature" ] || { mv "$tmp" "$output"; return 0; }
+	awk -v OFS='\t' '
+		function valid_appid(id,type,idx) {
+			type=int(id/1000); idx=id%1000;
+			return type>=1 && type<=32 && idx>=1 && idx<=512;
+		}
+		/^#class[[:space:]]+/ {
+			class_id=$3+0; class_name=$4;
+			for (i=5; i<=NF; i++) class_name=class_name " " $i;
+			next;
+		}
+		/^[0-9]+[[:space:]]+[^:]+:\[/ {
+			id=$1+0; line=$0;
+			sub(/^[0-9]+[[:space:]]+/, "", line);
+			pos=index(line, ":[");
+			if (pos > 1 && valid_appid(id) && !(id in seen)) {
+				print id,substr(line,1,pos-1),class_id,class_name;
+				seen[id]=1;
+			}
+		}
+	' "$feature" > "$tmp" && mv "$tmp" "$output"
+}
+
+build_native_profile_catalog()
+{
+	local output="$1" source="$2" tmp
+	tmp="${output}.tmp.$$"
+
+	awk -F '\t' -v OFS='\t' '
+		NR == 1 {
+			if ($1 != "oaf_appid" || $2 != "name" ||
+			    $3 != "category_id" || $4 != "category_name" ||
+			    $6 != "compiled") bad=1
+			next
+		}
+		NF >= 6 {
+			id=$1; category=$3; compiled=$6
+			if (id !~ /^[0-9]+$/ || category !~ /^[0-9]+$/ ||
+			    (compiled != "0" && compiled != "1") ||
+			    length($2) < 1 || length($2) > 63 ||
+			    length($4) < 1 || length($4) > 63) { bad=1; next }
+			type=int(id/1000); seq=id%1000
+			if (type < 1 || type > 32 || seq < 1 || seq > 512 ||
+			    category+0 < 1 || category+0 > 512) { bad=1; next }
+			if (compiled == "1") {
+				if (seen[id]++) { bad=1; next }
+				print id,$2,category,$4
+				rows++
+			}
+		}
+		END { if (bad || rows < 1) exit 1 }
+	' "$source" > "$tmp" && mv "$tmp" "$output" || {
+		rm -f "$tmp"
+		return 1
+	}
+}
+
+load_profile_catalog()
+{
+	local requested="$1" cache profile_meta native_catalog values rest meta_sha meta_version meta_format trusted=0
+
+	ensure_runtime || return 1
+	resolve_feature_profile "$requested" || return 1
+	mkdir -p "$RUNTIME_DIR/catalogs" || return 1
+	# v1 cached the 13 OAF storage shards as user-facing categories.  Include
+	# the schema in the volatile filename so a hot package upgrade cannot keep
+	# serving that stale category layout for the same immutable profile SHA.
+	cache="$RUNTIME_DIR/catalogs/$RESOLVED_PROFILE.semantic-v${CATALOG_CACHE_SCHEMA}.tsv"
+	native_catalog="$FEATURE_LIBRARIES_DIR/$RESOLVED_PROFILE/catalog.tsv"
+	if [ ! -f "$cache" ]; then
+		if [ -r "$native_catalog" ]; then
+			build_native_profile_catalog "$cache" "$native_catalog" ||
+				build_feature_catalog "$cache" "$PROFILE_FEATURE_FILE" || return 1
+		else
+			build_feature_catalog "$cache" "$PROFILE_FEATURE_FILE" || return 1
+		fi
+	fi
+	PROFILE_CATALOG_FILE="$cache"
+	profile_meta="$FEATURE_LIBRARIES_DIR/$RESOLVED_PROFILE/profile.meta"
+	if [ -r "$profile_meta" ]; then
+		values="$(awk -F= '
+			$1=="sha256" { sha=tolower($2) }
+			$1=="version" { version=$2 }
+			$1=="format" { format=$2 }
+			END { print sha "|" version "|" format }
+		' "$profile_meta" 2>/dev/null)"
+		meta_sha="${values%%|*}"; rest="${values#*|}"
+		meta_version="${rest%%|*}"; meta_format="${rest#*|}"
+		if [ "$meta_sha" = "$RESOLVED_PROFILE" ]; then
+			case "$meta_format" in v3.0|v4.0|v4.1|v4.2) trusted=1 ;; esac
+			case "$meta_version" in
+				v[0-9]*)
+					case "$meta_version" in *[!A-Za-z0-9._+-]*) trusted=0 ;;
+						*) [ "${#meta_version}" -le 64 ] || trusted=0 ;;
+					esac
+					;;
+				*) trusted=0 ;;
+			esac
+		fi
+	fi
+	if [ "$trusted" -eq 1 ]; then
+		PROFILE_VERSION="$meta_version"
+		PROFILE_FORMAT="$meta_format"
+	else
+		# Legacy/ad-hoc profiles have no trustworthy metadata.  Scan their
+		# immutable source once per call as a compatibility fallback.
+		PROFILE_VERSION="$(awk '$1=="#version" {print $2; exit}' "$PROFILE_FEATURE_FILE" 2>/dev/null)"
+		PROFILE_FORMAT="$(awk '$1=="#format" {print $2; exit}' "$PROFILE_FEATURE_FILE" 2>/dev/null)"
+	fi
+	PROFILE_UPDATED=0
+	meta_sha="$(awk -F= '$1=="sha256" {print tolower($2); exit}' "$FEATURE_META_FILE" 2>/dev/null)"
+	if [ "$meta_sha" = "$RESOLVED_PROFILE" ]; then
+		PROFILE_UPDATED="$(awk -F= '$1=="updated" {print $2; exit}' "$FEATURE_META_FILE" 2>/dev/null)"
+		case "$PROFILE_UPDATED" in ''|*[!0-9]*) PROFILE_UPDATED=0 ;; esac
+	fi
+}
+
+catalog_error_json()
+{
+	printf '{"success":false,"error":"%s"}\n' "$1"
+}
+
+catalog_category_rows()
+{
+	local catalog="$1" output="$2"
+
+	awk -F '\t' -v OFS='\t' '
+		NF >= 4 { id=$3+0; name=$4; if (name=="") name="分类 " id; count[id]++; names[id]=name }
+		END { for (id in count) print id,names[id],count[id] }
+	' "$catalog" | sort -t "$(printf '\t')" -k1,1n > "$output"
+}
+
+catalog_info_json()
+{
+	local requested="$1" categories id name count apps
+
+	load_profile_catalog "$requested" || { catalog_error_json 'invalid or unavailable profile'; return 1; }
+	categories="$RUNTIME_DIR/catalog.$$.categories"
+	catalog_category_rows "$PROFILE_CATALOG_FILE" "$categories" || return 1
+	apps="$(awk -F '\t' 'NF>=4 {n++} END {print n+0}' "$PROFILE_CATALOG_FILE")"
+
+	. "$JSHN_LIB"
+	json_init
+	json_add_boolean success 1
+	json_add_string profile "$RESOLVED_PROFILE"
+	json_add_string profile_id "$RESOLVED_PROFILE"
+	json_add_string version "${PROFILE_VERSION:-未知}"
+	json_add_string format "${PROFILE_FORMAT:-未知}"
+	json_add_string sha256 "$RESOLVED_PROFILE"
+	json_add_int updated "$PROFILE_UPDATED"
+	json_add_int apps "$apps"
+	json_add_int total_apps "$apps"
+	json_add_array categories
+	while IFS="$(printf '\t')" read -r id name count; do
+		case "$id" in ''|*[!0-9]*) continue ;; esac
+		json_add_object ""
+		json_add_int id "$id"
+		json_add_string name "$name"
+		json_add_int count "$count"
+		json_close_object
+	done < "$categories"
+	json_close_array
+	json_dump
+	rm -f "$categories"
+}
+
+valid_uint_arg()
+{
+	[ -n "$1" ] && [ "${#1}" -le 9 ] || return 1
+	case "$1" in 0[0-9]*|*[!0-9]*) return 1 ;; esac
+	return 0
+}
+
+catalog_search_json()
+{
+	local requested="$1" query="$2" category="$3" offset="$4" limit="$5"
+	local rows count_file total id name class_id class_name
+
+	[ -n "$offset" ] || offset=0
+	[ -n "$limit" ] || limit=50
+	valid_uint_arg "$offset" || { catalog_error_json 'invalid offset'; return 1; }
+	valid_uint_arg "$limit" && [ "$limit" -ge 1 ] 2>/dev/null || {
+		catalog_error_json 'invalid limit'; return 1;
+	}
+	[ "$limit" -le 100 ] 2>/dev/null || limit=100
+	if [ -n "$category" ]; then
+		valid_uint_arg "$category" || { catalog_error_json 'invalid category'; return 1; }
+		[ "$category" -ne 0 ] 2>/dev/null || category=""
+	fi
+	[ "${#query}" -le 128 ] || { catalog_error_json 'invalid query'; return 1; }
+	case "$query" in *\\*) catalog_error_json 'invalid query'; return 1 ;; esac
+	if printf '%s' "$query" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+		catalog_error_json 'invalid query'
+		return 1
+	fi
+	load_profile_catalog "$requested" || { catalog_error_json 'invalid or unavailable profile'; return 1; }
+	rows="$RUNTIME_DIR/catalog.$$.search"
+	count_file="$RUNTIME_DIR/catalog.$$.count"
+	awk -F '\t' -v OFS='\t' -v query="$query" -v category="$category" \
+		-v offset="$offset" -v limit="$limit" -v count_file="$count_file" '
+		BEGIN { q=tolower(query) }
+		NF >= 4 {
+			if (category != "" && ($3+0) != (category+0)) next;
+			if (q != "" && index(tolower($2),q) == 0 && index($1,q) == 0) next;
+			total++;
+			if (total > offset && emitted < limit) { print $1,$2,$3,$4; emitted++ }
+		}
+		END { print total+0 > count_file }
+	' "$PROFILE_CATALOG_FILE" > "$rows" || { rm -f "$rows" "$count_file"; return 1; }
+	total="$(cat "$count_file" 2>/dev/null)"
+	case "$total" in ''|*[!0-9]*) total=0 ;; esac
+
+	. "$JSHN_LIB"
+	json_init
+	json_add_boolean success 1
+	json_add_string profile "$RESOLVED_PROFILE"
+	json_add_string profile_id "$RESOLVED_PROFILE"
+	json_add_string profile_version "${PROFILE_VERSION:-未知}"
+	json_add_int total "$total"
+	json_add_int offset "$offset"
+	json_add_int limit "$limit"
+	if [ $((offset + limit)) -lt "$total" ] 2>/dev/null; then
+		json_add_boolean has_more 1
+	else
+		json_add_boolean has_more 0
+	fi
+	json_add_array items
+	while IFS="$(printf '\t')" read -r id name class_id class_name; do
+		case "$id" in ''|*[!0-9]*) continue ;; esac
+		json_add_object ""
+		json_add_int id "$id"
+		json_add_string name "$name"
+		json_add_int category_id "${class_id:-0}"
+		json_add_string category "${class_name:-未知}"
+		json_close_object
+	done < "$rows"
+	json_close_array
+	json_dump
+	rm -f "$rows" "$count_file"
+}
+
+catalog_lookup_json()
+{
+	local requested="$1" ids="$2" requested_rows rows count
+	local id name class_id class_name missing
+
+	[ "${#ids}" -le 32768 ] || { catalog_error_json 'invalid ids'; return 1; }
+	case "$ids" in
+		'' ) ;;
+		,*|*,|*,,*|*[!0-9,]*) catalog_error_json 'invalid ids'; return 1 ;;
+	esac
+	if [ -n "$ids" ] && ! printf '%s\n' "$ids" |
+		awk -F ',' '{ for (i=1; i<=NF; i++) if (length($i)>9) exit 1 }'; then
+		catalog_error_json 'invalid ids'
+		return 1
+	fi
+	load_profile_catalog "$requested" || { catalog_error_json 'invalid or unavailable profile'; return 1; }
+	requested_rows="$RUNTIME_DIR/catalog.$$.requested"
+	rows="$RUNTIME_DIR/catalog.$$.lookup"
+	if [ -n "$ids" ]; then
+		printf '%s\n' "$ids" | tr ',' '\n' |
+			awk '!seen[$1+0]++ {print $1+0}' > "$requested_rows" || return 1
+	else
+		: > "$requested_rows"
+	fi
+	count="$(wc -l < "$requested_rows" 2>/dev/null)"
+	case "$count" in ''|*[!0-9]*) count=0 ;; esac
+	[ "$count" -le 4096 ] 2>/dev/null || {
+		rm -f "$requested_rows"; catalog_error_json 'too many ids'; return 1;
+	}
+	awk -F '\t' -v OFS='\t' '
+		FILENAME == ARGV[1] && NF >= 4 { name[$1]=$2; cid[$1]=$3; cname[$1]=$4; next }
+		FILENAME == ARGV[2] {
+			id=$1+0;
+			if (id in name) print id,name[id],cid[id],cname[id],0;
+			else print id,"未知应用 " id,0,"未知",1;
+		}
+	' "$PROFILE_CATALOG_FILE" "$requested_rows" > "$rows" || {
+		rm -f "$requested_rows" "$rows"; return 1;
+	}
+
+	. "$JSHN_LIB"
+	json_init
+	json_add_boolean success 1
+	json_add_string profile "$RESOLVED_PROFILE"
+	json_add_string profile_id "$RESOLVED_PROFILE"
+	json_add_string profile_version "${PROFILE_VERSION:-未知}"
+	json_add_array items
+	while IFS="$(printf '\t')" read -r id name class_id class_name missing; do
+		case "$id" in ''|*[!0-9]*) continue ;; esac
+		json_add_object ""
+		json_add_int id "$id"
+		json_add_string name "$name"
+		json_add_int category_id "${class_id:-0}"
+		json_add_string category "${class_name:-未知}"
+		json_add_boolean missing "${missing:-0}"
+		json_close_object
+	done < "$rows"
+	json_close_array
+	json_dump
+	rm -f "$requested_rows" "$rows"
+}
+
+catalog_json()
+{
+	local categories id name class_id class_name count
+
+	load_profile_catalog "" || { catalog_error_json 'active profile unavailable'; return 1; }
+	categories="$RUNTIME_DIR/catalog.$$.categories"
+	catalog_category_rows "$PROFILE_CATALOG_FILE" "$categories" || return 1
+
+	. "$JSHN_LIB"
+	json_init
+	json_add_string profile "$RESOLVED_PROFILE"
+	json_add_string profile_id "$RESOLVED_PROFILE"
+	json_add_string version "${PROFILE_VERSION:-未知}"
+	json_add_string format "${PROFILE_FORMAT:-未知}"
+	json_add_string sha256 "$RESOLVED_PROFILE"
+	json_add_int updated "$PROFILE_UPDATED"
+	json_add_array categories
+	while IFS="$(printf '\t')" read -r id name count; do
+		case "$id" in ''|*[!0-9]*) continue ;; esac
+		json_add_object ""
+		json_add_int id "$id"
+		json_add_string name "$name"
+		json_close_object
+	done < "$categories"
+	json_close_array
+	json_add_array apps
+	while IFS="$(printf '\t')" read -r id name class_id class_name; do
+		case "$id" in ''|*[!0-9]*) continue ;; esac
+		json_add_object ""
+		json_add_int id "$id"
+		json_add_string name "$name"
+		json_add_int category_id "${class_id:-0}"
+		json_add_string category "${class_name:-未知}"
+		json_close_object
+	done < "$PROFILE_CATALOG_FILE"
+	json_close_array
+	json_dump
+	rm -f "$categories"
+}
+
+valid_device_field()
+{
+	[ -n "$1" ] && [ "${#1}" -le 128 ] || return 1
+	! printf '%s' "$1" | LC_ALL=C grep -q '[[:cntrl:]]'
+}
+
+recent_audit_json()
+{
+	local offset="$1" limit="$2" total updated snapshot page profiles requested catalog_map profile_meta rows
+	local profile version timestamp device_id device_ip device_name profile_id profile_version
+	local appid app_name class_id class_name display_name profile_owned=0 collector_owned=0
+
+	if ! audit_enabled; then
+		printf '{"success":true,"disabled":true,"window":%s,"total":0,"offset":0,"limit":50,"updated":0,"stale":false,"has_more":false,"items":[]}\n' \
+			"$RECENT_AUDIT_WINDOW"
+		return 0
+	fi
+
+	[ -n "$offset" ] || offset=0
+	[ -n "$limit" ] || limit=50
+	valid_uint_arg "$offset" && [ "$offset" -le "$RECENT_AUDIT_WINDOW" ] 2>/dev/null || {
+		catalog_error_json 'invalid offset'; return 1;
+	}
+	valid_uint_arg "$limit" && [ "$limit" -ge 1 ] 2>/dev/null || {
+		catalog_error_json 'invalid limit'; return 1;
+	}
+	[ "$limit" -le 100 ] 2>/dev/null || limit=100
+	mkdir -p "$RUNTIME_DIR" || {
+		catalog_error_json 'audit history unavailable'; return 1;
+	}
+	snapshot="$RUNTIME_DIR/recent-audit.$$.snapshot"
+	page="$RUNTIME_DIR/recent-audit.$$.page"
+	profiles="$RUNTIME_DIR/recent-audit.$$.profiles"
+	requested="$RUNTIME_DIR/recent-audit.$$.requested"
+	catalog_map="$RUNTIME_DIR/recent-audit.$$.catalogs"
+	profile_meta="$RUNTIME_DIR/recent-audit.$$.profile-meta"
+	rows="$RUNTIME_DIR/recent-audit.$$.rows"
+
+	if ! snapshot_recent_audit_cache "$snapshot"; then
+		# A missing cache needs a one-time rebuild from audit.tsv.  Match the
+		# sampler/feature-manager lock order for that recovery only; steady-state
+		# page loads never wait behind the potentially expensive collector.
+		profile_lock_acquire shared profile_owned || {
+			rm -f "$snapshot"
+			catalog_error_json 'audit history unavailable'; return 1;
+		}
+		collector_lock_acquire blocking collector_owned || {
+			profile_lock_release profile_owned
+			rm -f "$snapshot"
+			catalog_error_json 'audit history unavailable'
+			return 1
+		}
+		if ! ensure_runtime || ! snapshot_recent_audit_cache "$snapshot"; then
+			collector_lock_release collector_owned
+			profile_lock_release profile_owned
+			rm -f "$snapshot"
+			catalog_error_json 'audit history unavailable'
+			return 1
+		fi
+		collector_lock_release collector_owned
+		profile_lock_release profile_owned
+	fi
+	# Keep pagination globally newest-first even when recovering a cache written
+	# by an older build or serving the previous atomic generation mid-update.
+	# The window is bounded to 150 rows, so this is constant and inexpensive.
+	if ! LC_ALL=C sort -t "$(printf '\t')" -k1,1nr -k2,2nr -k3,3 \
+		-k7,7 -k6,6n -o "$snapshot" "$snapshot"; then
+		rm -f "$snapshot"
+		catalog_error_json 'audit history unavailable'
+		return 1
+	fi
+
+	total="$(wc -l < "$snapshot" 2>/dev/null)"
+	case "$total" in ''|*[!0-9]*) total=0 ;; esac
+	[ "$total" -le "$RECENT_AUDIT_WINDOW" ] 2>/dev/null || total="$RECENT_AUDIT_WINDOW"
+	updated="$(head -n 1 "$snapshot" 2>/dev/null | cut -f1)"
+	case "$updated" in ''|*[!0-9]*) updated=0 ;; esac
+	if ! awk -F '\t' -v offset="$offset" -v limit="$limit" '
+		NR > offset && emitted < limit { print; emitted++ }
+	' "$snapshot" > "$page"; then
+		rm -f "$snapshot" "$page"
+		catalog_error_json 'audit history unavailable'
+		return 1
+	fi
+	awk -F '\t' 'NF>=7 && !seen[$7]++ {print $7}' "$page" > "$profiles"
+	awk -F '\t' -v OFS='\t' 'NF>=7 && !seen[$7 SUBSEP $6]++ {print $7,$6}' \
+		"$page" > "$requested"
+	rm -f "$snapshot"
+	: > "$catalog_map" || {
+		catalog_error_json 'audit history unavailable'
+		return 1
+	}
+	: > "$profile_meta" || {
+		rm -f "$catalog_map"
+		catalog_error_json 'audit history unavailable'
+		return 1
+	}
+	while IFS= read -r profile; do
+		valid_profile_id "$profile" || continue
+		version=未知
+		if load_profile_catalog "$profile"; then
+			version="${PROFILE_VERSION:-未知}"
+			awk -F '\t' -v OFS='\t' -v profile="$profile" -v version="$version" '
+				FILENAME == ARGV[1] && $1 == profile { wanted[$2]=1; next }
+				FILENAME == ARGV[2] && ($1 in wanted) {
+					print profile,version,$1,$2,$3,$4
+				}
+			' "$requested" "$PROFILE_CATALOG_FILE" >> "$catalog_map"
+		fi
+		printf '%s\t%s\n' "$profile" "$version" >> "$profile_meta"
+	done < "$profiles"
+
+	awk -F '\t' -v OFS='\t' '
+		FILENAME == ARGV[1] { pv[$1]=$2; next }
+		FILENAME == ARGV[2] {
+			key=$1 SUBSEP $3; name[key]=$4; cid[key]=$5; cname[key]=$6; next;
+		}
+		FILENAME == ARGV[3] && NF >= 7 {
+			key=$7 SUBSEP ($6+0); appname=name[key];
+			if (appname == "") appname="应用 " ($6+0);
+			catname=cname[key]; if (catname == "") catname="未分类";
+			print $1,$3,$4,$5,$7,pv[$7],$6+0,appname,cid[key]+0,catname;
+		}
+	' "$profile_meta" "$catalog_map" "$page" > "$rows" || {
+		rm -f "$page" "$profiles" "$requested" "$catalog_map" "$profile_meta" "$rows"
+		catalog_error_json 'audit history unavailable'
+		return 1
+	}
+
+	. "$JSHN_LIB"
+	json_init
+	json_add_boolean success 1
+	json_add_int window "$RECENT_AUDIT_WINDOW"
+	json_add_int total "$total"
+	json_add_int offset "$offset"
+	json_add_int limit "$limit"
+	json_add_int updated "$updated"
+	json_add_boolean stale "${RECENT_AUDIT_SNAPSHOT_STALE:-0}"
+	if [ $((offset + limit)) -lt "$total" ] 2>/dev/null; then
+		json_add_boolean has_more 1
+	else
+		json_add_boolean has_more 0
+	fi
+	json_add_array items
+	while IFS="$(printf '\t')" read -r timestamp device_id device_ip device_name \
+		profile_id profile_version appid app_name class_id class_name; do
+		case "$timestamp" in ''|*[!0-9]*) continue ;; esac
+		valid_app_id "$appid" || continue
+		valid_profile_id "$profile_id" || continue
+		valid_device_field "$device_id" || continue
+		valid_device_field "$device_ip" || device_ip=""
+		if valid_device_field "$device_name"; then
+			display_name="$device_name"
+		elif valid_device_field "$device_ip"; then
+			display_name="$device_ip"
+		else
+			display_name="$device_id"
+		fi
+		json_add_object ""
+		json_add_int timestamp "$timestamp"
+		json_add_int last_seen "$timestamp"
+		json_add_int id "$appid"
+		json_add_string name "$app_name"
+		json_add_int category_id "${class_id:-0}"
+		json_add_string category "$class_name"
+		json_add_string device_id "$device_id"
+		json_add_string device_ip "$device_ip"
+		json_add_string device_name "$display_name"
+		json_add_string device "$display_name"
+		json_add_string profile_id "$profile_id"
+		json_add_string profile_version "${profile_version:-未知}"
+		json_close_object
+	done < "$rows"
+	json_close_array
+	json_dump
+	rm -f "$snapshot" "$page" "$profiles" "$requested" "$catalog_map" "$profile_meta" "$rows"
+}
+
+audit_json()
+{
+	local device="$1" from="$2" to="$3" now current_profile legacy_profile selected profiles
+	local catalog_map profile_meta app_rows category_rows bucket_rows profile version
+	local profile_id profile_version appid name class_id class_name fu fd ou od uu ud total bucket up down
+	local total_up=0 total_down=0
+
+	if ! audit_enabled; then
+		printf '{"disabled":true,"apps":[],"categories":[],"buckets":[],"totals":{"upload":"0","download":"0"}}\n'
+		return 0
+	fi
+
+	ensure_runtime || return 1
+	[ -n "$device" ] || { printf '{"error":"device is required"}\n'; return 1; }
+	now="$(date +%s)"
+	case "$to" in ''|*[!0-9]*) to="$now" ;; esac
+	case "$from" in ''|*[!0-9]*) from=$((to - 86400)) ;; esac
+	[ "$from" -le "$to" ] || { printf '{"error":"invalid time range"}\n'; return 1; }
+	current_profile="$(active_feature_profile)" || {
+		printf '{"error":"active feature profile unavailable"}\n'; return 1;
+	}
+	legacy_profile="$(legacy_audit_profile 2>/dev/null)"
+	valid_profile_id "$legacy_profile" || legacy_profile="$current_profile"
+
+	# RPC calls for different devices/time ranges may overlap. Per-process
+	# scratch names prevent one modal request from replacing another's rows.
+	selected="$RUNTIME_DIR/audit.$$.selected"
+	profiles="$RUNTIME_DIR/audit.$$.profiles"
+	catalog_map="$RUNTIME_DIR/audit.$$.catalogs"
+	profile_meta="$RUNTIME_DIR/audit.$$.profile-meta"
+	app_rows="$RUNTIME_DIR/audit.$$.apps"
+	category_rows="$RUNTIME_DIR/audit.$$.categories"
+	bucket_rows="$RUNTIME_DIR/audit.$$.buckets"
+	awk -F '\t' -v OFS='\t' -v dev="$device" -v from="$from" -v to="$to" \
+		-v legacy="$legacy_profile" '
+		function valid_appid(id,type,idx) {
+			type=int(id/1000); idx=id%1000;
+			return type>=1 && type<=32 && idx>=1 && idx<=512;
+		}
+		NF >= 12 && $2==dev && $1>=from && $1<=to {
+			p=(NF >= 13 && length($13)==64 && $13 !~ /[^0-9A-Fa-f]/) ? tolower($13) : legacy;
+			a=$5+0; if (a != 0 && !valid_appid(a)) a=0;
+			print $1,$2,$3,$4,a,$6,$7,$8,$9,$10,$11,$12,p;
+		}
+	' "$AUDIT_FILE" > "$selected" || return 1
+	awk -F '\t' 'NF>=13 && !seen[$13]++ {print $13}' "$selected" > "$profiles"
+	: > "$catalog_map" || return 1
+	: > "$profile_meta" || return 1
+	while IFS= read -r profile; do
+		valid_profile_id "$profile" || continue
+		version=未知
+		if load_profile_catalog "$profile"; then
+			version="${PROFILE_VERSION:-未知}"
+			awk -F '\t' -v OFS='\t' -v profile="$profile" -v version="$version" \
+				'NF>=4 {print profile,version,$1,$2,$3,$4}' \
+				"$PROFILE_CATALOG_FILE" >> "$catalog_map"
+		fi
+		printf '%s\t%s\n' "$profile" "$version" >> "$profile_meta"
+	done < "$profiles"
+
+	awk -F '\t' -v OFS='\t' -v dev="$device" -v from="$from" -v to="$to" '
+		FILENAME == ARGV[1] { pv[$1]=$2; next }
+		FILENAME == ARGV[2] { key=$1 SUBSEP $3; n[key]=$4; cid[key]=$5; cn[key]=$6; next }
+		FILENAME == ARGV[3] {
+			p=$13; a=$5+0; key=p SUBSEP a;
+			fu[key]+=$6; fd[key]+=$7; ou[key]+=$8; od[key]+=$9;
+			uu[key]+=$10; ud[key]+=$11; if ($12+0 > last[key]) last[key]=$12+0;
+			prof[key]=p; app[key]=a;
+		}
+		END {
+			for (key in fu) {
+				p=prof[key]; a=app[key];
+				name=(a==0 ? "未审计/未知应用" : n[key]); if (name=="") name="未知应用 " a;
+				catid=(a==0 ? 0 : cid[key]); catname=(a==0 ? "未知" : cn[key]);
+				if (catname=="") catname="未知";
+				total=fu[key]+fd[key]+ou[key]+od[key]+uu[key]+ud[key];
+				print p,pv[p],a,name,catid,catname,fu[key],fd[key],ou[key],od[key],
+					uu[key],ud[key],total,last[key];
+			}
+		}' "$profile_meta" "$catalog_map" "$selected" |
+		sort -t "$(printf '\t')" -k13,13nr > "$app_rows"
+
+	awk -F '\t' -v OFS='\t' '
+		{ key=$1 SUBSEP $5 SUBSEP $6; profile[key]=$1; version[key]=$2;
+			id[key]=$5; name[key]=$6; value[key]+=$13 }
+		END { for (key in value) print profile[key],version[key],id[key],name[key],sprintf("%.0f",value[key]) }
+	' "$app_rows" | sort -t "$(printf '\t')" -k5,5nr > "$category_rows"
+
+	awk -F '\t' -v OFS='\t' '
+		NF >= 13 {
+			up[$1]+=$6+$8+$10; down[$1]+=$7+$9+$11
+		}
+		END { for (b in up) print b,sprintf("%.0f",up[b]),sprintf("%.0f",down[b]) }
+	' "$selected" | sort -t "$(printf '\t')" -k1,1n > "$bucket_rows"
+
+	. "$JSHN_LIB"
+	json_init
+	json_add_string device "$device"
+	json_add_int from "$from"
+	json_add_int to "$to"
+	json_add_array apps
+	while IFS="$(printf '\t')" read -r profile_id profile_version appid name class_id class_name fu fd ou od uu ud total last_seen; do
+		[ -n "$appid" ] || continue
+		total_up=$((total_up + fu + ou + uu)); total_down=$((total_down + fd + od + ud))
+		json_add_object ""
+		json_add_int id "$appid"
+		json_add_string name "$name"
+		json_add_string profile_id "$profile_id"
+		json_add_string profile_version "${profile_version:-未知}"
+		json_add_int category_id "${class_id:-0}"
+		json_add_string category "$class_name"
+		json_add_string fiveg_upload "$fu"; json_add_string fiveg_download "$fd"
+		json_add_string other_upload "$ou"; json_add_string other_download "$od"
+		json_add_string unknown_upload "$uu"; json_add_string unknown_download "$ud"
+		json_add_string total "$total"
+		json_add_int last_seen "${last_seen:-0}"
+		json_close_object
+	done < "$app_rows"
+	json_close_array
+	json_add_array categories
+	while IFS="$(printf '\t')" read -r profile_id profile_version class_id class_name total; do
+		[ -n "$class_id" ] || continue
+		json_add_object ""
+		json_add_int id "$class_id"
+		json_add_string name "$class_name"
+		json_add_string profile_id "$profile_id"
+		json_add_string profile_version "${profile_version:-未知}"
+		json_add_string total "$total"
+		json_close_object
+	done < "$category_rows"
+	json_close_array
+	json_add_array buckets
+	while IFS="$(printf '\t')" read -r bucket up down; do
+		case "$bucket" in ''|*[!0-9]*) continue ;; esac
+		json_add_object ""
+		json_add_int timestamp "$bucket"
+		json_add_string upload "$up"
+		json_add_string download "$down"
+		json_close_object
+	done < "$bucket_rows"
+	json_close_array
+	json_add_object totals
+	json_add_string upload "$total_up"
+	json_add_string download "$total_down"
+	json_close_object
+	json_dump
+	rm -f "$selected" "$profiles" "$catalog_map" "$profile_meta" \
+		"$app_rows" "$category_rows" "$bucket_rows"
+}
+
+status_json()
+{
+	local effective source updated active=0 key ip name fu fd ou od uu ud seen
+	local total_fu=0 total_fd=0 total_ou=0 total_od=0 total_uu=0 total_ud=0
+	local rows="$RUNTIME_DIR/status.$$.rows" history_rows="$RUNTIME_DIR/status.$$.history"
+	local daemon_pid statistics_on=0 audit_on=0 audit_active=0
+	local feature_profile feature_version feature_format feature_apps policy_rules policy_dns_domains
+	local policy_bypass_clients policy_hnat_scope policy_error history_samples
+	local storage_limit storage_used
+	local audit_mode audit_control_mode effective_control_mode audit_packets audit_hold=0
+	local audit_features=0 audit_record=0 audit_daemon=0 audit_runtime_error=""
+	local audit_total=0 audit_identified=0 audit_unknown=0 audit_secmarks=0 audit_kernel_hits=0
+
+	ensure_runtime || return 1
+	daemon_pid="$(cat "$DAEMON_PID_FILE" 2>/dev/null)"
+	case "$daemon_pid" in
+		''|*[!0-9]*) ;;
+		*)
+			if kill -0 "$daemon_pid" 2>/dev/null &&
+			   tr '\000' ' ' < "/proc/$daemon_pid/cmdline" 2>/dev/null |
+				grep -q '/usr/sbin/c2000max-traffic daemon'; then
+				active=1
+			fi
+			;;
+	esac
+	effective="$(cat /var/run/c2000max-hnat-effective 2>/dev/null)"
+	updated="$(cat "$UPDATED_FILE" 2>/dev/null)"
+	case "$updated" in ''|*[!0-9]*) updated=0 ;; esac
+	case "$effective" in
+		mediatek_hnat) source=hardware_mib ;;
+		flow_offloading) source=flowtable_conntrack ;;
+		*) source=conntrack ;;
+	esac
+	statistics_enabled && statistics_on=1
+	audit_enabled && audit_on=1
+	if [ "$audit_on" -eq 1 ]; then
+		audit_total="$(sed -n 's/^total=//p' "$AUDIT_DIAG_FILE" 2>/dev/null)"
+		audit_identified="$(sed -n 's/^identified=//p' "$AUDIT_DIAG_FILE" 2>/dev/null)"
+		audit_unknown="$(sed -n 's/^unknown=//p' "$AUDIT_DIAG_FILE" 2>/dev/null)"
+		audit_secmarks="$(sed -n 's/^secmarks=//p' "$AUDIT_DIAG_FILE" 2>/dev/null)"
+		audit_kernel_hits="$(sed -n 's/^kernel_hits=//p' "$AUDIT_DIAG_FILE" 2>/dev/null)"
+		case "$audit_total" in ''|*[!0-9]*) audit_total=0 ;; esac
+		case "$audit_identified" in ''|*[!0-9]*) audit_identified=0 ;; esac
+		case "$audit_unknown" in ''|*[!0-9]*) audit_unknown=0 ;; esac
+		case "$audit_secmarks" in ''|*[!0-9]*) audit_secmarks=0 ;; esac
+		case "$audit_kernel_hits" in ''|*[!0-9]*) audit_kernel_hits=0 ;; esac
+		audit_features="$(cat "$OAF_SYSCTL_DIR/feature_init" 2>/dev/null)"
+		audit_record="$(cat "$OAF_SYSCTL_DIR/record_enable" 2>/dev/null)"
+		case "$audit_features" in ''|*[!0-9]*) audit_features=0 ;; esac
+		pidof c2000max-oafd >/dev/null 2>&1 && audit_daemon=1
+		if [ ! -r "$OAF_SYSCTL_DIR/version" ]; then
+			audit_runtime_error="OAF 内核引擎未运行"
+		elif [ "$audit_features" -le 0 ]; then
+			audit_runtime_error="OAF 特征库未装入内核（已识别流量会全部显示为未知/其他）"
+		elif [ "$audit_record" != 1 ]; then
+			audit_runtime_error="OAF 流量记录未启用"
+		elif [ "$audit_daemon" -ne 1 ]; then
+			audit_runtime_error="OAF 用户态服务未运行"
+		elif [ "$audit_kernel_hits" -gt 0 ] && [ "$audit_identified" -eq 0 ] &&
+		     [ "$audit_secmarks" -eq 0 ]; then
+			audit_runtime_error="OAF 已命中特征，但 Conntrack 没有导出 APP_ID；请确认正在运行包含 CTA_SECMARK 修复的新内核"
+		else
+			audit_active=1
+		fi
+	fi
+	audit_mode="$(uci -q get c2000max_traffic.audit.recognition_mode)"
+	case "$audit_mode" in seamless|balanced|precise) ;; *) audit_mode=balanced ;; esac
+	audit_control_mode="$(uci -q get c2000max_traffic.audit.control_mode)"
+	case "$audit_control_mode" in seamless|force|strict|deep) ;; *) audit_control_mode=seamless ;; esac
+	effective_control_mode="$(cat "$POLICY_MODE_FILE" 2>/dev/null)"
+	case "$effective_control_mode" in seamless|force|strict|deep) ;;
+		*) effective_control_mode="$audit_control_mode" ;; esac
+	audit_packets="$(cat "$OAF_SYSCTL_DIR/max_dpi_packets" 2>/dev/null)"
+	case "$audit_packets" in
+		''|*[!0-9]*)
+			[ "$audit_mode" = precise ] && audit_packets=64 || audit_packets=8
+			;;
+	esac
+	[ "$(cat "$OAF_SYSCTL_DIR/hold_acceleration" 2>/dev/null)" = 1 ] && audit_hold=1
+	load_status_feature_metadata
+	feature_profile="$FEATURE_STATUS_PROFILE"
+	feature_version="$FEATURE_STATUS_VERSION"
+	feature_format="$FEATURE_STATUS_FORMAT"
+	feature_apps="$FEATURE_STATUS_APPS"
+	policy_rules="$(cat "$POLICY_COUNT_FILE" 2>/dev/null)"
+	policy_dns_domains="$(cat "$POLICY_DNS_COUNT_FILE" 2>/dev/null)"
+	policy_bypass_clients="$(cat "$POLICY_BYPASS_COUNT_FILE" 2>/dev/null)"
+	policy_error="$(cat "$POLICY_ERROR_FILE" 2>/dev/null)"
+	[ -n "$policy_error" ] || policy_error="$audit_runtime_error"
+	history_samples="$(awk -F '\t' 'NF>=7 && $1~/^[0-9]+$/ {n++} END {print n+0}' "$HISTORY_FILE")"
+	storage_limit="$(storage_limit_bytes)"
+	storage_used=$(( $(file_size "$HISTORY_FILE") + $(file_size "$AUDIT_FILE") ))
+	case "$feature_apps" in ''|*[!0-9]*) feature_apps=0 ;; esac
+	case "$policy_rules" in ''|*[!0-9]*) policy_rules=0 ;; esac
+	case "$policy_dns_domains" in ''|*[!0-9]*) policy_dns_domains=0 ;; esac
+	case "$policy_bypass_clients" in -1) ;; ''|*[!0-9]*) policy_bypass_clients=0 ;; esac
+	case "$effective_control_mode" in
+		strict) policy_hnat_scope=selected ;;
+		deep) policy_hnat_scope=global ;;
+		*) policy_hnat_scope=none ;;
+	esac
+	case "$history_samples" in ''|*[!0-9]*) history_samples=0 ;; esac
+
+	. "$JSHN_LIB"
+	json_init
+	json_add_boolean active "$active"
+	json_add_boolean statistics_enabled "$statistics_on"
+	json_add_string acceleration "${effective:-unknown}"
+	json_add_string counter_source "$source"
+	json_add_int updated "$updated"
+	json_add_int history_samples "$history_samples"
+	json_add_string storage_limit "$storage_limit"
+	json_add_string storage_used "$storage_used"
+	json_add_boolean audit_enabled "$audit_on"
+	json_add_boolean audit_active "$audit_active"
+	json_add_string audit_mode "$audit_mode"
+	json_add_string control_mode "$audit_control_mode"
+	json_add_string effective_control_mode "$effective_control_mode"
+	json_add_int audit_packets "$audit_packets"
+	json_add_boolean audit_holds_acceleration "$audit_hold"
+	json_add_string feature_profile "$feature_profile"
+	json_add_string feature_version "${feature_version:-未知}"
+	json_add_string feature_format "${feature_format:-未知}"
+	json_add_int feature_apps "$feature_apps"
+	json_add_int audit_loaded_features "$audit_features"
+	json_add_int audit_connections "$audit_total"
+	json_add_int audit_identified_connections "$audit_identified"
+	json_add_int audit_unknown_connections "$audit_unknown"
+	json_add_int audit_secmark_connections "$audit_secmarks"
+	json_add_int policy_rules "$policy_rules"
+	json_add_int policy_dns_domains "$policy_dns_domains"
+	json_add_int policy_bypass_clients "$policy_bypass_clients"
+	json_add_string policy_hnat_scope "$policy_hnat_scope"
+	json_add_string audit_error "$policy_error"
+	json_add_array devices
+	awk -F '\t' -v OFS='|' '$0 !~ /^#/ && NF >= 10 { print $1,$2,$3,$4,$5,$6,$7,$8,$9,$10 }' \
+		"$TOTALS_FILE" > "$rows"
+	while IFS='|' read -r key ip name fu fd ou od uu ud seen; do
+		[ -n "$key" ] || continue
+		total_fu=$((total_fu + fu)); total_fd=$((total_fd + fd))
+		total_ou=$((total_ou + ou)); total_od=$((total_od + od))
+		total_uu=$((total_uu + uu)); total_ud=$((total_ud + ud))
+		json_add_object ""
+		json_add_string id "$key"
+		json_add_string ip "$ip"
+		json_add_string name "${name:-$ip}"
+		case "$key" in
+			??:??:??:??:??:??) json_add_string mac "$key" ;;
+		esac
+		json_add_string fiveg_upload "$fu"
+		json_add_string fiveg_download "$fd"
+		json_add_string other_upload "$ou"
+		json_add_string other_download "$od"
+		json_add_string unknown_upload "$uu"
+		json_add_string unknown_download "$ud"
+		json_add_int last_seen "${seen:-0}"
+		json_close_object
+	done < "$rows"
+	rm -f "$rows"
+	json_close_array
+	json_add_object totals
+	json_add_string fiveg_upload "$total_fu"
+	json_add_string fiveg_download "$total_fd"
+	json_add_string other_upload "$total_ou"
+	json_add_string other_download "$total_od"
+	json_add_string unknown_upload "$total_uu"
+	json_add_string unknown_download "$total_ud"
+	json_close_object
+	json_add_array history
+	# The chart renders at most 240 points.  Keep the total sample count above,
+	# but do not serialize and transfer up to 2880 hidden points every poll.
+	tail -n 240 "$HISTORY_FILE" > "$history_rows" 2>/dev/null || : > "$history_rows"
+	while IFS="$(printf '\t')" read -r seen fu fd ou od uu ud; do
+		case "$seen" in ''|*[!0-9]*) continue ;; esac
+		json_add_object ""
+		json_add_int timestamp "$seen"
+		json_add_string fiveg_upload "${fu:-0}"
+		json_add_string fiveg_download "${fd:-0}"
+		json_add_string other_upload "${ou:-0}"
+		json_add_string other_download "${od:-0}"
+		json_add_string unknown_upload "${uu:-0}"
+		json_add_string unknown_download "${ud:-0}"
+		json_close_object
+	done < "$history_rows"
+	rm -f "$history_rows"
+	json_close_array
+	json_dump
+}
+
+reset_totals_locked()
+{
+	: > "$TOTALS_FILE" || return 1
+	: > "$SNAPSHOT_FILE" || return 1
+	: > "$PERSIST_FILE" || return 1
+	: > "$HISTORY_FILE" || return 1
+	: > "$HISTORY_PERSIST_FILE" || return 1
+	: > "$AUDIT_FILE" || return 1
+	: > "$AUDIT_PROFILED_FILE" || return 1
+	: > "$AUDIT_PERSIST_FILE" || return 1
+	: > "$RECENT_AUDIT_FILE" || return 1
+	printf '0\n' > "$RECENT_AUDIT_READY_FILE" || return 1
+	date +%s > "$UPDATED_FILE"
+	date +%s > "$FLUSHED_FILE"
+	printf '{"success":true}\n'
+}
+
+reset_totals()
+{
+	local profile_owned=0 collector_owned=0 rc
+
+	profile_lock_acquire exclusive profile_owned || return 1
+	collector_lock_acquire blocking collector_owned || {
+		profile_lock_release profile_owned
+		return 1
+	}
+	ensure_runtime && reset_totals_locked
+	rc=$?
+	collector_lock_release collector_owned
+	profile_lock_release profile_owned
+	return "$rc"
+}
+
+daemon_loop()
+{
+	local interval
+
+	ensure_runtime || exit 1
+	printf '%s\n' "$$" > "$DAEMON_PID_FILE" || exit 1
+	trap 'flush_totals >/dev/null 2>&1; rm -f "$DAEMON_PID_FILE"; exit 0' HUP INT TERM
+	while :; do
+		if statistics_enabled; then
+			sample_once nonblocking || logger -t c2000max-traffic "traffic sample failed"
+			interval="$(uci -q get c2000max_traffic.config.sample_interval)"
+			case "$interval" in ''|*[!0-9]*) interval=10 ;; esac
+			[ "$interval" -ge 5 ] 2>/dev/null || interval=5
+			[ "$interval" -le 300 ] 2>/dev/null || interval=300
+		else
+			# Audit/control still needs schedule-boundary refresh while statistics is
+			# off, but this path performs no conntrack dump or HNAT MIB walk.
+			apply_audit_policy >/dev/null 2>&1 ||
+				logger -t c2000max-traffic "application policy update failed"
+			interval="$POLICY_REFRESH_INTERVAL"
+		fi
+		sleep "$interval" &
+		wait $!
+	done
+}
+
+if [ "${C2000_TRAFFIC_LIB_ONLY:-0}" != 1 ]; then
+	case "$1" in
+		daemon) daemon_loop ;;
+		sample) sample_once blocking ;;
+		mib-sync) sync_hardware_mib ;;
+		audit-refresh) invalidate_acceleration_cache ;;
+		audit-reset) reset_audit_connections ;;
+		audit-rebaseline) rebaseline_audit_connections ;;
+		status) status_json ;;
+		audit) audit_json "${2:-}" "${3:-}" "${4:-}" ;;
+		recent-audit) recent_audit_json "${2:-}" "${3:-}" ;;
+		catalog) catalog_json ;;
+		catalog-info) catalog_info_json "${2:-}" ;;
+		catalog-search) catalog_search_json "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}" ;;
+		catalog-lookup) catalog_lookup_json "${2:-}" "${3:-}" ;;
+		audit-migrate) persist_audit_profiles ;;
+		audit-policy) apply_audit_policy ;;
+		audit-policy-clear) clear_audit_policy ;;
+		flush) flush_totals ;;
+		reset) reset_totals ;;
+		audit-engine-sync) ensure_audit_engine ;;
+		*) echo "Usage: $0 {daemon|sample|mib-sync|audit-refresh|audit-reset|audit-rebaseline|status|audit|recent-audit|catalog|catalog-info|catalog-search|catalog-lookup|audit-migrate|audit-engine-sync|audit-policy|audit-policy-clear|flush|reset}" >&2; exit 1 ;;
+	esac
+fi

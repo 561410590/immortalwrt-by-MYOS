@@ -1,0 +1,48 @@
+#!/bin/sh
+
+case "$1:$2" in
+	list:)
+		printf '%s\n' '{"devices":{}}'
+		;;
+	call:devices)
+		. /usr/share/libubox/jshn.sh
+		json_init
+		json_add_array devices
+
+		for usb in /sys/bus/usb/devices/*; do
+			[ -r "$usb/idVendor" ] || continue
+			slot=${usb##*/}
+			modem=0
+			serial=0
+			for interface in "$usb/$slot":*; do
+				[ -d "$interface/usbmisc" ] && modem=1
+				for tty in "$interface"/ttyUSB* "$interface"/ttyACM* "$interface"/tty/ttyACM*; do
+					[ -e "$tty" ] && serial=$((serial + 1))
+				done
+			done
+			[ "$modem" = 0 ] && [ "$serial" -lt 2 ] || continue
+
+			for interface in "$usb/$slot":*; do
+				driver="$(readlink "$interface/driver" 2>/dev/null)"
+				driver=${driver##*/}
+				case "$driver" in
+					rndis_host) kind=rndis ;;
+					ipheth) kind=iphone ;;
+					r8152|asix|ax88179_178a|aqc111|cdc_ether|cdc_ncm|cdc_eem) kind=ethernet ;;
+					*) continue ;;
+				esac
+				for device in "$interface"/net/*; do
+					[ -d "$device" ] || continue
+					json_add_object
+					json_add_string name "${device##*/}"
+					json_add_string driver "$driver"
+					json_add_string kind "$kind"
+					json_close_object
+				done
+			done
+		done
+
+		json_close_array
+		json_dump
+		;;
+esac

@@ -1,0 +1,1486 @@
+#!/bin/sh
+
+# Immutable, content-addressed OAF feature-library manager.  It never fetches
+# or bundles a third-party database: imports are always administrator supplied.
+
+set -eu
+LC_ALL=C
+export LC_ALL
+umask 077
+
+COREUTILS_OD="${C2000_COREUTILS_OD:-/usr/libexec/od-coreutils}"
+COREUTILS_STAT="${C2000_COREUTILS_STAT:-/usr/libexec/stat-coreutils}"
+od()
+{
+	if [ -x "$COREUTILS_OD" ]; then "$COREUTILS_OD" "$@"; else command od "$@"; fi
+}
+stat()
+{
+	if [ -x "$COREUTILS_STAT" ]; then "$COREUTILS_STAT" "$@"; else command stat "$@"; fi
+}
+
+# The 6.6 Ultra keeps its own OAF loader and rules. This profile feeds the
+# original Dual PDP catalogue and DNS classifier.
+FEATURE_DIR="${C2000_FEATURE_DIR:-/etc/c2000max-traffic}"
+FEATURE_FILE="${C2000_FEATURE_FILE:-$FEATURE_DIR/feature.cfg}"
+ICON_DIR="${C2000_FEATURE_ICON_DIR:-/www/luci-static/resources/c2000max-app-icons}"
+META_FILE="${C2000_FEATURE_META_FILE:-${C2000_FEATURE_META:-/etc/c2000max-traffic/feature.meta}}"
+
+if [ -n "${C2000_FEATURE_STATE_DIR:-}" ]; then
+	STATE_DIR="$C2000_FEATURE_STATE_DIR"
+elif [ -n "${C2000_FEATURES_DIR:-}" ]; then
+	STATE_DIR="$C2000_FEATURES_DIR"
+elif [ -n "${C2000_FEATURE_DIR+x}" ]; then
+	# Keep host-side tests which override FEATURE_DIR out of the host's /etc.
+	STATE_DIR="$FEATURE_DIR/.c2000max-features"
+else
+	STATE_DIR="/etc/c2000max-traffic/features"
+fi
+
+LIBRARY_DIR="${C2000_FEATURE_LIBRARIES_DIR:-${C2000_FEATURE_LIBRARY_DIR:-$STATE_DIR/libraries}}"
+ACTIVE_PTR="${C2000_FEATURE_ACTIVE_FILE:-${C2000_FEATURE_ACTIVE_PTR:-$STATE_DIR/active}}"
+PREVIOUS_PTR="${C2000_FEATURE_PREVIOUS_PTR:-$STATE_DIR/previous}"
+LOCK_FILE="${C2000_FEATURE_LOCK:-$STATE_DIR/manager.lock}"
+TRAFFIC_PROFILE_LOCK="${C2000_FEATURE_TRAFFIC_PROFILE_LOCK:-${C2000_TRAFFIC_PROFILE_LOCK:-/tmp/c2000max-traffic/profile.lock}}"
+TMP_BASE="${C2000_FEATURE_TMPDIR:-/tmp}"
+TRAFFIC_BIN="${C2000_FEATURE_TRAFFIC:-/usr/sbin/c2000max-traffic}"
+IK_COMPILER="${C2000_FEATURE_IK_COMPILER:-/usr/libexec/c2000max-ik-compile.uc}"
+OAF_SYSCTL_DIR="${C2000_FEATURE_SYSCTL_DIR:-/proc/sys/oaf}"
+OAF_DAEMON="${C2000_FEATURE_DAEMON:-c2000max-oafd}"
+NO_RUNTIME_FLAG=1
+
+MAX_UPLOAD="${C2000_FEATURE_MAX_UPLOAD:-16777216}"
+MAX_EXPANDED="${C2000_FEATURE_MAX_EXPANDED:-67108864}"
+MAX_ENTRIES="${C2000_FEATURE_MAX_ENTRIES:-4096}"
+MAX_ICONS="${C2000_FEATURE_MAX_ICONS:-2048}"
+MAX_ICON_SIZE="${C2000_FEATURE_MAX_ICON_SIZE:-1048576}"
+MAX_ICON_DIMENSION="${C2000_FEATURE_MAX_ICON_DIMENSION:-1024}"
+# Native v4 libraries can contain thousands of regex programs.  The loader
+# sends them to the kernel synchronously, one netlink message at a time; allow
+# slower A53-class routers enough time to finish before declaring rollback.
+RELOAD_TRIES="${C2000_FEATURE_RELOAD_TRIES:-180}"
+RELOAD_INTERVAL="${C2000_FEATURE_RELOAD_INTERVAL:-1}"
+RELOAD_GRACE="${C2000_FEATURE_RELOAD_GRACE:-1}"
+
+WORK=""
+LOCKED=0
+TRAFFIC_PROFILE_LOCKED=0
+ACTIVATION_STAGED=0
+ACTIVATION_PENDING=0
+ROLLBACK_RUNTIME_FAILED=0
+RELOAD_DIAGNOSTIC=""
+
+fail()
+{
+	if [ "$ROLLBACK_RUNTIME_FAILED" -eq 1 ]; then
+		echo "feature update failed: $*; the previous profile was restored on disk, but OAF runtime recovery failed, application policy was left disabled and a router reboot is required" >&2
+	else
+		echo "feature update failed: $*" >&2
+	fi
+	exit 1
+}
+
+cleanup()
+{
+	if [ "$ACTIVATION_PENDING" -eq 1 ]; then
+		ACTIVATION_PENDING=0
+		rollback_activation >/dev/null 2>&1 || true
+	elif [ "$ACTIVATION_STAGED" -eq 1 ]; then
+		discard_activation_staging >/dev/null 2>&1 || true
+	fi
+	release_traffic_profile_lock >/dev/null 2>&1 || true
+	[ -z "$WORK" ] || rm -rf "$WORK"
+}
+
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+
+is_uint()
+{
+	case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac
+}
+
+is_metadata_count()
+{
+	is_uint "$1" && [ "${#1}" -le 9 ] && [ "$1" -le 999999999 ] 2>/dev/null
+}
+
+is_sha256()
+{
+	[ "${#1}" -eq 64 ] || return 1
+	case "$1" in *[!0-9a-f]*) return 1 ;; *) return 0 ;; esac
+}
+
+safe_target()
+{
+	case "$1" in /*) [ "$1" != / ] ;; *) return 1 ;; esac
+}
+
+runtime_enabled()
+{
+	case "$NO_RUNTIME_FLAG" in 1|yes|true|on) return 1 ;; *) return 0 ;; esac
+}
+
+# Deterministic host-test hook.  It is inert unless explicitly exported by a
+# test process, and every post-commit point exercises the normal rollback path.
+test_failpoint()
+{
+	[ "${C2000_FEATURE_TEST_FAIL:-}" = "$1" ]
+}
+
+check_limits()
+{
+	local value
+	for value in "$MAX_UPLOAD" "$MAX_EXPANDED" "$MAX_ENTRIES" \
+		"$MAX_ICONS" "$MAX_ICON_SIZE" "$MAX_ICON_DIMENSION" \
+		"$RELOAD_TRIES" "$RELOAD_INTERVAL" "$RELOAD_GRACE"; do
+		is_uint "$value" || fail "a C2000_FEATURE_* numeric limit is invalid"
+	done
+	[ "$MAX_UPLOAD" -gt 0 ] && [ "$MAX_EXPANDED" -gt 0 ] ||
+		fail "archive size limits must be positive"
+	[ "$MAX_ENTRIES" -gt 0 ] && [ "$MAX_ICONS" -gt 0 ] ||
+		fail "archive entry limits must be positive"
+	safe_target "$STATE_DIR" && safe_target "$LIBRARY_DIR" &&
+		safe_target "$FEATURE_FILE" && safe_target "$ICON_DIR" &&
+		safe_target "$META_FILE" && safe_target "$ACTIVE_PTR" &&
+		safe_target "$PREVIOUS_PTR" && safe_target "$LOCK_FILE" &&
+		safe_target "$TRAFFIC_PROFILE_LOCK" &&
+		safe_target "$TMP_BASE" || fail "an unsafe feature path was configured"
+	[ "$TRAFFIC_PROFILE_LOCK" != "$LOCK_FILE" ] ||
+		fail "manager and traffic profile locks must use different files"
+}
+
+make_workdir()
+{
+	[ -n "$WORK" ] && return 0
+	mkdir -p "$TMP_BASE" || fail "cannot create the temporary directory"
+	WORK="$(mktemp -d "$TMP_BASE/c2000max-feature.XXXXXX")" ||
+		fail "cannot allocate a temporary directory"
+}
+
+take_lock()
+{
+	local stale
+
+	[ "$LOCKED" -eq 0 ] || return 0
+	mkdir -p "$STATE_DIR" "$LIBRARY_DIR" "$(dirname "$LOCK_FILE")" ||
+		fail "cannot create feature-library state"
+	exec 9> "$LOCK_FILE" || fail "cannot open the feature-library lock"
+	flock -x 9 || fail "cannot lock the feature-library state"
+	LOCKED=1
+	# A SIGKILL or power loss can bypass the normal trap after the profile has
+	# been staged on persistent storage.  Published profiles are 64-hex names,
+	# so only the private incoming namespace is safe to reap under this lock.
+	for stale in "$LIBRARY_DIR"/.incoming.*; do
+		[ ! -e "$stale" ] || rm -rf "$stale"
+	done
+}
+
+try_take_lock()
+{
+	local stale
+
+	[ "$LOCKED" -eq 0 ] || return 0
+	mkdir -p "$STATE_DIR" "$LIBRARY_DIR" "$(dirname "$LOCK_FILE")" ||
+		return 1
+	exec 9> "$LOCK_FILE" || return 1
+	flock -n -x 9 || return 2
+	LOCKED=1
+	# A list request may opportunistically perform the same crash cleanup, but
+	# it must never wait behind a long import/reload transaction.  Incoming
+	# directories cannot be mistaken for published profiles by list_profiles().
+	for stale in "$LIBRARY_DIR"/.incoming.*; do
+		[ ! -e "$stale" ] || rm -rf "$stale"
+	done
+}
+
+take_traffic_profile_lock()
+{
+	[ "$TRAFFIC_PROFILE_LOCKED" -eq 0 ] || return 0
+	mkdir -p "$(dirname "$TRAFFIC_PROFILE_LOCK")" ||
+		fail "cannot create the traffic profile-lock directory"
+	exec 8> "$TRAFFIC_PROFILE_LOCK" || fail "cannot open the traffic profile lock"
+	flock -x 8 || fail "cannot lock traffic profile switching"
+	TRAFFIC_PROFILE_LOCKED=1
+	C2000_TRAFFIC_PROFILE_LOCK_HELD=1
+	C2000_TRAFFIC_PROFILE_LOCK="$TRAFFIC_PROFILE_LOCK"
+	export C2000_TRAFFIC_PROFILE_LOCK_HELD C2000_TRAFFIC_PROFILE_LOCK
+}
+
+release_traffic_profile_lock()
+{
+	[ "$TRAFFIC_PROFILE_LOCKED" -eq 1 ] || return 0
+	flock -u 8 2>/dev/null || true
+	TRAFFIC_PROFILE_LOCKED=0
+	unset C2000_TRAFFIC_PROFILE_LOCK_HELD
+}
+
+read_pointer()
+{
+	local value=""
+	[ -r "$1" ] && IFS= read -r value < "$1" || true
+	if is_sha256 "$value" && [ -d "$LIBRARY_DIR/$value" ]; then
+		printf '%s\n' "$value"
+	fi
+}
+
+write_pointer()
+{
+	local file="$1" value="$2" tmp="${1}.new.$$"
+	[ -z "$value" ] || is_sha256 "$value" || return 1
+	printf '%s\n' "$value" > "$tmp" || return 1
+	chmod 0600 "$tmp" || return 1
+	mv -f "$tmp" "$file"
+}
+
+file_size()
+{
+	local size
+	size="$(stat -c '%s' "$1" 2>/dev/null || wc -c < "$1")"
+	is_uint "$size" || return 1
+	printf '%s\n' "$size"
+}
+
+meta_value()
+{
+	local key="$1" file="$2"
+	[ -r "$file" ] || return 0
+	awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$file"
+}
+
+# MODE records caller provenance only.  Uploaded and adopted databases use the
+# same parser semantics as the kernel: legacy six/eight-field OAF plus bounded
+# fourteen-field native v4.0, constraint-preserving eighteen-field v4.1 and
+# compound-HTTP eighteen-field v4.2,
+# so profile.meta feature counts are load counts.
+validate_feature()
+{
+	local file="$1" mode="$2" result
+	make_workdir
+	result="$WORK/feature.validation"
+	awk -v mode="$mode" '
+	function fatal(message) {
+		print "feature.cfg: " message > "/dev/stderr"
+		failed=1
+		exit 1
+	}
+	function digits(value) { return value ~ /^[0-9][0-9]*$/ }
+	function valid_range(body,    n,p,a,b) {
+		if (substr(body,1,1) == "!") body=substr(body,2)
+		if (body == "" || body ~ /[^0-9-]/) return 0
+		n=split(body,p,"-")
+		if (n < 1 || n > 2 || !digits(p[1]) || (n == 2 && !digits(p[2]))) return 0
+		a=p[1]+0; b=(n == 2 ? p[2]+0 : a)
+		return a >= 1 && b >= a && b <= 65535
+	}
+	function valid_port(value, source, format,    count,range,i,max_ranges,max_len) {
+		if (value == "") return 1
+		if (source) return digits(value) && value+0 >= 1 && value+0 <= 65535
+		max_ranges=(format ~ /^v4[.]/ ? 9 : 5)
+		max_len=(format ~ /^v4[.]/ ? 71 : 15)
+		if (length(value) > max_len) return 0
+		count=split(value,range,"\\|")
+		if (count < 1 || count > max_ranges) return 0
+		for (i=1; i<=count; i++) if (!valid_range(range[i])) return 0
+		return 1
+	}
+	function valid_dict(value,    n,i,pair,parts,pos,hex) {
+		if (value == "") return 1
+		n=split(value,pair,"\\|")
+		if (n < 1 || n > 16) return 0
+		for (i=1; i<=n; i++) {
+			if (split(pair[i],parts,":") != 2) return 0
+			pos=parts[1]; hex=parts[2]
+			if (substr(pos,1,1) == "-") pos=substr(pos,2)
+			if (!digits(pos) || length(hex) != 2 || hex ~ /[^0-9A-Fa-f]/) return 0
+			pos=parts[1]+0
+			if (pos < -3000 || pos >= 3000) return 0
+		}
+		return 1
+	}
+	function valid_length_ranges(value,    count,range,i,n,p,a,b) {
+		if (value == "") return 1
+		if (length(value) > 63) return 0
+		count=split(value,range,"\\|")
+		if (count < 1 || count > 5) return 0
+		for (i=1; i<=count; i++) {
+			if (range[i] ~ /[^0-9-]/) return 0
+			n=split(range[i],p,"-")
+			if (n < 1 || n > 2 || !digits(p[1]) || (n == 2 && !digits(p[2]))) return 0
+			a=p[1]+0; b=(n == 2 ? p[2]+0 : a)
+			if (a < 0 || b < a || b > 65535) return 0
+		}
+		return 1
+	}
+	function hex_byte(value, bytepos,    hi,lo,hexdigits) {
+		hexdigits="0123456789abcdef"
+		hi=index(hexdigits,tolower(substr(value,bytepos*2+1,1)))-1
+		lo=index(hexdigits,tolower(substr(value,bytepos*2+2,1)))-1
+		return hi*16+lo
+	}
+	function supported_http_field(field) {
+		return field==0 || field==1 || field==2 || field==3 || field==5 ||
+		       field==7 || field==9 || field==12 || field==13 || field==15
+	}
+	function valid_http_multi(value,    bytes,count,pos,i,field,method,plen) {
+		bytes=length(value)/2
+		if (bytes < 4) return 0
+		count=hex_byte(value,0)
+		if (count < 1 || count > 4) return 0
+		pos=1
+		for (i=1; i<=count; i++) {
+			if (pos+3 > bytes) return 0
+			field=hex_byte(value,pos); method=hex_byte(value,pos+1)
+			plen=hex_byte(value,pos+2); pos+=3
+			if (!supported_http_field(field) || method < 0 || method > 2 ||
+			    plen < 1 || pos+plen > bytes) return 0
+			pos+=plen
+		}
+		return pos==bytes
+	}
+	function validate_rule(rule, appid, format,    count,field,dict,max_features,segments,i,range) {
+		if (format == "v3.0") {
+			if (length(rule) < 8 || length(rule) >= 128) fatal("v3 feature length is outside 8..127 bytes")
+			max_features=16
+		} else {
+			if (length(rule) < 16 || length(rule) > 511) fatal("v4 feature length is outside 16..511 bytes")
+			max_features=512
+		}
+		if (rule ~ /[#\[\]]/) fatal("feature contains a comment marker or brackets")
+		count=split(rule,field,";")
+		if (format == "v3.0" && count != 6 && count != 8) fatal("v3 feature must use exactly 6 or 8 fields")
+		if (format == "v4.0" && count != 14) fatal("v4.0 feature must use exactly 14 fields")
+		if (format == "v4.1" && count != 18) fatal("v4.1 feature must use exactly 18 fields")
+		if (format == "v4.2" && count != 18) fatal("v4.2 feature must use exactly 18 fields")
+		if (field[1] != "tcp" && field[1] != "udp" && !(format ~ /^v4[.]/ && field[1] == "any"))
+			fatal("feature protocol is invalid")
+		if (!valid_port(field[2],1,format) || !valid_port(field[3],0,format)) fatal("feature contains an invalid port")
+		if (length(field[4]) > 31) fatal("host matcher exceeds 31 bytes")
+		if (length(field[5]) > 127) fatal("request matcher exceeds 127 bytes")
+		dict=field[6]
+		if (length(dict) > 127) fatal("dictionary matcher exceeds 127 bytes")
+		if (!valid_dict(dict)) fatal("dictionary matcher is malformed")
+		if (format == "v3.0" && count == 8) {
+			if (length(field[7]) > 31) fatal("search matcher exceeds 31 bytes")
+			if (field[8] != "" && field[8] != "0" && field[8] != "1") fatal("ignore flag must be empty, 0 or 1")
+		}
+		if (format == "v4.0" || format == "v4.1" || format == "v4.2") {
+			# v4 keeps the first eight OAF fields for backwards-compatible
+			# URL/dictionary matching and appends the native iKuai semantics.
+			if (length(field[7]) > 127) fatal("v4 search matcher exceeds 127 bytes")
+			if (field[8] != "" && field[8] != "0" && field[8] != "1") fatal("ignore flag must be empty, 0 or 1")
+			if (field[9] != "0" && field[9] != "1" && field[9] != "2") fatal("v4 direction must be 0, 1 or 2")
+			if (format == "v4.0" && (!digits(field[10]) || field[10]+0 < 0 || field[10]+0 > 5))
+				fatal("v4.0 packet sequence is outside 0..5")
+			if ((format == "v4.1" || format == "v4.2") && field[10] !~ /^(0|[1-7](\|[1-7])*)$/)
+				fatal("v4 packet sequence set is invalid")
+			if (field[11] !~ /^(port|exact|bm|regex|sni_exact|sni_bm|sni_regex|tls_exact|tls_bm|tls_regex|http_host_exact|http_host_bm|http_host_regex|http_request_exact|http_request_bm|http_request_regex|http_multi)$/)
+				fatal("v4 matcher kind is invalid")
+			if (field[11] == "http_multi" && format != "v4.2")
+				fatal("compound HTTP matching requires v4.2")
+			if (field[12] != "") {
+				if (field[12] !~ /^-?[0-9]+$/ || field[12]+0 < -3000 || field[12]+0 > 2999)
+					fatal("v4 offset is outside -3000..2999")
+			}
+			if (length(field[13]) > 248 || length(field[13]) % 2 || field[13] ~ /[^0-9A-Fa-f]/)
+				fatal("v4 pattern must be at most 124 bytes of hexadecimal data")
+			if (!digits(field[14]) || field[14]+0 < 0 || field[14]+0 > 255)
+				fatal("v4 priority is outside 0..255")
+			if (format == "v4.1" || format == "v4.2") {
+				if (!valid_length_ranges(field[15])) fatal("v4 payload length ranges are invalid")
+				if ((field[16] == "") != (field[17] == "")) fatal("v4 server address and mask must appear together")
+				if (field[16] != "" && (length(field[16]) != 8 || length(field[17]) != 8 ||
+				    field[16] ~ /[^0-9A-Fa-f]/ || field[17] ~ /[^0-9A-Fa-f]/))
+					fatal("v4 server address/mask must be eight hexadecimal digits")
+				if (field[18] != "0" && field[18] != "1") fatal("v4 fallback flag must be 0 or 1")
+			}
+			if (field[11] == "http_multi" && !valid_http_multi(field[13]))
+				fatal("v4.2 compound HTTP pattern is malformed")
+			if (field[11] == "port") {
+				if (field[4] != "" || field[5] != "" || field[6] != "" || field[7] != "" ||
+				    field[13] != "" || field[12] != "")
+					fatal("a v4 port rule cannot carry legacy matchers, a pattern or an offset")
+				if (field[2] == "" && field[3] == "" && field[4] == "" && field[5] == "" &&
+				    field[6] == "" && field[7] == "" &&
+				    !((format == "v4.1" || format == "v4.2") && (field[15] != "" || field[16] != "")))
+					fatal("an unbounded v4 port rule is unsafe")
+			} else {
+				if (field[4] != "" || field[5] != "" || field[6] != "" || field[7] != "")
+					fatal("a v4 native payload rule cannot carry legacy matchers")
+				if (field[13] == "") fatal("a v4 payload matcher has no pattern")
+			}
+			# v4 raises the destination range limit from five to nine.  The
+			# common parser above already checked the first five-compatible
+			# form; revalidate the extended form here when necessary.
+			if (field[3] != "") {
+				segments=split(field[3],range,"\\|")
+				if (segments > 9) fatal("v4 destination port has more than nine ranges")
+				for (i=1; i<=segments; i++) if (!valid_range(range[i])) fatal("v4 destination port range is invalid")
+			}
+		}
+		app_features[appid]++
+		features++
+		if (app_features[appid] > max_features) fatal("an application has too many features")
+		if (features > 32768) fatal("more than 32768 features are not supported")
+	}
+	{
+		line=$0
+		if (length(line) > 598) fatal("line exceeds the OAF 599-byte input buffer")
+		if (line ~ /[[:cntrl:]]/) fatal("control characters are not allowed")
+	}
+	NR == 1 {
+		if ($0 !~ /^#version v[0-9]+([.][0-9]+)*(-ikuai)?$/) fatal("version must be numeric with an optional -ikuai suffix")
+		version=$2
+		next
+	}
+	NR == 2 {
+		if ($0 != "#format v3.0" && $0 != "#format v4.0" && $0 != "#format v4.1" && $0 != "#format v4.2") fatal("format must be v3.0, v4.0, v4.1 or v4.2")
+		format=$2
+		next
+	}
+	/^#class[ ]+/ {
+		if (split($0,part,/[ ]+/) != 4) fatal("class line must contain key, id and one display name")
+		if (part[2] !~ /^[A-Za-z0-9_.-]+$/ || length(part[2]) > 31) fatal("class key is invalid")
+		if (!digits(part[3]) || part[3]+0 < 1 || part[3]+0 > 32) fatal("class id is outside 1..32")
+		if (part[4] ~ /[,:;\[\]]/ || length(part[4]) < 1 || length(part[4]) > 31) fatal("class name is invalid")
+		class_id=part[3]+0
+		if (class_seen[class_id]++) fatal("class id is duplicated")
+		classes++
+		if (classes > 32) fatal("more than 32 classes are not supported")
+		next
+	}
+	/^#/ { next }
+	/^$/ { next }
+	{
+		if (!class_id) fatal("application appears before its class")
+		marker=index(line, ":[")
+		if (!marker || substr(line,length(line),1) != "]") fatal("application line is malformed")
+		left=substr(line,1,marker-1)
+		if (left !~ /^[0-9]+[ ][^ ]+$/) fatal("application id/name is malformed")
+		appid=left; sub(/[ ].*/,"",appid)
+		name=left; sub(/^[0-9]+[ ]/,"",name)
+		if (!digits(appid)) fatal("application id is not numeric")
+		appid=appid+0
+		appid_class=int(appid/1000)
+		appid_seq=appid % 1000
+		if (appid_class < 1 || appid_class > 32 || appid_seq < 1 || appid_seq > 512) fatal("application id class/sequence is outside 1..32/1..512")
+		if (appid_class != class_id) fatal("application id does not belong to the active class")
+		if (name ~ /[[:space:]#:;,[\]]/ || length(name) < 1 || length(name) > 63) fatal("application name is invalid")
+		# The shipped catalog historically has one duplicate numeric id/name.
+		# The kernel loads both lines, so adopt may retain it without skewing the
+		# feature count; untrusted uploads must still be unambiguous.
+		if (mode == "strict" && (appid in app_name) && app_name[appid] != name) fatal("one application id has conflicting names")
+		if (!(appid in app_name)) {
+			app_name[appid]=name
+			apps++
+			class_apps[class_id]++
+			if (apps > 16384) fatal("more than 16384 applications are not supported")
+			if (class_apps[class_id] > 512) fatal("a class has more than 512 applications")
+		}
+		payload=substr(line,marker+2,length(line)-marker-2)
+		if (payload == "") fatal("application has no features")
+		rules=split(payload,rule,",")
+		if (format ~ /^v4[.]/ && rules != 1) fatal("each v4 application line must contain exactly one feature")
+		for (i=1; i<=rules; i++) validate_rule(rule[i],appid,format)
+	}
+	END {
+		if (failed) exit 1
+		if (!version || (format != "v3.0" && format != "v4.0" && format != "v4.1" && format != "v4.2") || classes < 1 || apps < 1 || features < 1) {
+			print "feature.cfg: headers, classes or applications are missing" > "/dev/stderr"
+			exit 1
+		}
+		print "version=" version
+		print "format=" format
+		print "classes=" classes
+		print "apps=" apps
+		print "features=" features
+	}
+	' "$file" > "$result" || fail "feature.cfg failed OAF v3/v4 validation"
+
+	VALID_VERSION="$(meta_value version "$result")"
+	VALID_FORMAT="$(meta_value format "$result")"
+	VALID_CLASSES="$(meta_value classes "$result")"
+	VALID_APPS="$(meta_value apps "$result")"
+	VALID_FEATURES="$(meta_value features "$result")"
+}
+
+validate_png()
+{
+	local icon="$1" size bytes width height
+	size="$(file_size "$icon")" || return 1
+	[ "$size" -ge 24 ] && [ "$size" -le "$MAX_ICON_SIZE" ] || return 1
+	bytes="$(od -An -tu1 -N24 "$icon" 2>/dev/null)" || return 1
+	set -- $bytes
+	[ "$#" -eq 24 ] || return 1
+	[ "$1" = 137 ] && [ "$2" = 80 ] && [ "$3" = 78 ] && [ "$4" = 71 ] &&
+		[ "$5" = 13 ] && [ "$6" = 10 ] && [ "$7" = 26 ] && [ "$8" = 10 ] || return 1
+	[ "$9" = 0 ] && [ "${10}" = 0 ] && [ "${11}" = 0 ] && [ "${12}" = 13 ] &&
+		[ "${13}" = 73 ] && [ "${14}" = 72 ] && [ "${15}" = 68 ] && [ "${16}" = 82 ] || return 1
+	width=$(( ${17} * 16777216 + ${18} * 65536 + ${19} * 256 + ${20} ))
+	height=$(( ${21} * 16777216 + ${22} * 65536 + ${23} * 256 + ${24} ))
+	[ "$width" -ge 1 ] && [ "$height" -ge 1 ] &&
+		[ "$width" -le "$MAX_ICON_DIMENSION" ] && [ "$height" -le "$MAX_ICON_DIMENSION" ]
+}
+
+validate_icons()
+{
+	local content="$1" count icon
+	[ -d "$content/app_icons" ] || return 0
+	count="$(find "$content/app_icons" -type f | wc -l)"
+	is_uint "$count" && [ "$count" -le "$MAX_ICONS" ] ||
+		fail "the feature library contains too many icons"
+	for icon in "$content"/app_icons/*.png; do
+		[ -f "$icon" ] || continue
+		validate_png "$icon" || fail "${icon##*/} is not a safe PNG icon"
+	done
+}
+
+inspect_tar()
+{
+	local archive="$1" entries
+	tar -tzf "$archive" > "$WORK/tar.list" 2>/dev/null ||
+		fail "invalid gzip/tar feature library"
+	entries="$(wc -l < "$WORK/tar.list")"
+	is_uint "$entries" && [ "$entries" -le "$MAX_ENTRIES" ] ||
+		fail "feature archive has too many entries"
+	awk '
+	function normal(path) { if (substr(path,1,2)=="./") path=substr(path,3); return path }
+	{
+		path=normal($0)
+		if ($0 ~ /[[:cntrl:]\\]/ || $0 ~ /^\// || $0 ~ /(^|\/)\.\.($|\/)/ || $0 ~ /\/\//) bad=1
+		if (seen[path]++) bad=1
+		if (path == "" || path == "." || path == "app_icons" || path == "app_icons/") next
+		if (path == "feature.cfg") { feature++; next }
+		if (path == "README.txt" || path == "appid-map.csv" || path == "appid-map.json" || path == "conversion-report.json") next
+		if (path ~ /^app_icons\/([0-9]+|default)[.]png$/) next
+		bad=1
+	}
+	END { exit bad || feature != 1 }
+	' "$WORK/tar.list" || fail "archive contains duplicate, unsafe or unsupported paths"
+
+	tar -tvzf "$archive" > "$WORK/tar.verbose" 2>/dev/null ||
+		fail "cannot inspect the feature archive"
+	awk -v max="$MAX_EXPANDED" '
+		$1 !~ /^[-d]/ { bad=1 }
+		$3 !~ /^[0-9]+$/ { bad=1 }
+		$3 ~ /^[0-9]+$/ { total += $3 }
+		END { exit bad || total > max }
+	' "$WORK/tar.verbose" ||
+		fail "archive contains links/devices or expands beyond the configured limit"
+}
+
+# The native format is the administrator-supplied "extracted edition" from
+# IKprotocol releases.  Only its decoded, declarative files are consumed.  In
+# particular app5.dat and executable hosttype helpers are never run.  Required
+# members must be unique; historical release tarballs duplicated a few ignored
+# hosttype files, so duplicates are tolerated only in that ignored namespace.
+inspect_ik_native_tar()
+{
+	local archive="$1" entries
+	tar -tzf "$archive" > "$WORK/tar.list" 2>/dev/null ||
+		fail "invalid gzip/tar IKprotocol archive"
+	entries="$(wc -l < "$WORK/tar.list")"
+	is_uint "$entries" && [ "$entries" -le "$MAX_ENTRIES" ] ||
+		fail "IKprotocol archive has too many entries"
+	awk '
+	function normal(path) { if (substr(path,1,2)=="./") path=substr(path,3); return path }
+	{
+		path=normal($0)
+		if ($0 ~ /[[:cntrl:]\\]/ || $0 ~ /^\// || $0 ~ /(^|\/)\.\.($|\/)/ || $0 ~ /\/\//) bad=1
+		if (path == "" || path == "." || path == "hosttype" || path == "hosttype/") next
+		if (path == "README.txt") { readme++; next }
+		if (path == "appid-map.json") { appmap++; next }
+		if (path == "appid-map.csv") { csv++; next }
+		if (path == "ikapp-rules.jsonl") { ikrules++; next }
+		if (path == "http-rules.jsonl") { httprules++; next }
+		if (path == "app5.dat") { app5++; next }
+		if (path == "app5.decode_raw.txt") { rawdump++; next }
+		if (path == "conversion-report.json") { report++; next }
+		if (path == "protocols") { protocols++; next }
+		if (path == "protoi18n" || path == "autoconf") next
+		if (path ~ /^hosttype\/(dhcp[.]txt|host[.]txt|parser|sql[.]conf|useragent[.]txt|useragent_fast[.]txt|vendor[.]json)$/) next
+		bad=1
+	}
+	END {
+		exit bad || readme != 1 || appmap != 1 || ikrules != 1 || httprules != 1 ||
+			app5 != 1 || rawdump != 1 ||
+			csv > 1 || report > 1 || protocols > 1
+	}
+	' "$WORK/tar.list" || fail "archive is not a safe ik-native-v1 release"
+
+	tar -tvzf "$archive" > "$WORK/tar.verbose" 2>/dev/null ||
+		fail "cannot inspect the IKprotocol archive"
+	awk -v max="$MAX_EXPANDED" '
+		$1 !~ /^[-d]/ { bad=1 }
+		$3 !~ /^[0-9]+$/ { bad=1 }
+		$3 ~ /^[0-9]+$/ { total += $3 }
+		END { exit bad || total > max }
+	' "$WORK/tar.verbose" ||
+		fail "IKprotocol archive contains links/devices or expands beyond the configured limit"
+}
+
+extract_tar_member()
+{
+	local archive="$1" member="$2" output="$3" archive_member
+	archive_member="$(awk -v wanted="$member" '
+		{
+			path=$0
+			if (substr(path, 1, 2) == "./") path=substr(path, 3)
+			if (path == wanted) { print $0; exit }
+		}
+	' "$WORK/tar.list")"
+	[ -n "$archive_member" ] || fail "IKprotocol member $member is missing"
+	tar -xOzf "$archive" "$archive_member" > "$output" 2>/dev/null ||
+		fail "cannot extract IKprotocol member $member"
+	[ -f "$output" ] && [ ! -L "$output" ] ||
+		fail "IKprotocol member $member is not a regular file"
+}
+
+extract_ik_native()
+{
+	local archive="$1" content compiler auxiliary compiler_error
+	content="$WORK/content"
+	mkdir -p "$content" || fail "cannot stage the IKprotocol archive"
+	extract_tar_member "$archive" README.txt "$content/README.txt"
+	extract_tar_member "$archive" appid-map.json "$content/appid-map.json"
+	extract_tar_member "$archive" ikapp-rules.jsonl "$content/ikapp-rules.jsonl"
+	extract_tar_member "$archive" http-rules.jsonl "$content/http-rules.jsonl"
+	extract_tar_member "$archive" app5.dat "$content/app5.dat"
+	extract_tar_member "$archive" app5.decode_raw.txt "$content/app5.decode_raw.txt"
+	for auxiliary in appid-map.csv protocols; do
+		grep -Eq "^(\\./)?${auxiliary}$" "$WORK/tar.list" || continue
+		extract_tar_member "$archive" "$auxiliary" "$content/$auxiliary"
+	done
+	if grep -Eq '^(\./)?conversion-report[.]json$' "$WORK/tar.list"; then
+		extract_tar_member "$archive" conversion-report.json \
+			"$content/source-conversion-report.json"
+	fi
+
+	compiler="$IK_COMPILER"
+	if [ ! -x "$compiler" ]; then
+		compiler="${0%/*}/../libexec/c2000max-ik-compile.uc"
+	fi
+	[ -x "$compiler" ] || fail "the ik-native-v1 compiler is unavailable"
+	if ! "$compiler" "$content" "$content" > "$WORK/ik-compiler.result" \
+		2> "$WORK/ik-compiler.error"; then
+		compiler_error="$(tail -n 8 "$WORK/ik-compiler.error" 2>/dev/null |
+			tr '\r\n\t' '   ' | cut -c 1-800)"
+		[ -n "$compiler_error" ] || compiler_error="the compiler returned no diagnostic"
+		fail "ik-native-v1 compilation failed: $compiler_error"
+	fi
+	[ -f "$content/feature.cfg" ] && [ -f "$content/conversion-report.json" ] &&
+		[ -f "$content/catalog.tsv" ] && [ -f "$content/domains.tsv" ] ||
+		fail "ik-native-v1 compiler output is incomplete"
+	validate_feature "$content/feature.cfg" strict
+	EXTRACTED_CONTENT="$content"
+	EXTRACTED_FORMAT="ik-native-v1"
+}
+
+extract_upload()
+{
+	local upload="$1" size magic bin_name bin_size entries archive_kind
+	make_workdir
+	mkdir -p "$WORK/content"
+	[ -f "$upload" ] || fail "upload is missing"
+	size="$(file_size "$upload")" || fail "cannot read upload size"
+	[ "$size" -gt 0 ] && [ "$size" -le "$MAX_UPLOAD" ] ||
+		fail "upload is empty or exceeds the configured limit"
+	magic="$(od -An -tx1 -N2 "$upload" 2>/dev/null | tr -d ' \n')"
+	case "$magic" in
+	504b)
+		unzip -Z1 "$upload" > "$WORK/zip.list" 2>/dev/null || fail "invalid ZIP container"
+		entries="$(wc -l < "$WORK/zip.list")"
+		is_uint "$entries" && [ "$entries" -le 64 ] || fail "ZIP contains too many entries"
+		awk '
+		function normal(path) { if (substr(path,1,2)=="./") path=substr(path,3); return path }
+		{
+			path=normal($0)
+			if ($0 ~ /[[:cntrl:]\\]/ || $0 ~ /^\// || $0 ~ /(^|\/)\.\.($|\/)/ || $0 ~ /\/\// || seen[path]++) bad=1
+			if (path ~ /\/$/) next
+			if (path ~ /[.]bin$/) { bins++; name=$0; next }
+			bad=1
+		}
+		END { if (!bad && bins == 1) print name; else exit 1 }
+		' "$WORK/zip.list" > "$WORK/bin.name" ||
+			fail "ZIP must contain exactly one safe .bin library and no other files"
+		IFS= read -r bin_name < "$WORK/bin.name"
+		unzip -l "$upload" "$bin_name" > "$WORK/zip.verbose" 2>/dev/null || fail "cannot inspect the ZIP library"
+		bin_size="$(awk -v name="$bin_name" '$1 ~ /^[0-9]+$/ && $4 == name { print $1; exit }' "$WORK/zip.verbose")"
+		is_uint "$bin_size" && [ "$bin_size" -gt 0 ] && [ "$bin_size" -le "$MAX_UPLOAD" ] ||
+			fail "the ZIP member exceeds the configured limit"
+		unzip -p "$upload" "$bin_name" > "$WORK/library.bin" 2>/dev/null || fail "cannot extract the .bin library"
+		archive_kind=oaf
+		;;
+	1f8b)
+		cp "$upload" "$WORK/library.bin" || fail "cannot stage the .bin library"
+		# A native extracted edition has no feature.cfg; an OAF .bin has one.
+		tar -tzf "$WORK/library.bin" > "$WORK/archive.names" 2>/dev/null ||
+			fail "invalid gzip/tar feature library"
+		if awk '{
+			p=$0
+			if (substr(p, 1, 2) == "./") p=substr(p, 3)
+			if (p=="feature.cfg") found=1
+		} END { exit !found }' \
+			"$WORK/archive.names"; then
+			archive_kind=oaf
+		else
+			archive_kind=ik-native
+		fi
+		;;
+	*) fail "supported inputs are an official OAF ZIP/bin or ik-native-v1 tar.gz" ;;
+	esac
+	[ "$(od -An -tx1 -N2 "$WORK/library.bin" 2>/dev/null | tr -d ' \n')" = 1f8b ] ||
+		fail ".bin is not the expected gzip archive"
+	if [ "$archive_kind" = ik-native ]; then
+		inspect_ik_native_tar "$WORK/library.bin"
+		extract_ik_native "$WORK/library.bin"
+		return 0
+	fi
+	inspect_tar "$WORK/library.bin"
+	tar -xzf "$WORK/library.bin" -C "$WORK/content" 2>/dev/null || fail "cannot unpack the feature library"
+	[ "$(du -sk "$WORK/content" | awk '{print $1}')" -le $((MAX_EXPANDED / 1024 + 1)) ] ||
+		fail "unpacked feature library exceeds the configured limit"
+	[ -f "$WORK/content/feature.cfg" ] && [ ! -L "$WORK/content/feature.cfg" ] ||
+		fail "feature.cfg is missing or is not a regular file"
+	[ -z "$(find "$WORK/content" \( -type l -o -type p -o -type b -o -type c \) -print -quit 2>/dev/null)" ] ||
+		fail "unpacked feature library contains a special file"
+	validate_icons "$WORK/content"
+	validate_feature "$WORK/content/feature.cfg" strict
+	EXTRACTED_CONTENT="$WORK/content"
+	EXTRACTED_FORMAT="oaf-v3"
+}
+
+json_number()
+{
+	local file="$1" keys="$2"
+	[ -r "$file" ] || return 0
+	awk -v wanted="$keys" '
+	BEGIN { n=split(wanted,key," "); for (i=1;i<=n;i++) priority[key[i]]=i }
+	{
+		data=data $0
+	}
+	END {
+		gsub(/[[:space:]]/,"",data)
+		for (i=1;i<=n;i++) {
+			needle="\"" key[i] "\":"
+			at=index(data,needle)
+			if (!at) continue
+			value=substr(data,at+length(needle))
+			sub(/[^0-9].*/,"",value)
+			if (value ~ /^[0-9]+$/) { print value; exit }
+		}
+	}
+	' "$file"
+}
+
+conversion_counts()
+{
+	local content="$1" source=0 skipped=0 rows compiled_rules=0 source_rules=0 skipped_rules=0
+	SOURCE_FORMAT="oaf-v3"
+	if [ -f "$content/conversion-report.json" ]; then
+		source="$(json_number "$content/conversion-report.json" \
+			'source_apps source_app_count source_total total_leaf_apps total_leaves total_apps total_applications input_apps')"
+		skipped="$(json_number "$content/conversion-report.json" \
+			'skipped_apps skipped_app_count oaf_unsupported_apps unsupported_apps unsupported_leaves unsupported_count skipped')"
+		compiled_rules="$(json_number "$content/conversion-report.json" \
+			'compiled_rules compiled_features oaf_converted_features converted_rules')"
+		source_rules="$(json_number "$content/conversion-report.json" \
+			'source_rules total_rules input_rules')"
+		skipped_rules="$(json_number "$content/conversion-report.json" \
+			'skipped_rules unsupported_rules')"
+	fi
+	if [ -f "$content/native.meta" ]; then
+		[ "$(meta_value source_format "$content/native.meta")" = ik-native-v1 ] ||
+			fail "native compiler metadata has an invalid source format"
+		SOURCE_FORMAT=ik-native-v1
+	fi
+	is_metadata_count "$source" || source=0
+	is_metadata_count "$skipped" || skipped=0
+	# The converter mapping has one data row per source leaf.  It is a safe
+	# fallback for converter versions which used different report key names.
+	if [ "$source" -eq 0 ] && [ -f "$content/appid-map.csv" ]; then
+		rows="$(awk 'NR == 1 && tolower($0) ~ /appid|source|original/ { next } NF { rows++ } END { print rows+0 }' "$content/appid-map.csv")"
+		is_metadata_count "$rows" && [ "$rows" -ge "$VALID_APPS" ] && source="$rows"
+	fi
+	if [ "$source" -gt 0 ] && [ "$skipped" -eq 0 ] && [ "$source" -ge "$VALID_APPS" ]; then
+		skipped=$((source - VALID_APPS))
+	fi
+	[ "$source" -eq 0 ] || [ "$source" -ge "$VALID_APPS" ] ||
+		fail "conversion report source count is smaller than the converted catalog"
+	[ "$skipped" -le "$source" ] || fail "conversion report skipped count is invalid"
+	SOURCE_APPS="$source"
+	SKIPPED_APPS="$skipped"
+	is_metadata_count "$compiled_rules" || compiled_rules=0
+	is_metadata_count "$source_rules" || source_rules=0
+	is_metadata_count "$skipped_rules" || skipped_rules=0
+	COMPILED_RULES="$compiled_rules"
+	SOURCE_RULES="$source_rules"
+	SKIPPED_RULES="$skipped_rules"
+}
+
+write_profile_meta()
+{
+	local file="$1" source="$2" sha="$3"
+	{
+		printf 'version=%s\n' "$VALID_VERSION"
+		printf 'format=%s\n' "$VALID_FORMAT"
+		printf 'classes=%s\n' "$VALID_CLASSES"
+		printf 'apps=%s\n' "$VALID_APPS"
+		printf 'features=%s\n' "$VALID_FEATURES"
+		printf 'source_format=%s\n' "$SOURCE_FORMAT"
+		printf 'source_apps=%s\n' "$SOURCE_APPS"
+		printf 'compiled_apps=%s\n' "$VALID_APPS"
+		printf 'skipped_apps=%s\n' "$SKIPPED_APPS"
+		printf 'source_rules=%s\n' "$SOURCE_RULES"
+		printf 'compiled_rules=%s\n' "$COMPILED_RULES"
+		printf 'skipped_rules=%s\n' "$SKIPPED_RULES"
+		printf 'sha256=%s\n' "$sha"
+		printf 'source=%s\n' "$source"
+		printf 'created=%s\n' "$(date +%s)"
+	} > "$file"
+}
+
+# store_profile CONTENT SOURCE MODE
+store_profile()
+{
+	local content="$1" source="$2" mode="$3" sha profile stage auxiliary icon
+	validate_icons "$content"
+	validate_feature "$content/feature.cfg" "$mode"
+	conversion_counts "$content"
+	sha="$(sha256sum "$content/feature.cfg" | awk '{print $1}')"
+	is_sha256 "$sha" || fail "cannot calculate feature.cfg SHA-256"
+	profile="$LIBRARY_DIR/$sha"
+	STORE_DEDUPLICATED=0
+	if [ -d "$profile" ]; then
+		[ -f "$profile/feature.cfg" ] &&
+			[ "$(sha256sum "$profile/feature.cfg" | awk '{print $1}')" = "$sha" ] ||
+			fail "the existing content-addressed profile is damaged"
+		STORE_DEDUPLICATED=1
+		STORE_SHA="$sha"
+		return 0
+	fi
+
+	stage="$LIBRARY_DIR/.incoming.$sha.$$"
+	[ ! -e "$stage" ] || fail "a stale profile staging directory exists"
+	mkdir -p "$stage/app_icons" || fail "cannot stage the feature profile"
+	cp "$content/feature.cfg" "$stage/feature.cfg" || fail "cannot stage feature.cfg"
+	for auxiliary in README.txt appid-map.csv appid-map.json conversion-report.json \
+		catalog.tsv domains.tsv native.meta app5.dat app5.decode_raw.txt \
+		ikapp-rules.jsonl http-rules.jsonl protocols \
+		source-conversion-report.json; do
+		[ -f "$content/$auxiliary" ] || continue
+		cp "$content/$auxiliary" "$stage/$auxiliary" || fail "cannot stage $auxiliary"
+	done
+	if [ -d "$content/app_icons" ]; then
+		for icon in "$content"/app_icons/*.png; do
+			[ -f "$icon" ] || continue
+			cp "$icon" "$stage/app_icons/${icon##*/}" || fail "cannot stage an application icon"
+		done
+	fi
+	write_profile_meta "$stage/profile.meta" "$source" "$sha"
+	chmod 0444 "$stage/feature.cfg" "$stage/profile.meta"
+	for auxiliary in README.txt appid-map.csv appid-map.json conversion-report.json \
+		catalog.tsv domains.tsv native.meta app5.dat app5.decode_raw.txt \
+		ikapp-rules.jsonl http-rules.jsonl protocols \
+		source-conversion-report.json; do
+		[ ! -f "$stage/$auxiliary" ] || chmod 0444 "$stage/$auxiliary"
+	done
+	for icon in "$stage"/app_icons/*.png; do
+		[ ! -f "$icon" ] || chmod 0444 "$icon"
+	done
+	chmod 0555 "$stage/app_icons" "$stage"
+	mv "$stage" "$profile" || fail "cannot publish the immutable feature profile"
+	STORE_SHA="$sha"
+}
+
+adopt_current()
+{
+	local source_file="${1:-$FEATURE_FILE}" old sha content icon name
+	[ -f "$source_file" ] || fail "the current feature.cfg is missing"
+	make_workdir
+	content="$WORK/adopt"
+	rm -rf "$content"
+	mkdir -p "$content/app_icons"
+	cp "$source_file" "$content/feature.cfg" || fail "cannot stage the current feature.cfg"
+	if [ -d "$ICON_DIR" ]; then
+		for icon in "$ICON_DIR"/*.png; do
+			[ -f "$icon" ] || continue
+			name="${icon##*/}"
+			case "$name" in
+			default.png) cp "$icon" "$content/app_icons/$name" ;;
+			*.png) case "${name%.png}" in ''|*[!0-9]*) ;; *) cp "$icon" "$content/app_icons/$name" ;; esac ;;
+			esac
+		done
+	fi
+	store_profile "$content" adopted adopt
+	sha="$STORE_SHA"
+	old="$(read_pointer "$ACTIVE_PTR")"
+	if [ "$old" != "$sha" ]; then
+		write_pointer "$PREVIOUS_PTR" "$old" || fail "cannot update the previous profile pointer"
+		write_pointer "$ACTIVE_PTR" "$sha" || fail "cannot update the active profile pointer"
+	fi
+	ADOPT_SHA="$sha"
+}
+
+ensure_current_adopted()
+{
+	local active current
+	[ -f "$FEATURE_FILE" ] || return 0
+	active="$(read_pointer "$ACTIVE_PTR")"
+	current="$(sha256sum "$FEATURE_FILE" | awk '{print $1}')"
+	if [ "$active" != "$current" ]; then
+		adopt_current "$FEATURE_FILE"
+	fi
+}
+
+reconcile_current_profile()
+{
+	local active
+
+	take_traffic_profile_lock
+	ensure_current_adopted
+	active="$(read_pointer "$ACTIVE_PTR")"
+	if [ -n "$active" ]; then
+		set_ruleset "$active" || fail "cannot bind policy identity to the active feature profile"
+	fi
+	release_traffic_profile_lock
+	RECONCILED_ACTIVE="$active"
+}
+
+profile_expected_features()
+{
+	meta_value features "$LIBRARY_DIR/$1/profile.meta"
+}
+
+profile_is_valid()
+{
+	local sha="$1" actual
+	is_sha256 "$sha" || return 1
+	[ -f "$LIBRARY_DIR/$sha/feature.cfg" ] || return 1
+	actual="$(sha256sum "$LIBRARY_DIR/$sha/feature.cfg" | awk '{print $1}')"
+	[ "$actual" = "$sha" ] || return 1
+	validate_feature "$LIBRARY_DIR/$sha/feature.cfg" adopt
+}
+
+traffic_run()
+{
+	runtime_enabled || return 0
+	[ -x "$TRAFFIC_BIN" ] || return 0
+	"$TRAFFIC_BIN" "$1" >/dev/null 2>&1
+}
+
+reload_oaf()
+{
+	local expected="$1" pids pid tries=0 stable=0 value
+	local generation_file generation_before generation_now generation_supported=0
+	local attempt_file attempt_before attempt_now attempt_supported=0
+	local loaded_file loaded_now errno_file errno_now errno_name
+	RELOAD_DIAGNOSTIC=""
+	runtime_enabled || return 0
+	pids="$(pidof "$OAF_DAEMON" 2>/dev/null || true)"
+	if [ -z "$pids" ]; then
+		# A fully stopped audit engine will load the selected on-disk profile at
+		# its next start.  A live kernel module without its loader is different:
+		# accepting the switch would leave old APPIDs in-kernel under a new policy.
+		if [ ! -r "$OAF_SYSCTL_DIR/feature_init" ]; then
+			return 0
+		fi
+		RELOAD_DIAGNOSTIC="OAF 内核模块已加载，但 $OAF_DAEMON 未运行"
+		return 1
+	fi
+	if [ ! -r "$OAF_SYSCTL_DIR/feature_init" ]; then
+		RELOAD_DIAGNOSTIC="OAF feature_init 状态节点不可读"
+		return 1
+	fi
+	generation_file="$OAF_SYSCTL_DIR/feature_generation"
+	if [ -r "$generation_file" ]; then
+		generation_before="$(cat "$generation_file" 2>/dev/null || true)"
+		if is_uint "$generation_before"; then
+			generation_supported=1
+		fi
+	fi
+	attempt_file="$OAF_SYSCTL_DIR/feature_reload_attempt"
+	loaded_file="$OAF_SYSCTL_DIR/feature_reload_loaded"
+	errno_file="$OAF_SYSCTL_DIR/feature_reload_errno"
+	if [ -r "$attempt_file" ]; then
+		attempt_before="$(cat "$attempt_file" 2>/dev/null || true)"
+		is_uint "$attempt_before" && attempt_supported=1
+	fi
+	for pid in $pids; do
+		if ! is_uint "$pid"; then
+			RELOAD_DIAGNOSTIC="OAF daemon PID 无效"
+			return 1
+		fi
+		if ! kill -USR1 "$pid" 2>/dev/null; then
+			RELOAD_DIAGNOSTIC="无法通知 OAF daemon 重载规则"
+			return 1
+		fi
+	done
+	[ "$RELOAD_GRACE" -eq 0 ] || sleep "$RELOAD_GRACE"
+	while [ "$tries" -lt "$RELOAD_TRIES" ]; do
+		value="$(cat "$OAF_SYSCTL_DIR/feature_init" 2>/dev/null || true)"
+		generation_now="$(cat "$generation_file" 2>/dev/null || true)"
+		if [ "$attempt_supported" -eq 1 ]; then
+			attempt_now="$(cat "$attempt_file" 2>/dev/null || true)"
+			loaded_now="$(cat "$loaded_file" 2>/dev/null || true)"
+			errno_now="$(cat "$errno_file" 2>/dev/null || true)"
+			if is_uint "$attempt_now" && [ "$attempt_now" != "$attempt_before" ] &&
+			   is_uint "$errno_now" && [ "$errno_now" -gt 0 ]; then
+				case "$errno_now" in
+				7) errno_name="规则或正则表达式超过内核上限" ;;
+				12) errno_name="内核内存不足" ;;
+				22) errno_name="规则格式不被当前 OAF 内核解析器接受" ;;
+				34) errno_name="规则字段超出内核允许范围" ;;
+				*) errno_name="内核错误 errno=$errno_now" ;;
+				esac
+				is_uint "$loaded_now" || loaded_now=0
+				RELOAD_DIAGNOSTIC="$errno_name（失败前装入 $loaded_now/$expected 条）"
+				return 1
+			fi
+		fi
+		if [ "$generation_supported" -eq 1 ] &&
+		   { ! is_uint "$generation_now" || [ "$generation_now" = "$generation_before" ]; }; then
+			stable=0
+		elif [ "$value" = "$expected" ]; then
+			stable=$((stable + 1))
+			if [ "$stable" -ge 2 ]; then
+				RELOAD_DIAGNOSTIC="成功装入 $expected 条规则"
+				return 0
+			fi
+		else
+			stable=0
+		fi
+		tries=$((tries + 1))
+		[ "$RELOAD_INTERVAL" -eq 0 ] || sleep "$RELOAD_INTERVAL"
+	done
+	loaded_now="$(cat "$loaded_file" 2>/dev/null || true)"
+	is_uint "$loaded_now" || loaded_now=0
+	RELOAD_DIAGNOSTIC="OAF 重载超时：内核报告 $value 条活动规则，本次已接收 $loaded_now/$expected 条"
+	return 1
+}
+
+uci_available()
+{
+	runtime_enabled || return 1
+	command -v uci >/dev/null 2>&1
+}
+
+set_ruleset()
+{
+	local sha="$1"
+	uci_available || return 0
+	uci -q set "c2000max_traffic.audit.ruleset=$sha" && uci -q commit c2000max_traffic
+}
+
+restore_ruleset()
+{
+	local had="$1" old="$2"
+	uci_available || return 0
+	if [ "$had" -eq 1 ]; then
+		uci -q set "c2000max_traffic.audit.ruleset=$old" || true
+	else
+		uci -q delete c2000max_traffic.audit.ruleset || true
+	fi
+	uci -q commit c2000max_traffic || true
+}
+
+install_active_meta()
+{
+	local sha="$1" source tmp
+	source="$LIBRARY_DIR/$sha/profile.meta"
+	tmp="${META_FILE}.new.$$"
+	mkdir -p "$(dirname "$META_FILE")" || return 1
+	cp "$source" "$tmp" || return 1
+	chmod 0644 "$tmp" || return 1
+	mv -f "$tmp" "$META_FILE"
+}
+
+restore_pointer_files()
+{
+	if [ "$RB_HAD_ACTIVE_PTR" -eq 1 ]; then
+		mv -f "$RB_ACTIVE_BACKUP" "$ACTIVE_PTR" 2>/dev/null || true
+	else
+		rm -f "$ACTIVE_PTR"
+	fi
+	if [ "$RB_HAD_PREVIOUS_PTR" -eq 1 ]; then
+		mv -f "$RB_PREVIOUS_BACKUP" "$PREVIOUS_PTR" 2>/dev/null || true
+	else
+		rm -f "$PREVIOUS_PTR"
+	fi
+	rm -f "${ACTIVE_PTR}.new.$$" "${PREVIOUS_PTR}.new.$$"
+}
+
+discard_activation_staging()
+{
+	rm -f "$RB_FEATURE_NEW" "$RB_META_NEW" "$RB_FEATURE_BACKUP" "$RB_META_BACKUP"
+	rm -f "$RB_ACTIVE_BACKUP" "$RB_PREVIOUS_BACKUP"
+	rm -f "${ACTIVE_PTR}.new.$$" "${PREVIOUS_PTR}.new.$$"
+	rm -rf "$RB_ICON_NEW" "$RB_ICON_BACKUP"
+	ACTIVATION_STAGED=0
+}
+
+rollback_activation()
+{
+	local runtime_ok=1
+
+	ACTIVATION_PENDING=0
+	# Restore the identity pointer first.  The traffic policy compiler checks it
+	# against feature.cfg and therefore fails closed throughout this rollback.
+	restore_pointer_files
+
+	if [ "$RB_FEATURE_SWITCHED" -eq 1 ]; then
+		if [ "$RB_HAD_FEATURE" -eq 1 ]; then
+			mv -f "$RB_FEATURE_BACKUP" "$FEATURE_FILE" 2>/dev/null || true
+		else
+			rm -f "$FEATURE_FILE"
+		fi
+	fi
+	if [ "$RB_ICONS_TOUCHED" -eq 1 ]; then
+		rm -rf "$ICON_DIR"
+		[ "$RB_HAD_ICONS" -eq 0 ] || mv "$RB_ICON_BACKUP" "$ICON_DIR" 2>/dev/null || true
+	fi
+	if [ "$RB_META_SWITCHED" -eq 1 ]; then
+		if [ "$RB_HAD_META" -eq 1 ]; then
+			mv -f "$RB_META_BACKUP" "$META_FILE" 2>/dev/null || true
+		else
+			rm -f "$META_FILE"
+		fi
+	fi
+	[ "$RB_UCI_TOUCHED" -eq 0 ] || restore_ruleset "$RB_HAD_RULESET" "$RB_OLD_RULESET"
+
+	rm -f "$RB_FEATURE_NEW" "$RB_META_NEW" "$RB_FEATURE_BACKUP" "$RB_META_BACKUP"
+	rm -rf "$RB_ICON_NEW" "$RB_ICON_BACKUP"
+	if [ -n "$RB_OLD_EXPECTED" ] && ! reload_oaf "$RB_OLD_EXPECTED" >/dev/null 2>&1; then
+		ROLLBACK_RUNTIME_FAILED=1
+		runtime_ok=0
+	fi
+	traffic_run audit-rebaseline >/dev/null 2>&1 || true
+	if [ "$runtime_ok" -eq 1 ]; then
+		traffic_run audit-policy >/dev/null 2>&1 || true
+	else
+		# Never compile old-profile APPIDs against an unknown/partially reloaded
+		# kernel table.  Acceleration remains enabled; only application blocking
+		# stays fail-open until the administrator reboots or reloads successfully.
+		traffic_run audit-policy-clear >/dev/null 2>&1 || true
+	fi
+	ACTIVATION_STAGED=0
+	release_traffic_profile_lock
+}
+
+activate_profile()
+{
+	local sha="$1" profile expected icon icon_parent icon_base reload_error
+
+	profile_is_valid "$sha" || fail "the requested profile is missing, damaged or invalid"
+	profile="$LIBRARY_DIR/$sha"
+	RB_OLD_ACTIVE="$(read_pointer "$ACTIVE_PTR")"
+	RB_OLD_PREVIOUS="$(read_pointer "$PREVIOUS_PTR")"
+	if [ "$RB_OLD_ACTIVE" = "$sha" ]; then
+		ACTIVATE_ALREADY=1
+		ACTIVATE_SHA="$sha"
+		return 0
+	fi
+	ACTIVATE_ALREADY=0
+	# This is the outermost lock in the traffic/profile lock order.  Traffic
+	# helpers inherit HELD=1, so they take only their collector/policy locks and
+	# cannot recursively deadlock on this exclusive profile lock.
+	take_traffic_profile_lock
+	expected="$(profile_expected_features "$sha")"
+	is_uint "$expected" && [ "$expected" -gt 0 ] || fail "profile feature count is invalid"
+	RB_OLD_EXPECTED=""
+	[ -z "$RB_OLD_ACTIVE" ] || RB_OLD_EXPECTED="$(profile_expected_features "$RB_OLD_ACTIVE")"
+
+	mkdir -p "$(dirname "$FEATURE_FILE")" "$(dirname "$ICON_DIR")" "$(dirname "$META_FILE")" ||
+		fail "cannot create active feature paths"
+	icon_parent="$(dirname "$ICON_DIR")"
+	icon_base="$(basename "$ICON_DIR")"
+	RB_FEATURE_NEW="${FEATURE_FILE}.new.$$"
+	RB_FEATURE_BACKUP="${FEATURE_FILE}.rollback.$$"
+	RB_ICON_NEW="$icon_parent/.${icon_base}.new.$$"
+	RB_ICON_BACKUP="$icon_parent/.${icon_base}.rollback.$$"
+	RB_META_NEW="${META_FILE}.new.$$"
+	RB_META_BACKUP="${META_FILE}.rollback.$$"
+	RB_ACTIVE_BACKUP="${ACTIVE_PTR}.rollback.$$"
+	RB_PREVIOUS_BACKUP="${PREVIOUS_PTR}.rollback.$$"
+	RB_HAD_FEATURE=0
+	RB_HAD_ICONS=0
+	RB_HAD_META=0
+	RB_HAD_ACTIVE_PTR=0
+	RB_HAD_PREVIOUS_PTR=0
+	RB_FEATURE_SWITCHED=0
+	RB_ICONS_TOUCHED=0
+	RB_META_SWITCHED=0
+	RB_UCI_TOUCHED=0
+	RB_HAD_RULESET=0
+	RB_OLD_RULESET=""
+	ACTIVATION_STAGED=1
+	test_failpoint staging && fail "injected activation staging failure"
+
+	[ ! -e "$RB_FEATURE_NEW" ] && [ ! -e "$RB_FEATURE_BACKUP" ] &&
+		[ ! -e "$RB_ICON_NEW" ] && [ ! -e "$RB_ICON_BACKUP" ] &&
+		[ ! -e "$RB_META_NEW" ] && [ ! -e "$RB_META_BACKUP" ] &&
+		[ ! -e "$RB_ACTIVE_BACKUP" ] && [ ! -e "$RB_PREVIOUS_BACKUP" ] ||
+		fail "a stale activation staging path exists"
+	cp "$profile/feature.cfg" "$RB_FEATURE_NEW" || fail "cannot stage active feature.cfg"
+	chmod 0644 "$RB_FEATURE_NEW"
+	mkdir "$RB_ICON_NEW" || fail "cannot stage the active icon set"
+	for icon in "$profile"/app_icons/*.png; do
+		[ -f "$icon" ] || continue
+		cp "$icon" "$RB_ICON_NEW/${icon##*/}" || fail "cannot stage an active icon"
+		chmod 0644 "$RB_ICON_NEW/${icon##*/}"
+	done
+	chmod 0755 "$RB_ICON_NEW"
+	cp "$profile/profile.meta" "$RB_META_NEW" || fail "cannot stage active feature metadata"
+	chmod 0644 "$RB_META_NEW"
+	test_failpoint copy && fail "injected activation copy failure"
+
+	if [ -e "$FEATURE_FILE" ] || [ -L "$FEATURE_FILE" ]; then
+		cp -p "$FEATURE_FILE" "$RB_FEATURE_BACKUP" || fail "cannot back up active feature.cfg"
+		RB_HAD_FEATURE=1
+	fi
+	if [ -e "$ICON_DIR" ] || [ -L "$ICON_DIR" ]; then
+		RB_HAD_ICONS=1
+	fi
+	if [ -e "$META_FILE" ] || [ -L "$META_FILE" ]; then
+		cp -p "$META_FILE" "$RB_META_BACKUP" || fail "cannot back up active feature metadata"
+		RB_HAD_META=1
+	fi
+	if [ -e "$ACTIVE_PTR" ] || [ -L "$ACTIVE_PTR" ]; then
+		cp -p "$ACTIVE_PTR" "$RB_ACTIVE_BACKUP" || fail "cannot back up the active profile pointer"
+		RB_HAD_ACTIVE_PTR=1
+	fi
+	if [ -e "$PREVIOUS_PTR" ] || [ -L "$PREVIOUS_PTR" ]; then
+		cp -p "$PREVIOUS_PTR" "$RB_PREVIOUS_BACKUP" || fail "cannot back up the previous profile pointer"
+		RB_HAD_PREVIOUS_PTR=1
+	fi
+	if uci_available; then
+		RB_OLD_RULESET="$(uci -q get c2000max_traffic.audit.ruleset 2>/dev/null || true)"
+		[ -z "$RB_OLD_RULESET" ] || RB_HAD_RULESET=1
+	fi
+	test_failpoint backup && fail "injected activation backup failure"
+
+	# Preserve old-library counters while its identity is still visible.  Set
+	# PENDING before clearing APPID policy so even a partial clear is followed by
+	# a complete old-library reload and policy rebuild on every failure path.
+	if runtime_enabled; then
+		traffic_run sample || fail "cannot sample traffic before profile activation"
+		traffic_run audit-migrate || fail "cannot migrate old-library audit data before activation"
+	fi
+	ACTIVATION_PENDING=1
+	if runtime_enabled && ! traffic_run audit-policy-clear; then
+		rollback_activation
+		fail "cannot clear the application policy before activation; the previous profile was restored"
+	fi
+
+	# Prepare both pointers before material/runtime changes.  Active is written
+	# second and is the identity commit point observed by the traffic-side SHA
+	# guard; previous is restored too on every subsequent failure.
+	if ! write_pointer "$PREVIOUS_PTR" "$RB_OLD_ACTIVE"; then
+		rollback_activation
+		fail "cannot prepare the previous profile pointer; the previous pointers were restored"
+	fi
+	if test_failpoint pointer; then
+		rollback_activation
+		fail "injected activation pointer failure; the previous pointers were restored"
+	fi
+	if ! write_pointer "$ACTIVE_PTR" "$sha"; then
+		rollback_activation
+		fail "cannot update the active profile pointer; the previous pointer was restored"
+	fi
+	if ! mv -f "$RB_FEATURE_NEW" "$FEATURE_FILE"; then
+		rollback_activation
+		fail "cannot atomically replace feature.cfg; the previous profile was restored"
+	fi
+	RB_FEATURE_SWITCHED=1
+
+	if [ "$RB_HAD_ICONS" -eq 1 ]; then
+		if ! mv "$ICON_DIR" "$RB_ICON_BACKUP"; then
+			rollback_activation
+			fail "cannot back up the active icon set; the previous profile was restored"
+		fi
+		RB_ICONS_TOUCHED=1
+	else
+		RB_ICONS_TOUCHED=1
+	fi
+	if ! mv "$RB_ICON_NEW" "$ICON_DIR"; then
+		rollback_activation
+		fail "cannot activate the icon set; the previous profile was restored"
+	fi
+	if ! mv -f "$RB_META_NEW" "$META_FILE"; then
+		rollback_activation
+		fail "cannot activate feature metadata; the previous profile was restored"
+	fi
+	RB_META_SWITCHED=1
+
+	if test_failpoint reload || ! reload_oaf "$expected"; then
+		reload_error="$RELOAD_DIAGNOSTIC"
+		rollback_activation
+		[ -n "$reload_error" ] || reload_error="OAF 未报告预期的 $expected 条活动规则"
+		fail "$reload_error；已恢复上一套特征库"
+	fi
+
+	if uci_available; then RB_UCI_TOUCHED=1; fi
+	if test_failpoint policy || ! set_ruleset "$sha" ||
+	   ! traffic_run audit-rebaseline || ! traffic_run audit-policy; then
+		rollback_activation
+		fail "post-activation policy/accounting refresh failed; the previous profile was restored"
+	fi
+	ACTIVATION_PENDING=0
+	ACTIVATION_STAGED=0
+	rm -f "$RB_FEATURE_BACKUP" "$RB_META_BACKUP" "$RB_ACTIVE_BACKUP" "$RB_PREVIOUS_BACKUP"
+	rm -rf "$RB_ICON_BACKUP"
+	release_traffic_profile_lock
+	ACTIVATE_SHA="$sha"
+}
+
+emit_success()
+{
+	local sha="$1" deduplicated="${2:-0}" already="${3:-0}" profile
+	local source_apps skipped_apps source_format source_rules compiled_rules skipped_rules
+	profile="$LIBRARY_DIR/$sha/profile.meta"
+	source_apps="$(meta_value source_apps "$profile")"; is_uint "$source_apps" || source_apps=0
+	skipped_apps="$(meta_value skipped_apps "$profile")"; is_uint "$skipped_apps" || skipped_apps=0
+	source_format="$(meta_value source_format "$profile")"
+	case "$source_format" in oaf-v3|ik-native-v1) ;; *) source_format=unknown ;; esac
+	source_rules="$(meta_value source_rules "$profile")"; is_uint "$source_rules" || source_rules=0
+	compiled_rules="$(meta_value compiled_rules "$profile")"; is_uint "$compiled_rules" || compiled_rules=0
+	skipped_rules="$(meta_value skipped_rules "$profile")"; is_uint "$skipped_rules" || skipped_rules=0
+	printf '{"success":true,"version":"%s","format":"%s","source_format":"%s","classes":%s,"apps":%s,"features":%s,"source_apps":%s,"skipped_apps":%s,"source_rules":%s,"compiled_rules":%s,"skipped_rules":%s,"sha256":"%s","deduplicated":%s,"already_active":%s}\n' \
+		"$(meta_value version "$profile")" \
+		"$(meta_value format "$profile")" "$source_format" \
+		"$(meta_value classes "$profile")" \
+		"$(meta_value apps "$profile")" \
+		"$(meta_value features "$profile")" \
+		"$source_apps" "$skipped_apps" "$source_rules" "$compiled_rules" "$skipped_rules" "$sha" \
+		"$([ "$deduplicated" -eq 1 ] && printf true || printf false)" \
+		"$([ "$already" -eq 1 ] && printf true || printf false)"
+}
+
+list_profiles()
+{
+	local active previous first=1 path sha meta version format source source_format classes apps features created valid
+	local source_apps skipped_apps meta_sha
+	active="$(read_pointer "$ACTIVE_PTR")"
+	previous="$(read_pointer "$PREVIOUS_PTR")"
+	printf '{"success":true,"active":"%s","previous":"%s","libraries":[' "$active" "$previous"
+	for path in "$LIBRARY_DIR"/*; do
+		[ -d "$path" ] || continue
+		sha="${path##*/}"
+		is_sha256 "$sha" || continue
+		meta="$path/profile.meta"
+		valid=false
+		# Published profile directories are immutable and profile.meta is created
+		# only after strict validation, then renamed into the content-addressed
+		# library atomically.  Trust that O(1) identity here; activate/import still
+		# re-hash and fully validate before changing the running ruleset.
+		meta_sha="$(meta_value sha256 "$meta")"
+		[ -f "$path/feature.cfg" ] && [ "$meta_sha" = "$sha" ] && valid=true
+		version="$(meta_value version "$meta")"
+		format="$(meta_value format "$meta")"
+		source="$(meta_value source "$meta")"
+		source_format="$(meta_value source_format "$meta")"
+		classes="$(meta_value classes "$meta")"
+		apps="$(meta_value apps "$meta")"
+		features="$(meta_value features "$meta")"
+		source_apps="$(meta_value source_apps "$meta")"
+		skipped_apps="$(meta_value skipped_apps "$meta")"
+		created="$(meta_value created "$meta")"
+		case "$version" in v[0-9]*|v[0-9]*-ikuai) ;; *) version="unknown" ;; esac
+		case "$format" in v3.0|v4.0|v4.1|v4.2) ;; *) format="unknown" ;; esac
+		case "$source" in adopted|oaf-upload|ikuai-upload|ik-native-upload) ;; *) source="unknown" ;; esac
+		case "$source_format" in oaf-v3|ik-native-v1) ;; *) source_format="unknown" ;; esac
+		is_uint "$classes" || classes=0
+		is_uint "$apps" || apps=0
+		is_uint "$features" || features=0
+		is_uint "$source_apps" || source_apps=0
+		is_uint "$skipped_apps" || skipped_apps=0
+		is_uint "$created" || created=0
+		[ "$first" -eq 1 ] || printf ','
+		first=0
+		printf '{"sha256":"%s","version":"%s","format":"%s","source":"%s","source_format":"%s","classes":%s,"apps":%s,"features":%s,"source_apps":%s,"skipped_apps":%s,"created":%s,"valid":%s,"active":%s,"previous":%s}' \
+			"$sha" "$version" "$format" "$source" "$source_format" "$classes" "$apps" "$features" "$source_apps" "$skipped_apps" "$created" "$valid" \
+			"$([ "$sha" = "$active" ] && printf true || printf false)" \
+			"$([ "$sha" = "$previous" ] && printf true || printf false)"
+	done
+	printf ']}\n'
+}
+
+usage()
+{
+	cat >&2 <<EOF
+Usage: $0 init
+       $0 adopt [feature.cfg]
+       $0 list
+       $0 install <official.zip|feature.bin|IKprotocol-extracted.tar.gz>
+       $0 import <official.zip|feature.bin|IKprotocol-extracted.tar.gz>
+       $0 activate <64-character-feature-sha256>
+       $0 rollback
+EOF
+	exit 2
+}
+
+check_limits
+command="${1:-}"
+case "$command" in
+init|adopt|list|install|import|activate|rollback) ;;
+*) usage ;;
+esac
+shift
+
+if [ "$command" = list ]; then
+	[ "$#" -eq 0 ] || usage
+	# Do not let LuCI's initial feature-list request queue behind archive
+	# compilation and synchronous OAF reload.  A successful opportunistic lock
+	# still reaps stale incoming state; otherwise list only observes atomically
+	# published immutable directories and pointer files.
+	try_take_lock || true
+	list_profiles
+	exit 0
+fi
+
+take_lock
+
+case "$command" in
+init)
+	[ "$#" -eq 0 ] || usage
+	reconcile_current_profile
+	active="$RECONCILED_ACTIVE"
+	[ -n "$active" ] || fail "there is no current feature.cfg to adopt"
+	emit_success "$active" "${STORE_DEDUPLICATED:-1}" 1
+	;;
+adopt)
+	[ "$#" -le 1 ] || usage
+	take_traffic_profile_lock
+	adopt_current "${1:-$FEATURE_FILE}"
+	set_ruleset "$ADOPT_SHA" || fail "cannot bind policy identity to the adopted feature profile"
+	release_traffic_profile_lock
+	emit_success "$ADOPT_SHA" "$STORE_DEDUPLICATED" 1
+	;;
+install|import)
+	[ "$#" -eq 1 ] || usage
+	reconcile_current_profile
+	extract_upload "$1"
+	case "${EXTRACTED_FORMAT:-}" in
+		ik-native-v1) source=ik-native-upload ;;
+		*) case "$VALID_VERSION" in *-ikuai) source=ikuai-upload ;; *) source=oaf-upload ;; esac ;;
+	esac
+	store_profile "$EXTRACTED_CONTENT" "$source" strict
+	activate_profile "$STORE_SHA"
+	emit_success "$STORE_SHA" "$STORE_DEDUPLICATED" "$ACTIVATE_ALREADY"
+	;;
+activate)
+	[ "$#" -eq 1 ] || usage
+	reconcile_current_profile
+	is_sha256 "$1" || fail "activate requires a complete lowercase 64-character SHA-256"
+	activate_profile "$1"
+	emit_success "$ACTIVATE_SHA" 1 "$ACTIVATE_ALREADY"
+	;;
+rollback)
+	[ "$#" -eq 0 ] || usage
+	reconcile_current_profile
+	previous="$(read_pointer "$PREVIOUS_PTR")"
+	[ -n "$previous" ] || fail "there is no previous profile to restore"
+	activate_profile "$previous"
+	emit_success "$ACTIVATE_SHA" 1 "$ACTIVATE_ALREADY"
+	;;
+esac

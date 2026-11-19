@@ -1,0 +1,108 @@
+<section class="cbi-section myos-remote-card" id="myos-support">
+	<div class="myos-remote-heading">
+		<h3>MYOS 远程报修</h3>
+		<span id="myos-support-status" role="status">正在读取…</span>
+	</div>
+	<p class="cbi-section-descr">开启后将 4 位动态密码发给售后。密码最长有效 1 小时，关闭报修即结束会话。</p>
+	<div class="myos-support-controls">
+		<div class="myos-support-password" id="myos-support-password" hidden>
+			<span>4 位动态密码</span>
+			<strong id="myos-support-code"></strong>
+			<button type="button" class="cbi-button" id="myos-support-copy" hidden>复制密码</button>
+		</div>
+		<button type="button" class="cbi-button cbi-button-action" id="myos-support-start">开启报修</button>
+		<button type="button" class="cbi-button" id="myos-support-stop" hidden>关闭报修</button>
+	</div>
+</section>
+<style>
+.myos-remote-card .myos-remote-heading {
+	display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+	gap: .35rem 1rem; margin: 0 0 .65rem;
+}
+.myos-remote-card .myos-remote-heading h3 { margin: 0; }
+.myos-remote-heading [role="status"] { overflow-wrap: anywhere; }
+.myos-support-controls, .myos-support-password {
+	display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem;
+}
+.myos-support-controls { margin-top: .85rem; }
+.myos-support-controls [hidden] { display: none !important; }
+#myos-support-code {
+	font: 700 1.5rem/1.25 ui-monospace, monospace; letter-spacing: .14em; user-select: all;
+}
+.myos-remote-details summary { cursor: pointer; width: fit-content; margin: .4rem 0; }
+.myos-remote-details td { overflow-wrap: anywhere; }
+</style>
+<script type="text/javascript">
+(function() {
+	var start = document.getElementById('myos-support-start');
+	var stop = document.getElementById('myos-support-stop');
+	var password = document.getElementById('myos-support-password');
+	var code = document.getElementById('myos-support-code');
+	var copy = document.getElementById('myos-support-copy');
+	var status = document.getElementById('myos-support-status');
+	var url = '<%=luci.dispatcher.build_url("admin", "system", "myos_nros", "support")%>';
+	var token = '<%=token%>';
+	var waiting = false;
+	var queuedAction;
+	function update(action) {
+		if (waiting) {
+			if (action !== 'status') queuedAction = action;
+			return;
+		}
+		waiting = true;
+		fetch(url, {
+			method: 'POST', credentials: 'same-origin', cache: 'no-store',
+			body: new URLSearchParams({ token: token, action: action })
+		}).then(function(response) {
+			if (!response.ok) throw new Error(response.status);
+			return response.json();
+		}).then(function(data) {
+			if (code.textContent !== (data.code || '')) {
+				code.textContent = data.code || '';
+				copy.textContent = '复制密码';
+			}
+			password.hidden = !data.code;
+			if (!queuedAction) status.textContent = data.status;
+			start.hidden = data.active;
+			stop.hidden = !data.active;
+		}).catch(function() {
+			status.textContent = '读取报修状态失败';
+		}).finally(function() {
+			waiting = false;
+			if (queuedAction) {
+				var action = queuedAction;
+				queuedAction = null;
+				update(action);
+			}
+		});
+	}
+	start.onclick = function() {
+		status.textContent = '正在连接…';
+		update('start');
+	};
+	stop.onclick = function() {
+		status.textContent = '正在关闭…';
+		update('stop');
+	};
+	copy.hidden = false;
+	copy.onclick = function() {
+		function selectPassword() {
+			var selection = window.getSelection();
+			var range = document.createRange();
+			range.selectNodeContents(code);
+			selection.removeAllRanges();
+			selection.addRange(range);
+			copy.textContent = document.execCommand('copy') ? '已复制' : '请复制选中的密码';
+		}
+		if (navigator.clipboard) {
+			navigator.clipboard.writeText(code.textContent).then(function() {
+				copy.textContent = '已复制';
+			}, selectPassword);
+		} else {
+			selectPassword();
+		}
+	};
+	update('status');
+	window.setInterval(function() { update('status'); }, 2500);
+})();
+</script>

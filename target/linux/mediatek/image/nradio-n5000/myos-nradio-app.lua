@@ -31,41 +31,87 @@ local function normalize_mac(v)
 	return trim(v):upper()
 end
 
-function wifi_app_list(list)
+
+
+local function wifi_sections()
+	local all, radios = {}, {}
+	uci:unload("wireless")
+	uci:load("wireless")
+	uci:foreach("wireless", "wifi-iface", function(s)
+		local mode = trim(s.mode):lower()
+		if mode ~= "" and mode ~= "ap" and mode ~= "ap-wds" then return end
+		all[#all + 1] = s
+		if not s.device then return end
+		local radio = radios[s.device] or { count = 0, lan_count = 0 }
+		radios[s.device] = radio
+		radio.count, radio.only = radio.count + 1, s
+		local networks = type(s.network) == "table" and table.concat(s.network, " ") or tostring(s.network or "")
+		if (" " .. networks .. " "):find("%slan%s") then
+			radio.lan_count, radio.lan = radio.lan_count + 1, s
+		end
+	end)
+
+	local bands, counts = {}, {}
+	for device, radio in pairs(radios) do
+		local selected = radio.lan_count == 1 and radio.lan or radio.count == 1 and radio.only
+		local band = uci:get("wireless", device, "band")
+		if not band or band == "" then
+			local hwmode = uci:get("wireless", device, "hwmode")
+			band = ({ ["11a"] = "5g", ["11b"] = "2g", ["11g"] = "2g" })[hwmode]
+		end
+		if selected and (band == "2g" or band == "5g") then
+			counts[band] = (counts[band] or 0) + 1
+			bands[band] = selected
+		end
+	end
+	if counts["2g"] ~= 1 or counts["5g"] ~= 1 then return all, false end
+	local first, second = bands["2g"], bands["5g"]
+	local ordered = { first, second }
+	for _, s in ipairs(all) do
+		if s ~= first and s ~= second then ordered[#ordered + 1] = s end
+	end
+	return ordered, true
+end
+
+local function wifi_app_list(list, paired)
+	if not paired then return list end
 	local first, second = list[1], list[2]
-	if #list == 2 and first.ssid == second.ssid and
-	   first.password == second.password and first.encryption == second.encryption and
-	   first.hidden == second.hidden and first.disabled == second.disabled then
+	local security = first.encryption:match("^[^+]+")
+	local personal = security == "psk2" or security == "psk-mixed" or
+		security == "sae" or security == "sae-mixed"
+	if (personal or security == "none") and
+	   first.ssid == second.ssid and first.encryption == second.encryption and
+	   first.disabled == second.disabled and (not personal or first.password == second.password) then
 		first.rule_name, first.ruleName, first.channel = "t0", "t0", "0"
 		return { first }
 	end
 	return list
 end
 
-
-local function wifi_info()
-	local list, idx = {}, 0
-	uci:foreach("wireless", "wifi-iface", function(s)
-		local mode = trim(s.mode):lower()
-		if mode ~= "" and mode ~= "ap" then return end
-		idx = idx + 1
+function wifi_info()
+	local list = {}
+	local sections, paired = wifi_sections()
+	for idx, s in ipairs(sections) do
 		local dev = s.device or ""
-		local disabled = s.disabled or uci:get("wireless", dev, "disabled") or "0"
-		list[#list + 1] = {
+		local disabled = (s.disabled == "1" or uci:get("wireless", dev, "disabled") == "1") and "1" or "0"
+		local rule = "wlan" .. tostring(idx - 1)
+		list[idx] = {
 			ssid = s.ssid or "",
 			password = s.key or "",
-			rule_name = "wlan" .. tostring(idx - 1),
-			ruleName = "wlan" .. tostring(idx - 1),
+			rule_name = rule,
+			ruleName = rule,
 			hidden = s.hidden or "0",
 			encryption = s.encryption or "none",
 			channel = uci:get("wireless", dev, "channel") or "auto",
 			disabled = disabled,
-			band = idx - 1,
-			max_link = tonumber(s.maxassoc or s.max_inactivity or 0) or 0
+			band = paired and idx <= 2 and idx - 1 or
+				(uci:get("wireless", dev, "band") == "5g" and 1 or 0),
+			dbsc = "0",
+			max_link = tonumber(s.maxassoc or s.maxstanum or 0) or 0
 		}
-	end)
+	end
 	if #list == 0 then list[1] = {} end
-	return wifi_app_list(list)
+	return wifi_app_list(list, paired)
 end
 
 local function valid_wifi_text(value, max_len, required)
@@ -75,29 +121,26 @@ local function valid_wifi_text(value, max_len, required)
 	return #value <= max_len and not value:find("[%z\r\n]")
 end
 
-local function wifi_item_for_index(list, index)
+local function wifi_item_for_index(list, index, paired)
 	local wanted = "wlan" .. tostring(index - 1)
-	for _, item in ipairs(list or {}) do
+	for _, item in ipairs(list) do
 		if type(item) == "table" then
 			local rule = trim(item.rule_name or item.ruleName)
-			if rule == wanted or rule == "t0" then return item end
+			if rule == wanted or (paired and index <= 2 and rule == "t0") then return item end
 		end
 	end
-	return list and list[index]
+	local item = list[index]
+	if type(item) == "table" and trim(item.rule_name or item.ruleName) == "" then return item end
 end
 
 function apply_wifi(req)
-	uci:load("wireless")
 	if type(req.list) ~= "table" or #req.list == 0 or #req.list > 8 then return false end
-	local sections = {}
-	uci:foreach("wireless", "wifi-iface", function(s)
-		local mode = trim(s.mode):lower()
-		if mode == "" or mode == "ap" then sections[#sections + 1] = s end
-	end)
-	if #sections == 0 then return false end
+	local sections, paired = wifi_sections()
+	local updated = false
 	for index, section in ipairs(sections) do
-		local item = wifi_item_for_index(req.list, index)
+		local item = wifi_item_for_index(req.list, index, paired)
 		if item then
+			updated = true
 			local ssid = item.ssid
 			local password = item.password
 			local encryption = item.encryption
@@ -131,7 +174,7 @@ function apply_wifi(req)
 			if channel ~= nil and channel ~= "" then uci:set("wireless", section.device, "channel", channel) end
 		end
 	end
-	uci:commit("wireless")
+	if not updated or not uci:commit("wireless") then return false end
 	os.execute("(wifi reload) >/dev/null 2>&1 &")
 	return true
 end

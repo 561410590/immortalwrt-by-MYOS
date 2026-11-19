@@ -105,6 +105,27 @@ device_id() {
 	pick_mac | tr -d ':' | tr 'a-f' 'A-F'
 }
 
+original_bridge_password() {
+	local mac="$1" id="$2" dev mountpoint config code password
+	dev="$(blkid -t PARTLABEL=nradio_extend_memory -o device 2>/dev/null | head -n 1)"
+	[ -n "$dev" ] || return 1
+	mountpoint="$(awk -v dev="$dev" '$1 == dev { print $2; exit }' /proc/mounts)"
+	[ -n "$mountpoint" ] || return 1
+	config="$mountpoint/upper/etc/config"
+	[ -r "$config/mosquitto" ] && [ -r "$config/oem" ] || return 1
+
+	code="$(uci -q get oem.board.device_code)"
+	[ -n "$code" ] && [ "$code" != "x11111" ] || return 1
+	[ "$(normalize_mac "$(uci -q -c "$config" get oem.board.id)")" = "$mac" ] &&
+		[ "$(uci -q -c "$config" get oem.board.device_code)" = "$code" ] &&
+		[ "$(uci -q -c "$config" get mosquitto.bridge.remote_clientid)" = "$id" ] &&
+		[ "$(uci -q -c "$config" get mosquitto.bridge.remote_username)" = "$id" ] &&
+		[ "$(uci -q -c "$config" get mosquitto.bridge.address)" = "$id.pro.nradio.com.cn" ] || return 1
+	password="$(uci -q -c "$config" get mosquitto.bridge.remote_password)"
+	printf '%s\n' "$password" | grep -qE '^[0-9A-Fa-f]{32}$' || return 1
+	printf '%s\n' "$password"
+}
+
 scoped_bridge_address() {
 	local value="$1" landev port
 	printf '%s' "$value" | grep -iqE '^(fe80:[0-9a-f:]+%br-lan|\[fe80:[0-9a-f:]+%br-lan\]):[0-9]{1,5}$' || return 1
@@ -116,7 +137,7 @@ scoped_bridge_address() {
 }
 
 start_service() {
-	local mac id conf username password address restart_timeout
+	local mac id conf conf_tmp username password address restart_timeout original_password
 	cloud_enabled || return 0
 	mac="$(pick_mac)"
 	id="$(printf '%s' "$mac" | tr -d ':' | tr 'a-f' 'A-F')"
@@ -125,6 +146,24 @@ start_service() {
 	password="$(uci -q get mosquitto.bridge.remote_password 2>/dev/null || true)"
 	address="$(uci -q get mosquitto.bridge.address 2>/dev/null || true)"
 	restart_timeout="$(uci -q get mosquitto.bridge.restart_timeout 2>/dev/null || true)"
+	# fstab has already mounted the original N5000 SD overlay by START=30.
+	if [ -z "$password" ] && valid_identity_mac "$mac"; then
+		case "$address" in
+			""|"$id.dev.nradio.com.cn")
+				if original_password="$(original_bridge_password "$mac" "$id")" &&
+				   chmod 600 /etc/config/mosquitto; then
+					if printf 'set mosquitto.bridge.remote_username=%s\nset mosquitto.bridge.remote_password=%s\nset mosquitto.bridge.address=%s\ncommit mosquitto\n' \
+						"$id" "$original_password" "$id.pro.nradio.com.cn" | uci -q batch; then
+						username="$id"
+						password="$original_password"
+						address="$id.pro.nradio.com.cn"
+					else
+						logger -t myos-nros-mqtt 'Could not save N5000 original cloud credentials'
+					fi
+				fi
+				;;
+		esac
+	fi
 	[ -n "$username" ] || username="router"
 	[ -n "$password" ] && [ "$username" = "router" ] && username="$id"
 	case "$address" in
@@ -135,6 +174,7 @@ start_service() {
 
 	ubus -t 10 wait_for network.interface.loopback >/dev/null 2>&1 || true
 	mkdir -p /var/run/mosquitto
+	conf_tmp="$(mktemp "$conf.XXXXXX")" || return 1
 	{
 		printf '%s\n' 'log_dest syslog'
 		printf '%s\n' 'allow_anonymous true'
@@ -163,7 +203,8 @@ start_service() {
 			printf 'topic mosca/# in 1 kp/%s/ kp/FFFFFFFFFFFF/\n' "$id"
 			printf '%s\n' 'try_private false'
 		fi
-	} > "$conf"
+	} > "$conf_tmp"
+	mv -f "$conf_tmp" "$conf" || return 1
 
 	procd_open_instance
 	procd_set_param command /usr/sbin/mosquitto -c "$conf"

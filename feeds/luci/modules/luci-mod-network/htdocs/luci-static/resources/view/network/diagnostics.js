@@ -8,15 +8,17 @@
 
 return view.extend({
 	handleCommand: function(exec, args) {
-		var buttons = document.querySelectorAll('.diag-action > .cbi-button');
+		var buttons = document.querySelectorAll('.diag-action > .cbi-button, .m-diagnostics-form button[type="submit"]');
+		var output = document.getElementById('widget.command-output');
 
 		for (var i = 0; i < buttons.length; i++)
 			buttons[i].setAttribute('disabled', 'true');
 
 		return fs.exec(exec, args).then(function(res) {
-			var out = document.querySelector('textarea');
-
-			dom.content(out, [ res.stdout || '', res.stderr || '' ]);
+			if (document.body.classList.contains('m-submenu-compact'))
+				output.value = (res.stdout || '') + (res.stderr || '');
+			else
+				dom.content(output, [ res.stdout || '', res.stderr || '' ]);
 		}).catch(function(err) {
 			ui.addNotification(null, E('p', [ err ]))
 		}).finally(function() {
@@ -65,7 +67,64 @@ return view.extend({
 		]);
 	},
 
+	renderCompact: function(res) {
+		const defaults = {
+			ping: uci.get('luci', 'diag', 'ping') || 'openwrt.org',
+			traceroute: uci.get('luci', 'diag', 'route') || 'openwrt.org',
+			nslookup: uci.get('luci', 'diag', 'dns') || 'openwrt.org'
+		};
+		const tools = [
+			{ exec: 'ping', group: 'ping', label: 'IPv4 Ping', args: ['-4', '-c', '5', '-W', '1'] },
+			...(res[0].path || res[1].path ? [{ exec: 'ping6', group: 'ping', label: 'IPv6 Ping', args: ['-6', '-c', '5'] }] : []),
+			{ exec: 'traceroute', group: 'traceroute', label: 'IPv4 ' + _('Traceroute'), args: ['-4', '-q', '1', '-w', '1', '-n', '-m', String(L.env.rpctimeout || 20)] },
+			...(res[2].path || res[3].path ? [{ exec: 'traceroute6', group: 'traceroute', label: 'IPv6 ' + _('Traceroute'), args: ['-q', '1', '-w', '2', '-n'] }] : []),
+			{ exec: 'nslookup', group: 'nslookup', label: _('Nslookup'), args: [] }
+		];
+		const method = E('select', { id: 'm-diagnostics-method', class: 'cbi-input-select' },
+			tools.map(tool => E('option', { value: tool.exec }, tool.label)));
+		const target = E('input', { id: 'm-diagnostics-target', type: 'text', value: defaults.ping, class: 'cbi-input-text' });
+		let previous = defaults.ping;
+		method.addEventListener('change', () => {
+			const suggested = defaults[tools[method.selectedIndex].group];
+			if (target.value === previous)
+				target.value = suggested;
+			previous = suggested;
+		});
+		const form = E('form', { class: 'm-diagnostics-form' }, [
+			E('label', { for: method.id }, [ '工具', method ]),
+			E('label', { for: target.id, class: 'm-diagnostics-address' }, [ '目标地址', target ]),
+			E('button', { type: 'submit', class: 'cbi-button cbi-button-action' }, '运行')
+		]);
+		form.addEventListener('submit', ev => {
+			ev.preventDefault();
+			const tool = tools[method.selectedIndex];
+			this.handleCommand(tool.exec, [...tool.args, target.value]);
+		});
+		const forms = [form];
+		if (res[4].path) {
+			const devices = E('select', { class: 'cbi-input-select', id: 'm-diagnostics-interface' },
+				res[5].filter(dev => dev.isUp()).map(dev => E('option', { value: dev.getName() }, dev.getI18n())));
+			const arp = E('form', { class: 'm-diagnostics-form' }, [
+				E('label', { for: devices.id }, [ _('Device'), devices ]),
+				E('button', { type: 'submit', class: 'cbi-button cbi-button-action' }, _('Arp-scan'))
+			]);
+			arp.addEventListener('submit', ev => {
+				ev.preventDefault();
+				this.handleCommand('arp-scan', ['-l', '-I', devices.value]);
+			});
+			forms.push(arp);
+		}
+		return E('div', { class: 'cbi-map m-diagnostics-view' }, [
+			E('h2', _('Diagnostics')),
+			E('div', { class: 'cbi-section' }, forms),
+			E('textarea', { id: 'widget.command-output', readonly: '', wrap: 'off', rows: 16, 'aria-label': '诊断结果' })
+		]);
+	},
+
 	render: function(res) {
+		if (document.body.classList.contains('m-submenu-compact'))
+			return this.renderCompact(res);
+
 		var has_ping6 = res[0].path || res[1].path,
 		    has_traceroute6 = res[2].path || res[3].path,
 		    has_arpscan = res[4].path,

@@ -133,6 +133,12 @@ static VOID radio_operate_init(struct wifi_dev *wdev)
 #ifdef ZERO_PKT_LOSS_SUPPORT
 	ad->chan_switch_time[6] = jiffies_to_msecs(jiffies);
 #endif /*ZERO_PKT_LOSS_SUPPORT*/
+#ifdef CONFIG_AP_SUPPORT
+	/* Boot ACS programs the radio after it selects the primary channel. */
+	if (!fcfg.prim_ch && wdev->wdev_type == WDEV_TYPE_AP &&
+	    ad->ApCfg.bAutoChannelAtBootup)
+		return;
+#endif
 	operate_loader_phy(wdev, &fcfg);
 }
 

@@ -2,9 +2,9 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-myos-system
 PKG_VERSION:=1.0.0
-PKG_RELEASE:=2
+PKG_RELEASE:=4
 PKG_LICENSE:=Apache-2.0
-PKGARCH:=all
+PKG_FILE_DEPENDS:=$(CURDIR)/dual-pdp \
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -18,14 +18,15 @@ define Package/luci-app-myos-system
   SUBMENU:=Applications
   TITLE:=MYOS MAX system integration, setup and notifications
   DEPENDS:=+luci-base +luci-compat +luci-lib-jsonc +rpcd-mod-luci +rpcd-mod-ucode +curl +jsonfilter +uclient-fetch +ca-bundle +ucode-mod-fs +ucode-mod-ubus +ucode-mod-uci +qmodem +fancontrol +jq +bc +python3-ctypes
-  PKGARCH:=all
+  DEPENDS+=+luci-lib-nixio +libuci-lua +ip-full +flock +conntrack +libnetfilter-conntrack +tc-full +kmod-nft-nat
+  DEPENDS+=+dnsmasq-full +nftables-json +libnettle +libgmp
 endef
 
 define Package/luci-app-myos-system/conffiles
 /etc/config/mwrt
-/etc/config/mwrt_fan
 /etc/config/Mwrt-Assurance
 /etc/config/WTMmodem
+/etc/config/dual_pdp
 endef
 
 define Build/Compile
@@ -62,15 +63,11 @@ define Package/luci-app-myos-system/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(MWRT_LEGACY)/usr/bin/mwrt-cellinfo $(1)/usr/bin/mwrt-cellinfo
 	$(INSTALL_DIR) $(1)/usr/bin
-	$(INSTALL_BIN) $(MWRT_LEGACY)/usr/bin/mwrt-fansched $(1)/usr/bin/mwrt-fansched
-	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(MWRT_LEGACY)/usr/bin/mwrt_wan_failover.sh $(1)/usr/bin/mwrt_wan_failover.sh
-	$(INSTALL_DIR) $(1)/etc/init.d
-	$(INSTALL_BIN) $(MWRT_LEGACY)/etc/init.d/mwrt-fansched $(1)/etc/init.d/mwrt-fansched
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) $(MWRT_LEGACY)/etc/init.d/mwrt-assurance $(1)/etc/init.d/mwrt-assurance
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
-	$(INSTALL_BIN) $(MWRT_LEGACY)/etc/uci-defaults/99f-mwrt-fansched $(1)/etc/uci-defaults/99f-mwrt-fansched
+	$(INSTALL_BIN) ./files/99f-myos-remove-mwrt-fan-cron $(1)/etc/uci-defaults/99f-myos-remove-mwrt-fan-cron
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(MWRT_LEGACY)/etc/uci-defaults/99g-mwrt-cellinfo $(1)/etc/uci-defaults/99g-mwrt-cellinfo
 	$(INSTALL_DIR) $(1)/usr/share/modem
@@ -85,8 +82,6 @@ define Package/luci-app-myos-system/install
 	$(INSTALL_BIN) $(MWRT_LEGACY)/usr/share/mwrt-qmodem/vendor/huawei.sh $(1)/usr/share/mwrt-qmodem/vendor/huawei.sh
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_DATA) $(MWRT_LEGACY)/etc/config/mwrt $(1)/etc/config/mwrt
-	$(INSTALL_DIR) $(1)/etc/config
-	$(INSTALL_DATA) $(MWRT_LEGACY)/etc/config/mwrt_fan $(1)/etc/config/mwrt_fan
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_DATA) $(MWRT_LEGACY)/etc/config/Mwrt-Assurance $(1)/etc/config/Mwrt-Assurance
 	$(INSTALL_DIR) $(1)/etc/config
@@ -103,8 +98,6 @@ define Package/luci-app-myos-system/install
 	$(INSTALL_DATA) $(MWRT_LEGACY)/usr/lib/lua/luci/controller/zz_mwrt_ports.lua $(1)/usr/lib/lua/luci/controller/zz_mwrt_ports.lua
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
 	$(INSTALL_DATA) $(MWRT_LEGACY)/usr/lib/lua/luci/controller/zz_mwrt_mwrt_assurance.lua $(1)/usr/lib/lua/luci/controller/zz_mwrt_mwrt_assurance.lua
-	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/view/Airpifanctrl
-	$(INSTALL_DATA) $(MWRT_LEGACY)/usr/lib/lua/luci/view/Airpifanctrl/fancontrol.htm $(1)/usr/lib/lua/luci/view/Airpifanctrl/fancontrol.htm
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
 	$(INSTALL_DATA) $(MWRT_LEGACY)/usr/share/rpcd/acl.d/luci-app-mwrt-notice.json $(1)/usr/share/rpcd/acl.d/luci-app-mwrt-notice.json
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
@@ -128,6 +121,27 @@ define Package/luci-app-myos-system/install
 	$(INSTALL_DATA) $(MYOS_LEGACY)/htdocs/luci-static/resources/tools/myos-wifi.js $(1)/www/luci-static/resources/tools/myos-wifi.js
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/tools
 	$(INSTALL_DATA) $(MYOS_LEGACY)/htdocs/luci-static/resources/tools/myos-wifi.css $(1)/www/luci-static/resources/tools/myos-wifi.css
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface $(1)/usr/lib/lua/dual_pdp
+	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/share/dual-pdp
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/dual-pdp $(1)/www/luci-static/resources/view/dual-pdp
+	$(INSTALL_DIR) $(1)/lib/upgrade/keep.d $(1)/usr/libexec/inst-dual-pdp
+	$(INSTALL_DATA) ./dual-pdp/etc/config/dual_pdp $(1)/etc/config/dual_pdp
+	$(INSTALL_BIN) ./dual-pdp/etc/init.d/dual-pdp* $(1)/etc/init.d/
+	$(INSTALL_BIN) ./dual-pdp/etc/hotplug.d/iface/* $(1)/etc/hotplug.d/iface/
+	$(INSTALL_BIN) ./dual-pdp/etc/uci-defaults/98-dual-pdp-inst-features ./dual-pdp/etc/uci-defaults/99-dual-pdp-init $(1)/etc/uci-defaults/
+	$(INSTALL_BIN) ./dual-pdp/usr/sbin/dual-pdp-* ./dual-pdp/usr/sbin/c2000max-traffic ./dual-pdp/usr/sbin/c2000max-feature-* $(1)/usr/sbin/
+	$(INSTALL_BIN) ./dual-pdp/usr/libexec/dual-pdp-* $(1)/usr/libexec/
+	$(INSTALL_BIN) ./dual-pdp/usr/libexec/rpcd/dual-pdp $(1)/usr/libexec/rpcd/
+	$(INSTALL_BIN) ./dual-pdp/usr/libexec/inst-dual-pdp/dnsmasq $(1)/usr/libexec/inst-dual-pdp/
+	$(INSTALL_DATA) ./dual-pdp/usr/libexec/c2000max-*.uc $(1)/usr/libexec/
+	$(INSTALL_DATA) ./dual-pdp/usr/lib/lua/dual_pdp/*.lua $(1)/usr/lib/lua/dual_pdp/
+	$(INSTALL_DATA) ./dual-pdp/usr/lib/libubox.so.20260213 ./dual-pdp/usr/lib/libubus.so.20251202 $(1)/usr/lib/
+	$(INSTALL_DATA) ./dual-pdp/usr/share/dual-pdp/* $(1)/usr/share/dual-pdp/
+	$(INSTALL_DATA) ./dual-pdp/usr/share/luci/menu.d/luci-app-dual-pdp.json $(1)/usr/share/luci/menu.d/
+	$(INSTALL_DATA) ./dual-pdp/usr/share/rpcd/acl.d/luci-app-dual-pdp.json $(1)/usr/share/rpcd/acl.d/
+	$(INSTALL_DATA) ./dual-pdp/lib/upgrade/keep.d/dual-pdp-inst-features $(1)/lib/upgrade/keep.d/
+	$(INSTALL_DATA) ./dual-pdp/www/luci-static/resources/dual-pdp/* $(1)/www/luci-static/resources/dual-pdp/
+	$(INSTALL_DATA) ./dual-pdp/www/luci-static/resources/view/dual-pdp/overview.js $(1)/www/luci-static/resources/view/dual-pdp/
 endef
 
 $(eval $(call BuildPackage,luci-app-myos-system))

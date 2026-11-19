@@ -11,6 +11,12 @@
   main:['traffic','quality','uplinks','ports','modems','clients','wifi','network','usage','topology','health','management'],
   side:[],bottom:defaults.bottom
  };
+ const tabletDefaults={
+  overview:['product','resources'],
+  main:['traffic','ports',...defaults.main.slice(1)],
+  side:['quality','uplinks',...overviewDefaults.side],
+  bottom:defaults.bottom
+ };
  const legacyDefaults={overview:['product','resources'],main:['traffic','ports','clients','network'],side:['modems','wifi','topology','health','management','events','controls'],bottom:['version']};
  const legacyN5000={overview:['product','resources'],main:['traffic','ports','clients','network','events'],side:['modems','wifi','topology','health','management'],bottom:['controls','version']};
  const flexibleCards=new Set(['network','wifi','topology','health','management','usage']);
@@ -22,6 +28,7 @@
   const announce=s=>{live.textContent=s;};
   const narrow=matchMedia('(max-width:1000px)');
   const phone=matchMedia('(max-width:760px)');
+  const tablet=matchMedia('(min-width:761px) and (max-width:1499px) and (any-pointer:coarse)');
   let balanceFrame=0,observing=false,redistributed=false;
   const resize=typeof ResizeObserver==='function'?new ResizeObserver(scheduleBalance):null;
 
@@ -97,7 +104,8 @@
     resize?.observe(zones.main);
     resize?.observe(zones.side);
     narrow.addEventListener('change',scheduleBalance);
-    phone.addEventListener('change',resizePhone);
+    phone.addEventListener('change',resizeLayout);
+    tablet.addEventListener('change',resizeTablet);
     root.addEventListener('focusout',scheduleBalance);
     scheduleBalance();
    }
@@ -105,12 +113,14 @@
   }
   function apply(){
    redistributed=false;
-   const placement=phone.matches&&!state.manual?phoneDefaults:state.zones;
+   const placement=state.manual?state.zones:
+    phone.matches?phoneDefaults:model==='n5000'&&tablet.matches?tabletDefaults:state.zones;
    root.classList.add('m-home-refined');
    Object.entries(placement).forEach(([z,names])=>names.forEach(n=>zones[z].append(parts[n])));
    reconcile();scheduleBalance();window.dispatchEvent(new Event('myos:layout'));
   }
-  function resizePhone(){if(!editing&&!state.manual)apply();}
+  function resizeLayout(){if(!editing&&!state.manual)apply();}
+  function resizeTablet(){if(model==='n5000')resizeLayout();}
   function capture(){
    state.manual=true;
    Object.entries(zones).forEach(([z,el])=>{
@@ -150,6 +160,6 @@
   function picker(){dialog?.remove();dialog=document.createElement('dialog');dialog.className='m-client-dialog m-layout-dialog';const h=document.createElement('h2');h.textContent='添加 / 隐藏卡片';dialog.append(h);const text=document.createElement('p');text.textContent='仅列出本机适用的卡片。勾选后立即显示，不增加服务或修改网络。';dialog.append(text);
    Object.keys(parts).filter(n=>available(n)&&n!=='controls').forEach(n=>{const label=document.createElement('label');label.className='m-card-choice';const check=document.createElement('input');check.type='checkbox';check.checked=!state.hidden.includes(n);check.addEventListener('change',()=>{state.hidden=state.hidden.filter(v=>v!==n);if(!check.checked)state.hidden.push(n);reconcile();save();});label.append(check,document.createTextNode(labels[n]));dialog.append(label);});
    const done=document.createElement('button');done.type='button';done.className='m-pill-button';done.textContent='完成';const current=dialog;done.addEventListener('click',()=>current.close());current.append(done);current.addEventListener('close',()=>current.remove());document.body.append(current);current.showModal();}
-  load();apply();return {toggleEdit,reset,picker,reconcile,moveTo,adjacent,get state(){return state;},destroy(){end(true);dialog?.remove();resize?.disconnect();narrow.removeEventListener('change',scheduleBalance);phone.removeEventListener('change',resizePhone);root.removeEventListener('focusout',scheduleBalance);observing=false;cancelAnimationFrame(balanceFrame);balanceFrame=0;}};
+  load();apply();return {toggleEdit,reset,picker,reconcile,moveTo,adjacent,get state(){return state;},destroy(){end(true);dialog?.remove();resize?.disconnect();narrow.removeEventListener('change',scheduleBalance);phone.removeEventListener('change',resizeLayout);tablet.removeEventListener('change',resizeTablet);root.removeEventListener('focusout',scheduleBalance);observing=false;cancelAnimationFrame(balanceFrame);balanceFrame=0;}};
  };
 })();

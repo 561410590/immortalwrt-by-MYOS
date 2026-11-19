@@ -27,6 +27,7 @@ endef
 
 define Package/luci-theme-myos-new/conffiles
 /etc/config/myos_ping
+/etc/config/myos_appearance
 endef
 
 define Package/luci-theme-myos-new/postinst
@@ -48,6 +49,7 @@ define Package/luci-theme-myos-new/install
 	$(INSTALL_DATA) ./root/www/luci-static/myos-new/media/*.mp4 $(1)/www/luci-static/myos-new/media/
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/myos-new
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/myos-new/home.js $(1)/www/luci-static/resources/view/myos-new/
+	$(INSTALL_DATA) ./root/www/luci-static/resources/view/myos-new/panel-led.js $(1)/www/luci-static/resources/view/myos-new/
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/icons
 	$(INSTALL_DATA) ./root/www/luci-static/resources/icons/*.svg $(1)/www/luci-static/resources/icons/
 	$(INSTALL_DIR) $(1)/usr/share/ucode/luci/template/themes/myos-new
@@ -61,6 +63,7 @@ define Package/luci-theme-myos-new/install
 	$(INSTALL_BIN) ./root/etc/init.d/myos-history $(1)/etc/init.d/
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_DATA) ./root/etc/config/myos_ping $(1)/etc/config/
+	$(INSTALL_DATA) ./root/etc/config/myos_appearance $(1)/etc/config/
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd $(1)/usr/share/rpcd/acl.d
 	$(INSTALL_BIN) ./root/usr/libexec/rpcd/myos-sampling $(1)/usr/libexec/rpcd/
 	$(INSTALL_DATA) ./root/usr/share/rpcd/acl.d/myos-sampling.json $(1)/usr/share/rpcd/acl.d/

@@ -29,6 +29,7 @@ rm -rf "$root/usr/share/hwdata"
 mkdir -p "$root/etc/config" "$root/etc/init.d" "$root/etc/uci-defaults" "$root/etc/rc.d" "$root/usr/sbin" "$root/etc/nradio"
 touch "$root/etc/config/oem" "$root/etc/config/cloudd" "$root/etc/config/mqttagent" \
 	"$root/etc/config/report_proactively" "$root/etc/config/mosquitto" "$root/etc/config/myos_nros"
+chmod 600 "$root/etc/config/mosquitto"
 
 cat > "$root/etc/config/myos_nros" <<'EOF'
 config cloud 'main'
@@ -53,6 +54,8 @@ cp -fp "$script_dir/myos-nradio-app.lua" "$root/usr/lib/lua/luci/controller/nrad
 cp -fp "$script_dir/myos_nradio_app_crypto.lua" "$root/usr/lib/lua/myos_nradio_app_crypto.lua"
 cp -fp "$script_dir/myos_nradio_app_session.lua" "$root/usr/lib/lua/myos_nradio_app_session.lua"
 chmod 644 "$root/usr/lib/lua/myos_nradio_app_session.lua"
+cp -fp "$script_dir/myos_nradio_app_config.lua" "$root/usr/lib/lua/myos_nradio_app_config.lua"
+chmod 644 "$root/usr/lib/lua/myos_nradio_app_config.lua"
 cp -fp "$script_dir/myos_nradio_data.lua" "$root/usr/lib/lua/myos_nradio_data.lua"
 cp -fp "$script_dir/myos-nradio-app-fast.lua" "$root/usr/sbin/myos-nradio-app-fast"
 cp -fp "$script_dir/myos-nradio-discovery.lua" "$root/usr/sbin/myos-nradio-discovery"
@@ -63,7 +66,7 @@ cp -fp "$script_dir/myos-nros-cloud-status.htm" "$root/usr/lib/lua/luci/view/myo
 
 # Keep the runtime helpers as reviewable files shared with live validation.
 [ -d "$script_dir/myos-remote-files" ] || { echo "Missing remote runtime files"; exit 1; }
-cp -a "$script_dir/myos-remote-files/." "$root/"
+cp -a --no-preserve=ownership "$script_dir/myos-remote-files/." "$root/"
 chmod 755 "$root/etc/init.d/myos-nros-ssh" "$root/etc/uci-defaults/30-myos-nros-remote-access"
 
 cat > "$root/etc/init.d/myos-nros-app" <<'EOF'

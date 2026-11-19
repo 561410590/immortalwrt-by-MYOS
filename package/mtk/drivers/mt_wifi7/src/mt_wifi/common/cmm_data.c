@@ -4431,12 +4431,10 @@ VOID dev_rx_ctrl_frm(RTMP_ADAPTER *pAd, struct _RX_BLK *pRxBlk)
 				ops->mac_entry_lookup(pAd, &pRxBlk->Addr2[0], wdev, &pEntry);
 			}
 
-			if (pEntry)
-				pRxBlk->wcid = pEntry->wcid;
-			else {
-				MTWF_DBG(pAd, DBG_CAT_RX, CATRX_CTRL, DBG_LVL_ERROR,
-					"Cannot found WCID of PS-Poll packet!\n");
-			}
+			/* A PS-Poll from a station without an entry is ignored. */
+			if (!pEntry)
+				break;
+			pRxBlk->wcid = pEntry->wcid;
 		}
 
 		/* printk("dev_rx_ctrl_frm0 SUBTYPE_PS_POLL pRxBlk->wcid: %x pEntry->wcid:%x\n",pRxBlk->wcid,pEntry->wcid); */

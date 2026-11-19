@@ -106,8 +106,19 @@ return view.extend({
 		const element = document.getElementById('syslog');
 		if (element) {
 			const log = await this.retrieveLog();
-			element.value = log.value;
-			element.rows = log.rows;
+			if (!document.body.classList.contains('m-submenu-compact')) {
+				element.value = log.value;
+				element.rows = log.rows;
+			}
+			else if (element.value !== log.value) {
+				const top = element.scrollTop;
+				const atTail = top > 0 && element.scrollHeight - top - element.clientHeight <= 2;
+				const start = element.selectionStart, end = element.selectionEnd;
+				element.value = log.value;
+				if (document.activeElement === element)
+					element.setSelectionRange(start, end);
+				element.scrollTop = atTail ? element.scrollHeight : top;
+			}
 		}
 	},
 
@@ -117,19 +128,29 @@ return view.extend({
 	},
 
 	render: function(loglines) {
+		const compact = document.body.classList.contains('m-submenu-compact');
 		const scrollDownButton = E('button', {
 				'id': 'scrollDownButton',
 				'class': 'cbi-button cbi-button-neutral'
 			}, _('Scroll to tail', 'scroll to bottom (the tail) of the log file')
 		);
-		scrollDownButton.addEventListener('click', () => scrollUpButton.scrollIntoView());
+		scrollDownButton.addEventListener('click', () => {
+			if (!compact)
+				return scrollUpButton.scrollIntoView();
+			const log = document.getElementById('syslog');
+			log.scrollTop = log.scrollHeight;
+		});
 
 		const scrollUpButton = E('button', {
 				'id' : 'scrollUpButton',
 				'class': 'cbi-button cbi-button-neutral'
 			}, _('Scroll to head', 'scroll to top (the head) of the log file')
 		);
-		scrollUpButton.addEventListener('click', () => scrollDownButton.scrollIntoView());
+		scrollUpButton.addEventListener('click', () => {
+			if (!compact)
+				return scrollDownButton.scrollIntoView();
+			document.getElementById('syslog').scrollTop = 0;
+		});
 
 		const self = this;
 
@@ -186,13 +207,7 @@ return view.extend({
 			self.invertLogseveritySearch = severityInvert.checked;
 			self.logTextFilter = filterTextInput.value;
 			self.invertLogTextSearch = filterTextInvert.checked;
-			self.retrieveLog().then(log => {
-				const element = document.getElementById('syslog');
-				if (element) {
-					element.value = log.value;
-					element.rows = log.rows;
-				}
-			});
+			self.pollLog();
 		}
 
 		facilitySelect.addEventListener('change', handleLogFilterChange);
@@ -201,6 +216,31 @@ return view.extend({
 		severityInvert.addEventListener('change', handleLogFilterChange);
 		filterTextInput.addEventListener('input', handleLogFilterChange);
 		filterTextInvert.addEventListener('change', handleLogFilterChange);
+
+		if (compact) {
+			const label = (name, input, cls) => E('label', { for: input.id, class: cls || '' }, [name, input]);
+			const invert = (name, input) => E('label', { class: 'm-log-invert' }, [input, name]);
+			return E([], [
+				E('h2', _('System Log')),
+				E('div', { id: 'content_syslog' }, [
+					E('div', { class: 'm-log-toolbar' }, [
+						label('级别', severitySelect),
+						label('关键词', filterTextInput, 'm-log-keyword'),
+						E('div', { class: 'm-log-jump' }, [scrollUpButton, scrollDownButton])
+					]),
+					E('details', { class: 'm-log-options' }, [
+						E('summary', '更多筛选'),
+						E('div', { class: 'm-log-toolbar' }, [
+							label('来源', facilitySelect),
+							invert('排除所选来源', facilityInvert),
+							invert('排除所选级别', severityInvert),
+							invert('排除关键词', filterTextInvert)
+						])
+					]),
+					E('textarea', { id: 'syslog', readonly: '', wrap: 'soft', rows: 20, 'aria-label': _('System Log') }, loglines.value)
+				])
+			]);
+		}
 
 		return E([], [
 			E('h2', {}, [ _('System Log') ]),

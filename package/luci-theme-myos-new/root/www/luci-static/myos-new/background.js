@@ -2,11 +2,8 @@
  'use strict';
  const body=document.body;
  const button=document.querySelector('#m-background');
- const model=(body.dataset.deviceModel||'').toLowerCase().replace(/[^a-z0-9]/g,'').replace(/^nradio/,'');
- const board=(body.dataset.deviceBoard||'').toLowerCase().replace(/[^a-z0-9]/g,'');
- const ultra=model==='c2000ultra'||board==='nradioc2000ultra';
- const ultraLogin=ultra&&body.classList.contains('m-auth');
- if(!button&&!ultraLogin)return;
+ const login=body.classList.contains('m-auth');
+ if(!button&&!login)return;
  const reduced=matchMedia('(prefers-reduced-motion:reduce)');
  const make=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=text;return n;};
  let database,current=null,mediaURL=null,backdrop=null,backgroundVideo=null,previewVideo=null;
@@ -36,7 +33,7 @@
  title.id='m-background-title';
  const close=make('button','m-icon-button','×');close.type='button';close.setAttribute('aria-label','关闭背景设置');
  close.addEventListener('click',()=>dialog.close());heading.append(title,close);
- const note=make('p','m-muted','图片或视频应用于主页和登录页，仅保存在当前浏览器，不上传到路由器。视频静音循环播放；恢复默认后，登录页使用默认视频。');
+ const note=make('p','m-muted','自定义图片或视频应用于主页和登录页，保存在当前浏览器。视频静音循环播放。');
  const preview=make('div','m-background-preview');
  const filename=make('p','m-background-name','默认渐变');
  const file=make('input');file.type='file';file.accept='image/*,video/*';file.hidden=true;
@@ -47,7 +44,37 @@
  const amount=make('output','','45%'),range=make('input');range.type='range';range.min='0';range.max='85';range.step='1';range.value='45';range.disabled=true;range.setAttribute('aria-label','背景压暗程度');
  label.append(amount,range);
  const status=make('p','m-background-status');status.setAttribute('role','status');
- dialog.append(heading,note,preview,filename,file,actions,label,status);document.body.append(dialog);
+ dialog.append(heading,note,preview,filename,file,actions,label);
+ if(button&&body.dataset.loginVideo){
+  const videoLabel=make('label','cbi-checkbox','官方登录视频');
+  const toggle=make('input');toggle.type='checkbox';toggle.setAttribute('role','switch');
+  const hint=make('p','m-muted','保存到路由器，仅在登录页播放。自定义背景优先。');
+  hint.id='m-login-video-hint';toggle.setAttribute('aria-describedby',hint.id);
+  toggle.checked=body.dataset.loginVideoEnabled==='1';
+  videoLabel.append(toggle);
+  dialog.append(videoLabel,hint);
+  toggle.addEventListener('change',async()=>{
+   toggle.disabled=true;
+   status.textContent='正在保存…';
+   try{
+    const response=await fetch(L.url('admin','myos','login_video'),{
+     method:'POST',
+     body:new URLSearchParams({token:L.env.token,enabled:toggle.checked?'1':'0'})
+    });
+    if(!response.ok)throw new Error();
+    const result=await response.json();
+    if(typeof result.enabled!=='boolean')throw new Error();
+    body.dataset.loginVideoEnabled=result.enabled?'1':'0';
+    status.textContent=result.enabled?'已开启官方登录视频。':'已关闭官方登录视频。';
+   }catch(_){
+    status.textContent='保存失败，请重试。';
+   }finally{
+    toggle.checked=body.dataset.loginVideoEnabled==='1';
+    toggle.disabled=false;
+   }
+  });
+ }
+ dialog.append(status);document.body.append(dialog);
  function syncVideo(){
   for(const video of [backgroundVideo,previewVideo]){
    if(!video)continue;
@@ -91,7 +118,7 @@
  const ready=storage(null,false).then(saved=>{if(saved&&saved.blob)apply(saved);})
   .catch(()=>{status.textContent='无法读取浏览器背景存储，请检查浏览器设置。';})
   .finally(()=>{
-   if(!ultraLogin)return;
+   if(!login)return;
    body.dataset.backgroundReady='true';
    window.dispatchEvent(new Event('myos:background'));
   });
@@ -131,7 +158,7 @@
  });
  reset.addEventListener('click',async()=>{
   busy(true);
-  try{await storage(null,true);apply(null);status.textContent='已恢复默认渐变。';}
+  try{await storage(null,true);apply(null);status.textContent='已清除自定义背景。';}
   catch(e){status.textContent='恢复未完成，请检查浏览器存储设置。';}
   finally{busy(false);}
  });

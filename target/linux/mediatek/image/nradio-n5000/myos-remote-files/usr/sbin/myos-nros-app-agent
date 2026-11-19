@@ -204,30 +204,7 @@ end
 local function summary() return shared.summary() end
 
 local function wifistatus()
-	pcall(function() uci:load("wireless") end)
-	local list, idx = {}, 0
-	uci:foreach("wireless", "wifi-iface", function(s)
-		idx = idx + 1
-		local dev = s.device or ""
-		local device_band = tostring(uci:get("wireless", dev, "band") or ""):lower()
-		local band = device_band:find("5", 1, true) and 1 or 0
-		local disabled = s.disabled or uci:get("wireless", dev, "disabled") or "0"
-		list[#list + 1] = {
-			ssid = s.ssid or "",
-			password = s.key or "",
-			rule_name = "wlan" .. tostring(idx - 1),
-			ruleName = "wlan" .. tostring(idx - 1),
-			band = band,
-			dbsc = "0",
-			hidden = s.hidden or "0",
-			encryption = s.encryption or "none",
-			channel = uci:get("wireless", dev, "channel") or "auto",
-			disabled = disabled,
-			max_link = tonumber(s.maxassoc or s.max_inactivity or 0) or 0
-		}
-	end)
-	if #list == 0 then list[1] = {} end
-	return { list = require("luci.controller.nradio.app").wifi_app_list(list) }
+	return { list = require("luci.controller.nradio.app").wifi_info() }
 end
 
 local function radio_status()
@@ -758,7 +735,7 @@ local function send_presence()
 	publish("kp/mosca/" .. ID .. "/status", { uniq = os.time() }, false)
 end
 
-local function handle(topic, payload)
+local function handle(topic, payload, retained)
 	if topic == connection_topic then
 		if payload == "1" and not bridge_online then
 			bridge_online = true
@@ -792,12 +769,12 @@ local function handle(topic, payload)
 		return
 	end
 	if mode == "command" then return end
-	local function reply_request(name, data)
+	local function reply_request(name, data, recipient)
 		data = data or {}
 		for _, key in ipairs({"trans_id", "request_id", "seq"}) do
 			if req[key] ~= nil then data[key] = req[key] end
 		end
-		reply(name, data, false)
+		reply(name, data, false, recipient)
 	end
 	-- Expose fixed reports and narrowly scoped LED actions. No arbitrary shell path.
 	if event == "heartbeat" then
@@ -810,6 +787,17 @@ local function handle(topic, payload)
 		reply_request("device_info", status(0))
 	elseif event == "intstatus" or event == "intinfo" then
 		reply_request("intinfo", intinfo())
+	elseif event == "reboot" or event == "simswitch" then
+		local recipient = topic:match("^kp/" .. ID .. "/([^/]+)/" .. event .. "$")
+		if not recipient or retained then return end
+		if event == "reboot" then
+			local rc = os.execute("(sleep 3; /sbin/reboot) >/dev/null 2>&1 &")
+			local code = (rc == 0 or rc == true) and "0" or "2"
+			reply_request("reboot", { code = code, errcode = code }, recipient)
+			if code == "0" then client:publish(topic, "", 0, true) end
+		else
+			reply_request("simswitch", { errcode = "3" }, recipient)
+		end
 	elseif event == "wifistatus" then
 		reply_request("wifistatus", wifistatus())
 	elseif event == "wifiset" and topic:match("^kp/" .. ID .. "/") then
@@ -849,8 +837,16 @@ local function handle(topic, payload)
 		reply_request("stalist", stastatus())
 	elseif event == "led" then
 		if not topic:match("^kp/" .. ID .. "/") then return end
-		local result = shared.led(req)
-		reply_request("led", result.result or result)
+		local data = {
+			led = req.led,
+			schedule = req.schedule,
+			start_time = req.start_time or req.startTime,
+			end_time = req.end_time or req.endTime
+		}
+		local result = shared.led(data)
+		local state = result.result or { code = result.code, message = result.message }
+		state.errcode = tostring(result.code)
+		reply_request("led", state, topic:match("^kp/" .. ID .. "/([^/]+)/led$"))
 	elseif event == "batstatus" then
 		reply_request("batinfo", batstatus())
 	elseif event == "limitstatus" then
@@ -902,8 +898,8 @@ local function run()
 				bridge_online = false
 				write_cloud_state()
 			end
-			client.ON_MESSAGE = function(_, topic, payload)
-				local ok, err = pcall(handle, topic, payload)
+			client.ON_MESSAGE = function(_, topic, payload, _, retained)
+				local ok, err = pcall(handle, topic, payload, retained)
 				if not ok then util.exec("logger -t myos-nros-app " .. string.format("%q", tostring(err))) end
 			end
 			local ok, connect_rc = pcall(function()

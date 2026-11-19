@@ -1,0 +1,24 @@
+--- a/src/main.c
++++ b/src/main.c
+@@ -799,7 +799,7 @@ int main(int argc, char *argv[])
+ 	struct stat fst;
+ 	memset(&fst, '\0', sizeof(struct stat));
+ 	if (stat(userprefdir, &fst) < 0) {
+-		if (mkdir(userprefdir, 0775) < 0) {
++		if (mkdir(userprefdir, 0700) < 0) {
+ 			usbmuxd_log(LL_FATAL, "Failed to create required directory '%s': %s", userprefdir, strerror(errno));
+ 			res = -1;
+ 			goto terminate;
+@@ -812,9 +812,9 @@ int main(int argc, char *argv[])
+ 	}
+ 
+ 	// make sure permission bits are set correctly
+-	if (fst.st_mode != 02775) {
+-		if (chmod(userprefdir, 02775) < 0) {
+-			usbmuxd_log(LL_WARNING, "chmod(%s, 02775) failed: %s", userprefdir, strerror(errno));
++	if ((fst.st_mode & 07777) != 0700) {
++		if (chmod(userprefdir, 0700) < 0) {
++			usbmuxd_log(LL_WARNING, "chmod(%s, 0700) failed: %s", userprefdir, strerror(errno));
+ 		}
+ 	}
+ #endif

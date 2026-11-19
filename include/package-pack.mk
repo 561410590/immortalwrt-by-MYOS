@@ -201,11 +201,18 @@ $(_endef)
     $$(PACK_$(1)) : export DESCRIPTION=$$(Package/$(1)/description)
     $$(PACK_$(1)) : export PATH=$$(TARGET_PATH_PKG)
     $$(PACK_$(1)) : export PKG_SOURCE_DATE_EPOCH:=$(PKG_SOURCE_DATE_EPOCH)
-    ifeq ($(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_n5000),y)
-      $(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)) : export MYOS_N5000_ROOTFS_MODES := $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/apply-rootfs-modes.py
-      $(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)) : $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/apply-rootfs-modes.py $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/rootfs-modes.tsv
+
+    # The archive recipe also writes the provides file.
+    ifeq ($$(wildcard $(PKG_INFO_DIR)/$(1).provides),)
+      $$(PACK_$(1)): FORCE
     endif
-    $(PKG_INFO_DIR)/$(1).provides $$(PACK_$(1)): $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk
+    $(PKG_INFO_DIR)/$(1).provides: $$(PACK_$(1))
+
+    ifeq ($(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_n5000),y)
+      $$(PACK_$(1)) : export MYOS_N5000_ROOTFS_MODES := $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/apply-rootfs-modes.py
+      $$(PACK_$(1)) : $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/apply-rootfs-modes.py $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/rootfs-modes.tsv
+    endif
+    $$(PACK_$(1)): $(STAMP_BUILT) $(INCLUDE_DIR)/package-pack.mk
 	rm -rf $$(IDIR_$(1))
 ifeq ($$(CONFIG_USE_APK),)
 	$$(call remove_ipkg_files,$(1),$$(call opkg_package_files,$(call gen_package_wildcard,$(1))))

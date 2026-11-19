@@ -1,0 +1,32 @@
+#!/bin/sh
+
+set -eu
+
+UPLOAD="${1:-/tmp/c2000max-feature-upload}"
+MANAGER="${C2000_FEATURE_MANAGER:-/usr/sbin/c2000max-feature-manager}"
+
+[ "$#" -le 1 ] || {
+	echo "Usage: $0 [feature-library]" >&2
+	exit 2
+}
+
+# Keep source-tree and image-installed invocation equally useful.  The RPC
+# endpoint still only has to pass the uploaded file path to this wrapper.
+if [ ! -x "$MANAGER" ]; then
+	MANAGER="${0%/*}/c2000max-feature-manager"
+fi
+
+[ -x "$MANAGER" ] || {
+	echo "feature update failed: c2000max-feature-manager is unavailable" >&2
+	exit 1
+}
+
+# The legacy installer defined its active file exclusively from FEATURE_DIR.
+# Preserve that precedence when an older caller also happens to export the new
+# FEATURE_FILE override for another process.
+if [ -n "${C2000_FEATURE_DIR+x}" ]; then
+	C2000_FEATURE_FILE="$C2000_FEATURE_DIR/feature.cfg"
+	export C2000_FEATURE_FILE
+fi
+
+exec "$MANAGER" install "$UPLOAD"

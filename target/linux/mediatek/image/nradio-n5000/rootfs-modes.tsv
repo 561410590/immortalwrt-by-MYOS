@@ -69,10 +69,9 @@ d	0755	etc/config
 -	0705	etc/config/istore
 -	0644	etc/config/luci
 -	0600	etc/config/microsocks
--	0644	etc/config/mosquitto
+-	0600	etc/config/mosquitto
 -	0644	etc/config/mqttagent
 -	0644	etc/config/mwrt
--	0644	etc/config/mwrt_fan
 -	0644	etc/config/mwrt_led
 -	0644	etc/config/myos_nros
 -	0644	etc/config/myos_usage
@@ -194,7 +193,6 @@ d	0755	etc/init.d
 -	0755	etc/init.d/miniupnpd
 -	0755	etc/init.d/mptcp
 -	0755	etc/init.d/mtk_smp
--	0755	etc/init.d/mwrt-fansched
 -	0755	etc/init.d/mwrt-ledsched
 -	0755	etc/init.d/mwrt-pktsteer
 -	0755	etc/init.d/mwrt-swapfile
@@ -249,6 +247,7 @@ d	0771	etc/iproute2
 -	0660	etc/iproute2/ematch_map
 -	0660	etc/iproute2/rt_protos
 -	0660	etc/iproute2/rt_tables
+d	0700	etc/lockdown
 -	0600	etc/login.defs
 d	0771	etc/luci-uploads
 -	0660	etc/luci-uploads/.placeholder
@@ -541,7 +540,6 @@ d	0755	etc/uci-defaults
 -	0755	etc/uci-defaults/99-myos-new
 -	0660	etc/uci-defaults/99_fwenv-store-ethaddr.sh
 -	0755	etc/uci-defaults/99e-mwrt-ledsched
--	0755	etc/uci-defaults/99f-mwrt-fansched
 -	0755	etc/uci-defaults/luci-app-mtwifi-cfg.default
 -	0755	etc/uci-defaults/luci-app-passwall
 -	0755	etc/uci-defaults/luci-app-passwall_server
@@ -1112,7 +1110,6 @@ d	0755	usr/bin
 -	0755	usr/bin/mount
 -	0755	usr/bin/mountpoint
 -	0755	usr/bin/multipath
--	0755	usr/bin/mwrt-fansched
 -	0755	usr/bin/mwrt-ledsched
 -	0755	usr/bin/mwrt-pktsteer.sh
 -	0755	usr/bin/naive
@@ -1510,8 +1507,6 @@ d	0771	usr/lib/lua/luci/tools
 -	0660	usr/lib/lua/luci/util.lua
 -	0700	usr/lib/lua/luci/version.lua
 d	0700	usr/lib/lua/luci/view
-d	0755	usr/lib/lua/luci/view/Airpifanctrl
--	0644	usr/lib/lua/luci/view/Airpifanctrl/fancontrol.htm
 d	0700	usr/lib/lua/luci/view/admin_status
 -	0700	usr/lib/lua/luci/view/admin_status/luaindex.htm
 d	0771	usr/lib/lua/luci/view/cbi

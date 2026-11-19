@@ -1,0 +1,10 @@
+{
+  "luci-app-myos-usb-network": {
+    "description": "Read N5000 USB network devices",
+    "read": {
+      "ubus": {
+        "myos.usb-network": [ "devices" ]
+      }
+    }
+  }
+}

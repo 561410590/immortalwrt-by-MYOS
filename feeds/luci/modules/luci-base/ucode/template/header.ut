@@ -7,7 +7,7 @@
 	include(`themes/${theme}/header`);
 -%}
 
-<script src="{{ resource }}/luci.js?v={# PKG_VERSION #}-{{ pkgs_update_time }}-{{ theme == 'myos-new' ? '20261113-theme-dashboard1' : '20261112-theme-polish1' }}"></script>
+<script src="{{ resource }}/luci.js?v={# PKG_VERSION #}-{{ pkgs_update_time }}-{{ theme == 'myos-new' ? '20261114-connection-ui2-wan-quality2' : '20261112-theme-polish1' }}{{ theme == 'myos-new' && join('/', ctx.path ?? []) == 'admin/myos' ? '-home-density1-outlet1' : '' }}-n5000-overview1{{ theme == 'myos-new' && (join('/', ctx.path ?? []) in ['admin/status/realtime/bandwidth', 'admin/status/logs/syslog', 'admin/network/network', 'admin/network/diagnostics']) ? '-submenu1' : '' }}"></script>
 <script>
 	L = new LuCI({{ replace(`${ {
 		media          : media,

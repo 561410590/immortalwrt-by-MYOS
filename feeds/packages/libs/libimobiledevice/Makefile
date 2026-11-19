@@ -8,7 +8,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=libimobiledevice
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/libimobiledevice/libimobiledevice.git
@@ -85,7 +85,7 @@ endef
 
 define Package/libimobiledevice-utils/install
 	$(INSTALL_DIR) $(1)/usr/bin
-	$(CP) $(PKG_INSTALL_DIR)/usr/bin/idevice* $(1)/usr/bin/
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/idevice* $(1)/usr/bin/
 endef
 
 $(eval $(call BuildPackage,libimobiledevice))

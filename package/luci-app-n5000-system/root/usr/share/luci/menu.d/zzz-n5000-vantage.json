@@ -1,0 +1,9 @@
+{
+  "admin/dashboard": {
+    "title": "Vantage 仪表盘",
+    "order": 2,
+    "depends": {
+      "acl": ["luci-app-vantage"]
+    }
+  }
+}

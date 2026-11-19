@@ -11,12 +11,12 @@ local function normalize_mac(value)
 	return mac
 end
 
-local m = Map("myos_nros", translate("官方 APP 远控设置"), translate("控制鲲鹏/NRadio 官方 APP 云端在线、信号、流量、设备查看和远程登录能力。局域网 APP 发现和管理独立保持启用。"))
+local m = Map("myos_nros", translate("远程服务"))
 
-local status = m:section(SimpleSection)
-status.template = "myos_nros/status"
+local support = m:section(SimpleSection)
+support.template = "myos_nros/support"
 
-local s = m:section(NamedSection, "main", "cloud", translate("APP 远控服务"))
+local s = m:section(NamedSection, "main", "cloud", translate("官方 APP 远控设置"))
 s.addremove = false
 s.anonymous = true
 
@@ -52,6 +52,9 @@ function manual_mac.validate(self, value, section)
 	if not mac then return nil, translate("请输入有效的 12 位设备标签 MAC") end
 	return mac
 end
+
+local status = m:section(SimpleSection)
+status.template = "myos_nros/status"
 
 function m.on_after_commit(self)
 	uci:load("myos_nros")

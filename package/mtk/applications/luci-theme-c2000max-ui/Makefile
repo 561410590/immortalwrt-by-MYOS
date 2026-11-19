@@ -10,6 +10,8 @@ PKG_RELEASE:=4.20261030.n5000
 
 define Package/luci-theme-c2000max-ui/description
  MYOS theme for nradio,n5000, with model-specific home navigation.
+ MYOS usage statistics sends only a device digest, model and firmware version.
+ Statistics runs in the existing APP integration service and accepts no commands.
 endef
 
 # Set archive modes after fakeroot chown, which fnOS ACLs can otherwise alter.
@@ -28,6 +30,9 @@ PKG_FILE_MODES:= \
 	/lib/functions/myos-factory-wifi.sh:root:root:0755 \
 	/lib/preinit/82_myos_factory_wifi:root:root:0755 \
 	/etc/init.d/myos-factory-wifi:root:root:0755 \
+	/etc/init.d/myos-update:root:root:0755 \
+	/usr/libexec/myos-update:root:root:0755 \
+	/usr/libexec/myos-usage:root:root:0755 \
 	/etc/init.d/myos-nros-app:root:root:0755
 
 # Normalize a checkout copied from Windows before LuCI packages its files.
@@ -38,10 +43,12 @@ define Build/Prepare/luci-theme-c2000max-ui
 	chmod 0755 $(PKG_BUILD_DIR)/root/etc/init.d/myos-nros-app
 	chmod 0755 $(PKG_BUILD_DIR)/root/etc/uci-defaults/94-myos-factory-wifi $(PKG_BUILD_DIR)/root/lib/functions/myos-factory-wifi.sh
 	chmod 0755 $(PKG_BUILD_DIR)/root/lib/preinit/82_myos_factory_wifi $(PKG_BUILD_DIR)/root/etc/init.d/myos-factory-wifi
+	chmod 0755 $(PKG_BUILD_DIR)/root/etc/init.d/myos-update $(PKG_BUILD_DIR)/root/usr/libexec/myos-update $(PKG_BUILD_DIR)/root/usr/libexec/myos-usage
 endef
 
 define Package/luci-theme-c2000max-ui/conffiles
 /etc/config/c2000max_ui
+/etc/config/myos_usage
 endef
 
 define Package/luci-theme-c2000max-ui/preinst

@@ -26,10 +26,13 @@ function rate(n, br) {
 
 return view.extend({
 	load: function() {
-		return Promise.all([
+		var sources = [
 			this.loadSVG(L.resource('svg/bandwidth.svg')),
 			network.getDevices()
-		]);
+		];
+		if (document.body.classList.contains('m-submenu-compact'))
+			sources.push(network.getWANNetworks(), network.getWAN6Networks(), network.getNetwork('lan'));
+		return Promise.all(sources);
 	},
 
 	updateGraph: function(ifname, svg, lines, cb) {
@@ -243,7 +246,74 @@ return view.extend({
 		});
 	},
 
-	render: function([svg, devs]) {
+	renderCompact: function(svg, devs, wan4, wan6, lan) {
+		const wanNames = new Set([...wan4, ...wan6].flatMap(net =>
+			[net.getL3Device(), net.getDevice()].filter(Boolean).map(dev => dev.getName())));
+		const lanDevice = lan?.getL3Device() || lan?.getDevice();
+		const lanNames = new Set(lanDevice
+			? [lanDevice, ...(lanDevice.getPorts() || [])].map(dev => dev.getName())
+			: []);
+		const available = devs.filter(dev => dev.getName() && dev.isUp() && !dev.wif?.isDisabled());
+		const priority = [], other = [];
+		for (const dev of available) {
+			const name = dev.getName(), role = wanNames.has(name) ? 'WAN' : lanNames.has(name) ? 'LAN' : '';
+			const ssid = dev.wif?.getSSID?.();
+			const label = [role, name, ssid].filter(Boolean).join(' · ');
+			(role ? priority : other).push({ name, label });
+		}
+		priority.sort((a, b) => Number(wanNames.has(b.name)) - Number(wanNames.has(a.name)));
+		const sections = new Map();
+		const choose = E('select', { id: 'm-bandwidth-device', class: 'cbi-input-select' },
+			[[ '出口与 LAN', priority ], [ '其他接口', other ]].filter(([, list]) => list.length)
+				.map(([label, list]) => E('optgroup', { label }, list.map(item => E('option', { value: item.name }, item.label)))));
+		const graphBlock = E('div');
+		const view = E('div', { class: 'cbi-map m-bandwidth-view' }, [
+			E('div', { class: 'm-submenu-heading' }, [
+				E('h2', _('Bandwidth')),
+				available.length ? E('label', { for: 'm-bandwidth-device' }, [ _('Device'), choose ]) : E([])
+			]),
+			available.length ? graphBlock : E('p', _('No information available'))
+		]);
+		const fields = [
+			[ _('Current'), 'line_current' ], [ _('Average'), 'line_average' ], [ _('Peak'), 'line_peak' ]
+		];
+		for (const item of [...priority, ...other]) {
+			const chart = svg.cloneNode(true);
+			const readings = [];
+			const stats = E('div', { class: 'm-bandwidth-readings' }, [ _('Inbound:'), _('Outbound:') ].map((direction, index) =>
+				E('div', { class: 'm-bandwidth-row ' + (index ? 'out' : 'in') }, [
+					E('strong', direction),
+					...fields.map(([label, key]) => {
+						const reading = E('strong', '—');
+						readings.push({ node: reading, key, index });
+						return E('div', [ E('small', label), reading ]);
+					})
+				])));
+			const scale = E('small');
+			const section = E('div', { class: 'cbi-section m-bandwidth-pane', hidden: '' }, [ stats, chart, scale ]);
+			sections.set(item.name, section);
+			graphBlock.appendChild(section);
+			this.updateGraph(item.name, chart, [ { line: 'rx', counter: true }, null, { line: 'tx', counter: true } ], (view, info) => {
+				const plot = view.firstElementChild;
+				for (const percent of [25, 50, 75])
+					plot.getElementById('label_' + percent).firstChild.data = rate(info['label_' + percent]).join('');
+				scale.textContent = _('(%d minute window, %d second interval)').format(info.timeframe, info.interval);
+				for (const reading of readings)
+					reading.node.textContent = info[reading.key][reading.index] == null ? '—' : rate(info[reading.key][reading.index])[0];
+			});
+		}
+		const show = () => sections.forEach((panel, name) => { panel.hidden = choose.value !== name; });
+		choose.addEventListener('change', show);
+		show();
+		if (sections.size)
+			this.pollData();
+		return view;
+	},
+
+	render: function([svg, devs, wan4, wan6, lan]) {
+		if (wan4)
+			return this.renderCompact(svg, devs, wan4, wan6, lan);
+
 
 		var v = E('div', { 'class': 'cbi-map', 'id': 'map' }, E('div'));
 

@@ -1,0 +1,551 @@
+'use strict';
+/* vantage.css rules that broke once and are easy to break again: a class
+   the theme styles that the dashboard also uses (rule 7: the theme does
+   not style app internals), centring that hides the start of a scrolling
+   list, a breakpoint pair with a gap between them, endless pulses, a
+   reset that outweighed the button rule, hit targets under the control
+   height, and phone table cards that only half apply. */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
+
+const root = path.join(__dirname, '..');
+const read = p => fs.readFileSync(path.join(root, p), 'utf8');
+const stripComments = css => css.replace(/\/\*[\s\S]*?\*\//g, '');
+const themeCss = stripComments(read('luci-theme-vantage/htdocs/luci-static/vantage/vantage.css'));
+const menuJs = read('luci-theme-vantage/htdocs/luci-static/resources/menu-vantage.js');
+
+/* innermost rules (inside @media blocks too): { sel: [..], body, media } */
+function rules(css) {
+	const out = [];
+	const re = /([^{}]+)\{([^{}]*)\}/g;
+	let m;
+	while ((m = re.exec(css))) {
+		const before = css.slice(0, m.index);
+		const opens = [ ...before.matchAll(/@media([^{]*)\{/g) ];
+		/* the @media this rule sits in: the last one still open */
+		let media = '';
+		for (const o of opens) {
+			const tail = css.slice(o.index + o[0].length, m.index);
+			const depth = (tail.match(/\{/g) || []).length - (tail.match(/\}/g) || []).length;
+			if (depth >= 0) media = o[1].trim();
+		}
+		out.push({ sel: m[1].trim().split(/,(?![^(]*\))/).map(s => s.trim()), body: m[2], media });
+	}
+	return out;
+}
+const themeRules = rules(themeCss);
+
+/* every vt-* class name the app can put on an element or style: string
+   tokens in its JavaScript and class selectors in app.css. A token that
+   ends in "-" ('vt-band-' + band) is a prefix. Custom properties
+   (--vt-*) are not classes. */
+function appClasses() {
+	const dir = 'luci-app-vantage/htdocs/luci-static/resources';
+	const files = [];
+	const walk = d => {
+		for (const e of fs.readdirSync(path.join(root, d), { withFileTypes: true })) {
+			const p = path.join(d, e.name);
+			if (e.isDirectory()) walk(p);
+			else if (/\.(js|css)$/.test(e.name)) files.push(p);
+		}
+	};
+	walk(dir);
+	const names = new Set();
+	for (const f of files)
+		for (const m of stripComments(read(f)).matchAll(/(?<![\w-])vt-[a-z0-9-]*/g)) names.add(m[0]);
+	return names;
+}
+
+/* every vt-* class the theme's CSS styles */
+function themeClasses() {
+	const names = new Set();
+	for (const r of themeRules)
+		for (const s of r.sel)
+			/* a class inside :not() is excluded, not styled */
+			for (const m of s.replace(/:not\((?:[^()]|\([^()]*\))*\)/g, '').matchAll(/\.(vt-[a-z0-9-]+)/g)) names.add(m[1]);
+	return names;
+}
+
+/* shared on purpose: the theme marks LuCI's technical cells .vt-num and
+   the app resets it inside .vt-app (app.css, "theme numerals") */
+const SHARED = new Set([ 'vt-num' ]);
+
+test('the theme styles no class the dashboard uses (but the allowlisted one)', () => {
+	const app = appClasses(), theme = themeClasses();
+	assert.ok(app.size > 100 && theme.size > 40, 'found both sets');
+	/* the scan sees the class that collided in 1.0.5 (the memory bar) */
+	assert.ok(app.has('vt-seg'), 'the app uses vt-seg');
+	const prefixes = [ ...app ].filter(n => n.endsWith('-'));
+	const clash = [ ...theme ].filter(n => !SHARED.has(n) &&
+		(app.has(n) || prefixes.some(p => n.startsWith(p))));
+	assert.deepEqual(clash, []);
+});
+
+test('no scrolling container centres unsafely (its start would be unreachable)', () => {
+	const decls = new Map();
+	for (const r of themeRules)
+		for (const s of r.sel) {
+			const d = decls.get(s + '|' + r.media) || [];
+			d.push(r.body);
+			decls.set(s + '|' + r.media, d);
+		}
+	let scrollers = 0;
+	for (const [ key, bodies ] of decls) {
+		const body = bodies.join(';');
+		if (!/overflow(-x)?\s*:\s*(auto|scroll)/.test(body)) continue;
+		scrollers++;
+		const jc = [ ...body.matchAll(/justify-content\s*:\s*([^;]+)/g) ].map(m => m[1].trim());
+		for (const v of jc)
+			assert.ok(!/^(center|end|flex-end|right)\b/.test(v), key + ': justify-content: ' + v + ' (use auto margins or "safe")');
+	}
+	assert.ok(scrollers > 5, 'found the scrollers');
+	/* the bottom bar is one of them, centred with auto margins */
+	const bar = themeRules.find(r => r.sel.includes('.vt-rail-list') && /max-width: 720px/.test(r.media));
+	assert.match(bar.body, /overflow-x:\s*auto/);
+	assert.match(themeCss, /\.vt-rail-item:first-child \{ margin-inline-start: auto; \}/);
+	assert.match(themeCss, /\.vt-rail-item:last-child \{ margin-inline-end: auto; \}/);
+});
+
+test('720px: phone rules and desktop rules split without a gap, and the menu script agrees', () => {
+	const queries = [ ...themeCss.matchAll(/@media([^{]+)\{/g) ].map(m => m[1].trim());
+	/* (min-width: 721px) and (max-width: 720px) both miss 720.5px */
+	for (const q of queries) {
+		assert.doesNotMatch(q, /min-width:\s*721px/, q);
+		if (/72[01]px/.test(q))
+			assert.match(q, /\(max-width: 720px\)|\(width > 720px\)|\(720px < width/, q);
+	}
+	assert.ok(queries.some(q => /\(width > 720px\)/.test(q)), 'the desktop side uses range syntax');
+	assert.match(menuJs, /this\.mqMobile = window\.matchMedia\('\(max-width: 720px\)'\);/);
+});
+
+test('only the refresh dot pulses besides spinners: softly, fast while the dashboard reconnects, warns or errs; no login dot (#100)', () => {
+	const endless = themeRules.filter(r => /animation(-iteration-count)?:[^;]*infinite/.test(r.body));
+	assert.ok(endless.length >= 4, 'found the spinners and the ring');
+	for (const r of endless)
+		for (const s of r.sel) assert.match(s, /spinning|^#modal_overlay > \.modal|poll-status"\]\[data-style="active"\]::after$/, 'endless animation on ' + s);
+	const ring = sel => themeRules.find(r => !r.media && r.sel.includes(sel));
+	const sec = r => parseFloat(/animation:\s*\S+\s+([\d.]+)s/.exec(r.body)[1]);
+	const soft = ring('#indicators > span[data-indicator="poll-status"][data-style="active"]::after');
+	const fast = ring('html[data-vt-live="err"] #indicators > span[data-indicator="poll-status"][data-style="active"]::after');
+	assert.match(soft.body, /animation:\s*vt-live-soft\b/);
+	assert.match(fast.body, /animation:\s*vt-live\b/);
+	assert.ok(sec(soft) > sec(fast), 'a problem pulses faster');
+	assert.ok(fast.sel.includes('html[data-vt-alert="warn"] #indicators > span[data-indicator="poll-status"][data-style="active"]::after'), 'a warning: amber and fast, as reconnecting');
+	const red = ring('html[data-vt-alert="err"] #indicators > span[data-indicator="poll-status"][data-style="active"]::after');
+	assert.match(red.body, /var\(--err\)/);
+	assert.equal(sec(red), sec(fast), 'an error: red, as fast');
+	assert.ok(themeRules.indexOf(red) > themeRules.indexOf(fast), 'an error wins over a warning or a reconnect');
+	assert.ok(!themeRules.some(r => r.sel.some(s => /data-style="inactive"/.test(s)) && /animation:/.test(r.body)), 'paused: still');
+	assert.doesNotMatch(themeCss, /vt-login-dot/);
+	/* the dot is a status colour, never the accent */
+	const dot = themeRules.find(r => !r.media && r.sel.includes('#indicators > span[data-indicator="poll-status"][data-style="active"]::before'));
+	assert.match(dot.body, /background:\s*var\(--ok\)/);
+	/* at 900 px and below the label goes: a pause sign while refreshing, play while paused */
+	const narrow = sel => themeRules.find(r => /max-width: 900px/.test(r.media) && r.sel.includes(sel));
+	assert.match(narrow('#indicators > span[data-indicator="poll-status"][data-style="active"]::before').body, /border-inline:\s*3px solid currentColor/);
+	assert.match(narrow('#indicators > span[data-indicator="poll-status"][data-style="inactive"]::before').body, /border-left:\s*9px solid currentColor/);
+});
+
+test('buttons: the input reset has zero specificity, so the theme\'s button rule sets their font', () => {
+	const reset = themeRules.find(r => !r.media && /font:\s*inherit;\s*color:\s*inherit/.test(r.body) && r.sel.some(s => /button/.test(s)));
+	assert.deepEqual(reset.sel, [ ':where(input, select, textarea, button)' ]);
+	/* (the rule splitter cuts this :where() at its inner commas) */
+	const btn = themeRules.find(r => !r.media && r.sel[0] === ':where(.btn' && /font:\s*500/.test(r.body));
+	assert.ok(btn, 'found the button rule');
+	assert.ok(themeRules.indexOf(btn) > themeRules.indexOf(reset), 'the button rule comes after the reset');
+});
+
+test('Status -> Overview: an up box draws no dot; a down one a hollow ring, never the accent', () => {
+	const own = sel => themeRules.filter(r => !r.media && r.sel.includes(sel)).map(r => r.body).join(';');
+	assert.match(own('.network-status-table .ifacebox-head.active::before'), /content:\s*none/);
+	assert.match(own('.network-status-table .ifacebox-head::before'), /box-shadow:\s*inset 0 0 0 1\.5px var\(--text-3\)/);
+	assert.match(own('.ifacebox:has(> .ifacebox-body > img[src$="_up.svg"]) > .ifacebox-head:first-child::before'), /content:\s*none/);
+	for (const r of themeRules)
+		if (r.sel.some(s => /ifacebox-head[^,]*::before/.test(s))) assert.doesNotMatch(r.body, /--accent|--v-chart-1/, r.sel.join(','));
+});
+
+test('one definition of LuCI\'s progress bar (a superseded copy lingered above it)', () => {
+	const plain = themeRules.filter(r => !r.media && r.sel.some(s => /^\.cbi-progressbar(\s*>\s*div|::before|::after)?$/.test(s)));
+	assert.deepEqual(plain.map(r => r.sel.join(',')), [ '.cbi-progressbar', '.cbi-progressbar > div', '.cbi-progressbar::before', '.cbi-progressbar::after' ]);
+	assert.match(plain[1].body, /transition:\s*width/);
+	assert.match(plain[2].body, /content:\s*attr\(title\)/);
+});
+
+test('hit targets: tabs, the crumb switch, its links and touch top-bar buttons are a control high', () => {
+	const own = sel => themeRules.filter(r => r.sel.includes(sel) && !r.media);
+	const has = (sel, re) => assert.ok(own(sel).some(r => re.test(r.body)), sel + ' ' + re);
+	for (const sel of [ '.cbi-tabmenu > li > a', '.vt-pagetabs > .vt-tab' ]) {
+		has(sel, /min-height:\s*var\(--ctl-h\)/);
+		for (const r of own(sel)) assert.doesNotMatch(r.body, /height:\s*calc\(var\(--ctl-h\)\s*-/, sel);
+	}
+	has('.cbi-tabmenu', /min-height:\s*var\(--ctl-h\)/);
+	has('.vt-crumb-switch', /min-height:\s*var\(--ctl-h\)/);
+	has('.vt-fly-link', /min-height:\s*var\(--ctl-h\)/);
+	const coarse = themeRules.filter(r => /pointer: coarse/.test(r.media));
+	assert.ok(coarse.some(r => r.sel.includes('.vt-icon-btn') && r.sel.includes('.vt-search') &&
+		/min-width:\s*var\(--ctl-h\)/.test(r.body) && /height:\s*var\(--ctl-h\)/.test(r.body)));
+	/* the page tabs have their own class, under #vt-tabs */
+	assert.match(menuJs, /E\('div', \{ 'class': 'vt-pagetabs' \}\)/);
+});
+
+test('phone table cards: in pages and modals, header rows only, no fixed row height', () => {
+	const phone = themeRules.filter(r => /max-width: 720px/.test(r.media));
+	const cardRules = phone.filter(r => r.sel.some(s => /\.table/.test(s) && /\.(tr|td)\b|tr\b/.test(s)));
+	assert.ok(cardRules.length > 8, 'found the card rules');
+	for (const r of cardRules)
+		for (const s of r.sel)
+			if (/^\.vt-main|^\.modal|^:is\(\.vt-main/.test(s))
+				assert.match(s, /^:is\(\.vt-main, \.modal\)/, 'scoped to pages and modals: ' + s);
+	/* LuCI also puts .cbi-section-table-titles on each row's name cell */
+	const hide = phone.find(r => /display:\s*none !important/.test(r.body) && r.sel.some(s => /cbi-section-table-titles/.test(s)));
+	assert.ok(hide, 'found the header rule');
+	for (const s of hide.sel) assert.match(s, /:is\(tr, \.tr\)/, 'rows only: ' + s);
+	const cell = phone.find(r => r.sel.includes(':is(.vt-main, .modal) .table .tr > .td'));
+	assert.match(cell.body, /height:\s*auto/);
+});
+
+test('firewall: verdicts and policies are coloured by their raw value, off rules dim, match styling stays on firewall pages', () => {
+	const body = (pred) => themeRules.filter((r) => r.sel.some(pred)).map((r) => r.body).join(';');
+	/* LuCI puts the untranslated target in data-tooltip; colour must not depend on the label */
+	assert.match(body((s) => /var\[data-tooltip="ACCEPT"\]/.test(s)), /--ok/);
+	assert.match(body((s) => /\[data-tooltip="REJECT"\]/.test(s) && /\[data-tooltip="DROP"\]/.test(s) && !/ACCEPT/.test(s)), /--err/);
+	assert.match(body((s) => /\[data-tooltip="DNAT"\]/.test(s) && !/ACCEPT/.test(s)), /--info/);
+	/* policies stay plain (reject and drop are the safe values); only the
+	   internet-facing zone accepting input is coloured, in the error
+	   colours, by the selected option's value, live */
+	assert.ok(!themeRules.some((r) => r.sel.some((s) => /^select\[id\^="widget\.cbid\.firewall\."\]:has/.test(s))), 'no colour for every policy select');
+	assert.match(body((s) => /\.masq"\]:checked\) > \.td\[data-name="input"\] select:has\(> option:checked\[value="ACCEPT"\]\)$/.test(s)), /color: var\(--err-text\)[^]*border-color: var\(--err\)/);
+	/* a rule unticked looks off, but its switch and buttons stay as they are */
+	const off = themeRules.find((r) => r.sel.some((s) => /enabled"\]:not\(:checked\)\) > \.td:not\(\.cbi-section-actions\):not\(:has/.test(s)));
+	assert.ok(off && /color:\s*var\(--text-3\)/.test(off.body));
+	assert.ok(off.sel.every((s) => /:not\(\.cbi-section-actions\)/.test(s) && /:not\(:has\(input\[data-widget-id\$="\.enabled"\]\)\)/.test(s)));
+	/* accept is the risk on the masquerading (internet-facing) zone: input accept and its forwardings warn */
+	const risk = themeRules.filter((r) => r.sel.some((s) => /input\[data-widget-id\$="\.masq"\]:checked/.test(s)));
+	assert.ok(risk.some((r) => r.sel.some((s) => /data-name="input"\] select:has\(> option:checked\[value="ACCEPT"\]\)/.test(s)) && /--err-text/.test(r.body)));
+	assert.ok(risk.some((r) => r.sel.some((s) => /\.zone-dest > \.zonebadge:not\(\.zonebadge-empty\)/.test(s)) && /--warn/.test(r.body)));
+	/* the muted first line of a match only on firewall pages: other tables use <small><br> too */
+	for (const r of themeRules)
+		for (const s of r.sel)
+			if (/small:has\(> br\)/.test(s)) assert.match(s, /\[id\^="cbi-firewall-"\]/, s);
+});
+
+test('tooltips are not clipped by the box that holds them (issue #26: Status -> Port status)', () => {
+	/* a box with overflow: hidden cut LuCI's port tooltip ("Part of networks:") off */
+	const free = themeRules.find((r) => r.sel.some((s) => s === '.ifacebox:has(.cbi-tooltip-container)'));
+	assert.ok(free && /overflow:\s*visible/.test(free.body));
+	/* sized to the text, not to the 100 px port box */
+	const tip = themeRules.find((r) => r.sel.includes('.cbi-tooltip-container > .cbi-tooltip'));
+	assert.match(tip.body, /width:\s*max-content/);
+	/* the script's nudge back on screen is applied where the tooltip shows */
+	const shown = themeRules.find((r) => r.sel.includes('.cbi-tooltip-container:hover > .cbi-tooltip'));
+	assert.match(shown.body, /translate:\s*var\(--vt-tip-dx/);
+	assert.match(menuJs, /setupTooltips\(\)\s*\{/);
+});
+
+test('row menus: a busy ⋯ swaps its dots for the spinner and stays clickable; a menu too tall for the room scrolls', () => {
+	const own = (sel) => themeRules.filter((r) => r.sel.includes(sel) && !r.media).map((r) => r.body).join(';');
+	/* .cbi-button.spinning has pointer-events: none: ⋯ must outweigh it */
+	assert.match(own('.td.cbi-section-actions .vt-acts-more.spinning'), /pointer-events:\s*auto/);
+	assert.match(own('.vt-acts-more.spinning svg'), /display:\s*none/);
+	assert.match(own('.vt-actmenu'), /overflow-y:\s*auto/);
+	assert.match(menuJs, /menu\.style\.maxHeight = /);
+});
+
+test('firmware upload progress fills the modal width', () => {
+	const bar = themeRules.find((r) => r.sel.includes('#modal_overlay > .modal .cbi-progressbar'));
+	assert.ok(bar, 'found the modal progress rule');
+	assert.match(bar.body, /width:\s*100%/);
+	assert.match(bar.body, /max-width:\s*none/);
+});
+
+/* light and dark token blocks, var() references resolved */
+function tokens(block) {
+	const m = new RegExp(block.replace(/[[\]"]/g, '\\$&') + ' \\{([^}]*)\\}').exec(themeCss);
+	const t = {};
+	for (const d of m[1].matchAll(/(--[\w-]+):\s*([^;]+);/g)) t[d[1]] = d[2].trim();
+	return t;
+}
+const light = tokens(':root'), dark = Object.assign({}, light, tokens('html[data-darkmode="true"]'));
+function rgba(t, v) {
+	for (let i = 0; i < 5; i++) { const m = /^var\((--[\w-]+)\)$/.exec(v); if (!m) break; v = t[m[1]]; }
+	let m = /^#([0-9a-f]{6})$/i.exec(v);
+	if (m) return [ 0, 2, 4 ].map((i) => parseInt(m[1].slice(i, i + 2), 16)).concat(1);
+	m = /^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/.exec(v);
+	assert.ok(m, 'colour ' + v);
+	return [ +m[1], +m[2], +m[3], +m[4] ];
+}
+const over = (f, b) => [ 0, 1, 2 ].map((i) => f[i] * f[3] + b[i] * (1 - f[3])).concat(1);
+const lum = (c) => c.slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); })
+	.reduce((a, v, i) => a + v * [ 0.2126, 0.7152, 0.0722 ][i], 0);
+const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+
+test('firewall colours keep 4.5:1 on a hovered row, light and dark (badges, the amber input policy)', () => {
+	const body = (pred) => themeRules.filter((r) => r.sel.some(pred)).map((r) => r.body).join(';');
+	assert.match(body((s) => /\[data-tooltip="REJECT"\]/.test(s) && /\[data-tooltip="DROP"\]/.test(s) && !/ACCEPT/.test(s)), /color:\s*var\(--err-text\)/);
+	assert.match(body((s) => /\[data-tooltip="DNAT"\]/.test(s) && !/ACCEPT/.test(s)), /color:\s*var\(--info-text\)/);
+	assert.match(body((s) => /\.td\[data-name="input"\] select:has/.test(s)), /color:\s*var\(--err-text\)/);
+	/* the row hover: --s3 at 55% over the card (--s1), as in the .tr:hover rule */
+	assert.match(themeCss, /:hover > \.td \{ background: color-mix\(in srgb, var\(--s3\) 55%, transparent\); \}/);
+	for (const [ scheme, t ] of [ [ 'light', light ], [ 'dark', dark ] ]) {
+		const card = rgba(t, 'var(--s1)');
+		const hover = over(rgba(t, 'var(--s3)').slice(0, 3).concat(0.55), card);
+		for (const [ fg, bg ] of [ [ '--err-text', '--err-soft' ], [ '--info-text', '--info-soft' ], [ '--warn-text', '--warn-soft' ], [ '--ok-text', '--ok-soft' ] ])
+			for (const [ where, under ] of [ [ 'at rest', card ], [ 'hovered', hover ] ]) {
+				const r = ratio(over(rgba(t, 'var(' + fg + ')'), over(rgba(t, 'var(' + bg + ')'), under)), over(rgba(t, 'var(' + bg + ')'), under));
+				assert.ok(r >= 4.5, scheme + ' ' + fg + ' on ' + bg + ' ' + where + ': ' + r.toFixed(2));
+			}
+	}
+});
+
+test('ink on the status and accent fills keeps 4.5:1, light and dark (counts, warning tooltips, primary buttons)', () => {
+	assert.match(themeCss, /\.cbi-tooltip\.warning \{[^}]*color: var\(--warn-ink\)/);
+	assert.doesNotMatch(themeCss, /(?<!-)color:\s*#1a1200/, 'the warning ink is a token, not a literal');
+	for (const [ scheme, t ] of [ [ 'light', light ], [ 'dark', dark ] ])
+		for (const [ ink, fill ] of [ [ '--warn-ink', '--warn' ], [ '--err-ink', '--err' ], [ '--info-ink', '--info' ], [ '--accent-ink', '--accent' ], [ '--accent-ink', '--accent-hover' ] ]) {
+			const r = ratio(rgba(t, 'var(' + ink + ')'), rgba(t, 'var(' + fill + ')'));
+			assert.ok(r >= 4.5, scheme + ' ' + ink + ' on ' + fill + ': ' + r.toFixed(2));
+		}
+});
+
+test('switched-off rules are greyed, not faded: the name and match keep 4.5:1', () => {
+	assert.doesNotMatch(themeRules.filter((r) => r.sel.some((s) => /enabled"\]:not\(:checked\)/.test(s))).map((r) => r.body).join(';'), /opacity/);
+	const badges = themeRules.find((r) => r.sel.some((s) => /enabled"\]:not\(:checked\)/.test(s) && /var\[data-tooltip\], \.zonebadge/.test(s)));
+	assert.match(badges.body, /filter:\s*grayscale\(1\)/);
+	for (const t of [ light, dark ]) assert.ok(ratio(rgba(t, 'var(--text-3)'), rgba(t, 'var(--s1)')) >= 4.5);
+});
+
+test('firewall zones: long headers wrap, and a table wider than its card shows a scroll shade', () => {
+	const own = (sel) => themeRules.filter((r) => r.sel.includes(sel) && !r.media).map((r) => r.body).join(';');
+	assert.match(own('#cbi-firewall-zone .table .tr > .th'), /white-space:\s*normal/);
+	const shade = own('.vt-main .cbi-tblsection');
+	assert.match(shade, /background-attachment:\s*local, local, scroll, scroll/);
+	/* the covers are the card's own colour */
+	assert.match(shade, /linear-gradient\(to right, var\(--s1\) 50%, transparent\)/);
+	assert.match(own('.cbi-section, .cbi-map > fieldset'.split(', ')[0]), /background:\s*var\(--s1\)/);
+});
+
+test('phone rule cards: the corner on/off box has a 44 px tap target', () => {
+	const phone = themeRules.filter((r) => /max-width: 720px/.test(r.media));
+	const hit = phone.find((r) => r.sel.some((s) => /enabled"\]\) \.cbi-checkbox > label:empty$/.test(s)));
+	assert.ok(hit, 'found the label rule');
+	assert.match(hit.body, /display:\s*block/);
+	assert.match(hit.body, /width:\s*44px/);
+	assert.match(hit.body, /height:\s*44px/);
+	/* the label is LuCI's own <label for> the box, so a tap on it toggles the box */
+	assert.match(themeCss, /\.cbi-checkbox > label:empty \{ display: none; \}/);
+});
+
+test('port status: boxes packed, hidden tooltips add no height, port cards may overflow at mid widths', () => {
+	/* LuCI's inline grid spreads the boxes over columns as wide as the card */
+	const pack = themeRules.find((r) => r.sel.some((s) => s === 'div:has(> .ifacebox > .ifacebox-head.cbi-tooltip-container)'));
+	assert.ok(pack && /grid-template-columns:[^;]*!important/.test(pack.body));
+	/* a hidden tooltip parked below its box made the card scroll at 721-1180 px */
+	const parked = themeRules.find((r) => r.sel.includes('.cbi-tooltip-container > .cbi-tooltip'));
+	assert.match(parked.body, /top:\s*0\b/);
+	const mid = themeRules.find((r) => /720px < width <= 1180px/.test(r.media) && r.sel.includes('.cbi-section:has(.ifacebox .cbi-tooltip-container)'));
+	assert.ok(mid && /overflow:\s*visible/.test(mid.body));
+	/* the palette takes Escape from a row menu left open */
+	assert.match(menuJs, /openPalette\(\) \{\s*if \(this\.pal\) return;\s*\/\*[^*]*\*\/\s*this\.closeActMenu\(false\);/);
+});
+
+/* rules for the 25.12 VM sweep (1.0.7) */
+const bodyOf = (pred, media) => themeRules.filter((r) => r.sel.some(pred) && (media === undefined || media.test(r.media))).map((r) => r.body).join(';');
+const phoneOf = (pred) => bodyOf(pred, /max-width: 720px/);
+
+test('VM sweep: the crumb switch caret is stroked, and a device tooltip keeps its box inside a cell', () => {
+	/* a filled caret was black on the dark top bar */
+	const stroke = themeRules.find((r) => r.sel.includes('.vt-pal svg') && /stroke:\s*currentColor/.test(r.body));
+	assert.ok(stroke.sel.includes('.vt-crumb-switch svg'));
+	/* Interfaces' device details are span.cbi-tooltip.ifacebadge in a cell:
+	   the cell's badge reset left them transparent over the next rows */
+	for (const r of themeRules)
+		for (const s of r.sel)
+			if (/^\.td \.ifacebadge(\.large)?$/.test(s) && /background:\s*none/.test(r.body)) assert.fail('badge reset reaches the tooltip: ' + s);
+	assert.match(bodyOf((s) => s === '.td .ifacebadge:not(.cbi-tooltip)'), /background:\s*none/);
+	assert.match(bodyOf((s) => s === '.cbi-tooltip.ifacebadge'), /grid-template-columns/);
+});
+
+test('VM sweep: Status -> Firewall (nftables) chains are cards, cells beat the view\'s !important padding, matches are inline', () => {
+	assert.match(bodyOf((s) => s === '.nft-chain'), /background:\s*var\(--s1\)/);
+	assert.match(bodyOf((s) => s === '.nft-chain > h4'), /border-bottom/);
+	/* LuCI: ".nft-rules tr > td { padding: .25em !important }" (0,1,2) */
+	assert.match(bodyOf((s) => s === '#view .nft-rules .tr > .td', /^$/), /padding:[^;]*!important/);
+	assert.match(phoneOf((s) => s.startsWith('#view .nft-rules .tr > .td')), /padding:[^;]*var\(--card-px\)\s*!important/);
+	/* inline-flex made every text run of a match a flex column on phones */
+	assert.match(bodyOf((s) => s === '#view .nft-rules .ifacebadge'), /display:\s*inline;/);
+	/* the card clips for its corners; an open tooltip in its last rows escapes */
+	assert.match(bodyOf((s) => s === '.nft-chain'), /overflow:\s*clip/);
+	assert.match(bodyOf((s) => s === '.nft-chain:has(.cbi-tooltip-container:is(:hover, :focus-within))'), /overflow:\s*visible/);
+});
+
+test('VM sweep: log viewers keep their size on touch and wrap on phones; the filter rows wrap', () => {
+	const touch = themeRules.find((r) => /pointer: coarse\), \(max-width: 720px\)/.test(r.media) && /font-size:\s*16px/.test(r.body));
+	assert.ok(touch.sel.includes('.vt-main textarea:not([readonly])') && !touch.sel.includes('.vt-main textarea'));
+	/* LuCI puts wrap="off" and an inline white-space on them */
+	assert.match(phoneOf((s) => s === '.vt-main textarea[readonly]'), /white-space:\s*pre-wrap\s*!important/);
+	assert.match(bodyOf((s) => s === '#content_syslog > div:has(> :is(input, select))'), /flex-wrap:\s*wrap/);
+	assert.match(bodyOf((s) => s === '#content_syslog > div:has(> :is(input, select)) > *'), /margin:\s*0\s*!important/);
+});
+
+test('VM sweep: phone cards: one inset, empty cells go, wide columns and zone forwards span the card, lone buttons stay buttons', () => {
+	assert.match(phoneOf((s) => s === ':is(.vt-main, .modal) .table .tr > .td:nth-child(n)'), /padding:\s*4px var\(--card-px\)/);
+	assert.match(phoneOf((s) => s === ':is(.vt-main, .modal) .table .tr > .td[data-title]:empty'), /display:\s*none/);
+	assert.match(phoneOf((s) => /\.td\[data-title\]:is\(\.col-7, \.col-8, \.col-9, \.col-10\)$/.test(s)), /flex-basis:\s*100%/);
+	/* (the rule splitter cuts this selector at its inner comma) */
+	assert.match(phoneOf((s) => s.startsWith('#connections .tr:not(.table-titles) > .td:is(:nth-child(3)')), /overflow-wrap:\s*anywhere/);
+	assert.match(phoneOf((s) => s === '#cbi-firewall-zone .tr > .td:has(.zone-forwards)'), /flex-basis:\s*100%/);
+	/* Software's Install… is a div.btn directly in the actions cell */
+	for (const r of themeRules)
+		for (const s of r.sel)
+			if (/\.td\.cbi-section-actions > div$/.test(s)) assert.fail('actions box rule reaches div.btn: ' + s);
+});
+
+test('VM sweep: unzoned grey, short header rows, placeholders, view toggles and ComboButton labels', () => {
+	/* LuCI writes the colour with and without a space after the colon */
+	const grey = bodyOf((s) => /--zone-color-rgb: 238, 238, 238/.test(s) && /--zone-color-rgb:238, 238, 238/.test(s));
+	assert.match(grey, /background-color:\s*var\(--s3\)\s*!important/);
+	assert.match(bodyOf((s) => /\.cbi-section-table-titles:not\(:has\(> \.cbi-section-actions\)\)::after$/.test(s)), /display:\s*table-cell/);
+	assert.match(bodyOf((s) => s === '.cbi-section > div:not([class]) > em:only-child'), /font-style:\s*normal/);
+	assert.match(bodyOf((s) => s === ':is(.btn, .cbi-button).toggle-lookups'), /background:\s*var\(--s3\)/);
+	assert.match(bodyOf((s) => s === '.cbi-dropdown.btn > ul > li'), /line-height:\s*1\.3/);
+	assert.match(bodyOf((s) => s === '.cbi-value-field > .cbi-checkbox + .cbi-value-description', /width > 720px/), /margin-top:\s*calc\(/);
+	assert.match(bodyOf((s) => s === '.cbi-value-field > br + .control-group'), /margin-top/);
+});
+
+/* LuCI 24.10 markup, as its form.js and status view render it */
+const M2410 = {
+	titles: '<tr class="tr cbi-section-table-titles named" data-title="Name"><th class="th cbi-section-table-cell">Match</th></tr>',
+	row: '<tr class="tr cbi-section-table-row" data-title="Allow-Ping"><td class="td cbi-value-field" data-title="Match"></td></tr>',
+	overview: '<div id="view"><div class="cbi-section"><h3>Memory</h3><div><table class="table"></table></div></div></div>'
+};
+const M2512 = {
+	titles: '<tr class="tr cbi-section-table-titles named"><th class="th cbi-section-table-cell">Name</th></tr>',
+	row: '<tr class="tr cbi-section-table-row" data-title="Allow-Ping"><td class="td cbi-value-field cbi-section-table-titles">Allow-Ping</td></tr>',
+	overview: '<div id="view"><div><div class="cbi-section"><div class="cbi-title"><h3>Memory<span class="label">Hide</span></h3></div><div></div></div></div></div>'
+};
+
+test('LuCI 24.10: a named row\'s name is drawn from data-title, and only where LuCI drew no name cell', () => {
+	const head = themeRules.find((r) => r.sel.some((s) => /\.cbi-section-table-titles\.named\[data-title\]::before$/.test(s)));
+	const row = themeRules.find((r) => !r.media && r.sel.some((s) => /\.cbi-section-table-row\[data-title\]:not\(:has\(> \.cbi-section-table-titles\)\)::before$/.test(s)));
+	assert.ok(head && row, 'found the rules');
+	for (const r of [ head, row ]) assert.match(r.body, /content:\s*attr\(data-title\);[\s\S]*display:\s*table-cell/);
+	/* the header pseudo needs data-title on the titles row: 24.10 sets it, 25.12 does not */
+	assert.match(M2410.titles, /cbi-section-table-titles named" data-title=/);
+	assert.doesNotMatch(M2512.titles, /data-title/);
+	/* both releases put data-title on rows; only 25.12 adds the name cell, which the row rule excludes */
+	assert.match(M2410.row, /data-title="Allow-Ping"/);
+	assert.doesNotMatch(M2410.row, /td [^>]*cbi-section-table-titles/);
+	assert.match(M2512.row, /td [^>]*cbi-section-table-titles/);
+	/* on phones the drawn name heads the card */
+	assert.match(phoneOf((s) => /\.cbi-section-table-row\[data-title\]:not\(:has\(> \.cbi-section-table-titles\)\)::before$/.test(s)), /display:\s*block[\s\S]*font-weight:\s*600/);
+});
+
+test('LuCI 24.10: Status -> Overview headings keep the card\'s header row', () => {
+	/* "#view > div > h3" (1,0,2) matched 24.10's bare section headings and
+	   pushed the header row down; the fix outweighs it */
+	assert.match(M2410.overview, /<div id="view"><div class="cbi-section"><h3>/);
+	assert.doesNotMatch(M2512.overview, /cbi-section"><h3>/);
+	const fix = bodyOf((s) => s === '#view > .cbi-section > h3:first-child');
+	assert.match(fix, /margin:\s*calc\(-1 \* var\(--card-py\)\) calc\(-1 \* var\(--card-px\)\) var\(--card-py\)/);
+	assert.match(themeCss, /#view > h3, #view > div > h3 \{ margin: var\(--sp-6\) 0 var\(--sp-3\);[^}]*\}[\s\S]*#view > \.cbi-section > h3:first-child \{/);
+	/* the memory / storage enhancers find the bare heading too */
+	assert.match(menuJs, /'#view \.cbi-section > \.cbi-title > h3, #view \.cbi-section > h3:first-child'/);
+});
+
+test('status tables meet their card heading without changing other card spacing', () => {
+	const rule = themeRules.find((r) => r.sel.includes('#view .cbi-section > .cbi-title:has(+ div > .table:first-child)') &&
+		r.sel.includes('#view > .cbi-section > h3:first-child:has(+ div > .table:first-child)') &&
+		r.sel.includes('#view .cbi-section:not(.cbi-tblsection, .cbi-section .cbi-section) > h3:first-child:has(+ .table)'));
+	assert.ok(rule, 'both LuCI heading forms are covered');
+	assert.match(rule.body, /margin-bottom:\s*0/);
+	assert.equal(rule.sel.length, 3, 'only headers immediately followed by a table are selected');
+	assert.ok(rule.sel.every(s => s.startsWith('#view')), 'scoped to views');
+	assert.match(rule.sel[2], /:not\(\.cbi-tblsection, \.cbi-section \.cbi-section\)/, 'form tables and nested sections keep their existing layout');
+});
+
+test('touch: short row buttons are at least a touch target wide (Processes Kill was 39 px)', () => {
+	const r = themeRules.find((x) => x.media === '(pointer: coarse)' && x.sel.includes('.td.cbi-section-actions :is(.btn, .cbi-button):not(.drag-handle)'));
+	assert.ok(r, 'rule present');
+	assert.match(r.body, /min-width:\s*var\(--ctl-h\)/);
+});
+
+test('File Manager: the app\'s own light palette is repainted on its page only, from tokens', () => {
+	/* luci-app-filemanager injects a <style> of its own (#f9f9f9 status bar,
+	   #f0f0f0 row hover, #ccc rules). On the dark scheme that is a white band
+	   under the theme's light ink; the fix may not leak to other pages that
+	   happen to use the same ids, and it may not hard-code a colour. */
+	const own = themeRules.filter((r) => r.sel.some((s) => /#status-bar/.test(s)));
+	assert.ok(own.length, 'the status bar is repainted');
+	for (const r of own) {
+		for (const s of r.sel)
+			assert.match(s, /^body\[data-page="admin-system-filemanager"\] /, 'scoped to the page: ' + s);
+		assert.doesNotMatch(r.body, /#[0-9a-f]{3,8}\b/i, 'theme tokens, not literals: ' + r.sel.join(','));
+	}
+	/* the row hover is the app's !important fill: the theme takes it back */
+	assert.ok(themeRules.some((r) => r.sel.some((s) => /admin-system-filemanager"\] #file-table tr:hover/.test(s)) && /background:\s*none !important/.test(r.body)));
+});
+
+test('Interfaces: an open device tooltip escapes the scrolling table card (last row was clipped by 43 px)', () => {
+	const r = themeRules.find((x) => !x.media && x.sel.includes(':is(.cbi-section, .cbi-tblsection):has(.ifacebox .cbi-tooltip-container:is(:hover, :focus-within))'));
+	assert.ok(r, 'rule present');
+	assert.match(r.body, /overflow:\s*visible/);
+	/* after the generic scroller, which it must beat */
+	const scroller = themeRules.findIndex((x) => !x.media && x.sel.includes('.cbi-tblsection') && /overflow-x:\s*auto/.test(x.body));
+	assert.ok(scroller >= 0 && themeRules.indexOf(r) > scroller);
+});
+
+/* Appearance: every option of a group one column of the same width, the
+   widest label's, and each label as wide as it is bold, picked, so a pick
+   moves no column (a label still never shrinks below its own width) */
+test('Appearance: equal columns, bold width kept for every label', () => {
+	const track = themeRules.find(r => r.sel.includes('.vt-appear-track'));
+	assert.ok(track, 'track rule');
+	assert.match(track.body, /display:\s*grid/);
+	assert.match(track.body, /grid-auto-flow:\s*column/);
+	assert.match(track.body, /grid-auto-columns:\s*1fr\b/);
+	const opt = themeRules.find(r => r.sel.includes('.vt-appear-opt'));
+	assert.doesNotMatch(opt.body, /min-width:\s*0/, 'a column keeps its label\'s width');
+	const after = themeRules.find(r => r.sel.includes('.vt-appear-opt > span::after'));
+	assert.ok(after, 'the bold copy');
+	assert.match(after.body, /content:\s*attr\(data-text\)\s*\/\s*""/, 'no second reading for screen readers');
+	assert.match(after.body, /font-weight:\s*600/);
+	assert.match(after.body, /visibility:\s*hidden/);
+	const picked = themeRules.find(r => r.sel.includes('.vt-appear-opt:has(> input:checked)'));
+	assert.match(picked.body, /font-weight:\s*600/, 'the same weight as the copy');
+	assert.match(menuJs, /E\('span', \{ 'data-text': o\[1\] \}, \[ o\[1\] \]\)/);
+});
+
+test('Wireless: a network\'s second line starts under its name; the hidden " | " take no gap (#122)', () => {
+	const box = themeRules.find(r => r.sel.includes('.td[data-name="_stat"] > div') && r.sel.includes('.td[data-name="_stat"] > div > div'));
+	assert.match(box.body, /font-size:\s*0/, 'the separators stay hidden');
+	assert.match(box.body, /gap:\s*4px 0\s*;/, 'no column gap: a gap also surrounds each hidden separator');
+	const item = themeRules.find(r => r.sel.length === 1 && r.sel[0] === '.td[data-name="_stat"] .nowrap');
+	assert.match(item.body, /margin-inline-end:\s*20px/, 'items keep their spacing as a margin');
+	const name = themeRules.find(r => r.sel.length === 1 && r.sel[0] === '.td[data-name="_stat"] > div > .nowrap:first-child');
+	assert.match(name.body, /margin-inline-end:\s*0/);
+});
+
+test('Wireless: one line above a radio, not the row\'s border and its own (#122)', () => {
+	const radio = themeRules.find(r => r.sel.length === 1 && r.sel[0] === '.cbi-section-table-row:has(> .td[data-name="_stat"] big) > .td');
+	assert.ok(radio && !/border-top/.test(radio.body), 'no top border of its own');
+	const above = themeRules.find(r => r.sel.length === 1 && r.sel[0] === '.cbi-section-table-row:has(+ .cbi-section-table-row > .td[data-name="_stat"] big) > .td');
+	assert.match(above.body, /border-bottom-color:\s*var\(--line-2\)/, 'the row above recolours its own');
+});
+
+test('a table section without column titles meets its heading (Wireless, #122); titled ones keep the space', () => {
+	/* the helper splits at commas inside nested parentheses: rejoin */
+	const rule = themeRules.find(r => r.sel[0].startsWith('#view .cbi-tblsection:not(.cbi-section .cbi-section) > h3:first-child:has('));
+	assert.ok(rule);
+	const sel = rule.sel.join(', ');
+	assert.match(rule.body, /margin-bottom:\s*0/);
+	assert.match(sel, /\+ \.table > :is\(tbody, \.tbody\):first-child/, '25.12: a thead comes first only with titles');
+	assert.match(sel, /\+ \.table > \.tr:first-child:not\(\.cbi-section-table-titles, \.table-titles\)\)$/, '24.10: rows in the table');
+});
+
+test('a network\'s status keeps its details in place as the signal reading changes (#122)', () => {
+	const sig = themeRules.find(r => r.sel.length === 1 && r.sel[0] === '.ifacebadge.large > small:first-child');
+	assert.match(sig.body, /min-width:\s*8\.5em/);
+	assert.match(sig.body, /flex:\s*none/);
+});

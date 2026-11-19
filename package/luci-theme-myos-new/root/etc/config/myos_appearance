@@ -1,0 +1,2 @@
+config appearance 'main'
+	option login_video '0'

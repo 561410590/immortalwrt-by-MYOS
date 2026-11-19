@@ -249,7 +249,6 @@ define Build/prepare-c2000ultra-app-rootfs
 	ln -sf ../init.d/uuplugin $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/S99uuplugin
 	ln -sf ../init.d/openclash $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/K15openclash
 	ln -sf ../init.d/passwall $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/K15passwall
-	python3 $(TOPDIR)/scripts/prepare-public-rootfs.py $(KDIR)/root-c2000ultra-$(1)-app
 	$(STAGING_DIR_HOST)/bin/mksquashfs4 \
 		$(KDIR)/root-c2000ultra-$(1)-app \
 		$(KDIR)/root-c2000ultra-$(1)-app.squashfs \
@@ -982,7 +981,6 @@ define Build/prepare-c2000max-rootfs
 		find $(C2000MAX_MYOS_ROOTFS_DIR)/$${path} -type d -exec chmod 755 {} +; \
 		find $(C2000MAX_MYOS_ROOTFS_DIR)/$${path} -type f -exec chmod 644 {} +; \
 	done
-	python3 $(TOPDIR)/scripts/prepare-public-rootfs.py $(C2000MAX_MYOS_ROOTFS_DIR)
 	$(STAGING_DIR_HOST)/bin/mksquashfs4 $(C2000MAX_MYOS_ROOTFS_DIR) $(C2000MAX_MYOS_ROOTFS) \
 		-nopad -noappend -root-owned -comp xz -Xpreset 9 -Xe -Xlc 0 -Xlp 2 -Xpb 2 \
 		-b 1048576 -no-xattrs \
@@ -3538,9 +3536,9 @@ define Build/prepare-n5000-app-rootfs
 	$(STAGING_DIR_HOST)/bin/unsquashfs4 \
 		-pf $(KDIR)/root-n5000-$(1)-app.pseudo \
 		$(IMAGE_ROOTFS) >/dev/null
-	$(STAGING_DIR_HOST)/bin/unsquashfs4 -excludes \
+	$(STAGING_DIR_HOST)/bin/unsquashfs4 \
 		-d $(KDIR)/root-n5000-$(1)-app \
-		$(IMAGE_ROOTFS) dev/console >/dev/null
+		$(IMAGE_ROOTFS) >/dev/null
 	sh $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/MYOS-nros-app-patch.sh \
 		$(KDIR)/root-n5000-$(1)-app $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/cloud-libs
 	$(TARGET_CC) $(TARGET_CFLAGS) -Os -static -Wall -Wextra -Werror \
@@ -3584,7 +3582,11 @@ define Build/prepare-n5000-app-rootfs
 		$(KDIR)/root-n5000-$(1)-app/etc/luci-uploads $(KDIR)/root-n5000-$(1)-app/etc/luci-uploads/.placeholder \
 		$(KDIR)/root-n5000-$(1)-app/usr/share/myos-nros
 	python3 $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/apply-rootfs-modes.py $(KDIR)/root-n5000-$(1)-app
-	python3 $(TOPDIR)/scripts/prepare-public-rootfs.py $(KDIR)/root-n5000-$(1)-app
+	chmod 0644 $(KDIR)/root-n5000-$(1)-app/usr/lib/lua/luci/docker.lua
+	python3 $(TOPDIR)/target/linux/mediatek/image/install-myos-support.py \
+		$(KDIR)/root-n5000-$(1)-app $(TOPDIR)/target/linux/mediatek/image/nradio-n5000
+	python3 $(TOPDIR)/../immortalwrt-mt798x-6.6/target/linux/mediatek/image/install-kunpeng-ai.py \
+		$(KDIR)/root-n5000-$(1)-app $(STAGING_DIR_HOST)/bin/opkg --myos-runtime
 	$(STAGING_DIR_HOST)/bin/mksquashfs4 \
 		$(KDIR)/root-n5000-$(1)-app \
 		$(KDIR)/root-n5000-$(1)-app.squashfs \
@@ -3602,8 +3604,13 @@ define Device/nradio_n5000
   BOARD_NAME := nradio,n5000
   SUPPORTED_DEVICES += nradio,n5000 HCMT7987-SNSD
   DEVICE_PACKAGES := \
+	kmod-nft-queue \
 	luci-theme-myos-new luci-app-n5000-system \
+	-luci-app-ssr-plus -luci-i18n-ssr-plus-zh-cn \
+	luci-app-vantage luci-i18n-vantage-zh-cn \
 	libip4tc libip6tc iptables-mod-extra kmod-ipt-extra \
+	ip6tables-nft ca-certificates libseccomp tini btrfs-progs \
+	luci-lib-docker ttyd \
 	openmptcprouter-ultra \
 	fdisk blkid parted resize2fs block-mount losetup kmod-fs-ext4 \
 	kmod-mediatek_hnat luci-app-turboacc luci-i18n-turboacc-zh-cn \
@@ -3623,12 +3630,15 @@ define Device/nradio_n5000
 	luci-nginx nginx-ssl nginx-mod-luci nginx-mod-ubus nginx-ssl-util \
 	uwsgi uwsgi-cgi-plugin uwsgi-syslog-plugin uwsgi-luci-support \
 	miniupnpd-nftables luci-app-upnp luci-i18n-upnp-zh-cn \
-	python3-light uhttpd uhttpd-mod-ubus \
+	python3-light python3-codecs uhttpd uhttpd-mod-ubus \
 	f2fsck mkf2fs e2fsprogs \
 	zram-swap kmod-zram \
 	kmod-usb3 kmod-usb-core kmod-usb-xhci-hcd kmod-usb-xhci-mtk \
 	 kmod-usb-ehci kmod-usb-ohci kmod-usb-uhci \
 	kmod-usb-storage kmod-usb-net kmod-usb-net-cdc-ether \
+	kmod-usb-net-rtl8152 kmod-usb-net-asix kmod-usb-net-asix-ax88179 kmod-usb-net-aqc111 \
+	kmod-usb-net-cdc-ncm kmod-usb-net-cdc-eem kmod-usb-net-rndis kmod-usb-net-ipheth \
+	usbmuxd libimobiledevice-utils \
 	coreutils-base64 coreutils-nohup coreutils-timeout lyaml \
 	libyaml libudns resolveip libev \
 	libsodium kmod-netlink-diag ip-full libuci-lua \

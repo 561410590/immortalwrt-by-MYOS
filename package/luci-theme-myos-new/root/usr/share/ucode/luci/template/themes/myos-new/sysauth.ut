@@ -10,5 +10,7 @@
  </form>
  <small>{{ entityencode(ubus.call('system', 'board')?.model ?? 'OpenWrt') }}</small>
 </main>
-<script src="{{ media }}/ultra-media.js?v=20261112-login-model1"></script>
+{% if (uci.get('myos_appearance', 'main', 'login_video') == '1'): %}
+<script src="{{ media }}/ultra-media.js?v=20261113-login-video1"></script>
+{% endif %}
 {% include('footer', { blank_page: true }) %}

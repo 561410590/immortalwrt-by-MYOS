@@ -1,0 +1,13 @@
+{
+  "admin/network/myos-usb-network": {
+    "title": "USB 网络",
+    "order": 15,
+    "action": {
+      "type": "view",
+      "path": "myos/usb-network"
+    },
+    "depends": {
+      "acl": [ "luci-app-myos-usb-network" ]
+    }
+  }
+}

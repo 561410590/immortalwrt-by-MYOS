@@ -77,6 +77,7 @@
  const suppressed=new Set(['admin/myos','admin/modeminfo','admin/home','admin/status/c5800','admin/status/c2000max','admin/status/c2000ultra','admin/status/nbcpe','admin/status/c8']);
  const drawings={
   home:'M3 10 12 3l9 7M5 9v12h5v-7h4v7h5V9',
+  vantage:'M3 4h18v16H3zM3 8h18M6 15h3l2-3 3 5 2-3h2',
   close:'M6 6l12 12M18 6 6 18',
   status:'M3 13a9 9 0 1 1 18 0v5H3zM12 13l4-5M6 13h1m10 0h1M12 5v1',
   system:'M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1zM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
@@ -126,7 +127,7 @@
   wireless:'wifi',factory_guest:'wifi',diagnostics:'terminal',troubleshooting:'terminal',turboacc:'bolt',qiyougamebooster:'gamepad',
   passwall:'proxy',passwall2:'layers',shadowsocksr:'tunnel',adguardhome:'filter',openclash:'globe',upnp:'network',vpn:'shield',nas:'drive',istore:'store',
   acc:'rocket',uuplugin:'controller',oaf:'family',appfilter:'filter','omr-tracker':'trace','shadowsocks-libev':'proxy',
-  fancontrol:'fan',mwrt_fan:'fan',c8_fan:'fan',openvpn:'vpnlock','glorytun-tcp':'tunnel',wireguard:'key',eqos:'sliders',
+  fancontrol:'fan',c8_fan:'fan',openvpn:'vpnlock','glorytun-tcp':'tunnel',wireguard:'key',eqos:'sliders',
   mptcp:'multipath',openmptcprouter:'multipath',ttyd:'terminal',quickfile:'folder',diskman:'disk',myos_sd:'storage',
   release_ram:'chip',mwrt_assurance:'trace',mwrt_failover_status:'trace',usage:'chart',channel_analysis:'wifi',
   iptables:'shield',switch:'network',mwrtstyle2:'palette',nbcpe_clients:'network',settings:'system',webui:'modem'};
@@ -205,9 +206,12 @@
    home.classList.toggle('active',homePaths.includes(path));
    if(home.classList.contains('active'))home.setAttribute('aria-current','page');
    let title=home.classList.contains('active')?'首页':'设备控制台';
-   const render=(node,parts)=>{
+   const contextualTitle=document.body.classList.contains('m-submenu-compact');
+   const render=(node,parts,ancestors=[])=>{
     const key=parts.join('/');if(suppressed.has(key))return null;
-    const label=_(node.title),kids=children(node).map(c=>render(c,parts.concat(c.name))).filter(Boolean);
+    const label=_(node.title);
+    const trail=ancestors.at(-1)===label?ancestors:[...ancestors,label];
+    const kids=children(node).map(c=>render(c,parts.concat(c.name),trail)).filter(Boolean);
     if(kids.length){
      const group=make('details','m-menu-group'),summary=make('summary');
      summary.append(icon(node.name,parts[1]),make('span','',label));
@@ -216,14 +220,26 @@
      if(list.querySelector('[aria-current]'))group.open=true;group.dataset.label=label;return group;
     }
     if(['firstchild','alias'].includes(node.action?.type)&&children(node).length)return null;
-    const a=make('a','m-menu-link');a.append(icon(node.name,parts[1]),make('span','',label));a.href=L.url(...parts);a.dataset.label=label;
+    const vantage=contextualTitle&&key==='admin/dashboard'&&node.action?.path==='vantage/overview';
+    const a=make('a',vantage?'m-menu-link m-vantage-link':'m-menu-link');
+    a.append(icon(vantage?'vantage':node.name,parts[1]),make('span','',label));a.href=L.url(...parts);a.dataset.label=label;
     const url=new URL(a.href,location.href).pathname;
-    if(path===url||path.startsWith(url+'/')){a.classList.add('active');a.setAttribute('aria-current','page');title=label;}
+    if(path===url||path.startsWith(url+'/')){
+     a.classList.add('active');a.setAttribute('aria-current','page');
+     title=contextualTitle&&parts.length>3?trail.join(' › '):label;
+    }
     return a;
    };
    const fragment=document.createDocumentFragment();
-   children(tree.children?.admin||tree).forEach(c=>{const el=render(c,['admin',c.name]);if(el)fragment.append(el);});
-   nav.replaceChildren(fragment);document.querySelector('#m-page-title').textContent=title;
+   children(tree.children?.admin||tree).forEach(c=>{
+    const el=render(c,['admin',c.name]);
+    if(el?.classList.contains('m-vantage-link'))fragment.prepend(el);
+    else if(el)fragment.append(el);
+   });
+   nav.replaceChildren(fragment);
+   const pageTitle=document.querySelector('#m-page-title');
+   pageTitle.textContent=title;
+   if(contextualTitle)pageTitle.title=title;
    const tabmenu=document.querySelector('#tabmenu'),dispatch=L.env.dispatchpath||[];
    tabmenu.replaceChildren();tabmenu.hidden=true;
    let current=tree,parts=[];

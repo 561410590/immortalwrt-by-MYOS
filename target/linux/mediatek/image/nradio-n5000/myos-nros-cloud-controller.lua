@@ -11,9 +11,40 @@ function index()
 		return
 	end
 
-	local system_page = entry({"admin", "system", "myos_nros"}, cbi("myos_nros"), _("官方 APP 远控设置"), 90)
+	local system_page = entry({"admin", "system", "myos_nros"}, cbi("myos_nros"), _("远程服务"), 90)
 	system_page.dependent = false
 	entry({"admin", "system", "myos_nros", "status"}, call("action_status"), nil, nil, true).leaf = true
+	entry({"admin", "system", "myos_nros", "support"}, post("action_support"), nil, nil, true).leaf = true
+end
+
+function action_support()
+	local http = require "luci.http"
+	local action = http.formvalue("action")
+	local failure
+	local root = "/tmp/myos-support/"
+	local service = "/etc/init.d/myos-support "
+	local function running()
+		return require("luci.sys").call(service .. "running >/dev/null 2>&1") == 0
+	end
+	local active = running()
+	if action == "stop" or (action == "start" and not active) then
+		local rc = os.execute(service .. action .. " >/dev/null 2>&1")
+		if rc ~= true and rc ~= 0 then
+			failure = action == "start" and "开启报修失败" or "关闭报修失败"
+		end
+		active = running()
+	end
+	local code = active and action ~= "stop" and (fs.readfile(root .. "code") or ""):match("^%d%d%d%d") or nil
+	local status = (fs.readfile(root .. "status") or "已关闭"):gsub("%s+$", "")
+	if active and status == "已关闭" then status = "正在连接…" end
+	if action == "stop" and status ~= "已关闭" then status = "正在关闭" end
+	http.header("Cache-Control", "no-store")
+	http.prepare_content("application/json")
+	http.write_json({
+		active = active,
+		code = code,
+		status = failure or status
+	})
 end
 
 local function cloud_enabled()

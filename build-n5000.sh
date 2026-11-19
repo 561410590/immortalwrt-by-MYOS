@@ -10,6 +10,7 @@ exec unshare --mount --propagation private /bin/bash -c '
  mount --bind "$tree" /vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6-c2000ultra
  cd /vol3/1000/immortalwrt6.6x/immortalwrt-mt798x-6.6-c2000ultra
  export FORCE_UNSAFE_CONFIGURE=1
- set -o pipefail
+ set -e -o pipefail
+ make defconfig
  make "$@" FORCE=1 VERSION_NUMBER="V${MYOS_BUILD_VERSION:-3.1.41-202611061200}" 2>&1 | tee "$tree/build-n5000.log"
 ' n5000-build "$tree" "$@"

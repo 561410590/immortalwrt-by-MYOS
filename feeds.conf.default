@@ -5,3 +5,4 @@ src-git telephony https://github.com/openwrt/telephony.git;openwrt-24.10
 src-git istore https://github.com/linkease/istore.git;main
 src-git nas https://github.com/linkease/nas-packages.git;master
 src-git nas_luci https://github.com/linkease/nas-packages-luci.git;main
+src-git vantage https://github.com/anothaDev/luci-theme-vantage.git^0f8d16f2ce25132e6a074575af16468524d2d5dd

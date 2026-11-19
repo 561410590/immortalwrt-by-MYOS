@@ -1,7 +1,25 @@
 #!/bin/sh
 mkdir -p /etc/crontabs
-[ -s /etc/fanvall ] || echo 9 > /etc/fanvall
-[ -s /usr/bin/fanspeed.conf ] || echo 128 > /usr/bin/fanspeed.conf
+if grep -qFx '* * * * * /usr/bin/mwrt-fansched apply >/dev/null 2>&1' /etc/crontabs/root 2>/dev/null; then
+	sed -i '\|^[*] [*] [*] [*] [*] /usr/bin/mwrt-fansched apply >/dev/null 2>&1$|d' /etc/crontabs/root
+fi
+
+# A retained MWRT manual setting or quiet period may have disabled automatic cooling.
+legacy_fan_mode="$(cat /etc/fanvall 2>/dev/null)"
+legacy_fan_restore="$(uci -q get mwrt_fan.main.restore)"
+case "$legacy_fan_mode:$legacy_fan_restore" in
+	0:*|1:*|2:*|3:*|999:*|*:?*)
+		if [ "$(uci -q get fancontrol.settings.enabled)" != 0 ] ||
+		   { uci set fancontrol.settings.enabled=1 && uci commit fancontrol; }; then
+			rm -f /etc/fanvall
+			if [ -n "$legacy_fan_restore" ]; then
+				uci -q delete mwrt_fan.main.bypass
+				uci delete mwrt_fan.main.restore && uci commit mwrt_fan
+			fi
+		fi
+		;;
+esac
+
 /etc/init.d/myos-update enable
 [ -n "$IPKG_INSTROOT" ] || /etc/init.d/myos-update start
 exit 0
