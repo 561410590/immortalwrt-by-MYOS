@@ -192,7 +192,16 @@ update_config()
     modem_netcard=$(ls "$modem_net" 2>/dev/null)
     [ -n "$modem_netcard" ] || config_get modem_netcard "$modem_config" network
     c2000max_fixed_interfaces=0
-    case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+    board="$(board_name)"
+    if [ "$board:$manufacturer:$platform" = nradio,c2000-max:huawei:hisilicon ]; then
+        # The built-in MT5700 exposes the primary NCM function as interface .0.
+        for primary_net in "${modem_path%/}":*.0/net/*; do
+            [ -e "$primary_net" ] || continue
+            modem_netcard=${primary_net##*/}
+            break
+        done
+    fi
+    case "$board" in
         nradio,c2000-max|nradio,c2000-ultra)
             if [ "$manufacturer:$platform" = huawei:hisilicon ] && [ -n "$modem_netcard" ]; then
                 alias=2_1
@@ -417,6 +426,8 @@ c2000max_collect_duplicate_interface()
 
 set_if()
 {
+    local keep_interfaces=0
+    [ "$board:$c2000max_fixed_interfaces" != nradio,c2000-max:1 ] || keep_interfaces=1
     fw_reload_flag=0
     dhcp_reload_flag=0
     network_reload_flag=0
@@ -459,16 +470,22 @@ set_if()
             env6="1"
             ;;
     esac
+    if [ "$keep_interfaces" = 1 ] && [ "$env4" = 0 ]; then
+        # Keep the physical parent for the IPv6 alias.
+        proto=none
+        env4=1
+    fi
     interface=$(uci -q get network.$interface_name)
     interfacev6=$(uci -q get network.$interface6_name)
     local num=$(get_fw_zone_index wan)
     if [ "$c2000max_fixed_interfaces" = 1 ]; then
-        local c2000max_duplicate_interfaces= old
+        local c2000max_duplicate_interfaces= old section
         [ "$modem_config" = 2_1 ] || c2000max_duplicate_interfaces="$modem_config ${modem_config}v6"
         config_load network
         config_foreach c2000max_collect_duplicate_interface interface
         for old in $c2000max_duplicate_interfaces; do
             uci -q delete "network.$old"
+            network_reload_flag=1
             uci -q del_list "firewall.@zone[$num].network=$old"
             if [ "$(uci -q get "dhcp.$old.interface")" = "$old" ]; then
                 uci -q delete "dhcp.$old"
@@ -476,10 +493,23 @@ set_if()
             fi
             firewall_reload_flag=1
         done
-        uci -q set "qmodem.$modem_config.alias=2_1" && uci -q commit qmodem || return 1
-        [ -z "$interface" ] || uci -q set "network.2_1.modem_config=$modem_config" || return 1
-        [ -z "$interfacev6" ] || uci -q set "network.2_1v6.modem_config=$modem_config" || return 1
-        network_reload_flag=1
+        if [ "$keep_interfaces" = 1 ]; then
+            if [ "$(uci -q get "qmodem.$modem_config.alias")" != 2_1 ]; then
+                uci -q set "qmodem.$modem_config.alias=2_1" && uci -q commit qmodem
+            fi
+            for section in 2_1 2_1v6; do
+                if [ "$(uci -q get "network.$section")" = interface ] &&
+                   [ "$(uci -q get "network.$section.modem_config")" != "$modem_config" ]; then
+                    uci -q set "network.$section.modem_config=$modem_config"
+                    network_reload_flag=1
+                fi
+            done
+        else
+            uci -q set "qmodem.$modem_config.alias=2_1" && uci -q commit qmodem || return 1
+            [ -z "$interface" ] || uci -q set "network.2_1.modem_config=$modem_config" || return 1
+            [ -z "$interfacev6" ] || uci -q set "network.2_1v6.modem_config=$modem_config" || return 1
+            network_reload_flag=1
+        fi
     fi
     if [ "$env4" -eq 1 ];then
         if [ -z "$interface" ];then
@@ -556,6 +586,11 @@ set_if()
                 dhcp_reload_flag=1
             fi
         fi
+    elif [ "$keep_interfaces" = 1 ]; then
+        if [ -n "$interfacev6" ] && [ "$(uci -q get "network.$interface6_name.proto")" != none ]; then
+            uci -q set "network.$interface6_name.proto=none"
+            network_reload_flag=1
+        fi
     else
         if [ -n "$interfacev6" ];then
             uci delete network.${interface6_name}
@@ -583,7 +618,7 @@ set_if()
         fi
     fi
     
-    if [ "$network_reload_flag" -eq 1 ];then
+    if [ "$network_reload_flag" -eq 1 ] && [ "$keep_interfaces" != 1 ];then
         uci commit network
         [ "$c2000max_fixed_interfaces" != 1 ] || ubus call network reload >/dev/null 2>&1
         ifup ${interface_name}
@@ -632,15 +667,39 @@ set_if()
             uci set network.${interface6_name}.proto="${protov6}"
             uci set network.${interface6_name}.metric="${metric}"
         fi
-        uci commit network
-        ifup ${interface_name}
+        if [ "$keep_interfaces" = 1 ]; then
+            network_reload_flag=1
+        else
+            uci commit network
+            ifup ${interface_name}
+        fi
         m_debug "set interface $interface_name to $set_modem_netcard"
+    fi
+    if [ "$keep_interfaces" = 1 ]; then
+        if [ "$env6" = 1 ] && [ "$(uci -q get "network.$interface6_name.proto")" != "$protov6" ]; then
+            uci -q set "network.$interface6_name.proto=$protov6"
+            network_reload_flag=1
+        fi
+        if [ "$network_reload_flag" = 1 ]; then
+            uci commit network
+            ubus call network reload >/dev/null
+            m_debug "network reload"
+        fi
+        ubus call "network.interface.$interface_name" up >/dev/null
+        [ "$env6" != 1 ] || ubus call "network.interface.$interface6_name" up >/dev/null
     fi
     return 0
 }
 
 flush_if()
 {
+    if [ "$board:$interface_name" = nradio,c2000-max:2_1 ]; then
+        ubus call network.interface.2_1v6 down >/dev/null 2>&1
+        ubus call network.interface.2_1 down >/dev/null 2>&1
+        set_led "sim" "$modem_config" 0
+        m_debug "released old cellular leases and kept 2_1 and 2_1v6"
+        return 0
+    fi
     # uci delete network.${interface_name}
     # uci delete network.${interface6_name}
     # uci delete dhcp.${interface6_name}

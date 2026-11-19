@@ -11,21 +11,31 @@ uci -q batch <<-EOF >/dev/null
 	commit ucitrack
 EOF
 
-if [ "$(uci -q get network.glorytun)" = "" ] && [ "$(uci -q get network.omrvpn)" = "" ]; then
+dev="$(uci -q get glorytun.vpn.dev)"
+if { [ "$dev" = "tun0" ] || [ "$dev" = "glorytun0" ]; } &&
+	[ "$(uci -q get glorytun.vpn.enable)" = "0" ] &&
+	[ "$(uci -q get network.glorytun.device)" = "tun0" ] &&
+	[ "$(uci -q get network.glorytun.proto)" = "dhcp" ] &&
+	[ "$(uci -q get network.glorytun.ip4table)" = "vpn" ]; then
+	dev="glorytun0"
 	uci -q batch <<-EOF >/dev/null
-		delete network.glorytun
-		set network.glorytun=interface
-		set network.glorytun.device=tun0
-		set network.glorytun.proto=dhcp
-		set network.glorytun.ip4table=vpn
-		set network.glorytun.multipath=off
-		set network.glorytun.leasetime=12h
+		set glorytun.vpn.dev=$dev
+		commit glorytun
+		set network.glorytun.device=$dev
+		set network.glorytun.proto=none
 		commit network
 	EOF
-#	set network.glorytun.proto=static
-#	set network.glorytun.ipaddr=10.0.0.2
-#	set network.glorytun.netmask=255.255.255.0
-#	set network.glorytun.gateway=10.0.0.1
+fi
+
+if [ "$(uci -q get network.glorytun)" = "" ] && [ "$(uci -q get network.omrvpn)" = "" ]; then
+	uci -q batch <<-EOF >/dev/null
+		set network.glorytun=interface
+		set network.glorytun.device=${dev:-glorytun0}
+		set network.glorytun.proto=none
+		set network.glorytun.ip4table=vpn
+		set network.glorytun.multipath=off
+		commit network
+	EOF
 fi
 
 if [ "$(uci -q show firewall | grep glorytun)" = "" ] && [ "$(uci -q get network.omrvpn)" = "" ]; then

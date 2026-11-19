@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=mwrt-memtune
 PKG_VERSION:=1
-PKG_RELEASE:=5.20261107
+PKG_RELEASE:=6.20261119
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -10,7 +10,7 @@ define Package/mwrt-memtune
   SECTION:=net
   CATEGORY:=Network
   TITLE:=mwrt-memtune (MWRT 1143 ULTRA)
-  DEPENDS:=+zram-swap +kmod-loop
+  DEPENDS:=+zram-swap +kmod-loop +f2fs-tools
 endef
 
 define Build/Prepare

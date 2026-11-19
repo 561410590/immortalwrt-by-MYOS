@@ -1,0 +1,8 @@
+#!/bin/sh
+case "$1" in
+    list)
+        echo '{"status":{"topology":false},"catalog":{},"job":{},"set_devices":{"devices":[]},"set_apn":{"apn":"","pdp_type":""},"set_options":{"autodial":false},"set_policy":{"enabled":false,"profile":"","categories":[],"rules":[],"priority_macs":[],"priority_enabled":false},"connect":{},"disconnect":{},"reconnect":{},"check_public":{"missing_only":false}}'
+        ;;
+    call) exec /usr/sbin/dual-pdp-manager rpc "$2" ;;
+    *) exit 1 ;;
+esac

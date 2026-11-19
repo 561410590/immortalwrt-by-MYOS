@@ -2,29 +2,31 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-myos-ultra
 PKG_VERSION:=1.0
-PKG_RELEASE:=202611120000
+PKG_RELEASE:=202611190004
 PKG_LICENSE:=Apache-2.0
-PKGARCH:=all
-
-include $(INCLUDE_DIR)/package.mk
 
 # Preserve device services without installing either retired theme.
 MYOS_SOURCE:=$(TOPDIR)/package/mtk/applications/luci-theme-c2000max-ui
 MWRT_SOURCE:=$(TOPDIR)/package/mtk/applications/luci-theme-mwrt
+PKG_FILE_DEPENDS:=$(MYOS_SOURCE)/htdocs/luci-static/resources/tools/myos-wifi.js \
+	$(CURDIR)/dual-pdp
+
+include $(INCLUDE_DIR)/package.mk
 
 define Package/luci-app-myos-ultra
   SECTION:=luci
   CATEGORY:=LuCI
   SUBMENU:=Applications
   TITLE:=MYOS Ultra device services
-  DEPENDS:=+luci-base +luci-compat +luci-lib-jsonc +rpcd-mod-luci +rpcd-mod-ucode +jq +bc +qmodem +fancontrol +curl +jsonfilter +uclient-fetch +ca-bundle +ucode-mod-fs +ucode-mod-ubus +ucode-mod-uci
+  DEPENDS:=+luci-base +luci-compat +luci-lib-jsonc +luci-lib-nixio +libuci-lua +rpcd-mod-luci +rpcd-mod-ucode +jq +bc +qmodem +fancontrol +curl +jsonfilter +uclient-fetch +ca-bundle +ucode-mod-fs +ucode-mod-ubus +ucode-mod-uci +ip-full +flock +conntrack +libnetfilter-conntrack +tc-full +kmod-nft-nat
+  DEPENDS+=+dnsmasq-full +nftables-json +libnettle +libgmp
 endef
 
 define Package/luci-app-myos-ultra/conffiles
 /etc/config/mwrt
-/etc/config/mwrt_fan
 /etc/config/WTMmodem
 /etc/config/Mwrt-Assurance
+/etc/config/dual_pdp
 endef
 
 define Build/Compile
@@ -58,18 +60,12 @@ define Package/luci-app-myos-ultra/install
 	$(INSTALL_DATA) $(MWRT_SOURCE)/root/etc/config/WTMmodem $(1)/etc/config/WTMmodem
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_DATA) $(MWRT_SOURCE)/root/etc/config/mwrt $(1)/etc/config/mwrt
-	$(INSTALL_DIR) $(1)/etc/config
-	$(INSTALL_DATA) $(MWRT_SOURCE)/root/etc/config/mwrt_fan $(1)/etc/config/mwrt_fan
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/usb
 	$(INSTALL_BIN) $(MWRT_SOURCE)/root/etc/hotplug.d/usb/40-mwrt-qmodem-dedup $(1)/etc/hotplug.d/usb/40-mwrt-qmodem-dedup
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) $(MWRT_SOURCE)/root/etc/init.d/mwrt-assurance $(1)/etc/init.d/mwrt-assurance
-	$(INSTALL_DIR) $(1)/etc/init.d
-	$(INSTALL_BIN) $(MWRT_SOURCE)/root/etc/init.d/mwrt-fansched $(1)/etc/init.d/mwrt-fansched
 	$(INSTALL_DIR) $(1)/etc/mwrt
 	$(INSTALL_DATA) $(MWRT_SOURCE)/root/etc/mwrt/ota-ca.pem $(1)/etc/mwrt/ota-ca.pem
-	$(INSTALL_DIR) $(1)/etc/uci-defaults
-	$(INSTALL_BIN) $(MWRT_SOURCE)/root/etc/uci-defaults/99f-mwrt-fansched $(1)/etc/uci-defaults/99f-mwrt-fansched
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(MWRT_SOURCE)/root/etc/uci-defaults/99g-mwrt-cellinfo $(1)/etc/uci-defaults/99g-mwrt-cellinfo
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
@@ -83,8 +79,6 @@ define Package/luci-app-myos-ultra/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(MWRT_SOURCE)/root/usr/bin/mwrt-cellinfo $(1)/usr/bin/mwrt-cellinfo
 	$(INSTALL_DIR) $(1)/usr/bin
-	$(INSTALL_BIN) $(MWRT_SOURCE)/root/usr/bin/mwrt-fansched $(1)/usr/bin/mwrt-fansched
-	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(MWRT_SOURCE)/root/usr/bin/mwrt-qmodem-dedup $(1)/usr/bin/mwrt-qmodem-dedup
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(MWRT_SOURCE)/root/usr/bin/mwrt-qmodem-usb3 $(1)/usr/bin/mwrt-qmodem-usb3
@@ -92,8 +86,6 @@ define Package/luci-app-myos-ultra/install
 	$(INSTALL_BIN) $(MWRT_SOURCE)/root/usr/bin/mwrt_wan_failover.sh $(1)/usr/bin/mwrt_wan_failover.sh
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
 	$(INSTALL_DATA) $(MWRT_SOURCE)/root/usr/lib/lua/luci/controller/mwrt_hwinfo.lua $(1)/usr/lib/lua/luci/controller/mwrt_hwinfo.lua
-	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
-	$(INSTALL_DATA) $(MWRT_SOURCE)/root/usr/lib/lua/luci/controller/zz_mwrt_fancontrol.lua $(1)/usr/lib/lua/luci/controller/zz_mwrt_fancontrol.lua
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
 	$(INSTALL_DATA) $(MWRT_SOURCE)/root/usr/lib/lua/luci/controller/zz_mwrt_modem.lua $(1)/usr/lib/lua/luci/controller/zz_mwrt_modem.lua
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
@@ -104,8 +96,6 @@ define Package/luci-app-myos-ultra/install
 	$(INSTALL_DATA) $(MWRT_SOURCE)/root/usr/lib/lua/luci/controller/zz_mwrt_ultra_features.lua $(1)/usr/lib/lua/luci/controller/zz_mwrt_ultra_features.lua
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/model/cbi/zmode
 	$(INSTALL_DATA) $(MWRT_SOURCE)/root/usr/lib/lua/luci/model/cbi/zmode/mwrt_wan_failover.lua $(1)/usr/lib/lua/luci/model/cbi/zmode/mwrt_wan_failover.lua
-	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/view/Airpifanctrl
-	$(INSTALL_DATA) $(MWRT_SOURCE)/root/usr/lib/lua/luci/view/Airpifanctrl/fancontrol.htm $(1)/usr/lib/lua/luci/view/Airpifanctrl/fancontrol.htm
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/view/zmode
 	$(INSTALL_DATA) $(MWRT_SOURCE)/root/usr/lib/lua/luci/view/zmode/mwrt_wan_failover_status.htm $(1)/usr/lib/lua/luci/view/zmode/mwrt_wan_failover_status.htm
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
@@ -151,6 +141,29 @@ define Package/luci-app-myos-ultra/install
 	$(INSTALL_DATA) ./root/usr/lib/lua/luci/model/mwrt_gate.lua $(1)/usr/lib/lua/luci/model/mwrt_gate.lua
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) ./root/etc/uci-defaults/zz-myos-ultra-theme $(1)/etc/uci-defaults/zz-myos-ultra-theme
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface $(1)/usr/lib/lua/dual_pdp
+	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/share/dual-pdp
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/dual-pdp $(1)/www/luci-static/resources/view/dual-pdp
+	$(INSTALL_DATA) ./dual-pdp/etc/config/dual_pdp $(1)/etc/config/dual_pdp
+	$(INSTALL_BIN) ./dual-pdp/etc/init.d/dual-pdp* $(1)/etc/init.d/
+	$(INSTALL_BIN) ./dual-pdp/etc/hotplug.d/iface/* $(1)/etc/hotplug.d/iface/
+	$(INSTALL_BIN) ./dual-pdp/etc/uci-defaults/99-dual-pdp-init $(1)/etc/uci-defaults/
+	$(INSTALL_BIN) ./dual-pdp/usr/sbin/dual-pdp-* $(1)/usr/sbin/
+	$(INSTALL_BIN) ./dual-pdp/usr/libexec/dual-pdp-* $(1)/usr/libexec/
+	$(INSTALL_BIN) ./dual-pdp/usr/libexec/rpcd/dual-pdp $(1)/usr/libexec/rpcd/
+	$(INSTALL_DATA) ./dual-pdp/usr/lib/lua/dual_pdp/*.lua $(1)/usr/lib/lua/dual_pdp/
+	$(INSTALL_DATA) ./dual-pdp/usr/share/dual-pdp/* $(1)/usr/share/dual-pdp/
+	$(INSTALL_DATA) ./dual-pdp/usr/share/luci/menu.d/luci-app-dual-pdp.json $(1)/usr/share/luci/menu.d/
+	$(INSTALL_DATA) ./dual-pdp/usr/share/rpcd/acl.d/luci-app-dual-pdp.json $(1)/usr/share/rpcd/acl.d/
+	$(INSTALL_DATA) ./dual-pdp/www/luci-static/resources/dual-pdp/* $(1)/www/luci-static/resources/dual-pdp/
+	$(INSTALL_DATA) ./dual-pdp/www/luci-static/resources/view/dual-pdp/overview.js $(1)/www/luci-static/resources/view/dual-pdp/
+	$(INSTALL_DIR) $(1)/lib/upgrade/keep.d $(1)/usr/libexec/inst-dual-pdp
+	$(INSTALL_BIN) ./dual-pdp/etc/uci-defaults/98-dual-pdp-inst-features $(1)/etc/uci-defaults/
+	$(INSTALL_DATA) ./dual-pdp/lib/upgrade/keep.d/dual-pdp-inst-features $(1)/lib/upgrade/keep.d/
+	$(INSTALL_BIN) ./dual-pdp/usr/sbin/c2000max-traffic ./dual-pdp/usr/sbin/c2000max-feature-* $(1)/usr/sbin/
+	$(INSTALL_DATA) ./dual-pdp/usr/libexec/c2000max-*.uc $(1)/usr/libexec/
+	$(INSTALL_BIN) ./dual-pdp/usr/libexec/inst-dual-pdp/dnsmasq $(1)/usr/libexec/inst-dual-pdp/
+	$(INSTALL_DATA) ./dual-pdp/usr/lib/libubox.so.20260213 ./dual-pdp/usr/lib/libubus.so.20251202 $(1)/usr/lib/
 endef
 
 $(eval $(call BuildPackage,luci-app-myos-ultra))

@@ -8,11 +8,8 @@
 # 判据:必须存在 " /overlay " 这个 f2fs 挂载点(本定制 SD 镜像特征)才动手。
 # =================================================================
 #
-# 首次生成必须分块写:一次性 dd 512MB conv=fsync 再紧跟 f2fs 首次 swapon(块迁移,
-# 实测 53s)曾把 B 板拖到看门狗复位(10-13)。现做法:开机 60s 后、8×64MB 每块 sync、
-# 写到 .tmp 再改名(中途掉电不会留下半截 swapfile)。
-# dmesg 里 "Swapfile is not align to section" 是 f2fs 首次 swapon 的正常提示:内核会
-# 迁移并 pin 住文件,之后每次开机再挂只要几毫秒(extents:1)。
+# 首次生成延后 60s。F2FS 先 pin 再预分配，避免写零和 swapon 时迁移区块；
+# 预分配不可用时分块写入，只同步该文件。写完 .tmp 再改名。
 #
 # SD 镜像的 /overlay 是 f2fs 挂在 loop0 上(loop0 带偏移指向 SD 分区)。loop 默认是
 # 缓冲模式,往这里换页时,每页都要先在底层块设备的页缓存里变成一页脏页 =
@@ -52,9 +49,9 @@ overlay_loop_dio() {
 	return 1
 }
 
-# 首次生成:延后、分块写 .tmp,写完再改名挂上。在后台跑,失败返回 1
+# 首次生成在后台运行，完成后再启用 SD swap。
 create_swap() {
-	local tmp="${SWAP}.tmp" avail i=0
+	local tmp="${SWAP}.tmp" alloc=/usr/sbin/f2fs_io avail i=0
 
 	sleep 60
 	rm -f "$tmp"
@@ -63,15 +60,21 @@ create_swap() {
 		logger -t mwrt-swapfile "overlay free ${avail}MB too low, skip"
 		return 1
 	fi
-	while [ $i -lt $((SIZE_MB / CHUNK_MB)) ]; do
-		nice -n 19 dd if=/dev/zero of="$tmp" bs=1M count="$CHUNK_MB" \
-			seek=$((i * CHUNK_MB)) conv=notrunc 2>/dev/null || { rm -f "$tmp"; return 1; }
-		sync
-		i=$((i + 1))
-	done
-	chmod 600 "$tmp"
+	if ! (umask 077; : > "$tmp") ||
+	   ! "$alloc" pinfile set "$tmp" >/dev/null 2>&1 ||
+	   ! "$alloc" fallocate 0 0 "$((SIZE_MB * 1024 * 1024))" "$tmp" >/dev/null 2>&1; then
+		rm -f "$tmp"
+		while [ $i -lt $((SIZE_MB / CHUNK_MB)) ]; do
+			(umask 077; nice -n 19 dd if=/dev/zero of="$tmp" bs=1M count="$CHUNK_MB" \
+				seek=$((i * CHUNK_MB)) conv=notrunc,fsync) 2>/dev/null || {
+				rm -f "$tmp"
+				return 1
+			}
+			i=$((i + 1))
+		done
+	fi
 	mkswap "$tmp" >/dev/null 2>&1 || { rm -f "$tmp"; return 1; }
-	mv -f "$tmp" "$SWAP" && sync
+	mv -f "$tmp" "$SWAP" || { rm -f "$tmp"; return 1; }
 	if swapon -p "$PRIO" "$SWAP"; then
 		logger -t mwrt-swapfile "created ${SWAP} ${SIZE_MB}MB, swapon pri ${PRIO}"
 	else

@@ -50,6 +50,10 @@
 	<script src="{{ resource }}/mwrt-wizard-launch.js?v=1-{{ pkgs_update_time }}"></script>
 {% endif %}
 {# mwrt-wizard:end #}
+{% if (ctx?.authsession && !require('fs').access('/etc/myos-disclaimer.accepted')): %}
+	<script src="{{ resource }}/myos-disclaimer.js?v=1" defer></script>
+{% endif %}
+
 {% include(`themes/${theme}/footer`) %}
 
 <!-- Lua compatibility mode active: {{ lua_active ? 'yes' : 'no' }} -->

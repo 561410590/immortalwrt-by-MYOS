@@ -10,7 +10,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=glorytun
 PKG_VERSION:=0.0.35
-PKG_RELEASE:=11
+PKG_RELEASE:=12
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_VERSION:=95fa5ead2154adb546bcdb454c56c876e9f60bb5
 PKG_SOURCE:=glorytun-$(PKG_VERSION).tar.gz
@@ -23,7 +23,7 @@ include $(INCLUDE_DIR)/package.mk
 define Package/$(PKG_NAME)
 SECTION:=net
 CATEGORY:=Network
-DEPENDS:=+kmod-tun +libsodium +librt
+DEPENDS:=+kmod-tun +ip-full +libsodium +librt
 TITLE:=Glorytun
 URL:=https://github.com/angt/glorytun
 SUBMENU:=VPN

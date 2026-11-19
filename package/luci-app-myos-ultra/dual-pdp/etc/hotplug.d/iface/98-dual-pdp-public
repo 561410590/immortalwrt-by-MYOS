@@ -1,0 +1,23 @@
+#!/bin/sh
+case "$ACTION" in
+    ifup) ;;
+    ifupdate) [ "$IFUPDATE_ADDRESSES" = 1 ] || exit 0 ;;
+    *) exit 0 ;;
+esac
+[ "$(uci -q get dual_pdp.main.enabled)" = 1 ] || exit 0
+primary="$(uci -q get dual_pdp.main.primary_network)"
+primary="${primary:-2_1}"
+case "$INTERFACE" in
+    "$primary") link=1-4 ;;
+    "${primary}v6") link=1-6 ;;
+    pdp2) link=2-4 ;;
+    pdp2v6) link=2-6 ;;
+    *) exit 0 ;;
+esac
+run=/var/run/dual-pdp-manager
+mkdir -p -m 700 "$run" || exit 1
+if [ "$ACTION" = ifup ]; then
+    read -r uptime rest </proc/uptime
+    printf '%s\n' "$uptime-$$" > "$run/link-$link.$$" && mv "$run/link-$link.$$" "$run/link-$link" || exit 1
+fi
+/usr/libexec/dual-pdp-public missing </dev/null >/dev/null 2>&1 &

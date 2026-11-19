@@ -1,0 +1,8 @@
+{
+  "admin/embedded/dual-pdp": {
+    "title": "双会话分流（实验性）",
+    "order": 4,
+    "action": { "type": "view", "path": "dual-pdp/overview" },
+    "depends": { "acl": [ "luci-app-dual-pdp" ] }
+  }
+}

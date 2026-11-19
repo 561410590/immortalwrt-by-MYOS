@@ -1,0 +1,9 @@
+#!/bin/sh
+
+feature_dir=/etc/c2000max-traffic
+[ -s "$feature_dir/features/active" ] && exit 0
+mkdir -p "$feature_dir" || exit 1
+if [ ! -f "$feature_dir/feature.cfg" ]; then
+    cp /usr/share/dual-pdp/inst-feature.cfg "$feature_dir/feature.cfg" || exit 1
+fi
+/usr/sbin/c2000max-feature-manager init >/dev/null

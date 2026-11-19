@@ -1,0 +1,10 @@
+#!/bin/sh
+run=/var/run/dual-pdp-manager
+mkdir -p -m 700 "$run" || exit 1
+if [ "$1" != missing ]; then
+    exec 8>"$run/public-manual.lock" || exit 1
+    flock -n 8 || exit 0
+fi
+exec 9>"$run/public.lock" || exit 1
+flock -w 12 9 || exit 1
+exec /usr/sbin/dual-pdp-manager public-worker "$1"

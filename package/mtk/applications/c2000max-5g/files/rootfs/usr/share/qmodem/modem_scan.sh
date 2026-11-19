@@ -558,13 +558,15 @@ remove()
     modem_count=$(($modem_count-1))
     uci -q set qmodem.main.modem_count=$modem_count
     uci commit qmodem
+    if [ "$(board_name):$section_name" != "nradio,c2000-ultra:2_1" ]; then
+        uci -q delete "network.$section_name"
+        uci -q delete "network.${section_name}v6"
+        uci -q delete "dhcp.$section_name"
+        uci commit network
+        uci commit dhcp
+    fi
     uci -q batch <<EOF
 del qmodem.${section_name}
-del network.${section_name}
-del network.${section_name}v6
-del dhcp.${section_name}
-commit network
-commit dhcp
 commit qmodem
 EOF
     lock -u /tmp/lock/modem_remove    

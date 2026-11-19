@@ -1,0 +1,978 @@
+#!/usr/bin/lua
+-- The main MT5700 session belongs to QModem. Only CID 2 is written here.
+local uci = require('uci')
+local json = require('luci.jsonc')
+local fs = require('nixio.fs')
+local nixio = require('nixio')
+local qos = require('dual_pdp.qos')
+local policy = require('dual_pdp.policy')
+local runtime = require('dual_pdp.runtime')
+local RUN = '/var/run/dual-pdp-manager'
+local STORE = '/etc/dual-pdp-manager'
+local LOCK = RUN .. '/operation.lock'
+local SELF = '/usr/sbin/dual-pdp-manager'
+local pid = nixio.getpid()
+local seq = 0
+fs.mkdirr(RUN); fs.chmod(RUN, '700')
+fs.mkdirr(STORE .. '/backups'); fs.chmod(STORE, '700'); fs.chmod(STORE .. '/backups', '700')
+
+local function q(s) return "'" .. tostring(s):gsub("'", "'\\''") .. "'" end
+local function readjson(path) return json.parse(fs.readfile(path) or '') end
+local function writejson(path, value)
+    local tmp = path .. '.tmp.' .. pid
+    assert(fs.writefile(tmp, json.stringify(value)), '无法写入状态文件')
+    fs.chmod(tmp, '600')
+    assert(fs.rename(tmp, path), '无法保存状态文件')
+end
+local function cursor()
+    local savedir = RUN .. '/uci-' .. pid
+    fs.mkdirr(savedir)
+    return uci.cursor('/etc/config', savedir)
+end
+local function cfg(c, key, fallback) return c:get('dual_pdp', 'main', key) or fallback end
+local function primary_network(c) return cfg(c, 'primary_network', '2_1') end
+local function secondary_device(c)
+    local path = c:get('qmodem', cfg(c, 'modem_section', '2_1'), 'path') or ''
+    local slot = path:match('/([^/]+)/?$')
+    if not slot then return nil end
+    for intf in fs.dir('/sys/bus/usb/devices') do
+        if intf:sub(1, #slot + 1) == slot .. ':' and intf:match(':%d+%.2$') then
+            local dir = '/sys/bus/usb/devices/' .. intf
+            local driver = fs.readlink(dir .. '/driver') or ''
+            if driver:match('/cdc_ncm$') and fs.stat(dir .. '/net') then
+                for dev in fs.dir(dir .. '/net') do
+                    if dev:match('^[%w_.%-]+$') and dev ~= '.' and dev ~= '..' then return dev end
+                end
+            end
+        end
+    end
+end
+local function section(c, package, kind, name, values)
+    c:delete(package,name)
+    assert(c:set(package,name,kind),'无法创建配置段 '..name)
+    for key,value in pairs(values or {}) do
+        if type(value)~='table' or next(value)~=nil then assert(c:set(package,name,key,value),'无法设置 '..key) end
+    end
+    return name
+end
+local function command(args)
+    seq = seq + 1
+    local path = RUN .. '/cmd-' .. pid .. '-' .. seq
+    local parts = {}; for _, s in ipairs(args) do parts[#parts+1] = q(s) end
+    local code = os.execute(table.concat(parts, ' ') .. ' >' .. q(path) .. ' 2>&1')
+    local text = fs.readfile(path) or ''; fs.unlink(path)
+    return text, code == 0
+end
+local function shell(text)
+    return command({'/bin/sh', '-c', text})
+end
+local function fail(message) error(message, 0) end
+local function at(c, text)
+    local section = cfg(c, 'modem_section', '2_1')
+    if not section:match('^[%w_]+$') then fail('模组配置无效') end
+    local port = c:get('qmodem', section, 'at_port') or ''
+    if not port:match('^/dev/ttyUSB%d+$') or not fs.stat(port) then fail('模组 AT 端口未就绪') end
+    local output, ok = command({'/usr/libexec/mt5700-web/qmodem-at', port, '10', text})
+    if not ok or not output:match('[\r\n]OK[\r\n]') then
+        local reason = output:match('[\r\n]([^\r\n]*ERROR[^\r\n]*)') or output:match('%S[^\r\n]*')
+        fail(text .. '：' .. (reason or '模组未确认操作'))
+    end
+    return output
+end
+local function context(c, optional)
+    local raw = at(c, 'AT+CGDCONT?')
+    local kind, apn = raw:match('%+CGDCONT:%s*2,"([^"]+)","([^"]*)"')
+    if not kind and optional then return {type=cfg(c,'pdp_type','IPV4V6'),apn=cfg(c,'apn',''),raw=raw,missing=true} end
+    if not kind then fail('未找到第二路 PDP 配置') end
+    return {type=kind, apn=apn, raw=raw}
+end
+local function connected(c, cid)
+    local ok, text = pcall(at, c, 'AT^NDISSTATQRY=' .. cid)
+    if not ok then return nil end
+    local body = text:match('%^NDISSTATQRY:%s*([^\r\n]+)')
+    if not body then return nil end
+    local first = body:match('^(.-)"IPV[46]"') or ''
+    local _, commas = first:gsub(',', ',')
+    if commas == 4 then body = body:match('^' .. cid .. ',(.*)$') end
+    if not body or (commas ~= 3 and commas ~= 4) then return nil end
+    local down = false
+    for state in body:gmatch('(%d+),[^,]*,[^,]*,"IPV[46]"') do
+        if state == '1' then return true end
+        if state == '0' then down = true end
+    end
+    if down then return false end
+end
+local function netstatus(name)
+    if not name:match('^[%w_]+$') then return {} end
+    local text, ok = command({'ubus', 'call', 'network.interface.' .. name, 'status'})
+    return ok and json.parse(text) or {}
+end
+local function ipv4(value)
+    if type(value) ~= 'string' then return nil end
+    local a,b,c,d = value:match('^(%d+)%.(%d+)%.(%d+)%.(%d+)$')
+    if not a then return nil end
+    for _,text in ipairs({a,b,c,d}) do if #text>1 and text:sub(1,1)=='0' then return nil end end
+    local parts={tonumber(a),tonumber(b),tonumber(c),tonumber(d)}
+    for _, p in ipairs(parts) do if p > 255 then return nil end end
+    if parts[1] == 0 or parts[1] == 127 or parts[1] >= 224 then return nil end
+    return ((parts[1]*256+parts[2])*256+parts[3])*256+parts[4]
+end
+local function mac(value)
+    if type(value) ~= 'string' then return nil end
+    value = value:lower()
+    if not value:match('^%x%x:%x%x:%x%x:%x%x:%x%x:%x%x$') then return nil end
+    if value == '00:00:00:00:00:00' or tonumber(value:sub(1,2),16)%2 ~= 0 then return nil end
+    return value
+end
+local function iptext(value)
+    local d=value%256; value=math.floor(value/256)
+    local c=value%256; value=math.floor(value/256)
+    return math.floor(value/256)..'.'..(value%256)..'.'..c..'.'..d
+end
+local function ipv6(value)
+    if type(value)~='string' or #value>39 or not value:find(':',1,true) or not value:match('^[%x:]+$') or value:find(':::',1,true) then return false end
+    local compressed=value:find('::',1,true)
+    if (value:sub(1,1)==':' and value:sub(1,2)~='::') or (value:sub(-1)==':' and value:sub(-2)~='::') then return false end
+    if compressed and value:find('::',compressed+2,true) then return false end
+    local count=0
+    for group in value:gmatch('[^:]+') do if #group>4 then return false end; count=count+1 end
+    if (compressed and count>=8) or (not compressed and count~=8) then return false end
+    local first=tonumber(value:match('^(%x+)') or '0',16)
+    return value~='::' and value~='::1' and not (first>=65152 and first<=65215)
+end
+local function validapn(value)
+    return type(value)=='string' and #value <= 99 and (value=='' or value:match('^[A-Za-z0-9][A-Za-z0-9._%-]*$'))
+end
+local function backup(label, c, modem)
+    seq=seq+1
+    local dir=STORE .. '/backups/' .. os.date('%Y%m%d-%H%M%S') .. '-' .. pid .. '-' .. seq
+    fs.mkdirr(dir); fs.chmod(dir,'700')
+    for _, name in ipairs({'dual_pdp','network','firewall','dhcp','qmodem'}) do
+        if fs.stat('/etc/config/' .. name) then assert(fs.copy('/etc/config/' .. name,dir .. '/' .. name)); fs.chmod(dir .. '/' .. name,'600') end
+    end
+    writejson(dir .. '/metadata.json',{action=label,time=os.time(),modem=modem})
+    return dir
+end
+local function restoreconfig(dir)
+    for _, name in ipairs({'dual_pdp','network','firewall','dhcp','qmodem'}) do
+        if fs.stat(dir .. '/' .. name) then assert(fs.copy(dir .. '/' .. name,'/etc/config/' .. name)) end
+    end
+end
+local function refresh(name)
+    command({'ifdown',name}); command({'ifup',name})
+end
+local function nftfile(text)
+    local path=RUN..'/handoff-'..pid..'.nft'
+    assert(fs.writefile(path,text))
+    local output,ok=command({'nft','-c','-f',path})
+    if ok then output,ok=command({'nft','-f',path}) end
+    fs.unlink(path)
+    if not ok then fail('无法准备出口连接切换：'..output:sub(1,180)) end
+end
+local function handoff(changed, lan, primary)
+    if not next(changed) then return end
+    local secondary=netstatus('pdp2')
+    local interfaces={}
+    for _,name in ipairs({primary.l3_device or '',secondary.l3_device or ''}) do
+        if name:match('^[%w_.%-]+$') and name~=lan.l3_device then interfaces[name]=true end
+    end
+    if not next(interfaces) then fail('出口网卡未就绪，无法切换设备连接') end
+    local device=lan.l3_device or 'br-lan'
+    if not device:match('^[%w_.%-]+$') then fail('LAN 网卡无效') end
+    -- Keep this table separate from fw4 so a firewall reload preserves the
+    -- reset guard. Only switched clients and the two modem uplinks match it.
+    local _,exists=command({'nft','list','table','inet','dual_pdp_handoff'})
+    if not exists then
+        nftfile('table inet dual_pdp_handoff {\n'..
+            'set uplinks { type ifname; }\n'..
+            -- Exceeds the default five-day established-TCP timeout; idle
+            -- browser sockets still receive a reset when used again later.
+            'set switched4 { type ipv4_addr; flags timeout; timeout 6d; }\n'..
+            'set switched6 { type ipv6_addr; flags timeout; timeout 6d; }\n'..
+            'chain forward {\n type filter hook forward priority -10; policy accept;\n'..
+            'iifname "'..device..'" oifname @uplinks ip saddr @switched4 ct state { new, invalid } tcp flags & (syn | rst) == 0 counter reject with tcp reset\n'..
+            'iifname "'..device..'" oifname @uplinks ip6 saddr @switched6 ct state { new, invalid } tcp flags & (syn | rst) == 0 counter reject with tcp reset\n'..
+            '}\n}\n')
+    end
+    local batch={'flush set inet dual_pdp_handoff uplinks'}
+    for name in pairs(interfaces) do batch[#batch+1]='add element inet dual_pdp_handoff uplinks { "'..name..'" }' end
+    local neighbors=command({'ip','-6','neigh','show','dev',device})
+    for _,d in pairs(changed) do
+        d.six={}
+        for line in neighbors:gmatch('[^\n]+') do
+            local address,m=line:match('^(%S+).*lladdr%s+(%S+)')
+            if m and m:lower()==d.mac and ipv6(address) and address:match('^[23]') then d.six[address]=true end
+        end
+    end
+    -- Replacing an element requires it to exist. Add first, then atomically
+    -- delete/re-add so repeated switches renew the guard instead of failing.
+    local seed={}
+    for _,d in pairs(changed) do
+        if ipv4(d.ip) then
+            seed[#seed+1]='add element inet dual_pdp_handoff switched4 { '..d.ip..' }'
+            batch[#batch+1]='delete element inet dual_pdp_handoff switched4 { '..d.ip..' }'
+            batch[#batch+1]='add element inet dual_pdp_handoff switched4 { '..d.ip..' timeout 6d }'
+        end
+        for address in pairs(d.six) do
+            seed[#seed+1]='add element inet dual_pdp_handoff switched6 { '..address..' }'
+            batch[#batch+1]='delete element inet dual_pdp_handoff switched6 { '..address..' }'
+            batch[#batch+1]='add element inet dual_pdp_handoff switched6 { '..address..' timeout 6d }'
+        end
+    end
+    if #seed>0 then nftfile(table.concat(seed,'\n')..'\n') end
+    nftfile(table.concat(batch,'\n')..'\n')
+end
+local function clear_hnat(d)
+    local path='/sys/kernel/debug/hnat/hnat_entry'
+    if not fs.stat(path) then return end
+    -- MediaTek's device-scoped API deletes both directions and IPv6 entries,
+    -- and invalidates the PPE cache; it does not change the acceleration mode.
+    for attempt=1,3 do
+        local _,ok=shell('printf %s '..q('8 '..d.mac)..' > '..q(path))
+        if ok then return end
+        nixio.nanosleep(0,100000000)
+    end
+    fail('无法清理该设备的硬件连接记录，请重试切换')
+end
+local function clear_ipv4_flows(ip)
+    local rows,ok=command({'conntrack','-L','-f','ipv4','-s',ip})
+    if not ok then fail('无法读取旧连接记录') end
+    local addresses={}
+    for line in rows:gmatch('[^\n]+') do
+        local original,reply=line:match('dst=(%S+).-dst=(%S+)')
+        -- Select SNAT entries, including previous WAN leases. This preserves
+        -- local DNS, router management and direct LAN connections.
+        if ipv4(original) and ipv4(reply) and reply~=ip then addresses[reply]=true end
+    end
+    for address in pairs(addresses) do command({'conntrack','-D','-f','ipv4','-s',ip,'--reply-dst',address}) end
+end
+local function clearflows(d)
+    clear_hnat(d)
+    if ipv4(d.ip) then clear_ipv4_flows(d.ip) end
+    for address in pairs(d.six or {}) do command({'conntrack','-D','-f','ipv6','-s',address}) end
+    clear_hnat(d)
+end
+
+local function assignmentlist(c)
+    local list={}
+    c:foreach('dual_pdp','device',function(s)
+        list[#list+1]={mac=s.mac,ip=s.ip,name=s.name or '',pdp=tonumber(s.pdp) or 1}
+    end)
+    return list
+end
+local function clients(c)
+    local records={}
+    local function add(m,ip,name,online)
+        m=mac(m); if not m then return end
+        local item=records[m] or {mac=m,name='',ip='',online=false,pdp=0}
+        if ipv4(ip) then item.ip=ip end
+        if type(name)=='string' and name~='' and name~='*' then item.name=name end
+        if online then item.online=true end
+        records[m]=item
+    end
+    local lan=netstatus(cfg(c,'lan_interface','lan'))
+    local lanip=lan['ipv4-address'] and lan['ipv4-address'][1]
+    local network=lanip and ipv4(lanip.address)
+    local size=lanip and 2^(32-lanip.mask)
+    local function inlan(ip)
+        local value=ipv4(ip)
+        return value and network and math.floor(value/size)==math.floor(network/size)
+    end
+    c:foreach('dhcp','host',function(s)
+        local addresses=type(s.mac)=='table' and s.mac or {s.mac}
+        for _,m in ipairs(addresses) do if inlan(s.ip) then add(m,s.ip,s.name,false) end end
+    end)
+    for line in (fs.readfile('/tmp/dhcp.leases') or ''):gmatch('[^\n]+') do
+        local expiry,m,ip,name=line:match('^(%d+)%s+(%S+)%s+(%S+)%s+(%S+)')
+        if m and inlan(ip) and (tonumber(expiry)==0 or tonumber(expiry)>os.time()) then add(m,ip,name,false) end
+    end
+    local neighbor=command({'ip','-4','neigh','show','dev',lan.l3_device or 'br-lan'})
+    for line in neighbor:gmatch('[^\n]+') do
+        local ip,m=line:match('^(%S+).*lladdr%s+(%S+)')
+        if m and inlan(ip) then add(m,ip,nil,not line:match('FAILED') and not line:match('INCOMPLETE')) end
+    end
+    local neighbors6=command({'ip','-6','neigh','show','dev',lan.l3_device or 'br-lan'})
+    for line in neighbors6:gmatch('[^\n]+') do
+        local m=line:match('lladdr%s+(%S+)')
+        if m and not line:match('FAILED') then add(m,nil,nil,true) end
+    end
+    for _,s in ipairs(assignmentlist(c)) do
+        add(s.mac,s.ip,s.name,false)
+        if records[s.mac] then records[s.mac].pdp=s.pdp end
+    end
+    local list={}; for _,s in pairs(records) do list[#list+1]=s end
+    table.sort(list,function(a,b) if a.online~=b.online then return a.online end; return (a.name..a.mac)<(b.name..b.mac) end)
+    return list,lan
+end
+local function sync_routes(c)
+    local primary=netstatus(primary_network(c))
+    local addr=primary['ipv4-address'] and primary['ipv4-address'][1]
+    local gateway
+    for _,r in ipairs(primary.route or {}) do if r.target=='0.0.0.0' and r.mask==0 and ipv4(r.nexthop) then gateway=r.nexthop; break end end
+    local state={up=primary.up==true,address=addr and addr.address,mask=addr and addr.mask,device=primary.l3_device,gateway=gateway}
+    local previous=readjson(RUN..'/route-state.json')
+    if previous and previous.up==state.up and previous.address==state.address and previous.mask==state.mask and previous.device==state.device and previous.gateway==state.gateway then return end
+    command({'ip','-4','route','flush','table','201'})
+    command({'ip','-4','route','add','unreachable','default','table','201','metric','32767'})
+    if primary.up and addr and ipv4(addr.address) and gateway and primary.l3_device then
+        local network=iptext(math.floor(ipv4(addr.address)/2^(32-addr.mask))*2^(32-addr.mask))
+        command({'ip','-4','route','replace',network..'/'..addr.mask,'dev',primary.l3_device,'scope','link','table','201'})
+        local _,ok=command({'ip','-4','route','replace','default','via',gateway,'dev',primary.l3_device,'src',addr.address,'table','201','metric','11'})
+        if not ok then fail('第一路策略路由未就绪') end
+    end
+    writejson(RUN..'/route-state.json',state)
+end
+local function collect_qos(c, cache, generation)
+    local ok,raw=pcall(at,c,'AT^SYSINFOEX')
+    local radio=qos.radio(ok and raw or '')
+    if radio.session_kind=='PDN 连接' then
+        local dc,reply=pcall(at,c,'AT^LENDC?')
+        radio=qos.radio(ok and raw or '',dc and reply or '')
+    end
+    local data={time=os.time(),generation=generation,radio=radio,sessions={}}
+    for cid,name in ipairs({primary_network(c),'pdp2'}) do
+        local net=netstatus(name)
+        local address=net['ipv4-address'] and net['ipv4-address'][1]
+        local item={cid=cid,address=address and address.address or '',state='disconnected',message='会话未连接'}
+        if net.up and cache['pdp'..cid] then
+            local ok5,raw5=pcall(at,c,'AT+C5GQOSRDP='..cid)
+            local oke,rawe=pcall(at,c,'AT+CGEQOSRDP='..cid)
+            item=qos.combine(qos.parse(ok5 and raw5 or '', '5gs',cid),qos.parse(oke and rawe or '', 'eps',cid),radio)
+            item.cid=cid; item.address=address and address.address or ''
+        end
+        item.time=data.time
+        data.sessions[tostring(cid)]=item
+    end
+    writejson(RUN..'/telemetry.json',data)
+end
+local function read_number(path)
+    -- nixio also returns errno and a message. tonumber accepts a second argument as its base.
+    local value=fs.readfile(path)
+    return tonumber(value)
+end
+
+local function session_link(c,cid,name,connected_state)
+        local net=netstatus(name)
+        local a=net['ipv4-address'] and net['ipv4-address'][1]
+        local iface=net.l3_device or c:get('network',name,'device') or ''
+        local v6=netstatus(cid==1 and primary_network(c)..'v6' or 'pdp2v6')
+        local six=''
+        for _,v in ipairs(v6['ipv6-address'] or {}) do if ipv6(v.address) then six=v.address; break end end
+        if six=='' and iface:match('^[%w_.%-]+$') then
+            local text=command({'ip','-6','-o','addr','show','dev',iface,'scope','global'})
+            for value in text:gmatch('inet6%s+([^/%s]+)') do if ipv6(value) then six=value; break end end
+        end
+        local item={cid=cid,up=net.up==true,device=iface,address=a and a.address or '',ipv6_address=six,connected=connected_state,apn=cid==2 and cfg(c,'apn','') or '',rx=0,tx=0,counters_available=false}
+        if iface:match('^[%w_.%-]+$') then
+            local stats='/sys/class/net/'..iface..'/statistics/'
+            local rx,tx=read_number(stats..'rx_bytes'),read_number(stats..'tx_bytes')
+            item.rx,item.tx=rx or 0,tx or 0
+            item.counters_available=rx~=nil and tx~=nil
+        end
+        return item
+end
+
+local function link_epoch(cid,family)
+    return fs.readfile(RUN..'/link-'..cid..'-'..family) or ''
+end
+
+local function topology_sample(lan,list,pdps)
+    local accounting=read_number('/proc/sys/net/netfilter/nf_conntrack_acct')
+    if accounting==nil then return {error='暂时无法读取连接流量计数状态'} end
+    if accounting~=1 then return {error='连接流量计数已关闭'} end
+    local dev=lan.l3_device or 'br-lan'
+    if not dev:match('^[%w_.%-]+$') then return {error='无法读取 LAN 接口'} end
+    local addresses,links,count,overflow={},{},0,false
+    local function add(ip,m)
+        if addresses[ip] then return end
+        if count>=512 then overflow=true;return end
+        addresses[ip]=m;count=count+1
+    end
+    for _,d in ipairs(list) do if d.online and ipv4(d.ip) then add(d.ip,d.mac) end end
+    local neighbors=command({'ip','-6','neigh','show','dev',dev})
+    for line in neighbors:gmatch('[^\n]+') do
+        local ip,m=line:match('^(%S+).*lladdr%s+(%S+)')
+        if policy.ipv6(ip) and mac(m) and not line:find('FAILED',1,true) then add(ip,mac(m)) end
+    end
+    for i,p in ipairs(pdps) do
+        links[i]={device=p.up and p.device or '',v4=p.address,v6=p.ipv6_address}
+    end
+    local raw,ok=command({'/usr/libexec/dual-pdp-topology',json.stringify({clients=addresses,links=links,lan=dev})})
+    local result=ok and json.parse(raw) or {error='暂时无法读取连接流量'}
+    if overflow then result.partial=true end
+    return result
+end
+local function status(c,with_topology)
+    local job=readjson(RUN..'/job.json')
+    local owner=readjson(LOCK..'/owner.json')
+    if job and (job.state=='pending' or job.state=='running') and owner and owner.pid and not fs.stat('/proc/'..owner.pid) and os.time()-(owner.time or 0)>10 then
+        job.state='error'; job.success=false; job.message='上次操作已中断，可重新操作；APN 恢复记录会保留'; job.finished=os.time()
+        writejson(RUN..'/job.json',job); fs.unlink(LOCK..'/owner.json'); fs.rmdir(LOCK)
+    end
+    local cache=readjson(RUN..'/state.json') or {}
+    local public=readjson(RUN..'/public.json') or {}
+    local telemetry=readjson(RUN..'/telemetry.json') or {}
+    local age=os.time()-(tonumber(telemetry.time) or 0)
+    local fresh=age>=0 and age<=150 and cache.identity_ok and cache.generation and cache.generation==telemetry.generation
+    local list,lan=clients(c)
+    local pdps={}
+    for cid,name in ipairs({primary_network(c),'pdp2'}) do
+        local item=session_link(c,cid,name,cache['pdp'..cid])
+        local six=item.ipv6_address
+        local p=public[tostring(cid)]
+        if p and item.up and p.address==item.address and (p.epoch4 or '')==link_epoch(cid,4) then item.public_ipv4=p.ipv4; item.public_time=p.time; item.public4_time=p.v4_time; item.public4_failed=p.failed4 end
+        if p and item.up and p.ipv6_address==six and (p.epoch6 or '')==link_epoch(cid,6) then item.public_ipv6=p.ipv6; item.public6_time=p.v6_time; item.public6_failed=p.failed6 end
+        local quality=telemetry.sessions and telemetry.sessions[tostring(cid)]
+        if fresh and quality and quality.address==item.address and item.up and item.connected==true then
+            item.qos=quality
+        else
+            item.qos={state=item.up and 'stale' or 'disconnected',message=item.up and '等待更新 QoS 参数' or '会话未连接'}
+        end
+        pdps[#pdps+1]=item
+    end
+    return {success=true,version=policy.VERSION,time=os.time(),updated=cache.time or 0,identity_ok=cache.identity_ok==true,error=cache.error,
+        topology=with_topology and topology_sample(lan,list,pdps) or nil,
+        radio=fresh and telemetry.radio or {access='等待获取',session_kind='数据会话'},qos_updated=fresh and telemetry.time or 0,
+        public_probe=(function()
+            local probe=readjson(RUN..'/public-job.json') or {}
+            if probe.running and not fs.stat('/proc/'..tostring(probe.pid)) then probe.running=false;probe.warning='上次检测已中断' end
+            return probe
+        end)(),pdps=pdps,devices=list,smart=runtime.status(c),settings={pdp2_enabled=cfg(c,'pdp2_enabled','0')=='1',autodial=cfg(c,'autodial','0')=='1',apn=cfg(c,'apn',''),pdp_type=cfg(c,'pdp_type','IPV4V6')},
+        lan_address=lan['ipv4-address'] and lan['ipv4-address'][1],ipv6_notice='第二路有可用 IPv6 路由时同时分流 IPv4 和 IPv6。',job=readjson(RUN..'/job.json')}
+end
+
+local function validate_devices(c, input)
+    if type(input.devices)~='table' or #input.devices>32 then fail('最多配置 32 台设备') end
+    local lan=netstatus(cfg(c,'lan_interface','lan'))
+    local address=lan['ipv4-address'] and lan['ipv4-address'][1]
+    if not address or not ipv4(address.address) then fail('LAN 地址未就绪') end
+    local size=2^(32-address.mask); local base=math.floor(ipv4(address.address)/size)*size
+    local result,seenmac,seenip={},{},{}
+    for _,item in ipairs(input.devices) do
+        local m=mac(item.mac); local ip=ipv4(item.ip); local pdp=tonumber(item.pdp)
+        if not m or not ip or (pdp~=1 and pdp~=2 and pdp~=3) then fail('设备 MAC、IPv4 地址或 PDP 选择无效') end
+        if ip<=base or ip>=base+size-1 or ip==ipv4(address.address) or math.floor(ip/size)~=math.floor(base/size) then fail('设备地址必须位于当前 LAN 网段内') end
+        if seenmac[m] or seenip[item.ip] then fail('设备 MAC 或 IPv4 地址重复') end
+        if type(item.name)~='string' or #item.name>96 or item.name:find('[%z\1-\31]') then fail('设备名称无效或过长') end
+        seenmac[m]=true; seenip[item.ip]=true
+        result[#result+1]={mac=m,ip=item.ip,pdp=pdp,name=item.name}
+    end
+    return result
+end
+
+local function remove_owned(c, package, kind)
+    local names={}
+    c:foreach(package,kind,function(s) if s.dual_pdp_owned=='1' then names[#names+1]=s['.name'] end end)
+    for _,name in ipairs(names) do c:delete(package,name) end
+end
+local policy_environment
+local function apply_devices(c, devices, detaching)
+    local old=assignmentlist(c)
+    local before,after,changed={},{},{}
+    for _,d in ipairs(old) do before[d.ip]=d end
+    for _,d in ipairs(devices) do after[d.ip]=d end
+    for ip,d in pairs(before) do if not after[ip] or after[ip].pdp~=d.pdp or after[ip].mac~=d.mac then changed[ip]=d end end
+    for ip,d in pairs(after) do if not before[ip] or before[ip].pdp~=d.pdp or before[ip].mac~=d.mac then changed[ip]=d end end
+    local dir=backup('devices',c)
+    local ok,err=pcall(function()
+        local lan=netstatus(cfg(c,'lan_interface','lan'))
+        remove_owned(c,'dhcp','host')
+        local sections={}; c:foreach('dual_pdp','device',function(s) sections[#sections+1]=s['.name'] end)
+        for _,name in ipairs(sections) do c:delete('dual_pdp',name) end
+        for _,d in ipairs(devices) do
+            local id=d.mac:gsub(':','')
+            local existing
+            c:foreach('dhcp','host',function(s)
+                local match=false
+                for _,m in ipairs(type(s.mac)=='table' and s.mac or {s.mac}) do if mac(m)==d.mac then match=true end end
+                if s.ip==d.ip and not match then fail(d.ip..' 已保留给另一台设备') end
+                if match then
+                    if s.ip~=d.ip then fail('该设备已有地址保留 '..tostring(s.ip)..'，请使用该地址') end
+                    existing=true
+                end
+            end)
+            if not existing then
+                local hostname=d.name:match('^[A-Za-z0-9][A-Za-z0-9_.%-]*$') and #d.name<=63 and d.name or 'pdp-'..id:sub(7)
+                section(c,'dhcp','host','dpm_'..id,{mac=d.mac,ip=d.ip,name=hostname,dual_pdp_owned='1'})
+            end
+            section(c,'dual_pdp','device','d_'..id,{mac=d.mac,ip=d.ip,name=d.name,pdp=tostring(d.pdp)})
+        end
+        for _,package in ipairs({'dual_pdp','dhcp'}) do assert(c:commit(package),'无法保存 '..package) end
+        handoff(changed,lan,netstatus(primary_network(c)))
+        command({'/etc/init.d/dnsmasq','reload'})
+        if not detaching then runtime.sync(c,policy_environment(c)) end
+        for _,d in pairs(changed) do clearflows(d) end
+    end)
+    if not ok then
+        restoreconfig(dir); command({'/etc/init.d/dnsmasq','reload'}); pcall(function()local prev=cursor();runtime.sync(prev,policy_environment(prev))end)
+        fail(tostring(err))
+    end
+    return '设备分配已生效；已清理旧出口连接，应用需要重新建立连接',dir
+end
+
+local function wait_connected(c)
+    for _=1,8 do if connected(c,2) then return true end; nixio.nanosleep(2) end
+    return false
+end
+local function set_context(c, value)
+    if not validapn(value.apn) or (value.type~='IP' and value.type~='IPV4V6') then fail('第二路 APN 或协议类型无效') end
+    at(c,'AT+CGDCONT=2,"'..value.type..'","'..value.apn..'"')
+    local actual=context(c)
+    if actual.type~=value.type or actual.apn~=value.apn then fail('模组未保存所需 APN') end
+end
+local function apply_apn(c,input)
+    local old=context(c,true)
+    local dir=backup('apn',c,old)
+    local wanted=cfg(c,'pdp2_enabled','0')=='1'
+    if old.missing then
+        if wanted then fail('第二路上下文尚未创建，请先断开第二路再保存 APN') end
+        c:set('dual_pdp','main','apn',input.apn);c:set('dual_pdp','main','pdp_type',input.pdp_type)
+        assert(c:commit('dual_pdp'),'无法保存 APN 设置')
+        return '第二路 APN 已保存，将在首次手动连接时创建会话',dir
+    end
+    local transaction={old={type=old.type,apn=old.apn},enabled=wanted,backup=dir,time=os.time()}
+    writejson(STORE..'/transaction.json',transaction)
+    local ok,err=pcall(function()
+        if connected(c,2) then at(c,'AT^NDISDUP=2,0') end
+        set_context(c,{type=input.pdp_type,apn=input.apn})
+        if wanted then
+            at(c,'AT^NDISDUP=2,1')
+            if not wait_connected(c) then fail('新 APN 未能建立第二路连接') end
+        end
+        c:set('dual_pdp','main','apn',input.apn); c:set('dual_pdp','main','pdp_type',input.pdp_type)
+        assert(c:commit('dual_pdp'),'无法保存 APN 设置')
+        if wanted then refresh('pdp2')else command({'ifdown','pdp2v6'});command({'ifdown','pdp2'})end
+        fs.unlink(STORE..'/transaction.json')
+    end)
+    if not ok then
+        local restored=pcall(function()
+            pcall(at,c,'AT^NDISDUP=2,0'); set_context(c,old)
+            if wanted then at(c,'AT^NDISDUP=2,1'); if not wait_connected(c) then fail('旧 APN 暂未连接') end end
+            restoreconfig(dir)
+            if wanted then refresh('pdp2')else command({'ifdown','pdp2v6'});command({'ifdown','pdp2'})end
+            fs.unlink(STORE..'/transaction.json')
+        end)
+        fail(tostring(err)..(restored and '；已恢复原 APN' or '；已保留备份，等待自动恢复原 APN'))
+    end
+    return wanted and '第二路 APN 已保存并重新连接' or '第二路 APN 已保存，下次连接时生效',dir
+end
+
+local migrate
+local function connection_action(c, action)
+    if action ~= 'disconnect' then
+        local secondary=secondary_device(c)
+        if not secondary then fail('模组尚未枚举第二张 USB NCM 网卡') end
+        if cfg(c,'manager_version','')~='2' or c:get('network','pdp2','device')~=secondary then
+            migrate(secondary); c=cursor()
+        end
+    end
+    local read_context,previous=pcall(context,c,true)
+    if not read_context then previous={} end
+    local dir=backup(action,c,previous)
+    local on=connected(c,2)
+    if action=='disconnect' then
+        c:set('dual_pdp','main','pdp2_enabled','0'); assert(c:commit('dual_pdp'))
+        if on~=false then at(c,'AT^NDISDUP=2,0') end
+        command({'ifdown','pdp2v6'}); command({'ifdown','pdp2'})
+        return '第二路已断开，已分配设备的新连接回到主路',dir
+    end
+    c:set('dual_pdp','main','pdp2_enabled','1'); assert(c:commit('dual_pdp'))
+    if previous.missing then set_context(c,{type=cfg(c,'pdp_type','IPV4V6'),apn=cfg(c,'apn','')})end
+    if action=='reconnect' and on~=false then at(c,'AT^NDISDUP=2,0'); on=false end
+    if not on then at(c,'AT^NDISDUP=2,1') end
+    refresh('pdp2'); command({'ifup','pdp2v6'})
+    return wait_connected(c) and '第二路已连接' or '已发起第二路拨号，正在等待连接状态',dir
+end
+
+local function public_address(family,source)
+    local n=tostring(family)
+    for _,host in ipairs({'ipv'..n..'.ddnspod.com',n..'.ipchk.cn'}) do
+        local text,ok=command({'curl','-'..n,'--interface',source,'--noproxy','*','--connect-timeout','1.5','--max-time','2.5','--max-filesize','128','-fsS','https://'..host..'/'})
+        local value=text:match('^%s*([%x.:]+)%s*$')
+        if ok and ((family==4 and ipv4(value)) or (family==6 and ipv6(value))) then return value end
+    end
+end
+
+local function probe_public(c,missing_only)
+    local output=readjson(RUN..'/public.json') or {}
+    local tasks,children={},{}
+    for cid,name in ipairs({primary_network(c),'pdp2'}) do
+        local p=session_link(c,cid,name)
+        local key=tostring(cid)
+        local item=output[key] or {}
+        output[key]=item
+        for _,family in ipairs({4,6}) do
+            local addrkey=family==4 and 'address' or 'ipv6_address'
+            local source=p[addrkey]
+            local result='ipv'..family
+            local stamp='v'..family..'_time'
+            local epoch=link_epoch(cid,family)
+            if item[addrkey]~=source or (item['epoch'..family] or '')~=epoch or not p.up then
+                item[result],item[stamp],item['failed'..family],item['attempt'..family]=nil,nil,nil,nil
+            end
+            item[addrkey],item['epoch'..family]=source,epoch
+            local eligible=p.up and ((family==4 and ipv4(source)) or (family==6 and ipv6(source)))
+            if eligible and (not missing_only or (not item[result] and os.time()-(item['attempt'..family] or 0)>=60)) then
+                tasks[#tasks+1]={cid=cid,family=family,source=source,item=item}
+            end
+        end
+    end
+    if #tasks==0 then return end
+    writejson(RUN..'/public-job.json',{running=true,pid=pid,time=os.time()})
+    writejson(RUN..'/public.json',output)
+    local function finish(task,value)
+        local f,item,now=task.family,task.item,os.time()
+        item['attempt'..f],item.time=now,now
+        item['failed'..f]=not value
+        if value then item['ipv'..f],item['v'..f..'_time']=value,now end
+        writejson(RUN..'/public.json',output)
+    end
+    -- The parent alone publishes the cache. A slow family cannot hold up the others.
+    for _,task in ipairs(tasks) do
+        local child=nixio.fork()
+        if child==0 then
+            pid=nixio.getpid()
+            local ok,value=pcall(public_address,task.family,task.source)
+            if ok and value then fs.writefile(RUN..'/reply-'..pid,value) end
+            os.exit(ok and value and 0 or 1)
+        elseif child then children[child]=task
+        else finish(task,nil) end
+    end
+    while next(children) do
+        local child,how,code=nixio.waitpid(-1)
+        assert(child and children[child],'检测子进程中断')
+        local path=RUN..'/reply-'..child
+        finish(children[child],how=='exited' and code==0 and fs.readfile(path) or nil)
+        fs.unlink(path); children[child]=nil
+    end
+    writejson(RUN..'/public-job.json',{running=false,time=os.time(),warning=''})
+end
+
+local function queue_public(mode)
+    -- flock serialises manual and automatic probes without the writer job lock.
+    local code=os.execute('/usr/libexec/dual-pdp-public '..(mode=='missing' and 'missing' or 'refresh')..' </dev/null >/dev/null 2>&1 &')
+    if code~=0 then fail('无法启动外网地址检测') end
+    return {success=true}
+end
+
+migrate=function(secondary)
+    local c=cursor()
+    secondary=secondary or secondary_device(c)
+    if not secondary then fail('模组尚未枚举第二张 USB NCM 网卡') end
+    local ok_context,old=pcall(context,c,true)
+    if not ok_context then old={type=cfg(c,'pdp_type','IPV4V6'),apn=cfg(c,'apn','')} end
+    local original=backup('initialize',c)
+    local ok,message=pcall(function()
+        writejson(original..'/modem-context.json',old)
+        local existing=c:get('network','pdp2','device')
+        if existing and c:get('network','pdp2','dual_pdp_owned')~='1' then fail('现有 pdp2 接口由其他配置管理') end
+        local defaults={enabled='1',pdp2_enabled='0',autodial='0',primary_network='2_1',lan_interface='lan',apn=old.apn,pdp_type=old.type,smart_enabled='0',learning='1',heuristics='0',dpi_enabled='0',auto_public_probe='0'}
+        for key,value in pairs(defaults)do if not c:get('dual_pdp','main',key)then c:set('dual_pdp','main',key,value)end end
+        section(c,'network','interface','pdp2',{proto='dhcp',device=secondary,auto='0',metric='21',ip4table='202',peerdns='0',delegate='0',ipv6='1',dual_pdp_owned='1'})
+        section(c,'network','interface','pdp2v6',{proto='dhcpv6',device='@pdp2',auto='0',reqaddress='try',reqprefix='no',delegate='0',peerdns='0',defaultroute='1',ip6table='202',metric='21',dual_pdp_owned='1'})
+        c:foreach('firewall','zone',function(zone)
+            if zone.name=='wan' then
+                local values=type(zone.network)=='table' and zone.network or {zone.network}
+                local found={};for _,name in ipairs(values)do if name then found[name]=true end end
+                for _,name in ipairs({'pdp2','pdp2v6'})do if not found[name]then values[#values+1]=name end end
+                c:set('firewall',zone['.name'],'network',values)
+            end
+        end)
+        c:set('dual_pdp','main','manager_version','2')
+        for _,package in ipairs({'dual_pdp','network','firewall'})do assert(c:commit(package))end
+        command({'ubus','call','network','reload'});command({'/etc/init.d/firewall','reload'})
+        -- No AT writes, no ifup of PDP2, and no legacy test-device import.
+        return '初始化已完成；第二路按当前开关保持关闭或等待手动连接'
+    end)
+    if not ok then restoreconfig(original);fail(tostring(message))end
+    return message
+end
+
+policy_environment=function(c)
+    local list,lan=clients(c);local address=lan['ipv4-address'] and lan['ipv4-address'][1]
+    if not address then fail('LAN 地址未就绪')end
+    local secondary=netstatus('pdp2')
+    local enabled=secondary.up==true and cfg(c,'pdp2_enabled','0')=='1'
+    local six,prefixes=nil,{}
+    do
+        for _,key in ipairs({'ipv6-prefix-assignment','ipv6-address'}) do
+            for _,prefix in ipairs(lan[key] or {}) do
+                local addr,mask=prefix.address,tonumber(prefix.mask)
+                if policy.ipv6(addr) and mask and mask>=1 and mask<=128 then prefixes[#prefixes+1]=addr..'/'..mask end
+            end
+        end
+        local v6=netstatus('pdp2v6')
+        local iface=v6.l3_device
+        if enabled and v6.up and iface and iface:match('^[%w_.%-]+$') then
+            local addr
+            for _,a in ipairs(v6['ipv6-address'] or {}) do
+                if policy.ipv6(a.address) and a.address:match('^[23]') and a.preferred~=0 then addr=a.address;break end
+            end
+            for _,r in ipairs(v6.route or {}) do
+                if addr and r.target=='::' and r.mask==0 and type(r.nexthop)=='string' and (policy.ipv6(r.nexthop) or (r.nexthop:match('^fe[89ab]%x:') and ipv6('2001'..r.nexthop:sub(5)))) then
+                    six={address=addr,device=iface,gateway=r.nexthop};break
+                end
+            end
+        end
+    end
+    return {command=command,lan=lan,lan_cidr=address.address..'/'..address.mask,devices=assignmentlist(c),clients=list,secondary_up=enabled,secondary6=six,lan6_prefixes=prefixes}
+end
+
+local function apply_policy(c,input)
+    local value=policy.validate(input);runtime.validate_catalog(value,command)
+    local before,after={},{}
+    for _,m in ipairs(policy.priority_devices(policy.from_uci(c))) do before[m]=true end
+    for _,m in ipairs(policy.priority_devices(value)) do after[m]=true end
+    local dir=backup('policy',c)
+    local ok,message=pcall(function()
+        for _,kind in ipairs({'rule','category'})do
+            local names={};c:foreach('dual_pdp',kind,function(section)names[#names+1]=section['.name']end)
+            for _,name in ipairs(names)do c:delete('dual_pdp',name)end
+        end
+        c:set('dual_pdp','main','priority_enabled',value.priority_enabled and '1' or '0')
+        c:set('dual_pdp','main','smart_enabled',value.enabled and '1' or '0')
+        c:set('dual_pdp','main','feature_profile',value.profile)
+        if #value.priority_macs>0 then c:set('dual_pdp','main','priority_macs',value.priority_macs) else c:delete('dual_pdp','main','priority_macs') end
+        local dpi=false
+        for _,category in ipairs(value.categories)do
+            section(c,'dual_pdp','category','class_'..category.id,{id=tostring(category.id),target=tostring(category.target)})
+            if category.target>0 then dpi=true end
+        end
+        for _,r in ipairs(value.rules)do
+            if r.enabled and r.match_type~='network' then dpi=true end
+            local values={name=r.name,priority=tostring(r.priority),enabled=r.enabled and '1' or '0',target=tostring(r.target),fallback=r.fallback,match_type=r.match_type,expression=r.expression~='' and r.expression or nil,match_id=tostring(r.match_id),protocol=r.protocol,mac=r.mac,source=r.source,destination=r.destination,ports=r.ports,domains=r.domains,dscp={}}
+            for _,d in ipairs(r.dscp)do values.dscp[#values.dscp+1]=tostring(d)end
+            section(c,'dual_pdp','rule',r.id,values)
+        end
+        c:set('dual_pdp','main','dpi_enabled',dpi and value.enabled and '1' or '0')
+        assert(c:commit('dual_pdp'))
+        local env=policy_environment(c)
+        local changed={}
+        for _,d in ipairs(env.clients) do
+            if before[d.mac]~=after[d.mac] then changed[d.mac]=d end
+        end
+        handoff(changed,env.lan,netstatus(primary_network(c)))
+        runtime.sync(c,env)
+        for _,d in pairs(changed) do clearflows(d) end
+        command({'/etc/init.d/c2000max-appfilter','reload'})
+        return '优先设备与分流规则已保存'
+    end)
+    if not ok then restoreconfig(dir);pcall(function()runtime.sync(cursor(),policy_environment(cursor()))end);fail(tostring(message))end
+    return message,dir
+end
+
+local function recover_transaction(c)
+    local txn=readjson(STORE..'/transaction.json')
+    if not txn then return false end
+    if not txn.old or not validapn(txn.old.apn) then fail('待恢复的 APN 记录无效') end
+    pcall(at,c,'AT^NDISDUP=2,0'); set_context(c,txn.old)
+    c:set('dual_pdp','main','apn',txn.old.apn); c:set('dual_pdp','main','pdp_type',txn.old.type); assert(c:commit('dual_pdp'))
+    if txn.enabled and cfg(c,'pdp2_enabled','0')=='1' then at(c,'AT^NDISDUP=2,1'); if not wait_connected(c) then fail('恢复后的第二路暂未连上，将继续等待') end end
+    if cfg(c,'pdp2_enabled','0')=='1' then refresh('pdp2')else command({'ifdown','pdp2v6'});command({'ifdown','pdp2'})end
+    fs.unlink(STORE..'/transaction.json')
+    return true
+end
+
+local function release_lock()
+    fs.unlink(LOCK..'/owner.json'); fs.rmdir(LOCK)
+end
+local function lock_operation()
+    if fs.mkdir(LOCK,'700') then return true end
+    local owner=readjson(LOCK..'/owner.json') or {}
+    local age=fs.stat(LOCK,'mtime') or os.time()
+    if not owner.pid and os.time()-age>10 then release_lock(); return fs.mkdir(LOCK,'700') end
+    if owner.pid and not fs.stat('/proc/'..tonumber(owner.pid)) and os.time()-(owner.time or 0)>5 then
+        release_lock()
+        return fs.mkdir(LOCK,'700')
+    end
+    return false
+end
+local function start_job(action, input)
+    local c=cursor()
+    if action=='policy' then
+        if input.priority_enabled==nil then input.priority_enabled=c:get('dual_pdp','main','priority_enabled') end
+        if input.priority_macs==nil then input.priority_macs=c:get('dual_pdp','main','priority_macs') end
+        input=policy.validate(input);runtime.validate_catalog(input,command)
+    elseif action=='devices' then input.devices=validate_devices(c,input)
+    elseif action=='apn' then
+        if not validapn(input.apn) or (input.pdp_type~='IP' and input.pdp_type~='IPV4V6') then fail('APN 只允许字母、数字、点、短横线或下划线，最多 99 字节') end
+    elseif action=='options' then
+        if type(input.autodial)~='boolean' then fail('自动重拨选项无效') end
+    end
+    if not lock_operation() then fail('已有操作正在执行，请稍后重试') end
+    local id=os.time()..'-'..pid
+    writejson(LOCK..'/owner.json',{pid=pid,time=os.time(),id=id})
+    writejson(RUN..'/request-'..id..'.json',{action=action,input=input,id=id})
+    writejson(RUN..'/job.json',{id=id,action=action,state='pending',time=os.time(),message='正在准备操作'})
+    local code=os.execute(q(SELF)..' job '..q(id)..' </dev/null >/dev/null 2>&1 &')
+    if code~=0 then release_lock(); fail('无法启动后台操作') end
+    return {success=true,job_id=id}
+end
+local function run_job(id)
+    if not id:match('^%d+%-%d+$') then fail('操作标识无效') end
+    local request=readjson(RUN..'/request-'..id..'.json')
+    if not request then fail('未找到操作请求') end
+    writejson(LOCK..'/owner.json',{pid=pid,time=os.time(),id=id})
+    local job={id=id,action=request.action,state='running',time=os.time(),message='正在执行操作'}
+    writejson(RUN..'/job.json',job)
+    command({'/etc/init.d/dual-pdp','stop'})
+    local ok,message,dir=pcall(function()
+        local c=cursor(); local action=request.action; local input=request.input
+        if action=='policy' then return apply_policy(c,input)
+        elseif action=='devices' then return apply_devices(c,validate_devices(c,input))
+        elseif action=='apn' then return apply_apn(c,input)
+        elseif action=='connect' or action=='disconnect' or action=='reconnect' then return connection_action(c,action)
+        elseif action=='options' then
+            local backupdir=backup('options',c)
+            c:set('dual_pdp','main','autodial',input.autodial and '1' or '0'); assert(c:commit('dual_pdp'))
+            return '自动重拨设置已保存',backupdir
+        end
+        fail('未知操作')
+    end)
+    job.state=ok and 'done' or 'error'; job.success=ok; job.message=tostring(message); job.backup=dir; job.finished=os.time()
+    writejson(RUN..'/job.json',job)
+    fs.unlink(RUN..'/request-'..id..'.json'); release_lock()
+    command({'/etc/init.d/dual-pdp','start'})
+    if not ok then command({'logger','-t','dual-pdp-manager',job.message}) end
+end
+
+local function migrate_routing(c)
+    if cfg(c,'routing_schema','')=='static-v1' then return end
+    backup('static-routing',c)
+    local old_rules,old_guard=false,false
+    c:foreach('network','rule',function(r) if r.dual_pdp_owned=='1' then old_rules=true end end)
+    old_guard=c:get('firewall','dpm_ipv6_guard','dual_pdp_owned')=='1'
+    if old_rules then remove_owned(c,'network','rule');assert(c:commit('network'));assert(select(2,command({'ubus','call','network','reload'}))) end
+    if old_guard then c:delete('firewall','dpm_ipv6_guard');assert(c:commit('firewall'));assert(select(2,command({'/etc/init.d/firewall','reload'}))) end
+    for _,key in ipairs({'probe_macs','game_first','burst_guard','behavior_observe','priority_scope','yield_scope','video_pdu','stream_pdu','latency_pdu','bulk_pdu'}) do c:delete('dual_pdp','main',key) end
+    c:set('dual_pdp','main','routing_mode','rules')
+    c:set('dual_pdp','main','heuristics','0')
+    c:set('dual_pdp','main','learning','1')
+    c:set('dual_pdp','main','routing_schema','static-v1')
+    assert(c:commit('dual_pdp'))
+end
+
+local function restore_second(c,cache)
+    local marker=RUN..'/boot-connected'
+    if cfg(c,'pdp2_enabled','0')~='1' then return end
+    if cache.pdp2 then
+        if not fs.stat(marker) then assert(fs.writefile(marker,'1')) end
+        return
+    end
+    if not cache.pdp1 or (fs.stat(marker) and cfg(c,'autodial','0')~='1') then return end
+    local now=nixio.sysinfo().uptime
+    local retry=tonumber(fs.readfile(RUN..'/dial-after') or '') or 0
+    if now<retry or not lock_operation() then return end
+    local ok,err=pcall(function()
+        writejson(LOCK..'/owner.json',{pid=pid,time=os.time()})
+        local current=cursor()
+        if cfg(current,'pdp2_enabled','0')~='1' then return end
+        assert(fs.writefile(RUN..'/dial-after',tostring(now+30)))
+        local old=context(current,true)
+        if not fs.stat(RUN..'/boot-context-backed') then
+            backup('automatic-connect',current,old);assert(fs.writefile(RUN..'/boot-context-backed','1'))
+        end
+        if old.missing then set_context(current,{type=cfg(current,'pdp_type','IPV4V6'),apn=cfg(current,'apn','')}) end
+        at(current,'AT^NDISDUP=2,1');nixio.nanosleep(4)
+        cache.pdp2=connected(current,2)
+        if cache.pdp2 then assert(fs.writefile(marker,'1')) end
+    end)
+    release_lock()
+    if not ok then fail(tostring(err)) end
+end
+
+local function daemon()
+    local generation=''; local lastprobe=0; local lastqos=0
+    if cfg(cursor(),'enabled','1')=='1' then pcall(queue_public,'missing') end
+    while true do
+        local c=cursor()
+        if cfg(c,'enabled','1')~='1' then return end
+        if not fs.stat(LOCK) then
+            local cache={time=os.time(),identity_ok=false}
+            local ok,err=pcall(function()
+                local secondary=secondary_device(c)
+                if secondary and (cfg(c,'manager_version','')~='2' or c:get('network','pdp2','device')~=secondary) then
+                    migrate(secondary);c=cursor()
+                end
+                if not secondary then return end
+                migrate_routing(c)
+                sync_routes(c)
+                local path=c:get('qmodem',cfg(c,'modem_section','2_1'),'path') or ''
+                local devnum=fs.readfile(path:gsub('/$','')..'/devnum')
+                if not devnum then fail('模组暂未就绪') end
+                local current=path..':'..devnum
+                if current~=generation then generation=current; lastqos=0 end
+                cache.identity_ok=true; cache.generation=generation
+                if recover_transaction(c) then c=cursor() end
+                cache.pdp1=connected(c,1); cache.pdp2=connected(c,2)
+                if cache.pdp1==nil then cache.pdp1=netstatus(primary_network(c)).up==true end
+                if cache.pdp2==nil then cache.pdp2=netstatus('pdp2').up==true end
+                if cache.pdp2 and cfg(c,'pdp2_enabled','0')~='1' then connection_action(c,'disconnect');cache.pdp2=false end
+                restore_second(c,cache)
+                if cache.pdp2 and cfg(c,'pdp2_enabled','0')=='1' then
+                    local raw=at(c,'AT+CGPADDR=2'); local wanted=raw:match('%+CGPADDR:%s*2,"([%d.]+)"')
+                    local net=netstatus('pdp2'); local address=net['ipv4-address'] and net['ipv4-address'][1]
+                    if wanted and (not net.up or not address or address.address~=wanted) then refresh('pdp2') end
+                    if not netstatus('pdp2v6').up then command({'ifup','pdp2v6'}) end
+                end
+            end)
+            if not ok then cache.error=tostring(err); command({'logger','-t','dual-pdp-manager',cache.error}) end
+            writejson(RUN..'/state.json',cache)
+            local policy_ok,policy_error=pcall(function()
+                if cfg(c,'manager_version','')=='2' then runtime.sync(c,policy_environment(c)) end
+            end)
+            if not policy_ok then writejson(RUN..'/policy-state.json',{enabled=cfg(c,'smart_enabled','0')=='1',error=tostring(policy_error)})end
+            if ok and os.time()-lastqos>=60 then
+                lastqos=os.time()
+                -- Optional monitoring must not interrupt connection recovery.
+                local collected=pcall(collect_qos,c,cache,generation)
+                if not collected then fs.unlink(RUN..'/telemetry.json') end
+            end
+            if ok and cfg(c,'auto_public_probe','0')=='1' and os.time()-lastprobe>=60 then
+                local state=status(c); local saved=readjson(RUN..'/public.json') or {}; local needed=false
+                for _,p in ipairs(state.pdps) do
+                    local old=saved[tostring(p.cid)]
+                    if p.up and (not old or old.address~=p.address or old.ipv6_address~=p.ipv6_address or (p.address~='' and not old.ipv4) or (p.ipv6_address~='' and not old.ipv6) or os.time()-(old.time or 0)>=900) then needed=true end
+                end
+                if needed then lastprobe=os.time(); pcall(queue_public) end
+            end
+        end
+        nixio.nanosleep(15)
+    end
+end
+
+local function main()
+    local mode=arg[1]
+    if mode=='public-worker' then
+        local ok=pcall(probe_public,cursor(),arg[2]=='missing')
+        if not ok then writejson(RUN..'/public-job.json',{running=false,time=os.time(),warning='外网地址检测中断'}) end
+        return nil
+    elseif mode=='daemon' then
+        return daemon()
+    elseif mode=='migrate' then return {success=true,message=migrate()}
+    elseif mode=='job' then run_job(arg[2] or ''); return nil
+    elseif mode=='sync-routes' then sync_routes(cursor()); return nil
+    elseif mode=='detach' then
+        runtime.clear(command,netstatus('lan').l3_device or 'br-lan');apply_devices(cursor(),{},true); command({'nft','delete','table','inet','dual_pdp_handoff'})
+        local c=cursor(); c:set('dual_pdp','main','enabled','0'); c:commit('dual_pdp'); return nil
+    elseif mode=='rpc' then
+        local input=json.parse(io.read(65537) or '') or {}
+        local method=arg[2]
+        if method=='status' then return status(cursor(),input.topology==true)
+        elseif method=='catalog' then return runtime.rule_catalog(command)
+        elseif method=='job' then return {success=true,job=readjson(RUN..'/job.json')}
+        elseif method=='set_policy' then return start_job('policy',input)
+        elseif method=='set_devices' then return start_job('devices',input)
+        elseif method=='set_apn' then return start_job('apn',input)
+        elseif method=='set_options' then return start_job('options',input)
+        elseif method=='connect' or method=='disconnect' or method=='reconnect' then return start_job(method,{})
+        elseif method=='check_public' then return queue_public(input.missing_only==true and 'missing' or 'refresh') end
+        fail('不支持的操作')
+    end
+    fail('不支持的调用方式')
+end
+local ok,result=pcall(main)
+local savedir=RUN..'/uci-'..pid
+if fs.stat(savedir) then for entry in fs.dir(savedir) do if entry~='.' and entry~='..' then fs.unlink(savedir..'/'..entry) end end; fs.rmdir(savedir) end
+if not ok then print(json.stringify({success=false,message=tostring(result)})); os.exit(arg[1]=='rpc' and 0 or 1) end
+if result then print(json.stringify(result)) end

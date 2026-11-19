@@ -136,10 +136,12 @@ _try_device()
     config_get network "$1" network
     if [ ! -d "$path" ]; then
         /usr/share/qmodem/modem_scan.sh disable "$1"
-        uci delete network.$1
-        uci delete network.${1}v6
-        uci commit network
-        /etc/init.d/network reload
+        if [ "$(board_name):$1" != "nradio,c2000-ultra:2_1" ]; then
+            uci delete network.$1
+            uci delete network.${1}v6
+            uci commit network
+            /etc/init.d/network reload
+        fi
         return
     fi
     # if netdevice_path is not under device_path, disable device and scan again

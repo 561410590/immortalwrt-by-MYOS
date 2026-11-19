@@ -4,20 +4,6 @@
 'require fs';
 'require poll';
 
-function gpioCmd_c8_688(value) {
-	switch (value) {
-	case 'simcard1':
-		return 'echo 1 > /sys/class/gpio/cpe-sel1/value && echo 0 > /sys/class/gpio/cpe-sel0/value';
-	case 'simcard2':
-	case 'esimcard1':
-		return 'echo 1 > /sys/class/gpio/cpe-sel1/value && echo 1 > /sys/class/gpio/cpe-sel0/value';
-	case 'esimcard2':
-		return 'echo 0 > /sys/class/gpio/cpe-sel1/value && echo 1 > /sys/class/gpio/cpe-sel0/value';
-	default:
-		return '';
-	}
-}
-
 return view.extend({
 	selector: '/etc/init.d/c2000ultra-sim-select',
 	readStatus: function() {
@@ -58,50 +44,36 @@ return view.extend({
 	},
 
 	render: function() {
-		return fs.exec('/bin/sh', ['-c', 'tr -d "\\0" < /proc/device-tree/model 2>/dev/null || echo unknown'])
-			.then(function(res) {
-				return ((res && res.stdout) || '').toLowerCase().indexOf('c2000-ultra') >= 0 ? 'NRadio C2000-Ultra' : 'c8-688';
-			}).catch(function(err) {
-				console.warn('simcard: failed to detect model:', err);
-				return 'c8-688';
-			}).then(this.render_form.bind(this));
-	},
-	render_form: function(model) {
-		var isUltra = model === 'NRadio C2000-Ultra';
+		var model = 'NRadio C2000-Ultra';
 		var slots = { simcard1: '1', simcard2: '2', esimcard1: '3' };
 		var m = new form.Map('embed_simcard', _('SIM卡切换'), _('当前设备型号：') + model);
-		if (isUltra) m.chain('cpesel');
-		var s = isUltra ? m.section(form.NamedSection, 'general', 'general', _('General Settings')) :
-			m.section(form.TypedSection, 'general', _('General Settings'));
+		m.chain('cpesel');
+		var s = m.section(form.NamedSection, 'general', 'general', _('General Settings'));
 		s.anonymous = true;
 		var o = s.option(form.DummyValue, 'model', _('设备型号'));
 		o.default = model;
-		o = s.option(form.ListValue, 'slot', _('SIM Slot'), isUltra ?
-			_('选择要使用的 SIM 卡槽。切卡后自动识卡并重新拨号，请等待网络恢复。') :
-			_('选择要使用的 SIM 卡槽。切换后，正在进行的网络连接会中断。'));
+		o = s.option(form.ListValue, 'slot', _('SIM Slot'),
+			_('选择要使用的 SIM 卡槽。切卡后自动识卡并重新拨号，请等待网络恢复。'));
 		o.value('simcard1', _('SIM卡1'));
 		o.value('simcard2', _('SIM卡2'));
 		o.value('esimcard1', _('内置卡1'));
-		if (!isUltra) o.value('esimcard2', _('内置卡2'));
 		o.default = 'simcard1';
 		o.rmempty = false;
-		if (isUltra) o.cfgvalue = function(section_id) {
+		o.cfgvalue = function(section_id) {
 			var cur = this.map.data.get('cpesel', 'sim', 'cur');
 			return { '1': 'simcard1', '2': 'simcard2', '3': 'esimcard1' }[cur] ||
 				this.map.data.get(this.map.config, section_id, this.option);
 		};
 		var page = this;
 		o.write = function(section_id, value) {
-			var cmd = isUltra ? (slots[value] && '/etc/init.d/c2000ultra-sim-select select_sim ' + slots[value]) : gpioCmd_c8_688(value);
-			if (!cmd) return Promise.reject(new Error(_('Invalid SIM slot')));
-			return fs.exec('/bin/sh', ['-c', cmd]).then(function(res) {
+			var slot = slots[value];
+			if (!slot) return Promise.reject(new Error(_('Invalid SIM slot')));
+			return fs.exec('/bin/sh', ['-c', '/etc/init.d/c2000ultra-sim-select select_sim ' + slot]).then(function(res) {
 				var reply = {};
 				try { reply = JSON.parse((res && res.stdout) || '{}'); } catch (err) {}
 				if (!res || res.code !== 0) throw new Error(reply.message || _('切卡任务提交失败'));
-				if (isUltra) {
-					this.map.data.set('cpesel', 'sim', 'cur', slots[value]);
-					page.updateStatus();
-				}
+				this.map.data.set('cpesel', 'sim', 'cur', slot);
+				page.updateStatus();
 				return this.map.data.set(this.map.config, section_id, this.option, value);
 			}.bind(this));
 		};
@@ -123,7 +95,6 @@ return view.extend({
 		});
 		s.option(ResetOption, '_reset', _('模组硬重启'), _('模组无响应时，强制断电重启模组。'));
 		return m.render().then(function(node) {
-			if (!isUltra) return node;
 			this.statusNode = E('div', { 'class': 'cbi-section' }, [_('正在读取切卡状态…')]);
 			var container = E('div', {}, [this.statusNode, node]);
 			poll.add(this.updateStatus.bind(this), 5);

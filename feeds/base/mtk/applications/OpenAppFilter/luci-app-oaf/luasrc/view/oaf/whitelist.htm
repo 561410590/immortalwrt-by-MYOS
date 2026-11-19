@@ -86,6 +86,60 @@ local has_record = nfs.access("/etc/config/fwx_record")
         min-width: 680px;
     }
 
+    @media (max-width: 900px) {
+        .oaf-whitelist-table {
+            display: block;
+            min-width: 0;
+        }
+
+        .oaf-whitelist-table tbody {
+            display: block;
+        }
+
+        .oaf-whitelist-table thead {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip-path: inset(50%);
+        }
+
+        .oaf-whitelist-table tbody tr {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px 12px;
+            margin-bottom: 8px;
+            padding: 10px;
+            border: 1px solid var(--m-line, #ddd);
+            border-radius: 10px;
+        }
+
+        .oaf-whitelist-table tbody td {
+            min-width: 0;
+            padding: 0;
+            text-align: start;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            border: 0;
+        }
+
+        .oaf-whitelist-table tbody td[data-title]::before {
+            content: attr(data-title);
+            display: block;
+            margin-bottom: 4px;
+            color: var(--m-muted, #666);
+            font-size: 12px;
+        }
+
+        .oaf-whitelist-table tbody td:is([colspan], :last-child) {
+            grid-column: 1 / -1;
+        }
+
+        .oaf-whitelist-table .oaf-whitelist-delete-btn {
+            min-height: 44px;
+        }
+    }
+
     .oaf-whitelist-add-btn {
         display: inline-flex;
         align-items: center;
@@ -419,6 +473,7 @@ function loadWhitelistUsers(type, callback) {
 function renderWhitelistTable(type) {
     var config = whitelistTypes[type];
     var tableBody = document.getElementById(config.tableBodyId);
+    var headings = tableBody.parentElement.tHead.rows[0].cells;
 
     tableBody.innerHTML = '';
     if (config.list.length === 0) {
@@ -434,6 +489,10 @@ function renderWhitelistTable(type) {
             '<td>' + escapeWhitelistHtml(user.hostname || '--') + '</td>' +
             '<td>' + escapeWhitelistHtml(user.nickname || '--') + '</td>' +
             '<td><button type="button" class="oaf-whitelist-delete-btn" onclick="removeWhitelistUser(\'' + type + '\',\'' + mac + '\')">' + whitelistText.deleteLabel + '</button></td>';
+        Array.from(row.cells).forEach(function(cell, column) {
+            if (column < row.cells.length - 1)
+                cell.dataset.title = headings[column].textContent;
+        });
         tableBody.appendChild(row);
     });
 }

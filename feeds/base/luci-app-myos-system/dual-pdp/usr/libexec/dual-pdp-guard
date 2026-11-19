@@ -1,0 +1,23 @@
+#!/bin/sh
+# This service owns only its BPF handle. Preserve unrelated traffic control.
+set -eu
+dev="${2:-}"
+case "$dev" in ''|*[!A-Za-z0-9_.-]*) exit 2;; esac
+pref=49381
+handle=0x3801
+owned=/var/run/dual-pdp-manager/guard-clsact-"$dev"
+show() { tc filter show dev "$dev" egress pref "$pref"; }
+ours() { printf '%s\n' "$1" | grep -F "handle $handle " | grep -q ' name pdu_upload '; }
+case "$1" in
+ off)
+    if [ -e "/sys/class/net/$dev" ]; then
+        filters=$(show)
+        if ours "$filters"; then tc filter del dev "$dev" egress pref "$pref" handle "$handle" bpf; fi
+        if [ -f "$owned" ] && [ -z "$(tc filter show dev "$dev" ingress)" ] &&
+           [ -z "$(tc filter show dev "$dev" egress)" ]; then
+            tc qdisc del dev "$dev" clsact || :
+        fi
+    fi
+    rm -f "$owned" /sys/fs/bpf/tc/globals/pdu_guard_hot;;
+ *) exit 2;;
+esac

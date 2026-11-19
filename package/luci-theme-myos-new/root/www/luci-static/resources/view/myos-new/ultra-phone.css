@@ -1,0 +1,169 @@
+.m-ultra-phone-page {
+	margin-inline: auto;
+	max-width: 42rem;
+}
+
+.m-ultra-dialer {
+	--dial-key: clamp(46px, 17vw, 72px);
+	--dial-gap: clamp(8px, 3vw, 14px);
+	width: min(100%, 22rem);
+	margin: 0 auto;
+	padding-block: 12px 22px;
+	text-align: center;
+	color: var(--m-text, #202a36);
+}
+
+.m-dial-display {
+	min-height: 96px;
+	display: grid;
+	align-content: center;
+	gap: 4px;
+}
+
+.m-dial-display input[type="tel"] {
+	width: 100%;
+	height: 56px;
+	box-sizing: border-box;
+	padding: 0 4px;
+	border: 0;
+	border-radius: 12px;
+	background: transparent;
+	box-shadow: none;
+	color: inherit;
+	text-align: center;
+	font: inherit;
+	font-size: clamp(26px, 8vw, 38px);
+	font-weight: 400;
+	font-variant-numeric: tabular-nums;
+	letter-spacing: .01em;
+}
+
+.m-dial-display input::placeholder {
+	font-size: 18px;
+	color: var(--m-muted, #5c6878);
+}
+
+.m-dial-state {
+	margin: 0;
+	font-size: 14px;
+	color: var(--m-muted, #5c6878);
+	overflow-wrap: anywhere;
+}
+
+.m-dial-grid,
+.m-dial-actions {
+	display: grid;
+	justify-content: center;
+	grid-template-columns: repeat(3, var(--dial-key));
+	gap: var(--dial-gap) clamp(12px, 7vw, 25px);
+}
+
+.m-dial-grid .m-dial-key,
+.m-dial-actions button {
+	aspect-ratio: 1;
+	min-height: 44px;
+	min-width: 44px;
+	width: 100%;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	box-shadow: none;
+	cursor: pointer;
+	touch-action: manipulation;
+	-webkit-tap-highlight-color: transparent;
+	user-select: none;
+}
+
+.m-dial-grid .m-dial-key {
+	display: grid;
+	align-content: center;
+	justify-items: center;
+	gap: 1px;
+	background: var(--m-soft, #e7ebf0);
+	color: inherit;
+}
+
+.m-dial-key span {
+	font-size: clamp(24px, 6.5vw, 33px);
+	font-weight: 450;
+	line-height: 1;
+}
+
+.m-dial-key small {
+	min-height: .85rem;
+	font-size: 9px;
+	font-weight: 650;
+	letter-spacing: .13em;
+	line-height: 1;
+}
+
+.m-dial-actions {
+	margin-block: calc(var(--dial-gap) + 4px);
+	align-items: center;
+}
+
+.m-dial-actions button[hidden] {
+	display: none;
+}
+
+.m-dial-actions .m-dial-call {
+	grid-column: 2;
+	grid-row: 1;
+	display: grid;
+	place-items: center;
+	background: #16834a;
+	color: #fff;
+}
+
+.m-dial-actions .m-dial-call[aria-label="接听"] {
+	grid-column: 1;
+}
+
+.m-dial-actions .m-dial-hangup {
+	grid-column: 3;
+	background: #cf3a42;
+}
+
+.m-dial-actions .m-dial-delete {
+	grid-column: 3;
+	grid-row: 1;
+	display: grid;
+	place-items: center;
+	background: transparent;
+	color: var(--m-muted, #5c6878);
+}
+
+.m-dial-actions svg {
+	width: 42%;
+	height: 42%;
+}
+
+.m-dial-actions .m-dial-delete svg {
+	width: 32%;
+	height: 32%;
+}
+
+.m-ultra-dialer button:focus-visible,
+.m-ultra-dialer input:focus-visible {
+	outline: 2px solid var(--m-blue, #1967c9);
+	outline-offset: 2px;
+}
+
+.m-ultra-dialer button:active:not(:disabled) {
+	transform: scale(.96);
+}
+
+.m-ultra-dialer button:disabled {
+	opacity: .55;
+	cursor: default;
+}
+
+.m-ultra-dialer p:empty {
+	display: none;
+}
+
+.m-dial-notice {
+	margin-block: 10px 0;
+	font-size: 13px;
+	color: var(--m-muted, #5c6878);
+}

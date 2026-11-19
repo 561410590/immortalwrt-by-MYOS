@@ -1,0 +1,10 @@
+IPtoASN, Frank Denis. Public Domain Dedication and License v1.0 (PDDL).
+https://iptoasn.com/
+Origin snapshot: Sun, 01 Nov 2026 09:38 UTC.
+ip2asn-combined.tsv.gz  SHA256 1634a0e449f3ee11088bba85493447a51007b44dff3ac18328f1f2d9127c0a9e
+ip2country-v4.tsv.gz    SHA256 9446afca23ef58321db44881c32cc90bec1bd2972c930c3a6169e00a6650a3d9
+ip2country-v6.tsv.gz    SHA256 124bdd64f430a658384bdd2a5c49608b9ea313dc783e782985e2291ea5be7bcf
+The country and ASN indexes use separate input files. Unassigned ranges are omitted.
+To rebuild, download the three files from https://iptoasn.com/data/ and run
+tools/build-prefix-db.py INPUT-DIRECTORY data/ipdb-20261101.bin
+

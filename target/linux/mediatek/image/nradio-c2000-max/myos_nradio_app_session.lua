@@ -110,6 +110,40 @@ function M.create(csrf)
 	return sid
 end
 
+-- The stock APP password exchange uses nradio_crypto -c. Put its input
+-- in a private temporary file so the administrator password stays out of argv.
+function M.native_crypto(mode, payload)
+	if not fs.access("/usr/sbin/nradio_crypto", "x") then return nil end
+	local dir = (util.exec("mktemp -d /tmp/myos-app-crypto.XXXXXX") or ""):match("^(/tmp/myos%-app%-crypto%.[%w]+)")
+	if not dir then return nil end
+	local path = dir .. "/request"
+	local output
+	if fs.writefile(path, payload) then
+		local pipe = io.popen("/usr/sbin/nradio_crypto " .. mode .. " -f " .. util.shellquote(path) .. " 2>/dev/null", "r")
+		if pipe then
+			output = pipe:read("*a")
+			pipe:close()
+		end
+	end
+	fs.unlink(path)
+	fs.rmdir(dir)
+	return output ~= "" and output or nil
+end
+
+function M.password_valid(req)
+	if type(req.password) ~= "string" or req.password == "" or req.password:find("%z") then return false end
+	if fs.access("/usr/sbin/nradio_crypto", "x") then
+		local output = M.native_crypto("-c", json.encode(req))
+		if not output then return false end
+		local ok, result = pcall(json.decode, output)
+		if not ok or type(result) ~= "table" or tonumber(result.code) ~= 0 then return false end
+		-- The LuCI APP caller issues its own scoped rpcd session after verification.
+		M.destroy(result.sess)
+		return result.user == "root"
+	end
+	return require("luci.sys").user.checkpasswd("root", req.password) == true
+end
+
 function M.valid(sid)
 	if not hex(sid) then return false end
 	local session = call("get", { ubus_rpc_session = sid })

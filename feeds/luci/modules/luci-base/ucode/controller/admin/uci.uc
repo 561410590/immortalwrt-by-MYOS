@@ -116,9 +116,46 @@ function uci_confirm(token) {
 	return true;
 }
 
+function wireless_credentials_only(changes) {
+	if (type(changes?.wireless) != 'array')
+		return false;
+
+	for (let config in changes)
+		if (config != 'wireless' && length(changes[config]))
+			return false;
+
+	let credentials_changed = false;
+	for (let change in changes.wireless) {
+		const option = change[2];
+
+		if ((change[0] != 'set' && change[0] != 'remove') ||
+		    (option != 'ssid' && option != 'key' && option != 'encryption' && option != 'ieee80211w'))
+			return false;
+
+		if (option == 'ssid' || option == 'key')
+			credentials_changed = true;
+	}
+
+	return credentials_changed;
+}
 
 return {
 	action_apply_rollback: function() {
+		const args = { ubus_rpc_session: ctx.authsession };
+		const changes = ubus_call('uci', 'changes', args)?.changes;
+
+		// A client applying new Wi-Fi credentials cannot confirm over its old connection.
+		if (wireless_credentials_only(changes)) {
+			if (ubus_call('uci', 'commit', { ...args, config: 'wireless' })) {
+				http.prepare_content('application/json; charset=UTF-8');
+				http.write_json({ wireless_applied: true });
+			}
+			else {
+				ubus_state_to_http(last_ubus_error);
+			}
+			return;
+		}
+
 		const token = uci_apply(true);
 
 		if (token) {

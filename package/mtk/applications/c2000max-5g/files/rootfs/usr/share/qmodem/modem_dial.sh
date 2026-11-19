@@ -188,11 +188,29 @@ update_config()
             config_get pincode $modem_config pincode
             ;;
     esac
-    modem_net=$(find $modem_path -name net |tail -1)
-    modem_netcard=$(ls $modem_net)
+    modem_net=$(find "$modem_path" -name net | tail -1)
+    modem_netcard=
+    [ -z "$modem_net" ] || modem_netcard=$(ls "$modem_net")
     c2000max_fixed_interfaces=0
-    case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
-        nradio,c2000-max|nradio,c2000-ultra)
+    ultra_cellular=0
+    board="$(cat /tmp/sysinfo/board_name 2>/dev/null)"
+    case "$board" in
+        nradio,c2000-ultra)
+            if [ "$manufacturer:$platform" = huawei:hisilicon ]; then
+                alias=2_1
+                c2000max_fixed_interfaces=1
+                ultra_cellular=1
+                # MT5700 Linux NCM exposes CID 1 on USB interface zero.
+                # A second NCM function must never replace the main uplink.
+                for primary_net in "${modem_path%/}":*.0/net/*; do
+                    [ -e "$primary_net" ] || continue
+                    modem_netcard=${primary_net##*/}
+                    break
+                done
+                [ -n "$modem_netcard" ] || modem_netcard=$(uci -q get network.2_1.device)
+            fi
+            ;;
+        nradio,c2000-max)
             if [ "$manufacturer:$platform" = huawei:hisilicon ] && [ -n "$modem_netcard" ]; then
                 alias=2_1
                 c2000max_fixed_interfaces=1
@@ -410,6 +428,7 @@ c2000max_collect_duplicate_interface()
     config_get binding "$section" modem_config
     [ "$binding" != "$modem_config" ] || duplicate=1
     for reference in "$device" "$ifname"; do
+        [ -n "$modem_netcard" ] || break
         case "$reference" in
             "$modem_netcard") duplicate=1 ;;
             @*)
@@ -455,15 +474,15 @@ set_if()
             ;;
     esac
     case $pdp_type in
-        "ip")
+        "ip"|"IP")
             env4="1"
             env6="0"
             ;;
-        "ipv6")
+        "ipv6"|"IPV6")
             env4="0"
             env6="1"
             ;;
-        "ipv4v6")
+        "ipv4v6"|"IPV4V6")
             env4="1"
             env6="1"
             ;;
@@ -472,23 +491,36 @@ set_if()
     interfacev6=$(uci -q get network.$interface6_name)
     local num=$(get_fw_zone_index wan)
     if [ "$c2000max_fixed_interfaces" = 1 ]; then
-        local c2000max_duplicate_interfaces= old
+        local c2000max_duplicate_interfaces= old section
         [ "$modem_config" = 2_1 ] || c2000max_duplicate_interfaces="$modem_config ${modem_config}v6"
         config_load network
         config_foreach c2000max_collect_duplicate_interface interface
         for old in $c2000max_duplicate_interfaces; do
             uci -q delete "network.$old"
             uci -q del_list "firewall.@zone[$num].network=$old"
+            network_reload_flag=1
             if [ "$(uci -q get "dhcp.$old.interface")" = "$old" ]; then
                 uci -q delete "dhcp.$old"
                 dhcp_reload_flag=1
             fi
             firewall_reload_flag=1
         done
-        uci -q set "qmodem.$modem_config.alias=2_1" && uci -q commit qmodem || return 1
-        [ -z "$interface" ] || uci -q set "network.2_1.modem_config=$modem_config" || return 1
-        [ -z "$interfacev6" ] || uci -q set "network.2_1v6.modem_config=$modem_config" || return 1
-        network_reload_flag=1
+        if [ "$(uci -q get "qmodem.$modem_config.alias")" != 2_1 ]; then
+            uci -q set "qmodem.$modem_config.alias=2_1" && uci -q commit qmodem
+        fi
+        for section in 2_1 2_1v6; do
+            if [ "$(uci -q get "network.$section")" = interface ] &&
+               [ "$(uci -q get "network.$section.modem_config")" != "$modem_config" ]; then
+                uci -q set "network.$section.modem_config=$modem_config"
+                network_reload_flag=1
+            fi
+        done
+        [ "$ultra_cellular" = 1 ] || network_reload_flag=1
+    fi
+    if [ "$ultra_cellular" = 1 ] && [ "$env4" = 0 ]; then
+        # Keep the device parent for 2_1v6 in IPv6-only mode.
+        proto=none
+        env4=1
     fi
     if [ "$env4" -eq 1 ];then
         if [ -z "$interface" ];then
@@ -592,7 +624,7 @@ set_if()
         fi
     fi
     
-    if [ "$network_reload_flag" -eq 1 ];then
+    if [ "$network_reload_flag" -eq 1 ] && [ "$ultra_cellular" != 1 ];then
         uci commit network
         [ "$c2000max_fixed_interfaces" != 1 ] || ubus call network reload >/dev/null 2>&1
         ifup ${interface_name}
@@ -641,23 +673,36 @@ set_if()
             uci set network.${interface6_name}.proto="${protov6}"
             uci set network.${interface6_name}.metric="${metric}"
         fi
-        uci commit network
-        ifup ${interface_name}
+        if [ "$ultra_cellular" = 1 ]; then
+            network_reload_flag=1
+        else
+            uci commit network
+            ifup ${interface_name}
+        fi
         m_debug "set interface $interface_name to $set_modem_netcard"
+    fi
+    if [ "$ultra_cellular" = 1 ]; then
+        if [ "$network_reload_flag" -eq 1 ]; then
+            uci commit network
+            ubus call network reload >/dev/null
+            m_debug "network reload"
+        fi
+        ubus call network.interface.2_1 up >/dev/null
+        [ "$env6" = 0 ] || ubus call network.interface.2_1v6 up >/dev/null
     fi
     return 0
 }
 
 flush_if()
 {
-    # uci delete network.${interface_name}
-    # uci delete network.${interface6_name}
-    # uci delete dhcp.${interface6_name}
-    # uci commit network
-    # uci commit dhcp
-    # set_led "net" $modem_config
-    # set_led "sim" $modem_config 0
-    # m_debug "delete interface $interface_name"
+    if [ "$ultra_cellular" = 1 ]; then
+        # Drop the old lease while keeping the logical interfaces registered.
+        ubus call network.interface.2_1v6 down >/dev/null 2>&1
+        ubus call network.interface.2_1 down >/dev/null 2>&1
+        set_led "sim" "$modem_config" 0
+        m_debug "bring down 2_1 and 2_1v6 without deleting their configuration"
+        return 0
+    fi
     config_load network
     remove_target="$modem_config"
     config_foreach flush_ip_cb "interface"
@@ -916,8 +961,8 @@ at_dial()
         pdp_type="IP"
     fi
     [ -n "$apn" ] && apn_append=",\"$apn\"" || apn_append=""
-    local at_command='AT+COPS=0,0'
-    tmp=$(dial_at_logged "$at_command" operator-select)
+    local at_command='AT+COPS=0,0' dial_status=0
+    tmp=$(dial_at_logged "$at_command" operator-select) || dial_status=1
     pdp_type=$(echo $pdp_type | tr 'a-z' 'A-Z')
     case $manufacturer in
         "quectel")
@@ -1072,14 +1117,15 @@ at_dial()
         	umbim -d $mbim_port connect 0 --apn $apn
 		 	;;
 		*)
-  			dial_at_logged "$cgdcont_command" pdp-define
+  			dial_at_logged "$cgdcont_command" pdp-define || dial_status=1
             if [ -n "$ppp_auth_command" ]; then
-                dial_at_logged "$ppp_auth_command" authentication 1
+                dial_at_logged "$ppp_auth_command" authentication 1 || dial_status=1
             fi
             if [ -n "$nat_cfg" ]; then
-                dial_at_logged "$nat_cfg" nat
+                dial_at_logged "$nat_cfg" nat || dial_status=1
             fi
-        	dial_at_logged "$at_command" activate
+        	dial_at_logged "$at_command" activate || dial_status=1
+            return "$dial_status"
 		 	;;
 	esac
 }
@@ -1339,7 +1385,7 @@ refresh_modem_transport()
 unexpected_response_count=0
 at_dial_monitor()
 {
-    local pdp_wait_since="" pdp_now pdp_retry_seconds=60
+    local pdp_wait_since="" pdp_now pdp_retry_seconds=60 retry_first_dial=0
     #check if support auto dial
     auto_dial_support=0
     at_auto_dial
@@ -1353,7 +1399,9 @@ at_dial_monitor()
     local resume_session="${1:-}"
     refresh_modem_transport
     if [ "$resume_session" != "resume" ]; then
-        at_dial
+        if ! at_dial && [ "$ultra_cellular" = 1 ]; then
+            retry_first_dial=1
+        fi
     else
         m_debug "monitor resumed without initial dial commands"
     fi
@@ -1363,6 +1411,15 @@ at_dial_monitor()
     while true; do
         refresh_modem_transport
         check_ip
+        if [ "$retry_first_dial" = 1 ]; then
+            retry_first_dial=0
+            if [ "$connection_status" -le 0 ]; then
+                m_debug "initial dial AT failed; retrying on the first monitoring cycle"
+                at_dial
+                sleep 5
+                continue
+            fi
+        fi
         case $connection_status in
             0)
                 unexpected_response_count=0

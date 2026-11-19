@@ -8,6 +8,13 @@ function index()
     entry({"admin", "myos", "fast"}, call("fast_snapshot")).leaf = true
     entry({"admin", "myos", "link_quality"}, call("link_quality")).leaf = true
     entry({"admin", "myos", "ping_target"}, post("save_ping_target")).leaf = true
+    entry({"admin", "myos", "login_video"}, post("save_login_video")).leaf = true
+    entry({"admin", "myos", "appearance"}, call("appearance_settings")).leaf = true
+    entry({"admin", "myos", "appearance_save"}, post("save_appearance_settings")).leaf = true
+    local leds = entry({"admin", "system", "myos_panel_led"}, view("myos-new/panel-led"), _("面板指示灯"), 59)
+    leds.acl_depends = {"luci-mod-system-config"}
+    entry({"admin", "system", "myos_panel_led", "status"}, call("panel_led_status")).leaf = true
+    entry({"admin", "system", "myos_panel_led", "save"}, post("save_panel_led")).leaf = true
     entry({"admin", "myos", "acceleration"}, call("acceleration")).leaf = true
     entry({"admin", "myos", "sim_names"}, call("sim_names")).leaf = true
     entry({"admin", "myos", "modem_refresh"}, call("modem_refresh")).leaf = true
@@ -16,6 +23,7 @@ function index()
     entry({"admin", "myos", "theme_install"}, post("theme_install")).leaf = true
     entry({"admin", "myos", "theme_install_status"}, call("theme_install_status")).leaf = true
     entry({"admin", "myos", "unlock"}, post("unlock_plugins")).leaf = true
+    entry({"admin", "Outofnetwork"}, call("unlock_plugins")).leaf = true
 end
 
 local function device_profile(board)
@@ -101,10 +109,8 @@ end
 function unlock_plugins()
     local available, system = pcall(require, "myos_plugins")
     if available and type(system.unlock) == "function" then return system.unlock() end
-    local ok, backend = pcall(require, "luci.controller.zz_mwrt_fancontrol")
-    if ok and type(backend.action_Outofnetwork) == "function" then
-        return backend.action_Outofnetwork()
-    end
+    local ok, gate = pcall(require, "luci.model.mwrt_gate")
+    if ok and type(gate.unlock) == "function" then return gate.unlock() end
     luci.http.status(404, "Not Found")
     luci.http.prepare_content("application/json")
     luci.http.write_json({error="当前固件未提供插件认证接口"})
@@ -459,6 +465,193 @@ local function output(value)
     luci.http.write_json(value)
 end
 
+local log_months = {Jan=1, Feb=2, Mar=3, Apr=4, May=5, Jun=6,
+    Jul=7, Aug=8, Sep=9, Oct=10, Nov=11, Dec=12}
+
+local function connection_event(line)
+    local device, state = line:match("netifd: Network device '([^']+)' link is (%a+)")
+    local kind, mac = "port", nil
+    if not device then
+        device, state, mac = line:match("hostapd: ([%w_.:@%-]+): AP%-STA%-(%u+) ([%x:]+)")
+        kind = "wifi"
+    end
+    if not device then
+        device, mac = line:match("dnsmasq%-dhcp[^:]*: DHCPACK%(([^)]+)%) %S+ ([%x:]+)")
+        if device then kind, state = "dhcp", "ACK" end
+    end
+    if not device or (state ~= "up" and state ~= "down" and state ~= "CONNECTED" and
+       state ~= "DISCONNECTED" and state ~= "ACK") then return end
+    local month, day, hour, min, sec, year = line:match("^%a+%s+(%a+)%s+(%d+)%s+(%d+):(%d+):(%d+)%s+(%d+)")
+    if not log_months[month] then return end
+    local stamp = os.time({year=tonumber(year), month=log_months[month], day=tonumber(day),
+        hour=tonumber(hour), min=tonumber(min), sec=tonumber(sec)})
+    return {time=stamp, kind=kind, device=device, up=state=="up" or state=="CONNECTED" or state=="ACK",
+        mac=mac and mac:lower()}
+end
+
+local function append_connection_event(events, event)
+    if not event then return end
+    for _, prior in ipairs(events) do
+        if prior.time==event.time and prior.kind==event.kind and prior.device==event.device and
+           prior.up==event.up and prior.mac==event.mac then return end
+    end
+    events[#events+1] = event
+    table.sort(events, function(a,b) return a.time < b.time end)
+    if #events > 40 then table.remove(events, 1) end
+end
+
+function follow_connection_events()
+    local perf = require("luci.model.myos_liquid")
+    local events = perf.cached("connections").events or {}
+    local log = io.popen("/sbin/logread -f 2>/dev/null")
+    if not log then return end
+    for line in log:lines() do
+        local event = connection_event(line)
+        if event then
+            append_connection_event(events, event)
+            perf.save("connections", {events=events})
+        end
+    end
+    log:close()
+end
+
+local function read_connection_events()
+    local events = require("luci.model.myos_liquid").cached("connections").events or {}
+    local log = io.popen("/sbin/logread 2>/dev/null; printf '\\nmyos-log-status:%s\\n' \"$?\"")
+    local available = false
+    if log then
+        for line in log:lines() do
+            if line == "myos-log-status:0" then
+                available = true
+            else
+                append_connection_event(events, connection_event(line))
+            end
+        end
+        log:close()
+    end
+    local recent = {}
+    for i = #events, 1, -1 do
+        recent[#recent + 1] = events[i]
+    end
+    return {available=available, events=recent}
+end
+
+local function panel_led_backend(cursor, fs)
+    local profile = device_profile(require("luci.util").ubus("system", "board") or {})
+    if profile == "c8688" and fs.access("/usr/libexec/myos-c8-led", "x") then
+        return "c8"
+    end
+    if profile == "nbcpe688" and fs.access("/etc/init.d/myos-nbcpe-leds", "x") then
+        return "nbcpe"
+    end
+    if (profile == "c2000max" or profile == "c2000ultra" or profile == "n5000") and
+        fs.access("/usr/bin/mwrt-ledsched", "x") and cursor:get("mwrt_led", "main") then
+        return "scheduler"
+    end
+    if (profile == "c5800688" or profile == "c2000max" or profile == "c2000ultra") and
+        fs.access("/etc/init.d/ledctrl", "x") and cursor:get("ledctrl", "ledctrl") then
+        return "native"
+    end
+end
+
+local function can_write_system_config()
+    local access = require("luci.util").ubus("session", "access", {
+        ubus_rpc_session=luci.dispatcher.context.authsession, scope="access-group",
+        object="luci-mod-system-config", ["function"]="write"
+    })
+    return type(access) == "table" and access.access == true
+end
+
+local function panel_led_state(cursor, fs, backend)
+    if backend == "native" then
+        return cursor:get("ledctrl", "ledctrl", "disabled") ~= "1"
+    elseif backend == "nbcpe" then
+        return not fs.access("/usr/bin/ledflagc.conf") and
+            (fs.readfile("/tmp/ledflag.conf", 8) or ""):match("^%s*0") == nil
+    elseif backend == "scheduler" or backend == "c8" then
+        return cursor:get("mwrt_led", "main", "manual") ~= "off"
+    end
+end
+
+local function set_panel_led(cursor, fs, backend, enabled)
+    local sys = require "luci.sys"
+    if backend == "native" then
+        local previous = cursor:get("ledctrl", "ledctrl", "disabled") or "0"
+        if not cursor:set("ledctrl", "ledctrl", "disabled", enabled and "0" or "1") or
+            not cursor:commit("ledctrl") then return false end
+        if sys.call("/etc/init.d/ledctrl restart >/dev/null 2>&1") == 0 then return true end
+        cursor:set("ledctrl", "ledctrl", "disabled", previous)
+        cursor:commit("ledctrl")
+        sys.call("/etc/init.d/ledctrl restart >/dev/null 2>&1")
+        return false
+    elseif backend == "nbcpe" then
+        local permanent, temporary = "/usr/bin/ledflagc.conf", "/tmp/ledflag.conf"
+        if enabled then
+            if fs.access(permanent) and not fs.unlink(permanent) then return false end
+            if fs.access(temporary) and not fs.unlink(temporary) then return false end
+            for _, led in ipairs({"status", "wifi"}) do
+                local file = "/sys/class/leds/hc:blue:" .. led .. "/brightness"
+                if fs.access(file) and not fs.writefile(file, "1") then return false end
+            end
+        else
+            if not fs.writefile(permanent, "0\n") or not fs.writefile(temporary, "0\n") then
+                return false
+            end
+            for _, led in ipairs({"status", "wifi", "cmode4", "cmode5", "sig1", "sig2", "sig3", "int"}) do
+                local file = "/sys/class/leds/hc:blue:" .. led .. "/brightness"
+                if fs.access(file) and not fs.writefile(file, "0") then return false end
+            end
+        end
+        return true
+    else
+        if backend == "c8" and not fs.access("/etc/config/mwrt_led") then
+            if not fs.writefile("/etc/config/mwrt_led", "config sched 'main'\n") then return false end
+            cursor:load("mwrt_led")
+        end
+        local previous = cursor:get("mwrt_led", "main", "manual")
+        if enabled then
+            if previous and not cursor:delete("mwrt_led", "main", "manual") then return false end
+        elseif not cursor:set("mwrt_led", "main", "manual", "off") then
+            return false
+        end
+        if not cursor:commit("mwrt_led") then return false end
+        local command = backend == "c8" and "/usr/libexec/myos-c8-led apply" or "/usr/bin/mwrt-ledsched apply"
+        if sys.call(command .. " >/dev/null 2>&1") == 0 then return true end
+        if previous then cursor:set("mwrt_led", "main", "manual", previous)
+        else cursor:delete("mwrt_led", "main", "manual") end
+        cursor:commit("mwrt_led")
+        sys.call(command .. " >/dev/null 2>&1")
+        return false
+    end
+end
+
+function panel_led_status()
+    local cursor, fs = require("uci").cursor(), require "nixio.fs"
+    local backend = panel_led_backend(cursor, fs)
+    output({supported=backend ~= nil, writable=can_write_system_config(),
+        enabled=panel_led_state(cursor, fs, backend)})
+end
+
+function save_panel_led()
+    if not can_write_system_config() then
+        luci.http.status(403, "Forbidden")
+        return output({error="当前账号没有指示灯设置权限。"})
+    end
+    local value = luci.http.formvalue("enabled")
+    if value ~= "0" and value ~= "1" then
+        luci.http.status(400, "Invalid LED setting")
+        return output({error="无效的指示灯设置。"})
+    end
+    local cursor, fs = require("uci").cursor(), require "nixio.fs"
+    local backend = panel_led_backend(cursor, fs)
+    local enabled = value == "1"
+    if not backend or not set_panel_led(cursor, fs, backend, enabled) then
+        luci.http.status(500, "LED setting failed")
+        return output({error="指示灯设置未能应用。", enabled=panel_led_state(cursor, fs, backend)})
+    end
+    output({enabled=panel_led_state(cursor, fs, backend)})
+end
+
 local theme_server = "https://mayebano.shop:8443/myos/"
 local theme_name = "luci-theme-myos-new"
 local theme_job_dir = "/tmp/myos-theme-update."
@@ -585,6 +778,78 @@ local function link_sample_time()
     return seconds + micros / 1000000
 end
 
+local function appearance_color(value)
+    return type(value) == "string" and (value == "" or value:match("^#%x%x%x%x%x%x$"))
+end
+
+local function appearance_json(raw, limit)
+    if type(raw) ~= "string" or #raw > limit then return nil end
+    local value = require("luci.jsonc").parse(raw)
+    return type(value) == "table" and value or nil
+end
+
+function appearance_settings()
+    local cursor = require("uci").cursor()
+    output({
+        layout = appearance_json(cursor:get("myos_appearance", "main", "home_layout"), 2048),
+        shortcuts = appearance_json(cursor:get("myos_appearance", "main", "shortcuts"), 2048) or {},
+        shortcuts_open = cursor:get("myos_appearance", "main", "shortcuts_open") == "1"
+    })
+end
+
+function save_appearance_settings()
+    if not can_write_system_config() then
+        luci.http.status(403, "Permission denied")
+        return output({error="当前账号没有保存权限"})
+    end
+    local option = luci.http.formvalue("setting")
+    local raw = luci.http.formvalue("value")
+    local valid = option == "background_color" and appearance_color(raw)
+    if option == "home_layout" then
+        local layout = appearance_json(raw, 2048)
+        valid = layout and type(layout.zones) == "table" and type(layout.hidden) == "table"
+    elseif option == "shortcuts_open" then
+        valid = raw == "0" or raw == "1"
+    elseif option == "shortcuts" then
+        local shortcuts = appearance_json(raw, 2048)
+        valid = shortcuts ~= nil and #shortcuts <= 4
+        for key, shortcut in pairs(shortcuts or {}) do
+            if type(key) ~= "number" or key < 1 or key > #shortcuts or type(shortcut) ~= "table" or
+               type(shortcut.path) ~= "string" or #shortcut.path > 128 or
+               not shortcut.path:match("^admin/[%w_%-][%w_/%-]*$") or
+               type(shortcut.title) ~= "string" or #shortcut.title > 96 or not shortcut.title:find("%S") or
+               type(shortcut.icon) ~= "string" or #shortcut.icon > 16 or not shortcut.icon:match("^[a-z]+$") then
+                valid = false
+                break
+            end
+        end
+    end
+    if not valid then
+        luci.http.status(400, "Invalid appearance setting")
+        return output({error="外观设置无效"})
+    end
+    local cursor = require("uci").cursor()
+    if not cursor:set("myos_appearance", "main", option, raw) or not cursor:commit("myos_appearance") then
+        luci.http.status(500, "Appearance save failed")
+        return output({error="路由器未保存设置"})
+    end
+    output({saved=true})
+end
+
+function save_login_video()
+    local enabled = luci.http.formvalue("enabled")
+    if enabled ~= "0" and enabled ~= "1" then
+        luci.http.status(400, "Invalid login video setting")
+        return output({error="无效的登录视频设置"})
+    end
+    local cursor = require("uci").cursor()
+    if not cursor:set("myos_appearance", "main", "login_video", enabled) or not cursor:commit("myos_appearance") then
+        luci.http.status(500, "Login video save failed")
+        return output({error="保存登录视频设置失败"})
+    end
+    output({enabled=enabled == "1"})
+end
+
 function save_ping_target()
     local perf = require "luci.model.myos_liquid"
     local target = perf.parse_ping_target(luci.http.formvalue("target"))
@@ -634,8 +899,8 @@ local function start_link_probe(nixio, device, family, target)
         if nixio.dup(writer, nixio.stdout) and nixio.dup(writer, nixio.stderr) then
             writer:close()
             nixio.setenv("LC_ALL", "C")
-            nixio.exec("/usr/bin/timeout", "2", "/bin/ping", family, "-n", "-I", device,
-                "-s", "16", "-c", "1", "-W", "1", "-w", "1", target)
+            nixio.exec("/usr/bin/timeout", "3", "/bin/ping", family, "-n", "-I", device,
+                "-s", "16", "-c", "1", "-W", "2", "-w", "2", target)
         end
         os.exit(127)
     end
@@ -774,6 +1039,66 @@ end
 function acceleration()
     output(read_acceleration())
 end
+
+local function ipv4_number(address)
+    local a,b,c,d = (address or ""):match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+    if a then return ((a * 256 + b) * 256 + c) * 256 + d end
+end
+
+local function mark_wired_clients(clients, leases, learned, interfaces, uci, ts)
+    local networks, pending = {}, {}
+    for _, net in ipairs(interfaces) do
+        if net.device == "br-lan" then
+            for _, address in ipairs(net.ipv4) do
+                local ip, bits = ipv4_number(address.address), tonumber(address.mask)
+                if ip and bits and bits > 0 and bits <= 32 then
+                    local size = 2 ^ (32 - bits)
+                    networks[#networks + 1] = {size=size, base=math.floor(ip / size)}
+                end
+            end
+        end
+    end
+    local function in_lan(address)
+        local ip = ipv4_number(address)
+        if not ip then return false end
+        for _, net in ipairs(networks) do
+            if math.floor(ip / net.size) == net.base then return true end
+        end
+        return false
+    end
+    local own_gateway = true
+    for _, option in ipairs(uci:get_list("dhcp", "lan", "dhcp_option") or {}) do
+        if option:match("^3[, ]") or option:match("^option:router[, ]") then own_gateway = false end
+    end
+    for mac, client in pairs(clients) do
+        local fdb = learned[mac]
+        if fdb and client.device == "br-lan" and in_lan(client.ip) then
+            local lease = leases[mac]
+            local local_lease = own_gateway and lease and lease.ip == client.ip and
+                (lease.expires == 0 or lease.expires > ts)
+            if local_lease and fdb.age <= 280 then
+                client.online, client.state, client.port = true, "有线在线", fdb.port.name
+            elseif fdb.age <= 180 then
+                pending[client.ip] = {client=client, port=fdb.port.name}
+            end
+        end
+    end
+    if not next(pending) then return end
+    local flows = io.open("/proc/net/nf_conntrack", "r")
+    if not flows then return end
+    for line in flows:lines() do
+        local src, dst = line:match(" src=([%d.]+) dst=([%d.]+)")
+        local entry = pending[src]
+        if entry and dst and not in_lan(dst) and not line:find("[UNREPLIED]", 1, true) then
+            local client = entry.client
+            client.online, client.state, client.port = true, "有线在线", entry.port
+            pending[src] = nil
+            if not next(pending) then break end
+        end
+    end
+    flows:close()
+end
+
 function snapshot()
     local perf=require "luci.model.myos_liquid"
     local history=require "luci.model.myos_history"
@@ -819,12 +1144,13 @@ function snapshot()
     local profile = device_profile(board)
     local pictures = {
         n5000="n5000.png", c2000ultra="c2000ultra.png", c2000max="c2000max.png",
-        nbcpe688="nbcpe688.png", c8688="c8688.png", c5800688="c5800688.png"
+        nbcpe688="nbcpe688.png", c8688="c8688.webp", c5800688="c5800688.png"
     }
     local info = fast.system
     local interfaces = call("network.interface", "dump").interface or {}
     local devices = call("network.device", "status")
     local result = {board=board, profile=profile, product=pictures[profile], system=info,
+        connection_log=read_connection_events(),
         theme_version=rd("/usr/lib/opkg/info/luci-theme-myos-new.control"):match("\nVersion: (%S+)"),
         ts=os.time(), sample=tonumber(rd("/proc/uptime"):match("^[%d.]+")), errors=errors,
         interfaces={}, ports={}, uplinks={}, wireless={}, clients={}, modems={}, temperatures={},
@@ -927,9 +1253,9 @@ function snapshot()
     if next(lan_port_by_number) and fs.access("/usr/sbin/brctl") then
         local forwarding = require("luci.sys").exec("/usr/sbin/brctl showmacs br-lan 2>/dev/null") or ""
         for row in forwarding:gmatch("[^\n]+") do
-            local number, mac = row:match("^%s*(%d+)%s+([%x:]+)%s+no%s")
+            local number, mac, age = row:match("^%s*(%d+)%s+([%x:]+)%s+no%s+([%d.]+)")
             local port = lan_port_by_number[tonumber(number)]
-            if port then lan_port_by_mac[mac:lower()] = port end
+            if port and tonumber(age) then lan_port_by_mac[mac:lower()] = {port=port, age=tonumber(age)} end
         end
     end
     -- Do not treat ARP cache entries or DHCP leases as proof of present reachability.
@@ -943,9 +1269,12 @@ function snapshot()
             local key=mac:lower()
             local n=names[key] or {}
             clients[key]={mac=key,ip=ip,name=n.name,kind="LAN",state="邻居记录",device=dev,lease_expires=n.expires}
-            local port = dev == "br-lan" and lan_port_by_mac[key]
-            if port then append(port.client_ipv4, ip) end
+            local fdb = dev == "br-lan" and lan_port_by_mac[key]
+            if fdb then append(fdb.port.client_ipv4, ip) end
         end
+    end
+    if profile == "c2000ultra" then
+        mark_wired_clients(clients, names, lan_port_by_mac, result.interfaces, uci, result.ts)
     end
     for _, port in pairs(lan_port_by_number) do table.sort(port.client_ipv4) end
     local radios=call("network.wireless","status")
@@ -964,6 +1293,7 @@ function snapshot()
                         local key=s.mac:lower()
                         local n=names[key] or {}
                         clients[key]={mac=key,name=n.name,ip=n.ip,kind=i.ifname,state="无线已关联",
+                            online=profile=="c2000ultra" and (c.mode=="ap" or w.mode=="Master") or nil,
                             signal=s.signal,rx=s.rx and s.rx.rate,tx=s.tx and s.tx.rate,
                             ssid=w.ssid or c.ssid,device=i.ifname,lease_expires=n.expires}
                     end
@@ -983,6 +1313,15 @@ function snapshot()
         end
     end
     for _,c in pairs(clients) do append(result.clients,c) end
+    if profile == "c2000ultra" then
+        result.client_online = {wired=0,wifi=0}
+        for _, c in ipairs(result.clients) do
+            if c.online then
+                local key = c.state == "有线在线" and "wired" or "wifi"
+                result.client_online[key] = result.client_online[key] + 1
+            end
+        end
+    end
     table.sort(result.clients,function(a,b) return a.mac<b.mac end)
     local cpu_temp=tonumber(rd("/sys/class/thermal/thermal_zone0/temp"))
     if cpu_temp then table.insert(result.temperatures,1,{name="CPU",value=cpu_temp/1000}) end

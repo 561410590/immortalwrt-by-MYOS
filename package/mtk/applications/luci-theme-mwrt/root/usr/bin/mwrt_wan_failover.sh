@@ -185,6 +185,20 @@ get_iface_name_by_dev() {
     uci show network 2>/dev/null | grep "device='$dev'" | awk -F. '{print $2}' | awk -F= '{print $1}' | head -n 1
 }
 
+resolve_secondary() {
+    local configured="$1" iface device
+    case "$configured" in
+        ''|auto) ;;
+        *) [ -d "/sys/class/net/$configured" ] && { echo "$configured"; return; } ;;
+    esac
+    for iface in $(uci -q show network | sed -n 's/^network\.\([^.]*\)\.modem_config=.*/\1/p'); do
+        device=$(ubus call "network.interface.$iface" status 2>/dev/null | jsonfilter -e '@.l3_device')
+        [ -n "$device" ] || device=$(uci -q get "network.$iface.device")
+        [ -d "/sys/class/net/$device" ] && [ -n "$device" ] && { echo "$device"; return; }
+    done
+    echo "${configured:-eth2}"
+}
+
 # netifd 记的权威网关。默认路由被删掉之后它依然有效 —— 这正是切换之后
 # 想把主口探回来时的处境。
 #
@@ -237,7 +251,9 @@ get_gateway() {
     local gw
 
     # 1) 内核里现成的默认路由: 没切换过的时候最快最准
-    gw=$(ip route show dev "$ifname" | awk '/^default / {print $3; exit}')
+    gw=$(ip -4 route show default dev "$ifname" | awk '
+        { for (i = 1; i < NF; i++) if ($i == "via") { print $(i + 1); exit }
+          print "0.0.0.0"; exit }')
     [ -n "$gw" ] && echo "$gw" && return 0
 
     # 2) netifd 的权威记录: 默认路由已被 switch_to 删掉时靠这条
@@ -251,10 +267,6 @@ get_gateway() {
         gw=$(uci get network."$netname".gateway 2>/dev/null)
         [ -n "$gw" ] && echo "$gw" && return 0
     fi
-
-    # 4) 任何提到这个口的默认路由
-    gw=$(ip route | grep "$ifname" | awk '/default/ {print $3; exit}')
-    [ -n "$gw" ] && echo "$gw" && return 0
 
     # 真的不知道了。这里不记日志: 跑在备用口上时 check_primary_via_temp_route
     # 每个检测周期都会问一次主口的网关, 主口没插线就每次都走到这里, 而那只是
@@ -274,12 +286,15 @@ check_primary_via_temp_route() {
         return 1
     fi
 
-    ip route add "$target" via "$gw" dev "$ifname" 2>/dev/null
+    local hop=""
+    [ "$gw" = "0.0.0.0" ] || hop="via $gw"
+    local added=0
+    ip -4 route add "$target" $hop dev "$ifname" 2>/dev/null && added=1
     local result=1
     if ping -I "$ifname" -c 2 -W 2 "$target" >/dev/null 2>&1; then
         result=0
     fi
-    ip route del "$target" via "$gw" dev "$ifname" 2>/dev/null
+    [ "$added" = 0 ] || ip -4 route del "$target" $hop dev "$ifname" 2>/dev/null
 
     return $result
 }
@@ -288,7 +303,43 @@ check_primary_via_temp_route() {
 # 点灯看的是实况, 而不是脚本自己记的 CURRENT_IF —— 后者只在本脚本切换时更新,
 # 别处(ifup/DHCP/手动改路由)动过它并不知道。取不到就是没默认路由, 等于没网。
 active_if() {
-    ip route 2>/dev/null | awk '/^default/ {print $5; exit}'
+    ip -4 route show default 2>/dev/null | awk '
+        { for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }'
+}
+
+restore_defroutes() {
+    [ -z "$(active_if)" ] || return 0
+    local iface status dev physical gateway metric source hop preferred
+    for iface in $(ubus call network.interface dump 2>/dev/null |
+        jsonfilter -e '@.interface[@.up=true].interface'); do
+        [ "$(uci -q get "network.$iface.defaultroute")" != 0 ] || continue
+        [ -z "$(uci -q get "network.$iface.ip4table")" ] || continue
+        status=$(ubus call "network.interface.$iface" status 2>/dev/null)
+        dev=$(jsonfilter -s "$status" -e '@.l3_device')
+        physical=$(jsonfilter -s "$status" -e '@.device')
+        [ -n "$dev" ] || continue
+        case "$dev $physical" in
+            "$PRIMARY_IF "*|*" $PRIMARY_IF")
+                if [ "$FORCE_PRIMARY" = 1 ] && [ -n "$CURRENT_IF" ] &&
+                    [ "$CURRENT_IF" != "$PRIMARY_IF" ]; then continue; fi
+                ;;
+            "$SECONDARY_IF "*|*" $SECONDARY_IF") ;;
+            *) continue ;;
+        esac
+        gateway=$(jsonfilter -s "$status" -e '@.route[@.target="0.0.0.0" && @.mask=0].nexthop' | head -n 1)
+        case "$gateway" in ''|*[!0-9.]*) continue ;; esac
+        metric=$(jsonfilter -s "$status" -e '@.metric')
+        case "$metric" in ''|*[!0-9]*) metric=0 ;; esac
+        source=$(jsonfilter -s "$status" -e '@.route[@.target="0.0.0.0" && @.mask=0].source' | head -n 1)
+        source=${source%/*}
+        preferred=""
+        case "$source" in ''|0.0.0.0|*[!0-9.]*) ;; *) preferred="src $source" ;; esac
+        hop=""
+        [ "$gateway" = 0.0.0.0 ] || hop="via $gateway"
+        if ip -4 route add default $hop dev "$dev" proto static metric "$metric" $preferred 2>/dev/null; then
+            log_msg "INFO" "已按 netifd 状态恢复 $dev 的 IPv4 默认路由"
+        fi
+    done
 }
 
 # 只 ping, 不做 ifup —— 专门给点灯用。
@@ -325,38 +376,30 @@ check_online() {
 # 新路由不写 metric, 即 metric 0, 比 netifd 自己那条(本机实测 metric 11)优先,
 # 所以装上就立刻生效, 不依赖旧的那条有没有删掉。
 #
-# 删旧路由只删"不是本次目标"的那些: 用 while 逐条删, 因为 `ip route del default`
-# 一次只删一条, 多条并存时删不干净(上一轮测试就留下过两条)。
+# 只替换优先级为零的主表路由，其余 metric 的 netifd 备用路由照常保留。
 #
 # 第三个参数是切换原因, 和结果并成一行记(原先"准备切换"、"已切换"各记一行)。
 # 失败用 log_once: 问题不解决, 每隔 FAIL_THRESHOLD 个周期就会再失败一次。
 switch_to() {
     local ifname="$1"; local gw="$2"; local why="$3"
-    [ -z "$gw" ] && log_once sw ERROR "切换到 $ifname 失败：取不到它的网关" && return
+    if [ -z "$gw" ]; then
+        log_once sw ERROR "切换到 $ifname 失败：取不到它的网关"
+        return 1
+    fi
 
-    local err
-    err=$(ip route replace default via "$gw" dev "$ifname" 2>&1)
-    if [ -n "$err" ]; then
+    local err hop=""
+    [ "$gw" = "0.0.0.0" ] || hop="via $gw"
+    if ! err=$(ip -4 route replace default $hop dev "$ifname" metric 0 2>&1); then
         # ip 的原始报错是英文, 页面上不给用户看, 留在系统日志里排查用
         logger -t mwrt_failover "ip route replace default via $gw dev $ifname: $err"
         log_once sw ERROR "切换到 $ifname（网关 $gw）失败，路由没装上，保留原来的默认路由"
-        return
+        return 1
     fi
 
-    # 确认真的装上了, 再去动旧的
-    if ! ip route show default | grep -q "via $gw dev $ifname"; then
+    if [ "$(active_if)" != "$ifname" ]; then
         log_once sw ERROR "切换到 $ifname（网关 $gw）失败，新路由没出现在路由表里"
-        return
+        return 1
     fi
-
-    local n=0
-    while [ $n -lt 8 ]; do
-        local other
-        other=$(ip route show default | grep -v "via $gw dev $ifname" | head -1)
-        [ -z "$other" ] && break
-        ip route del $other >/dev/null 2>&1 || break
-        n=$((n+1))
-    done
 
     CURRENT_IF="$ifname"
     clear_once sw
@@ -364,13 +407,13 @@ switch_to() {
 }
 
 ########################################
-CURRENT_IF=$(ip route | awk '/^default/ {print $5; exit}')
+CURRENT_IF=$(active_if)
 fail_count=0
 success_count=0
 
 ENABLED=$(get_config_value "enabled" "1")
 PRIMARY_IF=$(get_config_value "primary_if" "eth0")
-SECONDARY_IF=$(get_config_value "secondary_if" "eth2")
+SECONDARY_IF=$(resolve_secondary "$(get_config_value "secondary_if" "eth2")")
 PING_TARGET=$(get_config_value "ping_target" "8.8.8.8")
 CHECK_INTERVAL=$(get_config_value "check_interval" "5")
 FAIL_THRESHOLD=$(get_config_value "fail_threshold" "2")
@@ -396,7 +439,7 @@ while true; do
     [ -n "$CURRENT_IF" ] || CURRENT_IF=$(active_if)
     ENABLED=$(uci get ${CONFIG_FILE}.${CONFIG_SECTION}.enabled 2>/dev/null || echo "1")
     PRIMARY_IF=$(uci get ${CONFIG_FILE}.${CONFIG_SECTION}.primary_if 2>/dev/null || echo "eth0")
-    SECONDARY_IF=$(uci get ${CONFIG_FILE}.${CONFIG_SECTION}.secondary_if 2>/dev/null || echo "eth2")
+    SECONDARY_IF=$(resolve_secondary "$(get_config_value "secondary_if" "eth2")")
     PING_TARGET=$(uci get ${CONFIG_FILE}.${CONFIG_SECTION}.ping_target 2>/dev/null || echo "8.8.8.8")
     CHECK_INTERVAL=$(uci get ${CONFIG_FILE}.${CONFIG_SECTION}.check_interval 2>/dev/null || echo "5")
     FAIL_THRESHOLD=$(uci get ${CONFIG_FILE}.${CONFIG_SECTION}.fail_threshold 2>/dev/null || echo "2")
@@ -410,6 +453,8 @@ while true; do
             log_msg "INFO" "网关存活已关闭，不再自动切换线路"
         fi
         last_enabled="$ENABLED"
+        fail_count=0
+        success_count=0
         clear_once fo
         clear_once sw
     fi
@@ -417,11 +462,18 @@ while true; do
     # 故障切换停用时不动路由, 但灯照样要反映真实联网状态 ——
     # "有没有互联网"和"要不要自动切换"是两件事。
     if [ "$ENABLED" != "1" ]; then
-        if probe_online "$(active_if)"; then ONLINE=1; else ONLINE=0; fi
+        CURRENT_IF=$(active_if)
+        if probe_online "$CURRENT_IF"; then ONLINE=1; else ONLINE=0; fi
         set_leds "$ONLINE"
         note_net "$ONLINE"
         sleep "$CHECK_INTERVAL"
         continue
+    fi
+
+    restore_defroutes
+    actual_if=$(active_if)
+    if [ -z "$CURRENT_IF" ] || [ "$actual_if" = "$PRIMARY_IF" ]; then
+        CURRENT_IF="$actual_if"
     fi
 
     if [ "$CURRENT_IF" = "$PRIMARY_IF" ]; then
@@ -445,11 +497,11 @@ while true; do
 
                 gw_secondary=$(get_gateway "$SECONDARY_IF")
                 if [ -n "$gw_secondary" ]; then
-                    switch_to "$SECONDARY_IF" "$gw_secondary" "主口 $PRIMARY_IF 连续 $FAIL_THRESHOLD 次不通，"
-                    set_state "SECONDARY_ACTIVE"
-                    clear_once fo
-                    # 刚切过来, 备用口通不通这一轮还没探过, 置回未知
-                    ONLINE=""
+                    if switch_to "$SECONDARY_IF" "$gw_secondary" "主口 $PRIMARY_IF 连续 $FAIL_THRESHOLD 次不通，"; then
+                        set_state "SECONDARY_ACTIVE"
+                        clear_once fo
+                        ONLINE=""
+                    fi
                 else
                     log_once fo WARN "主口 $PRIMARY_IF 连续 $FAIL_THRESHOLD 次不通，但备口 $SECONDARY_IF 没有网关，暂时无法切换"
                 fi
@@ -461,14 +513,10 @@ while true; do
             if check_primary_via_temp_route "$PRIMARY_IF" "$PING_TARGET"; then
                 gw_primary=$(get_gateway "$PRIMARY_IF")
                 if [ -n "$gw_primary" ]; then
-                    if [ -n "$CURRENT_IF" ]; then
-                        switch_to "$PRIMARY_IF" "$gw_primary" "主口 $PRIMARY_IF 已恢复，"
-                    else
-                        switch_to "$PRIMARY_IF" "$gw_primary" "没有默认路由而主口 $PRIMARY_IF 可用，"
+                    if switch_to "$PRIMARY_IF" "$gw_primary" "主口 $PRIMARY_IF 已恢复，"; then
+                        set_state "PRIMARY_OK"
+                        ONLINE=1
                     fi
-                    set_state "PRIMARY_OK"
-                    # 刚才 check_primary_via_temp_route 已经证明主口能出网
-                    ONLINE=1
                 fi
             fi
         fi

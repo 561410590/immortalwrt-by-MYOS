@@ -97,7 +97,9 @@ const qualityFields = [
  ['loss','丢包率','%']
 ];
 
-function qualityChart(fields, label, unit){
+const qualityX=(ts,start,end)=>end>start?1+598*(ts-start)/(end-start):599;
+
+function qualityChart(fields, label, unit, inspect){
  const svg=(tag,attrs)=>{
   const el=document.createElementNS('http://www.w3.org/2000/svg',tag);
   Object.entries(attrs).forEach(([key,value])=>el.setAttribute(key,value));
@@ -110,10 +112,20 @@ function qualityChart(fields, label, unit){
   plot.append(path);
   return [field,path];
  });
+ const cursor=inspect?svg('line',{class:'m-quality-cursor',y1:5,y2:65,visibility:'hidden','aria-hidden':'true'}):null;
+ if(cursor)plot.append(cursor);
  const limit=node('span'),middle=node('span');
  return {
+  plot,
   root:node('div','m-quality-chart',[node('div','m-quality-scale',[limit,middle,node('span','','0')]),plot]),
-  draw(samples,start,end,max){
+  draw(samples,start,end,max,selected){
+   if(cursor){
+    cursor.setAttribute('visibility',selected?'visible':'hidden');
+    if(selected){
+     const x=qualityX(selected.ts,start,end);
+     cursor.setAttribute('x1',x);cursor.setAttribute('x2',x);
+    }
+   }
    const top=max+unit,mid=String(max/2);
    if(limit.textContent!==top)limit.textContent=top;
    if(middle.textContent!==mid)middle.textContent=mid;
@@ -122,7 +134,7 @@ function qualityChart(fields, label, unit){
     const commands=[];
     for(const sample of samples){
      if(!Number.isFinite(sample[field])){previous=false;continue;}
-     const x=end>start?1+598*(sample.ts-start)/(end-start):599;
+     const x=qualityX(sample.ts,start,end);
      const y=65-60*sample[field]/max;
      const point=x.toFixed(1)+','+y.toFixed(1);
      if(previous&&!sample.gap)commands.push('L'+point);
@@ -212,7 +224,7 @@ return view.extend({
    this.refreshing=null;window.__MYOSDashboardBusy=false;
    const interval=this.intervals().fast;
    const delay=this.failures?Math.min(30000,interval*2**Math.min(this.failures-1,5)):Math.max(250,interval-(performance.now()-started));
-   this.scheduleNext(delay);
+   this.scheduleNext(this.resumeFast?0:delay);
   });return this.refreshing;
  },
  mergeSample:function(fast,baseline){
@@ -282,7 +294,6 @@ return view.extend({
     if(!r.ok)throw new Error('HTTP '+r.status);
     const data=r.json();
     if(Object.keys(data.errors||{}).length)throw new Error('模组信息暂不可用');
-    if(d.profile==='c2000max')this.maxSim=data.sim;
     this.modemFailure=null;
    })
    .catch(e=>{this.modemFailure=e.message;})
@@ -340,6 +351,7 @@ return view.extend({
   }catch(_){}
   this.fullNext=Date.now()+this.intervals().slow;
   const slot=name=>this.parts[name]=node('div','m-slot m-slot-'+name);
+  const status=this.initHomeStatus();
   this.error=node('div','m-read-error');this.error.hidden=true;
   this.firmwareUpdateEnabled=false;
   this.nextFirmwareStatus=0;
@@ -347,9 +359,9 @@ return view.extend({
   this.firmwareNotice=E('a',{
    class:'m-firmware-update',href:L.url('admin','system','myos_update'),hidden:''
   },[this.firmwareVersion,E('span',{'aria-hidden':'true'},'→')]);
-  this.root=node('div','m-dashboard m-home-refined',[
+  this.root=node('div','m-dashboard m-home-refined m-home-compact',[
    node('div','m-page-heading',[
-    node('h1','','网络控制中心')
+    node('h1','','网络控制中心'),status
    ]),this.firmwareNotice,this.error,
    node('div','m-overview-row m-layout-zone',['product','resources','ports','uplinks'].map(slot)),
    node('div','m-dashboard-grid',[
@@ -362,6 +374,7 @@ return view.extend({
   this.initQuality();
   this.initClients();
   this.initPortDialog();
+  this.initUplinkDialog();
   this.initManagement();
   this.initControls();
   if(initial.failure)this.showError(initial.failure);else{
@@ -436,7 +449,7 @@ return view.extend({
   delete d.traffic_history;delete d.quality_history;delete d.ping;
   const prev=this.previous,dt=prev?d.sample-prev.sample:0;
   if(prev&&(dt<0||(prev.cpu&&d.cpu&&d.cpu.total<prev.cpu.total)))this.cpuReading=null;
-  let cpu=null,down=null,up=null;
+  let cpu=null,down=null,up=null,links;
   if(dt>0&&dt<=90&&prev.cpu&&d.cpu){
    const total=d.cpu.total-prev.cpu.total,idle=d.cpu.idle-prev.cpu.idle;
    if(total>0&&idle>=0)cpu=Math.max(0,Math.min(100,100*(total-idle)/total));
@@ -453,24 +466,27 @@ return view.extend({
    if(current.length===old.size&&current.every(n=>old.has(n.name)&&n.rx>=old.get(n.name).rx&&n.tx>=old.get(n.name).tx)){
     down=current.reduce((v,n)=>v+n.rx-old.get(n.name).rx,0)/trafficDt;
     up=current.reduce((v,n)=>v+n.tx-old.get(n.name).tx,0)/trafficDt;
+    links=Object.fromEntries(current.map(n=>[n.name,{
+     down:(n.rx-old.get(n.name).rx)/trafficDt,
+     up:(n.tx-old.get(n.name).tx)/trafficDt
+    }]));
    }
   }
   if(counters&&(!base||d.sample>base.sample||reboot))
    this.trafficPrevious={sample:d.sample,boot:d.boot,uplinks:current.map(n=>({name:n.name,rx:n.rx,tx:n.tx}))};
   if(cpu!=null)this.cpuReading=cpu;
   if(trafficHistory){
-   if(!this.routerTrafficHistory||reboot)this.history=[];
    for(const point of list(trafficHistory.points)){
+    this.trafficHistoryTime=point.time;
     if(point.time<=(this.history.at(-1)?.time||0))continue;
     const previous=this.history.at(-1);
     if(previous&&point.time-previous.time>3)point.gap=true;
     this.history.push(point);
-    this.trafficHistoryTime=point.time;
    }
   }else if(down!=null&&up!=null){
    const last=this.history.at(-1);
    if(last&&d.sample-last.time>maxTrafficInterval)this.trafficGap=true;
-   this.history.push({down,up,time:d.sample,gap:this.trafficGap});
+   this.history.push({down,up,time:d.sample,gap:this.trafficGap,links});
    this.trafficGap=false;
    this.lastRates={down,up};
   }else if(base&&trafficDt===0&&this.lastRates){
@@ -478,7 +494,6 @@ return view.extend({
   }else if(base&&!reboot&&trafficDt>0){
    this.trafficGap=true;this.lastRates=null;
   }
-  if(!trafficHistory)this.trafficHistoryTime=0;
   this.routerTrafficHistory=!!trafficHistory;
   while(this.history[0]?.time<d.sample-trafficWindow)this.history.shift();
   if(trafficHistory){
@@ -490,6 +505,10 @@ return view.extend({
   if(dt>0&&dt<=90)list(d.ports).forEach(p=>{
    const old=list(prev.ports).find(q=>q.name===p.name);
    if(light&&old&&old.carrier!==p.carrier)this.fullNext=0;
+    if(!reboot&&this.eventBoot===d.boot&&old&&typeof old.carrier==='boolean'&&typeof p.carrier==='boolean'&&old.carrier!==p.carrier){
+     this.events.unshift({time:d.ts,kind:'port',device:p.name,up:p.carrier});
+     if(this.events.length>40)this.events.pop();
+    }
    if(old&&p.rx!=null&&p.tx!=null&&old.rx!=null&&old.tx!=null&&p.rx>=old.rx&&p.tx>=old.tx)
     this.portRates[p.name]={rx:(p.rx-old.rx)/dt,tx:(p.tx-old.tx)/dt};
   });
@@ -498,16 +517,8 @@ return view.extend({
   this.refreshFirmwareNotice();
   this.simNamesButton.hidden=d.profile==='n5000';
 
-  if(d.profile==='c2000max'&&this.maxSim){
-   list(d.modems).forEach(m=>{
-    if(m.id!==this.maxSim.modem)return;
-    m.sim=this.maxSim.actual||null;
-    m.sim_label=({'1':'SIM 卡 1','2':'SIM 卡 2','3':'内置卡 1'})[m.sim]||null;
-    if(this.maxSim.cpin)m.pin=this.maxSim.cpin.toUpperCase();
-   });
-  }
-
-  this.recordEvents(d,prev,light);this.renderTopology(d);this.renderHealth(d);this.renderEvents(d);this.renderPorts(d);this.renderProduct(d);this.renderUplinks(d);
+  if(!light)this.recordWirelessEvents(d);
+  this.renderTopology(d);this.renderHealth(d);this.renderEvents(d);this.renderPorts(d);this.renderProduct(d);this.renderUplinks(d);
   this.drawTraffic(d,down,up);this.renderResources(d,cpu);
   if(!light)this.updateQualityLinks(d);
   if(applyQuality){
@@ -517,6 +528,7 @@ return view.extend({
   if(!light){this.renderModems(d);this.renderNetwork(d);this.renderWifi(d);this.renderClients(d);this.renderVersion(d);}
   if(!light)this.refreshQModem(d);
   if(this.layout)this.layout.reconcile(d);
+  this.updateHomeStatus(d);
   if(!light)window.dispatchEvent(new Event('myos:layout'));
   if(!light)this.refreshSimNames(d);
   if(!this.signalTimer&&!this.signalRequest)this.scheduleSignals(0);
@@ -570,7 +582,7 @@ return view.extend({
       badge(ip.length||v6.length?'已获取地址':'地址未获取',ip.length||v6.length?'good':'')
      ]),
      node('div','m-signal',[metric('RSRP',m.rsrp,'dBm'),metric('RSRQ',m.rsrq,'dB'),metric('SINR',m.sinr,'dB'),metric('频段',band,'')]),contract,
-     kv([...(m.selected_sim?[['已选卡槽',m.selected_sim_label||('SIM '+m.selected_sim+(m.selected_sim_type?' · '+m.selected_sim_type:''))]]:[]),
+     kv([...(d.profile!=='c2000max'&&m.selected_sim?[['已选卡槽',m.selected_sim_label||('SIM '+m.selected_sim+(m.selected_sim_type?' · '+m.selected_sim_type:''))]]:[]),
        ['当前 SIM',m.sim_label||(m.sim?'SIM '+m.sim:null)],['SIM 名称',cloud.name||m.sim_name||m.selected_sim_type||cloud.error||(this.simFailure?'云端名称暂不可用':m.sim_name_status)],['数据接口',m.device],
        ['识卡状态',m.pin==='0'||m.pin==='READY'?'已就绪':m.pin!=null?'状态 '+m.pin:null]]),
      detail,...(signalError?[node('div','m-cell-age','信号读取失败：'+signalError)]:[])
@@ -638,12 +650,13 @@ return view.extend({
    status.length?node('div','m-port-grid',status.map(p=>{
     const label=alias(d,p.name),desc=p.carrier===true?'链路已连接':p.carrier===false?'未连接':'状态未获取';
     const ip=p.ips.length?p.ips[0]+(p.ips.length>1?' +'+(p.ips.length-1):''):'';
-    return node('div','m-port'+(p.carrier?' up':''),[
-     node('div','m-port-title',[E('span',{class:'m-port-led','aria-hidden':'true'}),node('strong','',label)]),
-     E('button',{type:'button',class:'m-port-button','data-port':p.name,'aria-label':label+' 详情','aria-haspopup':'dialog'},'详情'),
+    return E('button',{
+     type:'button',class:'m-port m-port-action'+(p.carrier?' up':''),'data-port':p.name,'aria-haspopup':'dialog'
+    },[
+     node('span','m-port-title',[E('span',{class:'m-port-led','aria-hidden':'true'}),node('strong','',label)]),
      node('small','',p.role||'物理网口'),
      badge(p.carrier&&p.speed?String(p.speed).replace(/F$/,' Mbps').replace(/H$/,' Mbps · 半双工').replace(/^(\d+)$/,'$1 Mbps'):desc,p.carrier?'good':''),
-     E('div',{class:'m-port-ip',title:p.ips.join(' · ')},ip)
+     E('span',{class:'m-port-ip',title:p.ips.join(' · ')},ip)
     ]);
    })):node('p','m-empty','未获取物理网口信息'),link('接口设置','admin/network/network')));
   if(this.portDialog.open)this.updatePortDialog(d,status);
@@ -653,17 +666,49 @@ return view.extend({
    const nets=list(d.interfaces).filter(n=>n.device===u.name&&n.up===true&&list(n.routes).some(r=>Number(r.mask)===0));
    const addresses=[...new Set(nets.flatMap(n=>list(n.ipv4).map(ip=>ip.address).concat(list(n.ipv6).map(ip=>ip.address))).filter(Boolean))];
    const gateways=[...new Set(nets.flatMap(n=>list(n.routes).filter(r=>Number(r.mask)===0).map(r=>r.nexthop)).filter(g=>g&&g!=='0.0.0.0'&&g!=='::'))];
-   return {name:alias(d,u.name),networks:nets.map(n=>n.name).join(' / '),ip:addresses[0],gateway:gateways[0],carrier:u.carrier};
+   const modem=list(d.modems).find(m=>m.device===u.name);
+   const subscriber=modem?[modem.sim_label||(modem.sim?'SIM '+modem.sim:null),modem.operator].filter(Boolean).join(' · '):'';
+   return {device:u.name,name:modem?'蜂窝':alias(d,u.name),networks:nets.map(n=>n.name).join(' / '),
+    ip:addresses[0],addresses,gateways,carrier:u.carrier,subscriber,cellular:!!modem};
   });
-  this.replace('uplinks',rows,()=>card('当前出口','↗',rows.length?node('div','m-uplink-list',rows.map(r=>
-   node('div','m-uplink-row',[
-    node('div','m-uplink-heading',[
-     node('div','m-uplink-id',[node('strong','',r.name),
-      ...(r.networks&&r.networks!==r.name?[node('small','',r.networks)]:[])]),
-     badge(r.carrier===false?'链路断开':'默认路由',r.carrier===false?'':'blue')
-    ]),
-    kv([['地址',r.ip||'—'],['网关',r.gateway||'—']])
-   ]))):node('p','m-empty','未读取到默认路由')));
+  this.uplinkLabels=new Map(rows.map(row=>[row.device,row.name]));
+  this.replace('uplinks',rows,()=>this.renderCompactUplinks(rows));
+ },
+ renderCompactUplinks:function(rows){
+  const summary=rows.length?node('div','m-uplink-list',rows.map(r=>node('div','m-uplink-item',[
+   node('div','m-uplink-compact',[
+    node('strong','',r.name),
+    E('span',{class:'m-uplink-address',title:r.ip||''},r.ip||'—'),
+    badge(r.carrier===false?'链路断开':'默认路由',r.carrier===false?'':'blue')
+   ]),
+   ...(r.cellular?[node('div','m-cellular-outlet',[
+    ...(r.subscriber?[node('span','',r.subscriber)]:[]),
+    link('蜂窝详情','admin/modem/qmodem/overview')
+   ])]:[])
+  ]))):node('p','m-empty','未读取到默认路由');
+  patchTree(this.uplinkDetailRows,node('div','m-uplink-detail-rows',rows.map(r=>node('div','',[
+    node('strong','',r.name),
+    kv([['实际接口',r.device],['网络',r.networks||'—'],
+     ['地址',r.addresses.join(' · ')||'—'],['网关',r.gateways.join(' · ')||'—']])
+   ]))));
+  const trigger=E('button',{
+   type:'button',class:'m-copy-button','data-uplink-details':'','aria-haspopup':'dialog',
+   click:()=>this.uplinkDialog.showModal()
+  },'线路详情');
+  return card('当前出口','↗',summary,trigger);
+ },
+ initUplinkDialog:function(){
+  const title=E('h2',{id:'m-uplink-dialog-title'},'线路详情');
+  const close=E('button',{type:'button',class:'m-icon-button','aria-label':'关闭线路详情',autofocus:''},'×');
+  this.uplinkDetailRows=node('div','m-uplink-detail-rows');
+  this.uplinkDialog=E('dialog',{class:'m-client-dialog m-uplink-dialog','aria-labelledby':'m-uplink-dialog-title'},[
+   node('div','m-background-heading',[title,close]),this.uplinkDetailRows
+  ]);
+  close.addEventListener('click',()=>this.uplinkDialog.close());
+  this.uplinkDialog.addEventListener('close',()=>{
+   this.parts.uplinks.querySelector('button[data-uplink-details]')?.focus({preventScroll:true});
+  });
+  this.root.append(this.uplinkDialog);
  },
  renderNetwork:function(d){
   this.replace('network',{interfaces:d.interfaces,ports:d.ports,profile:d.profile},()=>{
@@ -696,8 +741,55 @@ return view.extend({
       w.frequency?(w.frequency<3000?'2.4 GHz':w.frequency<5925?'5 GHz':'6 GHz'):'频段未获取',
       ' · 信道 '+text(w.channel)+' · '+text(w.htmode)
      ])
-    ]),badge(w.up?w.clients+' 台关联':'已关闭',w.up?'blue':'')
+    ]),w.up&&w.name?E('button',{type:'button',class:'m-pill-button','data-wifi-clients':w.name,
+    'aria-label':'查看 '+text(w.ssid)+' · '+text(w.name)+' 的关联终端'},w.clients+' 台关联'):badge('已关闭')
    ]))):node('p','m-empty','未获取无线接口'),link('设置与二维码','admin/network/wireless')));
+ },
+ initHomeStatus:function(){
+  this.homeStatus={};
+  const metrics=[
+   ['ports','网口已连接','ports'],
+   ['wired','LAN 邻居','clients','lan'],
+   ['wifi','无线关联','clients','wifi']
+  ];
+  return E('div',{class:'m-home-status',role:'group','aria-label':'接口和终端状态'},metrics.map(([key,label,section,filter])=>{
+   const reading=node('strong','','—');
+   const button=E('button',{type:'button',disabled:''},[node('span','',label),reading]);
+   button.addEventListener('click',()=>this.openHomeStatus(section,filter));
+   this.homeStatus[key]={button,reading,section};
+   return button;
+  }));
+ },
+ updateHomeStatus:function(d){
+  const ports=list(d.ports),clients=list(d.clients);
+  const values={
+   ports:ports.length&&ports.every(p=>typeof p.carrier==='boolean')?ports.filter(p=>p.carrier).length+'/'+ports.length:'—',
+   wired:Array.isArray(d.clients)&&d.client_sources?.arp!==false?clients.filter(c=>c.kind==='LAN').length:'—',
+   wifi:Array.isArray(d.clients)&&!d.errors?.['network.wireless']?clients.filter(c=>c.state==='无线已关联').length:'—'
+  };
+  for(const [key,{button,reading,section}] of Object.entries(this.homeStatus)){
+   const value=String(values[key]);
+   if(reading.textContent!==value)reading.textContent=value;
+   button.disabled=this.parts[section].hidden||value==='—';
+  }
+ },
+ openHomeStatus:function(section,filter){
+  const part=this.parts[section];
+  if(part.hidden)return;
+  if(filter){
+   this.clientSearch.value='';
+   this.clientFilter.value=filter;
+   this.clientPage=0;
+   this.drawClients();
+   this.clientFilter.focus({preventScroll:true});
+  }else{
+   const heading=part.querySelector('.m-card-heading h2');
+   if(heading){
+    heading.tabIndex=-1;
+    heading.focus({preventScroll:true});
+   }
+  }
+  part.scrollIntoView({block:'start'});
  },
  renderProduct:function(d){
   this.replace('product',{board:d.board,profile:d.profile,product:d.product,uptime:Math.floor((d.system.uptime||0)/60)},()=>{
@@ -718,16 +810,18 @@ return view.extend({
   this.pingRevision=0;
   this.qualitySelect=E('select',{'class':'m-quality-select','aria-label':'选择 WAN 出口',disabled:''});
   this.qualitySelect.addEventListener('change',()=>this.drawQuality());
-  this.qualityStatus=E('p',{'class':'m-quality-status','role':'status'});
+  this.qualityStatus=node('p','m-quality-status');
+  this.qualityState=E('span',{'class':'m-quality-state','role':'status',hidden:''});
   const settings=this.initPingSettings();
-  this.qualityLatency=qualityChart(qualityFields.slice(0,2),'Ping 延迟与抖动，单位毫秒',' ms');
-  this.qualityLoss=qualityChart(qualityFields.slice(2),'Ping 丢包率，单位百分比','%');
+  this.qualityLatency=qualityChart(qualityFields.slice(0,2),'Ping 延迟与抖动，单位毫秒',' ms',true);
+  this.qualityLoss=qualityChart(qualityFields.slice(2),'Ping 丢包率，单位百分比','%',true);
   this.qualityLoss.root.classList.add('m-quality-chart-loss');
+  this.initQualityInspection(true);
   this.qualityAxis=node('div','m-quality-time',[node('span','',secondsAgo(trafficWindow)),node('span','',secondsAgo(trafficWindow/2)),node('span','','最新采样')]);
   const legend=(field,label,unit)=>{
    const value=node('strong','','—');
    this.qualityValues[field]=value;
-   return E('span',{'class':'m-quality-legend',title:field==='latency'?'最新 Ping 往返时间':'最近 3 次探测'},[
+   return E('span',{'class':'m-quality-legend',title:field==='latency'?'当前显示的 Ping 往返时间':'最近 3 次探测'},[
     node('span','m-quality-label',[E('i',{'class':'m-quality-swatch m-quality-'+field,'aria-hidden':'true'}),label]),
     node('span','m-quality-reading',[value,node('small','',unit)])
    ]);
@@ -735,10 +829,45 @@ return view.extend({
   this.qualityValues={};
   this.parts.quality.append(card('WAN 链路质量','↗',node('div','m-quality-body',[
    node('div','m-quality-legends',qualityFields.map(args=>legend(...args))),
+   this.qualityReading,
    this.qualityLatency.root,
-   this.qualityLoss.root,this.qualityAxis,node('div','m-quality-footer',[this.qualityStatus,settings])
-  ]),this.qualitySelect));
+   this.qualityLoss.root,this.qualityAxis,node('div','m-quality-footer',[
+    node('div','m-quality-info',this.qualityStatus),settings])
+  ]),node('div','m-quality-controls',[this.qualitySelect,this.qualitySwitch,this.qualityOutlet])));
   this.drawQuality();
+ },
+ initQualityInspection:function(compact){
+  this.qualityOutlet=compact?E('span',{class:'m-quality-outlet',hidden:''}):null;
+  this.qualitySwitch=E('div',{class:'m-quality-switch',role:'group','aria-label':'选择 WAN 出口',hidden:''});
+  this.qualityLive=E('button',{class:'m-copy-button',type:'button',hidden:''},'回到实时');
+  this.qualityReading=node('div','m-quality-context',[this.qualityState,this.qualityLive]);
+  const select=sample=>{
+   this.qualitySelectedTime=sample?.ts;
+   this.drawQuality();
+  };
+  this.qualityLive.addEventListener('click',()=>{this.qualityLatency.plot.focus({preventScroll:true});select();});
+  for(const {plot} of [this.qualityLatency,this.qualityLoss]){
+   plot.classList.add('m-quality-inspect');
+   plot.setAttribute('tabindex','0');
+   plot.setAttribute('aria-label',plot.getAttribute('aria-label')+'。点按图表或用左右方向键查看采样。');
+   plot.addEventListener('click',event=>{
+    if(!this.qualitySamples.length)return;
+    const bounds=plot.getBoundingClientRect();
+    const fraction=Math.min(1,Math.max(0,((event.clientX-bounds.left)/bounds.width*600-1)/598));
+    const time=this.qualityEnd-trafficWindow+fraction*trafficWindow;
+    const closest=this.qualitySamples.reduce((a,b)=>Math.abs(b.ts-time)<Math.abs(a.ts-time)?b:a);
+    select(closest);
+   });
+   plot.addEventListener('keydown',event=>{
+    if(event.key==='Escape'&&this.qualitySelectedTime!=null){event.preventDefault();select();return;}
+    if(!this.qualitySamples.length||!['ArrowLeft','ArrowRight'].includes(event.key))return;
+    event.preventDefault();
+    const index=this.qualitySamples.findIndex(sample=>sample.ts===this.qualitySelectedTime);
+    const newest=this.qualitySamples.length-1;
+    const next=index<0?newest:Math.min(newest,Math.max(0,index+(event.key==='ArrowLeft'?-1:1)));
+    select(this.qualitySamples[next]);
+   });
+  }
  },
  initPingSettings:function(){
   const trigger=E('button',{type:'button',class:'m-copy-button'},'设置 Ping');
@@ -801,13 +930,37 @@ return view.extend({
   this.drawQuality();
  },
  updateQualityLinks:function(d){
-  const links=list(d.uplinks).map(u=>({name:u.name,label:u.label||alias(d,u.name)}));
+  const links=list(d.uplinks).map(u=>({name:u.name,label:this.uplinkLabels?.get(u.name)||u.label||alias(d,u.name)}));
   if(same(links,this.qualityLinks))return;
   const selected=this.qualitySelect.value;
   this.qualityLinks=links;
   this.qualitySelect.replaceChildren(...links.map(u=>E('option',{value:u.name},u.label===u.name?u.name:u.label+' · '+u.name)));
   if(links.some(u=>u.name===selected))this.qualitySelect.value=selected;
   this.qualitySelect.disabled=!links.length;
+  if(this.trafficOutlet&&(links.length<2||!links.some(u=>u.name===this.trafficOutlet)))this.showTrafficOutlet('');
+  if(this.qualitySwitch){
+   const useButtons=links.length>1;
+   const single=this.qualityOutlet&&links.length===1;
+   this.qualitySelect.hidden=useButtons||!!single;
+   this.qualitySwitch.hidden=!useButtons;
+   if(this.qualityOutlet){
+    this.qualityOutlet.hidden=!single;
+    this.qualityOutlet.textContent=single?links[0].label:'';
+   }
+   if(this.qualitySelect.value!==selected)this.qualitySelectedTime=undefined;
+   this.qualitySwitch.replaceChildren(...(useButtons?links.map(u=>{
+    const button=E('button',{type:'button',title:u.name,value:u.name},u.label);
+    button.addEventListener('click',()=>{
+     if(this.qualitySelect.value!==u.name){
+      this.qualitySelect.value=u.name;
+      this.qualitySelectedTime=undefined;
+      this.drawQuality();
+     }
+     this.showTrafficOutlet(u.name);
+    });
+    return button;
+   }):[]));
+  }
   this.drawQuality();
   this.scheduleQuality(0);
  },
@@ -815,16 +968,20 @@ return view.extend({
   if(!history){
    if(this.routerQualityHistory){
     this.routerQualityHistory=false;
-    this.qualityHistoryTime=0;
     this.scheduleQuality(0);
    }
+   this.drawQuality();
    return;
   }
   clearTimeout(this.qualityTimer);
-  if(!this.routerQualityHistory||reboot)this.qualityHistory.clear();
+  const resumed=!this.routerQualityHistory;
+  if(reboot)this.qualityHistory.clear();
   this.routerQualityHistory=true;
   for(const point of list(history.points)){
-   for(const [name,sample] of Object.entries(point.samples||{}))this.addQualitySample(name,sample,3);
+   for(const [name,sample] of Object.entries(point.samples||{})){
+    if(resumed&&sample.ts<=this.qualityHistory.get(name)?.samples.at(-1)?.ts)continue;
+    this.addQualitySample(name,sample,5);
+   }
    this.qualityHistoryTime=point.time;
   }
   for(const entry of this.qualityHistory.values()){
@@ -881,30 +1038,53 @@ return view.extend({
  },
  drawQuality:function(){
   const entry=this.qualityHistory.get(this.qualitySelect.value);
-  const samples=entry?.samples||[],last=samples.at(-1);
-  const end=last?.ts||0,start=end-trafficWindow;
+  const last=entry?.samples.at(-1);
+  const end=Math.max(this.previous?.ts||0,last?.ts||0),start=end-trafficWindow;
+  const samples=(entry?.samples||[]).filter(sample=>sample.ts>=start);
+  const stale=last&&end-last.ts>(this.routerQualityHistory?5:maxSampleGap(this.intervals().fast));
+  const selected=this.qualitySwitch&&samples.find(sample=>sample.ts===this.qualitySelectedTime);
+  const sample=selected||last;
+  if(this.qualitySwitch){
+   this.qualitySamples=samples;
+   this.qualityEnd=end;
+   if(!selected)this.qualitySelectedTime=undefined;
+   for(const button of this.qualitySwitch.children){
+    const pressed=String(button.value===this.qualitySelect.value);
+    if(button.getAttribute('aria-pressed')!==pressed)button.setAttribute('aria-pressed',pressed);
+   }
+   this.qualityLive.hidden=!selected;
+  }
   const peak=samples.reduce((max,sample)=>Math.max(max,sample.latency||0,sample.jitter||0),0);
   const step=10**Math.floor(Math.log10(Math.max(peak,10)));
   const limit=step*[1,2,5,10].find(n=>step*n>=peak);
-  this.qualityLatency.draw(samples,start,end,limit);
-  this.qualityLoss.draw(samples,start,end,100);
+  this.qualityLatency.draw(samples,start,end,limit,selected);
+  this.qualityLoss.draw(samples,start,end,100,selected);
   this.qualityAxis.hidden=!last;
   qualityFields.forEach(([field])=>{
-   const value=last?.[field];
+   const value=stale&&!selected?null:sample?.[field];
    const reading=Number.isFinite(value)?value.toFixed(field==='loss'&&value%1===0?0:1):'—';
    if(this.qualityValues[field].textContent!==reading)this.qualityValues[field].textContent=reading;
   });
   const target=this.pingSettings?.target||last?.target;
-  const state=!this.qualityLinks.length?'暂无可用 WAN 出口':entry?.requestFailed?(last?'采样请求失败，保留上次结果':'采样请求失败'):
-   !last?'等待采样':last.error==='no_route'?'该出口暂无路由':
-   last.error?'探测失败':last.received===0?'最新探测超时':'';
-  const status=[target&&'Ping '+target,state].filter(Boolean).join(' · ');
+  const state=!this.qualityLinks.length?'暂无 WAN 出口':!selected&&entry?.requestFailed?'采样请求失败':
+   !selected&&stale?'采样暂缺':!sample?'等待采样':sample.error==='no_route'?'该出口暂无路由':
+   sample.error?'探测失败':sample.received===0?'探测超时':'';
+  const status=target?'Ping '+target+' · 丢包率取最近 3 次探测':'';
   if(this.qualityStatus.textContent!==status)this.qualityStatus.textContent=status;
+  if(this.qualityState.textContent!==state)this.qualityState.textContent=state;
+  this.qualityState.hidden=!state;
+  this.qualityState.classList.toggle('is-timeout',state==='探测超时');
  },
  initTraffic:function(){
   this.samplingState=E('span',{'class':'m-sampling-state','role':'status'});
   this.samplingNote=E('p',{'class':'m-sampling-note',hidden:''});
   this.setSamplingState('live');
+  this.trafficTitle=E('span',{tabindex:'-1'},'实时流量');
+  this.trafficAll=E('button',{type:'button',class:'m-copy-button',hidden:'',click:()=>{
+   this.showTrafficOutlet('');
+   this.trafficTitle.focus({preventScroll:true});
+  }},'全部出口');
+  const controls=node('div','m-traffic-controls',[this.samplingState,this.trafficAll]);
   this.down=node('strong','m-download','—');this.up=node('strong','m-upload','—');
   this.downUnit=node('small');this.upUnit=node('small');
   this.chart=document.createElementNS('http://www.w3.org/2000/svg','svg');
@@ -932,24 +1112,53 @@ return view.extend({
    node('span','m-traffic-direction '+direction,label),
    node('span','m-traffic-reading',[value,unit])
   ]);
-  this.parts.traffic.replaceChildren(card('实时流量','▥',node('div','',[
+  const forwarding=E('details',{class:'m-dashboard-details m-forwarding-detail'},[
+   node('summary','',[
+    node('span','m-forwarding-count',[node('span','','活动连接'),this.connectionValue]),this.accelerationName
+   ]),
+   node('div','m-forwarding-detail-body',[
+    node('div','m-forwarding-capacity',[node('span','','连接上限'),this.connectionLimit]),this.ppeRows
+   ])
+  ]);
+  this.parts.traffic.replaceChildren(card(this.trafficTitle,'▥',node('div','',[
    node('div','m-traffic-values',[
     reading('下载','m-download',this.down,this.downUnit),
     reading('上传','m-upload',this.up,this.upUnit)
    ]),
    node('div','m-chart-frame',[
     this.chartScale,node('div','m-chart',[this.chart,this.chartEmpty]),this.chartScaleLabel,this.chartTime
-   ]),this.samplingNote,
-   node('div','m-forwarding',[
-    node('div','m-forwarding-summary',[
-     node('div','',[node('label','','活动连接数'),this.connectionValue,this.connectionLimit]),
-     node('div','',[node('label','','硬件加速'),this.accelerationName])
-    ]),this.ppeRows
-   ])
-  ]),this.samplingState));
+   ]),this.samplingNote,forwarding
+  ]),controls));
   this.parts.traffic.firstElementChild.classList.add('m-traffic');
  },
+ showTrafficOutlet:function(name){
+  if(this.trafficOutlet===name)return;
+  this.trafficOutlet=name;
+  this.trafficAll.hidden=!name;
+  this.chartScaleExpanded=false;
+  if(this.previous)this.drawTraffic(this.previous,this.lastRates?.down,this.lastRates?.up);
+ },
  drawTraffic:function(d,down,up){
+  const outlet=this.trafficOutlet;
+  const label=outlet&&(this.qualityLinks.find(u=>u.name===outlet)?.label||outlet);
+  let valid=this.history;
+  if(outlet){
+   valid=[];
+   let gap=false;
+   for(const point of this.history){
+    const rates=point.links?.[outlet];
+    if(rates){
+     valid.push({time:point.time,down:rates.down,up:rates.up,gap:point.gap||gap});
+     gap=false;
+    }else gap=true;
+   }
+   const latest=valid.at(-1);
+   const recent=latest&&d.sample-latest.time<=(this.routerTrafficHistory?3:maxSampleGap(this.intervals().fast));
+   down=recent?latest.down:null;
+   up=recent?latest.up:null;
+  }
+  const title=label?'实时流量 · '+label:'实时流量';
+  if(this.trafficTitle.textContent!==title)this.trafficTitle.textContent=title;
   const rx=speed(down),tx=speed(up);this.down.textContent=rx[0];this.downUnit.textContent=rx[1];this.up.textContent=tx[0];this.upUnit.textContent=tx[1];
   if(!this.parts.traffic.hidden&&this.chartInView!==false){
    const ns=this.chart.namespaceURI,svg=(tag,attrs)=>{const el=document.createElementNS(ns,tag);Object.entries(attrs).forEach(([k,v])=>el.setAttribute(k,v));return el;};
@@ -965,7 +1174,6 @@ return view.extend({
      frag.append(fill,line,dot);return {fill,line,dot};
     });this.chart.replaceChildren(frag);
    }
-   const valid=this.history;
    const {limit,detail}=trafficScale(valid,this.chartScaleExpanded);
    this.chartScaleExpanded=detail!==null;
    const topTick=trafficTick(limit),midTick=trafficTick(detail??limit/2);
@@ -973,7 +1181,7 @@ return view.extend({
    if(this.chartMid.textContent!==midTick)this.chartMid.textContent=midTick;
    this.chartScaleLabel.hidden=!this.chartScaleExpanded;
    this.chartMiddleLine.classList.toggle('m-chart-gridline-detail',this.chartScaleExpanded);
-   const description='外网出口上下行曲线，横轴为实际采样时间'+(detail?'，纵轴分段放大低流量区间':'');
+   const description=(label||'外网出口')+'上下行曲线，横轴为实际采样时间'+(detail?'，纵轴分段放大低流量区间':'');
    if(this.chart.getAttribute('aria-label')!==description)this.chart.setAttribute('aria-label',description);
    this.chartScale.hidden=!valid.length;
    const bottom=trafficChartBottom,middle=trafficChartMiddle,top=trafficChartTop;
@@ -1019,7 +1227,7 @@ return view.extend({
    : '—';
   if(this.trafficUsed.textContent!==used)this.trafficUsed.textContent=used;
   this.connectionValue.textContent=d.connections==null?'—':Number(d.connections).toLocaleString('zh-CN');
-  this.connectionLimit.textContent=d.connection_limit?' / '+Number(d.connection_limit).toLocaleString('zh-CN'):'';
+  this.connectionLimit.textContent=d.connection_limit?Number(d.connection_limit).toLocaleString('zh-CN'):'—';
   const acceleration=d.acceleration||{};
   this.accelerationName.textContent=acceleration.type||'未获取';
   if(!same(this.saved.ppe,acceleration.ppe)){
@@ -1062,6 +1270,20 @@ return view.extend({
   ]);
   this.clientSearch.addEventListener('input',()=>{this.clientPage=0;this.drawClients();});
   this.clientFilter.addEventListener('change',()=>{this.clientPage=0;this.drawClients();});
+  this.parts.wifi.addEventListener('click',event=>{
+   const button=event.target.closest('button[data-wifi-clients]');
+   if(!button)return;
+   if(this.parts.clients.hidden){
+    location.href=L.url('admin','network','wireless')+'#wifi_assoclist_table';
+    return;
+   }
+   this.clientSearch.value='';
+   this.clientFilter.value='wifi:'+button.dataset.wifiClients;
+   this.clientPage=0;
+   this.drawClients();
+   this.clientFilter.focus({preventScroll:true});
+   this.parts.clients.scrollIntoView({block:'start'});
+  });
   this.clientRows=E('tbody',{role:'rowgroup'});
   this.clientCount=badge('正在读取');
   this.clientSummary=node('div','m-cell-age');
@@ -1119,12 +1341,17 @@ return view.extend({
   copy.setAttribute('aria-label','复制IP'+(client.ip?' '+client.ip:''));
   return row;
  },
- drawClients:function(){
+ filteredClients:function(){
   const query=this.clientSearch.value.trim().toLowerCase(),filter=this.clientFilter.value;
-  const clients=this.clients.filter(c=>{
+  return this.clients.filter(c=>{
    const matches=[c.name,c.ip,c.mac,c.ssid].some(v=>String(v||'').toLowerCase().includes(query));
-   return matches&&(filter==='all'||(filter==='wifi'&&c.state==='无线已关联')||(filter==='lan'&&c.kind==='LAN')||(filter==='dhcp'&&c.kind==='DHCP'));
+   if(!matches)return false;
+   if(filter.startsWith('wifi:'))return c.state==='无线已关联'&&c.device===filter.slice(5);
+   return filter==='all'||(filter==='wifi'&&c.state==='无线已关联')||(filter==='lan'&&c.kind==='LAN')||(filter==='dhcp'&&c.kind==='DHCP');
   });
+ },
+ drawClients:function(){
+  const clients=this.filteredClients();
   const totalPages=Math.max(1,Math.ceil(clients.length/this.clientPageSize));
   this.clientPage=Math.min(this.clientPage,totalPages-1);
   const shown=clients.slice(this.clientPage*this.clientPageSize,(this.clientPage+1)*this.clientPageSize);
@@ -1158,8 +1385,19 @@ return view.extend({
   }
  },
  renderClients:function(d){
+  const radios=list(d.wireless).filter(w=>w.up&&w.name);
+  const options=radios.map(w=>({value:'wifi:'+w.name,label:text(w.ssid)+' · '+
+   (w.frequency?(w.frequency<3000?'2.4 GHz':w.frequency<5925?'5 GHz':'6 GHz'):w.name)}));
+  const optionsChanged=!same(this.clientRadios,options);
+  if(optionsChanged){
+   const selected=this.clientFilter.value;
+   this.clientFilter.querySelectorAll('option[data-radio]').forEach(option=>option.remove());
+   this.clientFilter.append(...options.map(w=>E('option',{value:w.value,'data-radio':''},w.label)));
+   this.clientFilter.value=[...this.clientFilter.options].some(o=>o.value===selected)?selected:'all';
+   this.clientRadios=options;
+  }
   this.clientCount.textContent=list(d.clients).length+' 条记录';
-  if(same(this.clients,list(d.clients)))return;
+  if(!optionsChanged&&same(this.clients,list(d.clients)))return;
   this.clients=list(d.clients);this.drawClients();
  },
  initControls:function(){
@@ -1255,10 +1493,12 @@ return view.extend({
    ['防火墙','转发与访问规则','admin/network/firewall'],
    ['网络诊断','Ping 与路由跟踪','admin/network/diagnostics'],
    ['连接详情','查看实时连接','admin/status/realtime/connections'],
-   ['系统日志','查阅故障与事件','admin/status/syslog']
+   ['系统日志','查阅故障与事件','admin/status/logs/syslog'],
+   ['软件包','安装与管理软件','admin/system/package-manager'],
+   ['终端','打开 Web 终端','admin/system/ttyd/ttyd']
   ];
   this.parts.management.hidden=true;
-  L.require('ui').then(ui=>ui.menu.load()).then(tree=>{
+  (window.MYOSMenu || L.require('ui').then(ui=>ui.menu.load(true))).then(tree=>{
    const updateEntry=tree?.children?.admin?.children?.system?.children?.myos_update;
    this.firmwareUpdateEnabled=!!updateEntry&&updateEntry.satisfied!==false&&!updateEntry.hidden;
    this.refreshFirmwareNotice();
@@ -1314,37 +1554,47 @@ return view.extend({
    node('p','m-cell-age','Ping 延迟、抖动和丢包见 WAN 链路质量。')
   ]),badge(clear?'已检查':'需留意',clear?'good':'warn')));
  },
- recordEvents:function(d,prev,light){
-  if(!prev)return;
-  const add=(title,detail,tone)=>this.events.unshift({time:d.ts,title,detail,tone:tone||'info'});
-  if(d.sample<prev.sample){add('设备运行计时已重置','可能发生了重启，流量计数重新采样。','warn');this.history=this.history.slice(-1);}
-  else{
-   list(d.ports).forEach(p=>{
-    const old=list(prev.ports).find(q=>q.name===p.name);
-    if(old&&typeof p.carrier==='boolean'&&typeof old.carrier==='boolean'&&p.carrier!==old.carrier)
-     add(alias(d,p.name)+(p.carrier?' 链路已接通':' 链路已断开'),p.role||'物理网口',p.carrier?'good':'warn');
-   });
-   const bad=snapshot=>Object.keys(snapshot.errors||{}).some(k=>/iwinfo|wireless/.test(k));
-   if(!light&&!bad(d)&&!bad(prev)){
-    const before=list(prev.clients).filter(c=>c.state==='无线已关联'),after=list(d.clients).filter(c=>c.state==='无线已关联');
-    const oldKeys=new Set(before.map(p=>p.mac)),newKeys=new Set(after.map(p=>p.mac));
-    after.filter(c=>!oldKeys.has(c.mac)).forEach(c=>add('无线终端已关联',c.name||c.mac,'good'));
-    before.filter(c=>!newKeys.has(c.mac)).forEach(c=>add('无线终端关联已消失',c.name||c.mac));
-   }
+ recordWirelessEvents:function(d){
+  if(this.eventBoot!==d.boot){this.eventBoot=d.boot;this.wirelessEventBaseline=null;this.events=[];}
+  if(Object.keys(d.errors||{}).some(key=>/iwinfo\.assoclist|network\.wireless/.test(key))){
+   this.wirelessEventBaseline=null;
+   return;
   }
-  this.events=this.events.slice(0,40);
+  const stations=new Map(list(d.clients).filter(c=>c.state==='无线已关联'&&c.device&&c.mac)
+   .map(c=>[c.device+'/'+c.mac,c]));
+  const previous=this.wirelessEventBaseline;
+  if(previous){
+   for(const [from,to,up] of [[stations,previous,true],[previous,stations,false]]){
+    for(const [key,c] of from){
+     if(!to.has(key))this.events.unshift({time:d.meta_ts||d.ts,kind:'wifi',device:c.device,mac:c.mac,up});
+    }
+   }
+   this.events=this.events.slice(0,40);
+  }
+  this.wirelessEventBaseline=stations;
  },
  renderEvents:function(d){
-  this.replace('events',this.events.map(e=>({...e})),()=>card('连接事件','event',
-   this.events.length?node('ol','m-event-list',this.events.slice(0,6).map(e=>node('li','',[
-    node('span','m-event-dot '+e.tone),node('time','',new Date(e.time*1000).toLocaleTimeString('zh-CN',{hour12:false})),
-    node('div','',[node('strong','',e.title),node('small','',e.detail)])
-   ]))):node('p','m-muted m-event-quiet','暂无连接变化'),badge('本次页面 · '+this.events.length+' 条')));
+  const log=d.connection_log;
+  const history=list(log?.events);
+  const events=[...history,...this.events.filter(e=>!history.some(h=>
+   h.kind===e.kind&&h.device===e.device&&h.mac===e.mac&&h.up===e.up&&Math.abs(h.time-e.time)<=65))]
+   .sort((a,b)=>b.time-a.time).slice(0,40);
+  this.replace('events',{events,available:log?.available},()=>card('连接事件','event',node('div','',[
+   events.length?node('ol','m-event-list',events.slice(0,6).map(e=>{
+    const station=list(d.clients).find(c=>c.mac===e.mac);
+    const radio=list(d.wireless).find(w=>w.name===e.device);
+    const title=e.kind==='wifi'?(e.up?'无线终端已关联':'无线终端已断开'):
+     e.kind==='dhcp'?'终端取得 DHCP 租约':alias(d,e.device)+(e.up?' 链路已接通':' 链路已断开');
+    const detail=e.mac?[station?.name||e.mac,radio?.ssid||e.device].filter(Boolean).join(' · '):e.device;
+    return node('li','',[node('span','m-event-dot '+(e.up?'good':'warn')),
+     node('time','',new Date(e.time*1000).toLocaleTimeString('zh-CN',{hour12:false})),
+     node('div','',[node('strong','',title),node('small','',detail)])]);
+   })):node('p','m-muted m-event-quiet',log?.available?'暂无连接变化':'系统日志暂不可用'),
+   events.length&&!log?.available?node('p','m-cell-age','系统日志暂不可用，显示本次采集的连接变化。'):null
+  ].filter(Boolean)),link('系统日志','admin/status/logs/syslog')));
  },
  exportClients:function(){
-  const query=this.clientSearch.value.trim().toLowerCase(),filter=this.clientFilter.value;
-  const rows=this.clients.filter(c=>[c.name,c.ip,c.mac,c.ssid].some(v=>String(v||'').toLowerCase().includes(query))&&
-   (filter==='all'||filter==='wifi'&&c.state==='无线已关联'||filter==='lan'&&c.kind==='LAN'||filter==='dhcp'&&c.kind==='DHCP'));
+  const rows=this.filteredClients();
   const csvCell=value=>{
    let s=String(value==null?'':value);if(/^[\s]*[=+\-@]/.test(s)||/^[\t\r\n]/.test(s))s="'"+s;
    return '"'+s.replace(/"/g,'""')+'"';

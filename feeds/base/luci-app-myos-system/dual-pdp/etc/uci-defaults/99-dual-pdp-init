@@ -1,0 +1,5 @@
+#!/bin/sh
+# The worker waits for the existing modem service; no second-session dial here.
+/etc/init.d/dual-pdp enable
+/etc/init.d/dual-pdp-smart enable
+exit 0

@@ -47,7 +47,6 @@ install -D -m 0755 "$SIM/c2000ultra-sim-defaults.uci-default" "$ROOT/etc/uci-def
 if [ ! -f "$ROOT/etc/config/cpesel" ]; then
   printf "config cpesel 'sim'\n\toption max '4'\n\toption gval '0-2,1-1,1-2'\n\toption stype '0,0,4'\n\toption mode '1'\n\toption cur '1'\n\toption default '1'\n" > "$ROOT/etc/config/cpesel"
 fi
-install -D -m 0644 "$SIM/c2000ultra-simcard.js" "$ROOT/www/luci-static/resources/view/embed/simcard.js"
 install -D -m 0644 "$SRC/package/mtk/applications/c2000max-5g/files/luci-app-embed/usr/share/rpcd/acl.d/luci-app-embed.json" "$ROOT/usr/share/rpcd/acl.d/luci-app-embed.json"
 install -D -m 0755 "$SRC/package/mtk/applications/c2000max-5g/files/luci-app-embed/etc/uci-defaults/80_embed_simcard" "$ROOT/etc/uci-defaults/80_embed_simcard"
 install -D -m 0755 "$WEB/etc/init.d/ubus-at-daemon" "$ROOT/etc/init.d/ubus-at-daemon"

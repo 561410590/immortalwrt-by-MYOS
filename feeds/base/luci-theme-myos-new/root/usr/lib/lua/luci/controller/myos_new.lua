@@ -8,6 +8,13 @@ function index()
     entry({"admin", "myos", "fast"}, call("fast_snapshot")).leaf = true
     entry({"admin", "myos", "link_quality"}, call("link_quality")).leaf = true
     entry({"admin", "myos", "ping_target"}, post("save_ping_target")).leaf = true
+    entry({"admin", "myos", "login_video"}, post("save_login_video")).leaf = true
+    entry({"admin", "myos", "appearance"}, call("appearance_settings")).leaf = true
+    entry({"admin", "myos", "appearance_save"}, post("save_appearance_settings")).leaf = true
+    local leds = entry({"admin", "system", "myos_panel_led"}, view("myos-new/panel-led"), _("面板指示灯"), 59)
+    leds.acl_depends = {"luci-mod-system-config"}
+    entry({"admin", "system", "myos_panel_led", "status"}, call("panel_led_status")).leaf = true
+    entry({"admin", "system", "myos_panel_led", "save"}, post("save_panel_led")).leaf = true
     entry({"admin", "myos", "acceleration"}, call("acceleration")).leaf = true
     entry({"admin", "myos", "sim_names"}, call("sim_names")).leaf = true
     entry({"admin", "myos", "modem_refresh"}, call("modem_refresh")).leaf = true
@@ -191,6 +198,20 @@ local operators={["46000"]="中国移动",["46002"]="中国移动",["46007"]="�
     ["46001"]="中国联通",["46006"]="中国联通",["46009"]="中国联通",
     ["46003"]="中国电信",["46005"]="中国电信",["46011"]="中国电信",["46015"]="中国广电"}
 
+local max_sim_labels={["1"]="SIM 卡 1",["2"]="SIM 卡 2",["3"]="内置卡 1"}
+
+local function refresh_max_sim()
+    local perf=require "luci.model.myos_liquid"
+    local state=require("luci.jsonc").parse(require("luci.sys").exec(
+        "/etc/init.d/c2000max-sim-select status_json 2>/dev/null"))
+    if type(state)~="table" or state.busy then return perf.cached("sim-selection") end
+    local actual=tostring(state.actual or "")
+    local selection={modem=state.modem,actual=max_sim_labels[actual] and actual or nil,
+        target=state.target,cpin=state.cpin,read_at=os.time()}
+    perf.save("sim-selection",selection)
+    return selection
+end
+
 local function qmodem_dashboard_record(record,profile,uci)
     local perf=require "luci.model.myos_liquid"
     local cached=perf.json
@@ -223,14 +244,16 @@ local function qmodem_dashboard_record(record,profile,uci)
         m.selected_sim_type=kind=="0" and "普通卡" or kind=="4" and "云卡" or nil
     end
     if profile=="c2000max" then
-        -- QModem's cached SIM Slot is the modem channel, not MAX's
-        -- logical external/internal slot. The refresh returns actual.
-        local selection=cached("/var/run/c2000max-sim-select.status.json")
-        m.sim=selection.modem==id and selection.actual or nil
-        m.sim_label=m.sim and ({["1"]="SIM 卡 1",["2"]="SIM 卡 2",["3"]="内置卡 1"})[tostring(m.sim)] or nil
+        -- The selector's run file tracks switching jobs; only status_json
+        -- reads the live modem channel and maps it to the logical SIM slot.
+        local selection=perf.cached("sim-selection")
+        local measured=selection.modem==id and os.time()-(tonumber(selection.read_at) or 0)<=90
+        m.sim=measured and selection.actual or nil
+        m.sim_label=max_sim_labels[m.sim or ""]
+        if measured and selection.cpin and selection.cpin~="" then m.pin=selection.cpin end
         m.label="内置 5G"
         m.selected_sim=uci:get("cpesel","sim","cur")
-        m.selected_sim_label=({["1"]="SIM 卡 1",["2"]="SIM 卡 2",["3"]="内置卡 1"})[m.selected_sim]
+        m.selected_sim_label=max_sim_labels[m.selected_sim or ""]
     end
     if m.pin then m.pin=tostring(m.pin):upper() end
     local path=sim_name_cache(m.sim_id)
@@ -257,7 +280,7 @@ end
 
 -- Keep request-driven modem reads separate from CPU and traffic snapshots.
 function collect_modem_refresh(signals_only)
-    local uci,json,sys=require("luci.model.uci").cursor(),require "luci.jsonc",require "luci.sys"
+    local uci,json=require("luci.model.uci").cursor(),require "luci.jsonc"
     local bus=require("ubus").connect()
     local result={refreshed={},errors={}}
     if bus then
@@ -354,6 +377,7 @@ function collect_modem_refresh(signals_only)
                 else result.errors.cpe1=err or "副设备信号暂不可用" end
             end
         elseif profile=="c2000max" or profile=="c2000ultra" then
+            if profile=="c2000max" then result.sim=refresh_max_sim() end
             uci:foreach("qmodem","modem-device",function(s)
                 if s.state=="enabled" then
                     local ok,data=pcall(bus.call,bus,"qmodem","info",{config_section=s[".name"]})
@@ -366,10 +390,6 @@ function collect_modem_refresh(signals_only)
                     end
                 end
             end)
-            if profile=="c2000max" then
-                local state=json.parse(sys.exec("/etc/init.d/c2000max-sim-select status_json 2>/dev/null")) or {}
-                result.sim={modem=state.modem,actual=state.actual,target=state.target,cpin=state.cpin}
-            end
         end
         bus:close()
     else
@@ -457,6 +477,193 @@ local function output(value)
     luci.http.prepare_content("application/json")
     luci.http.header("Cache-Control","no-store")
     luci.http.write_json(value)
+end
+
+local log_months = {Jan=1, Feb=2, Mar=3, Apr=4, May=5, Jun=6,
+    Jul=7, Aug=8, Sep=9, Oct=10, Nov=11, Dec=12}
+
+local function connection_event(line)
+    local device, state = line:match("netifd: Network device '([^']+)' link is (%a+)")
+    local kind, mac = "port", nil
+    if not device then
+        device, state, mac = line:match("hostapd: ([%w_.:@%-]+): AP%-STA%-(%u+) ([%x:]+)")
+        kind = "wifi"
+    end
+    if not device then
+        device, mac = line:match("dnsmasq%-dhcp[^:]*: DHCPACK%(([^)]+)%) %S+ ([%x:]+)")
+        if device then kind, state = "dhcp", "ACK" end
+    end
+    if not device or (state ~= "up" and state ~= "down" and state ~= "CONNECTED" and
+       state ~= "DISCONNECTED" and state ~= "ACK") then return end
+    local month, day, hour, min, sec, year = line:match("^%a+%s+(%a+)%s+(%d+)%s+(%d+):(%d+):(%d+)%s+(%d+)")
+    if not log_months[month] then return end
+    local stamp = os.time({year=tonumber(year), month=log_months[month], day=tonumber(day),
+        hour=tonumber(hour), min=tonumber(min), sec=tonumber(sec)})
+    return {time=stamp, kind=kind, device=device, up=state=="up" or state=="CONNECTED" or state=="ACK",
+        mac=mac and mac:lower()}
+end
+
+local function append_connection_event(events, event)
+    if not event then return end
+    for _, prior in ipairs(events) do
+        if prior.time==event.time and prior.kind==event.kind and prior.device==event.device and
+           prior.up==event.up and prior.mac==event.mac then return end
+    end
+    events[#events+1] = event
+    table.sort(events, function(a,b) return a.time < b.time end)
+    if #events > 40 then table.remove(events, 1) end
+end
+
+function follow_connection_events()
+    local perf = require("luci.model.myos_liquid")
+    local events = perf.cached("connections").events or {}
+    local log = io.popen("/sbin/logread -f 2>/dev/null")
+    if not log then return end
+    for line in log:lines() do
+        local event = connection_event(line)
+        if event then
+            append_connection_event(events, event)
+            perf.save("connections", {events=events})
+        end
+    end
+    log:close()
+end
+
+local function read_connection_events()
+    local events = require("luci.model.myos_liquid").cached("connections").events or {}
+    local log = io.popen("/sbin/logread 2>/dev/null; printf '\\nmyos-log-status:%s\\n' \"$?\"")
+    local available = false
+    if log then
+        for line in log:lines() do
+            if line == "myos-log-status:0" then
+                available = true
+            else
+                append_connection_event(events, connection_event(line))
+            end
+        end
+        log:close()
+    end
+    local recent = {}
+    for i = #events, 1, -1 do
+        recent[#recent + 1] = events[i]
+    end
+    return {available=available, events=recent}
+end
+
+local function panel_led_backend(cursor, fs)
+    local profile = device_profile(require("luci.util").ubus("system", "board") or {})
+    if profile == "c8688" and fs.access("/usr/libexec/myos-c8-led", "x") then
+        return "c8"
+    end
+    if profile == "nbcpe688" and fs.access("/etc/init.d/myos-nbcpe-leds", "x") then
+        return "nbcpe"
+    end
+    if (profile == "c2000max" or profile == "c2000ultra" or profile == "n5000") and
+        fs.access("/usr/bin/mwrt-ledsched", "x") and cursor:get("mwrt_led", "main") then
+        return "scheduler"
+    end
+    if (profile == "c5800688" or profile == "c2000max" or profile == "c2000ultra") and
+        fs.access("/etc/init.d/ledctrl", "x") and cursor:get("ledctrl", "ledctrl") then
+        return "native"
+    end
+end
+
+local function can_write_system_config()
+    local access = require("luci.util").ubus("session", "access", {
+        ubus_rpc_session=luci.dispatcher.context.authsession, scope="access-group",
+        object="luci-mod-system-config", ["function"]="write"
+    })
+    return type(access) == "table" and access.access == true
+end
+
+local function panel_led_state(cursor, fs, backend)
+    if backend == "native" then
+        return cursor:get("ledctrl", "ledctrl", "disabled") ~= "1"
+    elseif backend == "nbcpe" then
+        return not fs.access("/usr/bin/ledflagc.conf") and
+            (fs.readfile("/tmp/ledflag.conf", 8) or ""):match("^%s*0") == nil
+    elseif backend == "scheduler" or backend == "c8" then
+        return cursor:get("mwrt_led", "main", "manual") ~= "off"
+    end
+end
+
+local function set_panel_led(cursor, fs, backend, enabled)
+    local sys = require "luci.sys"
+    if backend == "native" then
+        local previous = cursor:get("ledctrl", "ledctrl", "disabled") or "0"
+        if not cursor:set("ledctrl", "ledctrl", "disabled", enabled and "0" or "1") or
+            not cursor:commit("ledctrl") then return false end
+        if sys.call("/etc/init.d/ledctrl restart >/dev/null 2>&1") == 0 then return true end
+        cursor:set("ledctrl", "ledctrl", "disabled", previous)
+        cursor:commit("ledctrl")
+        sys.call("/etc/init.d/ledctrl restart >/dev/null 2>&1")
+        return false
+    elseif backend == "nbcpe" then
+        local permanent, temporary = "/usr/bin/ledflagc.conf", "/tmp/ledflag.conf"
+        if enabled then
+            if fs.access(permanent) and not fs.unlink(permanent) then return false end
+            if fs.access(temporary) and not fs.unlink(temporary) then return false end
+            for _, led in ipairs({"status", "wifi"}) do
+                local file = "/sys/class/leds/hc:blue:" .. led .. "/brightness"
+                if fs.access(file) and not fs.writefile(file, "1") then return false end
+            end
+        else
+            if not fs.writefile(permanent, "0\n") or not fs.writefile(temporary, "0\n") then
+                return false
+            end
+            for _, led in ipairs({"status", "wifi", "cmode4", "cmode5", "sig1", "sig2", "sig3", "int"}) do
+                local file = "/sys/class/leds/hc:blue:" .. led .. "/brightness"
+                if fs.access(file) and not fs.writefile(file, "0") then return false end
+            end
+        end
+        return true
+    else
+        if backend == "c8" and not fs.access("/etc/config/mwrt_led") then
+            if not fs.writefile("/etc/config/mwrt_led", "config sched 'main'\n") then return false end
+            cursor:load("mwrt_led")
+        end
+        local previous = cursor:get("mwrt_led", "main", "manual")
+        if enabled then
+            if previous and not cursor:delete("mwrt_led", "main", "manual") then return false end
+        elseif not cursor:set("mwrt_led", "main", "manual", "off") then
+            return false
+        end
+        if not cursor:commit("mwrt_led") then return false end
+        local command = backend == "c8" and "/usr/libexec/myos-c8-led apply" or "/usr/bin/mwrt-ledsched apply"
+        if sys.call(command .. " >/dev/null 2>&1") == 0 then return true end
+        if previous then cursor:set("mwrt_led", "main", "manual", previous)
+        else cursor:delete("mwrt_led", "main", "manual") end
+        cursor:commit("mwrt_led")
+        sys.call(command .. " >/dev/null 2>&1")
+        return false
+    end
+end
+
+function panel_led_status()
+    local cursor, fs = require("uci").cursor(), require "nixio.fs"
+    local backend = panel_led_backend(cursor, fs)
+    output({supported=backend ~= nil, writable=can_write_system_config(),
+        enabled=panel_led_state(cursor, fs, backend)})
+end
+
+function save_panel_led()
+    if not can_write_system_config() then
+        luci.http.status(403, "Forbidden")
+        return output({error="当前账号没有指示灯设置权限。"})
+    end
+    local value = luci.http.formvalue("enabled")
+    if value ~= "0" and value ~= "1" then
+        luci.http.status(400, "Invalid LED setting")
+        return output({error="无效的指示灯设置。"})
+    end
+    local cursor, fs = require("uci").cursor(), require "nixio.fs"
+    local backend = panel_led_backend(cursor, fs)
+    local enabled = value == "1"
+    if not backend or not set_panel_led(cursor, fs, backend, enabled) then
+        luci.http.status(500, "LED setting failed")
+        return output({error="指示灯设置未能应用。", enabled=panel_led_state(cursor, fs, backend)})
+    end
+    output({enabled=panel_led_state(cursor, fs, backend)})
 end
 
 local theme_server = "https://mayebano.shop:8443/myos/"
@@ -585,6 +792,78 @@ local function link_sample_time()
     return seconds + micros / 1000000
 end
 
+local function appearance_color(value)
+    return type(value) == "string" and (value == "" or value:match("^#%x%x%x%x%x%x$"))
+end
+
+local function appearance_json(raw, limit)
+    if type(raw) ~= "string" or #raw > limit then return nil end
+    local value = require("luci.jsonc").parse(raw)
+    return type(value) == "table" and value or nil
+end
+
+function appearance_settings()
+    local cursor = require("uci").cursor()
+    output({
+        layout = appearance_json(cursor:get("myos_appearance", "main", "home_layout"), 2048),
+        shortcuts = appearance_json(cursor:get("myos_appearance", "main", "shortcuts"), 2048) or {},
+        shortcuts_open = cursor:get("myos_appearance", "main", "shortcuts_open") == "1"
+    })
+end
+
+function save_appearance_settings()
+    if not can_write_system_config() then
+        luci.http.status(403, "Permission denied")
+        return output({error="当前账号没有保存权限"})
+    end
+    local option = luci.http.formvalue("setting")
+    local raw = luci.http.formvalue("value")
+    local valid = option == "background_color" and appearance_color(raw)
+    if option == "home_layout" then
+        local layout = appearance_json(raw, 2048)
+        valid = layout and type(layout.zones) == "table" and type(layout.hidden) == "table"
+    elseif option == "shortcuts_open" then
+        valid = raw == "0" or raw == "1"
+    elseif option == "shortcuts" then
+        local shortcuts = appearance_json(raw, 2048)
+        valid = shortcuts ~= nil and #shortcuts <= 4
+        for key, shortcut in pairs(shortcuts or {}) do
+            if type(key) ~= "number" or key < 1 or key > #shortcuts or type(shortcut) ~= "table" or
+               type(shortcut.path) ~= "string" or #shortcut.path > 128 or
+               not shortcut.path:match("^admin/[%w_%-][%w_/%-]*$") or
+               type(shortcut.title) ~= "string" or #shortcut.title > 96 or not shortcut.title:find("%S") or
+               type(shortcut.icon) ~= "string" or #shortcut.icon > 16 or not shortcut.icon:match("^[a-z]+$") then
+                valid = false
+                break
+            end
+        end
+    end
+    if not valid then
+        luci.http.status(400, "Invalid appearance setting")
+        return output({error="外观设置无效"})
+    end
+    local cursor = require("uci").cursor()
+    if not cursor:set("myos_appearance", "main", option, raw) or not cursor:commit("myos_appearance") then
+        luci.http.status(500, "Appearance save failed")
+        return output({error="路由器未保存设置"})
+    end
+    output({saved=true})
+end
+
+function save_login_video()
+    local enabled = luci.http.formvalue("enabled")
+    if enabled ~= "0" and enabled ~= "1" then
+        luci.http.status(400, "Invalid login video setting")
+        return output({error="无效的登录视频设置"})
+    end
+    local cursor = require("uci").cursor()
+    if not cursor:set("myos_appearance", "main", "login_video", enabled) or not cursor:commit("myos_appearance") then
+        luci.http.status(500, "Login video save failed")
+        return output({error="保存登录视频设置失败"})
+    end
+    output({enabled=enabled == "1"})
+end
+
 function save_ping_target()
     local perf = require "luci.model.myos_liquid"
     local target = perf.parse_ping_target(luci.http.formvalue("target"))
@@ -634,8 +913,8 @@ local function start_link_probe(nixio, device, family, target)
         if nixio.dup(writer, nixio.stdout) and nixio.dup(writer, nixio.stderr) then
             writer:close()
             nixio.setenv("LC_ALL", "C")
-            nixio.exec("/usr/bin/timeout", "2", "/bin/ping", family, "-n", "-I", device,
-                "-s", "16", "-c", "1", "-W", "1", "-w", "1", target)
+            nixio.exec("/usr/bin/timeout", "3", "/bin/ping", family, "-n", "-I", device,
+                "-s", "16", "-c", "1", "-W", "2", "-w", "2", target)
         end
         os.exit(127)
     end
@@ -819,12 +1098,13 @@ function snapshot()
     local profile = device_profile(board)
     local pictures = {
         n5000="n5000.png", c2000ultra="c2000ultra.png", c2000max="c2000max.png",
-        nbcpe688="nbcpe688.png", c8688="c8688.png", c5800688="c5800688.png"
+        nbcpe688="nbcpe688.png", c8688="c8688.webp", c5800688="c5800688.png"
     }
     local info = fast.system
     local interfaces = call("network.interface", "dump").interface or {}
     local devices = call("network.device", "status")
     local result = {board=board, profile=profile, product=pictures[profile], system=info,
+        connection_log=read_connection_events(),
         theme_version=rd("/usr/lib/opkg/info/luci-theme-myos-new.control"):match("\nVersion: (%S+)"),
         ts=os.time(), sample=tonumber(rd("/proc/uptime"):match("^[%d.]+")), errors=errors,
         interfaces={}, ports={}, uplinks={}, wireless={}, clients={}, modems={}, temperatures={},

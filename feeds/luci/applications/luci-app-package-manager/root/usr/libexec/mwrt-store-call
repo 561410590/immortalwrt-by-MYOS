@@ -1,0 +1,166 @@
+#!/bin/sh
+# s254 Mwrt商店「Mwrt适配」分类的后端：从 Mwrt 更新服务器拉取审核过的插件。
+#   list                 -> {"ok":true,"server":..,"pm":"opkg|apk","archs":[..],"data":<服务器 /api/v1/store/list 原样>}
+#   icon <id> <ver>      -> 图标的 base64（一行，失败为空）
+#   install <fid> <sha256> [--force-overwrite]
+#                        -> 与 package-manager-call 相同的 {"code","pkmcmd","stdout","stderr"}
+# 服务器地址与在线更新/趣玩中心共用 uci mwrt_ota.main.server，只走 https + 内置 CA(/etc/mwrt/ota-ca.pem)。
+# 只有「已通过」的插件服务器才给下载；下载后核对 sha256 再交给 opkg/apk，和软件包页共用 /tmp/ipkg.lock。
+
+. /usr/share/libubox/jshn.sh
+
+CA=/etc/mwrt/ota-ca.pem
+D=/tmp/mwrt-store
+DEFAULT_SERVER=https://mwrt.manper.me:15155
+
+u() { uci -q get "$1" 2>/dev/null; }
+
+valid_server() {
+	local h=${1#https://}
+	case "$1" in https://?*) ;; *) return 1 ;; esac
+	case "$h" in *[!][A-Za-z0-9.:_-]*) return 1 ;; esac
+	return 0
+}
+
+server() {
+	local s
+	s=$(u mwrt_ota.main.server)
+	[ -n "$s" ] || s=$DEFAULT_SERVER
+	s=${s%/}
+	valid_server "$s" || return 1
+	printf '%s' "$s"
+}
+
+num() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ ${#1} -le 10 ]; }
+
+if [ -x /usr/bin/apk ]; then PM=apk; EXT=apk; else PM=opkg; EXT=ipk; fi
+
+archs() {
+	if [ $PM = apk ]; then
+		apk --print-arch 2>/dev/null
+	else
+		opkg print-architecture 2>/dev/null | awk '$1 == "arch" { print $2 }'
+	fi
+}
+
+# $1=url $2=输出文件 $3=最大字节；成功返回 0，失败原因在 $ERR
+fetch() {
+	local code rc
+	ERR=
+	command -v curl >/dev/null || { ERR='本机缺少 curl'; return 1; }
+	[ -f "$CA" ] || { ERR='缺少服务器证书 /etc/mwrt/ota-ca.pem'; return 1; }
+	code=$(curl -sS --proto =https --max-filesize "$3" --cacert "$CA" -m "${4:-15}" -o "$2" -w '%{http_code}' \
+		-H 'Cache-Control: no-cache' "$1" 2>/dev/null)
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		rm -f "$2"
+		case "$rc" in
+			63) ERR='服务器回复过大' ;;
+			28) ERR='连接服务器超时' ;;
+			35|51|58|59|60|77|83|90|91) ERR='服务器证书校验失败' ;;
+			*) ERR='无法连接服务器，请检查网络' ;;
+		esac
+		return 1
+	fi
+	case "$code" in
+		200) return 0 ;;
+		404) ERR='服务器上没有这个文件（可能已下架或转为待定）' ;;
+		429) ERR='服务器繁忙，请稍后再试' ;;
+		*) ERR="服务器返回 HTTP $code" ;;
+	esac
+	rm -f "$2"
+	return 1
+}
+
+fail_json() {
+	json_init
+	json_add_boolean ok 0
+	json_add_string error "$1"
+	json_dump
+}
+
+action=$1
+shift
+
+case "$action" in
+	list)
+		s=$(server) || { fail_json '服务器地址格式不对（Mwrt服务器配置）'; exit 0; }
+		mkdir -p $D
+		tmp=$D/list.json
+		fetch "$s/api/v1/store/list" "$tmp" 2097152 || { fail_json "$ERR"; exit 0; }
+		jsonfilter -i "$tmp" -e '@.items' >/dev/null 2>&1 || { rm -f "$tmp"; fail_json '服务器回复格式不对'; exit 0; }
+		json_init
+		json_add_boolean ok 1
+		json_add_string server "$s"
+		json_add_string pm "$PM"
+		json_add_array archs
+		for a in $(archs); do json_add_string "" "$a"; done
+		json_close_array
+		# data 原样拼进去（上面已用 jsonfilter 验过是合法 JSON）
+		printf '%s' "$(json_dump)" | sed 's/}$//'
+		printf ', "data": '
+		cat "$tmp"
+		printf '}\n'
+		rm -f "$tmp"
+	;;
+	icon)
+		num "$1" && num "$2" || exit 1
+		s=$(server) || exit 1
+		mkdir -p $D/icon
+		f=$D/icon/$1-$2
+		if [ ! -s "$f" ]; then
+			rm -f $D/icon/$1-*
+			fetch "$s/api/v1/store/icon/$1" "$f" 262144 8 || exit 1
+		fi
+		base64 "$f" | tr -d '\n'
+	;;
+	install)
+		fid=$1 sha=$2 opt=
+		[ "$3" = --force-overwrite ] && opt=--force-overwrite
+		num "$fid" || exit 1
+		case "$sha" in *[!0-9a-f]*|'') exit 1 ;; esac
+		[ ${#sha} -eq 64 ] || exit 1
+		(
+			if flock -x 200; then
+				mkdir -p $D
+				rm -f $D/*.ipk $D/*.apk
+				pkg=$D/$fid.$EXT
+				s=$(server)
+				if [ -z "$s" ]; then
+					code=1; stderr='服务器地址格式不对（Mwrt服务器配置）'
+				elif ! fetch "$s/api/v1/store/file/$fid" "$pkg" 104857600 600; then
+					code=1; stderr="下载失败：$ERR"
+				elif [ "$(sha256sum "$pkg" | cut -d' ' -f1)" != "$sha" ]; then
+					code=1; stderr='安装包校验失败（SHA256 不一致），已删除下载的文件。请稍后重试。'
+				else
+					if [ $PM = apk ]; then
+						set -- apk add --allow-untrusted ${opt:+--force-overwrite} "$pkg"
+					else
+						set -- opkg install $opt "$pkg"
+					fi
+					pkmcmd="$*"
+					"$@" </dev/null >$D/out 2>$D/err
+					code=$?
+					stdout=$(cat $D/out)
+					stderr=$(cat $D/err)
+				fi
+				rm -f "$pkg" $D/out $D/err
+			else
+				code=255
+				stderr="Failed to acquire lock"
+			fi
+
+			json_init
+			json_add_int code $code
+			[ -n "$pkmcmd" ] && json_add_string pkmcmd "$pkmcmd"
+			[ -n "$stdout" ] && json_add_string stdout "$stdout"
+			[ -n "$stderr" ] && json_add_string stderr "$stderr"
+			json_dump
+		) 200>/tmp/ipkg.lock
+		rm -f /tmp/ipkg.lock
+	;;
+	*)
+		echo "Usage: $0 list | icon <id> <ver> | install <fid> <sha256> [--force-overwrite]" >&2
+		exit 1
+	;;
+esac

@@ -543,6 +543,12 @@ return baseclass.extend({
 		this.saveButton.classList.toggle('spinning', value);
 	},
 
+	applyPending: function() {
+		return ui.changes.init().then(function() {
+			ui.changes.apply(true);
+		});
+	},
+
 	save: function() {
 		if (this.busy || this.readonly) return;
 		this.message.textContent = '';
@@ -563,7 +569,7 @@ return baseclass.extend({
 		if (!count) {
 			return uci.changes().then(L.bind(function(changes) {
 				if (changes.wireless && changes.wireless.length) {
-					return ui.changes.init().then(function() { ui.changes.apply(true); });
+					return this.applyPending();
 				}
 				this.message.classList.remove('is-error');
 				this.message.textContent = '当前设置未更改。';
@@ -573,15 +579,12 @@ return baseclass.extend({
 			}, this)).finally(L.bind(function() { this.setBusy(false); }, this));
 		}
 		return uci.save().then(L.bind(function() {
-			// Native LuCI apply retains connectivity checks and automatic rollback.
 			this.profiles.forEach(function(profile, index) {
 				profile.original.basic = cloneBasic(drafts[index]);
 				[ 'channel', 'htmode', 'txpower', 'hidden', 'isolate', 'maxassoc' ].forEach(function(option) { profile.original[option] = snapshots[index][option]; });
 			});
-			return ui.changes.init();
-		}, this)).then(function() {
-			ui.changes.apply(true);
-		}).catch(L.bind(function(error) {
+			return this.applyPending();
+		}, this)).catch(L.bind(function(error) {
 			this.message.classList.add('is-error');
 			this.message.textContent = '保存失败：' + error.message;
 		}, this)).finally(L.bind(function() {

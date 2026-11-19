@@ -8,6 +8,7 @@ if not ok_json then cjson = require "cjson" end
 local ok_crypto, app_crypto = pcall(require, "myos_nradio_app_crypto")
 local ok_md5, md5 = pcall(require, "md5")
 local shared = require "myos_nradio_data"
+local app_config = require "myos_nradio_app_config"
 local app_session = require "myos_nradio_app_session"
 
 local cache = { t = 0, data = nil }
@@ -839,41 +840,87 @@ local function set_cellular_record_enabled(v)
 	return tonumber(enabled) or 0
 end
 
-function wifi_app_list(list)
+
+
+local function wifi_sections()
+	local all, radios = {}, {}
+	uci:unload("wireless")
+	uci:load("wireless")
+	uci:foreach("wireless", "wifi-iface", function(s)
+		local mode = trim(s.mode):lower()
+		if mode ~= "" and mode ~= "ap" and mode ~= "ap-wds" then return end
+		all[#all + 1] = s
+		if not s.device then return end
+		local radio = radios[s.device] or { count = 0, lan_count = 0 }
+		radios[s.device] = radio
+		radio.count, radio.only = radio.count + 1, s
+		local networks = type(s.network) == "table" and table.concat(s.network, " ") or tostring(s.network or "")
+		if (" " .. networks .. " "):find("%slan%s") then
+			radio.lan_count, radio.lan = radio.lan_count + 1, s
+		end
+	end)
+
+	local bands, counts = {}, {}
+	for device, radio in pairs(radios) do
+		local selected = radio.lan_count == 1 and radio.lan or radio.count == 1 and radio.only
+		local band = uci:get("wireless", device, "band")
+		if not band or band == "" then
+			local hwmode = uci:get("wireless", device, "hwmode")
+			band = ({ ["11a"] = "5g", ["11b"] = "2g", ["11g"] = "2g" })[hwmode]
+		end
+		if selected and (band == "2g" or band == "5g") then
+			counts[band] = (counts[band] or 0) + 1
+			bands[band] = selected
+		end
+	end
+	if counts["2g"] ~= 1 or counts["5g"] ~= 1 then return all, false end
+	local first, second = bands["2g"], bands["5g"]
+	local ordered = { first, second }
+	for _, s in ipairs(all) do
+		if s ~= first and s ~= second then ordered[#ordered + 1] = s end
+	end
+	return ordered, true
+end
+
+local function wifi_app_list(list, paired)
+	if not paired then return list end
 	local first, second = list[1], list[2]
-	if #list == 2 and first.ssid == second.ssid and
-	   first.password == second.password and first.encryption == second.encryption and
-	   first.hidden == second.hidden and first.disabled == second.disabled then
+	local security = first.encryption:match("^[^+]+")
+	local personal = security == "psk2" or security == "psk-mixed" or
+		security == "sae" or security == "sae-mixed"
+	if (personal or security == "none") and
+	   first.ssid == second.ssid and first.encryption == second.encryption and
+	   first.disabled == second.disabled and (not personal or first.password == second.password) then
 		first.rule_name, first.ruleName, first.channel = "t0", "t0", "0"
 		return { first }
 	end
 	return list
 end
 
-
-local function wifi_info()
-	local list, idx = {}, 0
-	uci:foreach("wireless", "wifi-iface", function(s)
-		local mode = trim(s.mode):lower()
-		if mode ~= "" and mode ~= "ap" then return end
-		idx = idx + 1
+function wifi_info()
+	local list = {}
+	local sections, paired = wifi_sections()
+	for idx, s in ipairs(sections) do
 		local dev = s.device or ""
-		local disabled = s.disabled or uci:get("wireless", dev, "disabled") or "0"
-		list[#list + 1] = {
+		local disabled = (s.disabled == "1" or uci:get("wireless", dev, "disabled") == "1") and "1" or "0"
+		local rule = "wlan" .. tostring(idx - 1)
+		list[idx] = {
 			ssid = s.ssid or "",
 			password = s.key or "",
-			rule_name = "wlan" .. tostring(idx - 1),
-			ruleName = "wlan" .. tostring(idx - 1),
+			rule_name = rule,
+			ruleName = rule,
 			hidden = s.hidden or "0",
 			encryption = s.encryption or "none",
 			channel = uci:get("wireless", dev, "channel") or "auto",
 			disabled = disabled,
-			band = idx - 1,
-			max_link = tonumber(s.maxassoc or s.max_inactivity or 0) or 0
+			band = paired and idx <= 2 and idx - 1 or
+				(uci:get("wireless", dev, "band") == "5g" and 1 or 0),
+			dbsc = "0",
+			max_link = tonumber(s.maxassoc or s.maxstanum or 0) or 0
 		}
-	end)
+	end
 	if #list == 0 then list[1] = {} end
-	return wifi_app_list(list)
+	return wifi_app_list(list, paired)
 end
 
 local function valid_wifi_text(value, max_len, required)
@@ -883,29 +930,26 @@ local function valid_wifi_text(value, max_len, required)
 	return #value <= max_len and not value:find("[%z\r\n]")
 end
 
-local function wifi_item_for_index(list, index)
+local function wifi_item_for_index(list, index, paired)
 	local wanted = "wlan" .. tostring(index - 1)
-	for _, item in ipairs(list or {}) do
+	for _, item in ipairs(list) do
 		if type(item) == "table" then
 			local rule = trim(item.rule_name or item.ruleName)
-			if rule == wanted or rule == "t0" then return item end
+			if rule == wanted or (paired and index <= 2 and rule == "t0") then return item end
 		end
 	end
-	return list and list[index]
+	local item = list[index]
+	if type(item) == "table" and trim(item.rule_name or item.ruleName) == "" then return item end
 end
 
 function apply_wifi(req)
-	uci:load("wireless")
 	if type(req.list) ~= "table" or #req.list == 0 or #req.list > 8 then return false end
-	local sections = {}
-	uci:foreach("wireless", "wifi-iface", function(s)
-		local mode = trim(s.mode):lower()
-		if mode == "" or mode == "ap" then sections[#sections + 1] = s end
-	end)
-	if #sections == 0 then return false end
+	local sections, paired = wifi_sections()
+	local updated = false
 	for index, section in ipairs(sections) do
-		local item = wifi_item_for_index(req.list, index)
+		local item = wifi_item_for_index(req.list, index, paired)
 		if item then
+			updated = true
 			local ssid = item.ssid
 			local password = item.password
 			local encryption = item.encryption
@@ -939,7 +983,9 @@ function apply_wifi(req)
 			if channel ~= nil and channel ~= "" then uci:set("wireless", section.device, "channel", channel) end
 		end
 	end
-	uci:commit("wireless")
+	if not updated or not uci:commit("wireless") then return false end
+	os.remove(cache_key("info"))
+	os.remove(cache_key("wifi"))
 	os.execute("(wifi reload) >/dev/null 2>&1 &")
 	return true
 end
@@ -1324,15 +1370,16 @@ local function info_result()
 			sys_version = sys_version,
 			api_version = app_api_version,
 			mac = device_id(),
+			device_code = device_code(),
 			name = shared.app_device_name(),
 			net_prefer = uci:get("network", "globals", "net_prefer") or "",
 			active_modem = { 1 },
 			modem_cnt = 1
 		},
 		diagnosis = diagnosis(),
-		cpesel = cpesel_info(),
+		cpesel = app_config.apn_info(cpesel_info()),
 		cpecfg = { {} },
-		apn = {},
+		apn = app_config.apn_list(),
 		client = clients,
 		client_count = count,
 		client_info = { count = count, client = clients },
@@ -1368,10 +1415,10 @@ function index()
 	entry({"nradio", "app", "earfcn"}, call("action_earfcn"), nil, nil, true).leaf = true
 	entry({"nradio", "app", "sms"}, call("action_sms"), nil, nil, true).leaf = true
 	entry({"nradio", "app", "led"}, call("action_led"), nil, nil, true).leaf = true
-	entry({"nradio", "app", "apn"}, call("action_disabled"), nil, nil, true).leaf = true
+	entry({"nradio", "app", "apn"}, call("action_config", "apn"), nil, nil, true).leaf = true
 	entry({"nradio", "app", "sync"}, call("action_disabled"), nil, nil, true).leaf = true
-	entry({"nradio", "app", "lan"}, call("action_disabled"), nil, nil, true).leaf = true
-	entry({"nradio", "app", "password"}, call("action_disabled"), nil, nil, true).leaf = true
+	entry({"nradio", "app", "lan"}, call("action_config", "lan"), nil, nil, true).leaf = true
+	entry({"nradio", "app", "password"}, call("action_config", "password"), nil, nil, true).leaf = true
 	entry({"nradio", "app", "wifiauth"}, call("action_wifiauth"), nil, nil, true).leaf = true
 end
 
@@ -1381,7 +1428,10 @@ function action_auth()
 		http.status(404, "Not Found")
 		return reply({ code = "1", result = "local app disabled" }, req)
 	end
-	if not encrypted or not auth_request_valid(req) then return reply({ code = "1", result = "invalid auth" }, req) end
+	local valid
+	if encrypted then valid = auth_request_valid(req)
+	else valid = app_session.password_valid(req) end
+	if not valid then return reply({ code = "1", result = "invalid auth" }, req) end
 	local token = issue_auth_token()
 	if token == "" then return reply({ code = "1", result = "auth unavailable" }, req) end
 	http.header("Set-Cookie", app_session.cookie(token))
@@ -1442,10 +1492,47 @@ function action_wifi()
 	if req.list ~= nil then
 		if not require_device(req) then return end
 		if not apply_wifi(req) then return reply({ code = "1", result = "invalid wifi config" }, req) end
-		os.remove(cache_key("wifi"))
 		return reply({ code = "0", result = { list = wifi_info() } }, req)
 	end
 	cached_reply("wifi", response_ttl, req, function() return { code = "0", result = { list = wifi_info() } } end)
+end
+
+function cloud_simswitch(request)
+	if type(request) ~= "table" then return "3" end
+	local settings = require("luci.model.uci").cursor()
+	local mode = tonumber(request.mode)
+	if mode == nil and request.mode == nil then mode = 1 end
+	if mode ~= 0 and mode ~= 1 then return "3" end
+
+	local kind, slot = tonumber(request.type), nil
+	if kind == 0 then
+		slot = tonumber(request.index)
+		if not slot or slot % 1 ~= 0 or slot < 1 then return "1" end
+	elseif kind == 1 then
+		local iccid = trim(request.iccid)
+		if iccid == "" then return "2" end
+		local cards = {}
+		for item in (settings:get("oem", "board", "iccid") or ""):gmatch("[^,]+") do
+			cards[#cards + 1] = trim(item)
+		end
+		local embedded, index = 0, 0
+		for item in ((settings:get("cpesel", "sim", "stype") or "") .. ","):gmatch("([^,]*),") do
+			index = index + 1
+			if item ~= "" and item ~= "0" then
+				embedded = embedded + 1
+				if cards[embedded] == iccid then slot = shared.sim_swap(index); break end
+			end
+		end
+		if not slot then return "2" end
+	elseif request.type == nil and request.mode ~= nil then
+		slot = shared.sim_swap(tonumber(settings:get("cpesel", "sim", "cur")))
+	else
+		return "3"
+	end
+	if not slot or not apply_cpesel({ cur = { slot }, mode = { mode } }) then
+		return kind == 1 and "2" or "1"
+	end
+	return "0"
 end
 
 function action_cpesel()
@@ -1475,10 +1562,16 @@ function action_client()
 	end)
 end
 
+function action_config(name)
+	local req = request()
+	if not require_auth(req) then return end
+	return reply(app_config[name](req), req)
+end
+
 function action_combo()
 	local req = request()
 	if not require_auth(req) then return end
-	if req.combo ~= nil then return reply({ code = "2", result = "unsupported on MYOS" }, req) end
+	if req.combo ~= nil then return reply(app_config.combo(req), req) end
 	cached_reply("combo", response_ttl, req, function() return { code = "0", result = runtime_info() } end)
 end
 
@@ -1501,22 +1594,7 @@ end
 function action_earfcn()
 	local req = request()
 	if not require_auth(req) then return end
-	local action = tonumber(req.action or 2)
-	if action ~= 2 or req.mode ~= nil or req.band ~= nil or req.earfcn ~= nil or req.earfcns ~= nil or req.adv ~= nil or req.earfreq_mode ~= nil then
-		return reply({ code = "1", result = "unsupported on MYOS" }, req)
-	end
-	local m = summary()
-	reply({
-		code = "0",
-		result = {
-			index = tonumber(req.index) or 1,
-			action = 2,
-			sim = tonumber(req.sim) or shared.sim_swap(m.simno) or 1,
-			mode = "auto",
-			band = { status = "0", freq = "" },
-			earfcn = {}
-		}
-	}, req)
+	return reply(app_config.radio(req), req)
 end
 
 function action_wifiauth()
@@ -1561,10 +1639,13 @@ function action_cmd()
 		local enabled = cellular_record_enabled()
 		if req.enabled ~= nil then enabled = set_cellular_record_enabled(req.enabled) end
 		reply({ code = "0", name = "cellular_record", enabled = enabled, cellular_record = { enabled = enabled } }, req)
-	elseif req.cmd == "reboot" and req.device_code and tostring(req.device_code) == device_code() then
-		if device_code() == "" then return reply({ code = "1", result = "missing device identity" }, req) end
-		reply({ code = "0", result = {} }, req)
-		os.execute("(sleep 1; reboot) >/dev/null 2>&1 &")
+	elseif req.cmd == "reboot" then
+		local code = device_code()
+		if code == "" or trim(req.device_code) ~= code then
+			return reply({ code = "2", message = "Invalid device identity" }, req)
+		end
+		local rc = os.execute("(sleep 1; /sbin/reboot) >/dev/null 2>&1 &")
+		reply({ code = (rc == 0 or rc == true) and "0" or "2" }, req)
 	else
 		reply({ code = "1", result = "disabled on MYOS" }, req)
 	end

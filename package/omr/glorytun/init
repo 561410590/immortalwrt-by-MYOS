@@ -45,6 +45,13 @@ start_instance() {
 		return 1
 	}
 
+	if [ "${enable}" != "1" ] && [ "$dev" = "glorytun0" ] &&
+		[ "$(uci -q get network.glorytun.device)" = "$dev" ]; then
+		# Keep the default netifd interface backed by a real TUN while idle.
+		ip link show dev "$dev" >/dev/null 2>&1 || ip tuntap add dev "$dev" mode tun
+		return
+	fi
+
 	[ "${enable}" = "1" ] || return 1
 	[ "${proto}" = "tcp" ] || return 1
 	[ -n "${key}" ] || {
@@ -64,6 +71,15 @@ start_instance() {
 		return 1
 	}
 	key=""
+
+	if [ "$dev" = "glorytun0" ]; then
+		case "$(ip tuntap show dev "$dev")" in
+			*" persist"*)
+				# Let Glorytun create the device with the instance's queue settings.
+				ip tuntap del dev "$dev" mode tun
+				;;
+		esac
+	fi
 
 	if [ "$(uci -q get network.omrvpn)" != "" ]; then
 		uci -q set network.omrvpn.device=${dev}

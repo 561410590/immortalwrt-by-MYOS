@@ -41,13 +41,18 @@ for rel in ('dispatcher.uc', 'template/header.ut', 'template/footer.ut'):
     dst.chmod(0o644)
 
 # Carry the rebuilt shared JavaScript into Ultra's custom root filesystem.
-dst = root / 'www/luci-static/resources/luci.js'
-shutil.copyfile(src / 'staging_dir/target-aarch64_cortex-a53_musl/root-mediatek/www/luci-static/resources/luci.js', dst)
-dst.chmod(0o644)
+for rel in ('www/luci-static/resources/luci.js', 'www/luci-static/resources/ui.js'):
+    dst = root / rel
+    shutil.copyfile(src / 'staging_dir/target-aarch64_cortex-a53_musl/root-mediatek' / rel, dst)
+    dst.chmod(0o644)
 
 # Shared public resources must remain readable by the WebUI service.
 for rel in ("www/luci-static", "www/luci-static/resources"):
     (root / rel).chmod(0o755)
+
+connections_link = root / 'etc/rc.d/S99myos-connections'
+if not connections_link.is_symlink():
+    connections_link.symlink_to('../init.d/myos-connections')
 
 # Only the new ROM defaults are set here. sysupgrade retains the user's overlay.
 cfg = root / 'etc/config/luci'

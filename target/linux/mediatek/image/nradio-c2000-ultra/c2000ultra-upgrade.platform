@@ -1,6 +1,24 @@
 REQUIRE_IMAGE_METADATA=1
 RAMFS_COPY_BIN='blkid fwtool jsonfilter /usr/libexec/myos-ultra-gpt'
 
+c2000ultra_stage_firmware() {
+	local media=/mnt/mmcblk0p1 store=/tmp/myos-update/image
+	grep -q "^/dev/mmcblk0p1 $store " /proc/mounts && return 0
+	grep -q "^/dev/mmcblk0p1 $media " /proc/mounts || return 1
+	mkdir -p -m 0700 "$media/.myos-firmware" /tmp/myos-update || return 1
+	mkdir -m 0700 "$store" || return 1
+	mount -o bind "$media/.myos-firmware" "$store" && return 0
+	rmdir "$store"
+	return 1
+}
+
+platform_pre_upgrade() {
+	local swap=/overlay/swapfile
+	if grep -q "^$swap " /proc/swaps; then
+		busybox swapoff "$swap" || v "C2000-Ultra: failed to release SD swap"
+	fi
+}
+
 # Both layouts keep kernel/rootfs labels. Resolve the validated layout rather
 # than deriving offsets or capacity from an old card image.
 c2000ultra_upgrade_parts() {
@@ -19,14 +37,15 @@ c2000ultra_upgrade_parts() {
 }
 
 platform_check_image() {
-	local dir name bytes capacity
+	local listing dir name bytes capacity
 	[ "$#" = 1 ] || return 1
 	[ "$(dd if="$1" bs=1 skip=257 count=5 2>/dev/null)" = ustar ] || return 1
 	c2000ultra_upgrade_parts || return 1
-	dir="$(tar tf "$1" | grep -m 1 '^sysupgrade-[^/]*/$')"
+	listing="$(LC_ALL=C tar -tvf "$1")" || return 1
+	dir="$(printf '%s\n' "$listing" | awk '{ print $NF }' | grep -m 1 '^sysupgrade-[^/]*/$')"
 	[ -n "$dir" ] || return 1
 	for name in kernel root; do
-		bytes="$(tar xf "$1" "${dir}${name}" -O | wc -c)"
+		bytes="$(printf '%s\n' "$listing" | awk -v member="${dir}${name}" '$1 ~ /^-/ && $NF == member { print $3 }')"
 		case "$bytes" in ''|*[!0-9]*) return 1 ;; esac
 		if [ "$name" = kernel ]; then
 			capacity="$(cat /sys/class/block/${EMMC_KERN_DEV##*/}/size)"
@@ -48,7 +67,12 @@ platform_do_upgrade() {
 		C2000ULTRA_UPGRADE_VERSION="$(jsonfilter -i /tmp/c2000ultra-upgrade-metadata.json -e '@.version.version')"
 		case "$C2000ULTRA_UPGRADE_VERSION" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
 	fi
-	emmc_do_upgrade "$1"
+	emmc_do_upgrade "$1" || return $?
+	case "$1" in
+		/tmp/myos-update/image/local.bin|/tmp/myos-update/image/firmware.bin)
+			rm -f "$1"
+			;;
+	esac
 }
 
 platform_copy_config() {

@@ -64,20 +64,26 @@ swapfile()
 		tmp="$MAX_SWAP_DIR/swapfile.new"
 		umask 077
 		: > "$tmp" || return 1
-		i=0
-		while [ "$i" -lt 8 ]; do
-			nice -n 19 dd if=/dev/zero of="$tmp" bs=1048576 count=64 seek=$((i * 64)) conv=notrunc 2>/dev/null || {
-				rm -f "$tmp"
-				logger -t myos-swap 'SD swap allocation failed'
-				return 1
-			}
-			sync
-			i=$((i + 1))
-			sleep 1
-		done
+		# Pin before allocation so F2FS reserves aligned extents without
+		# writing 512 MiB of zeros or relocating blocks during swapon.
+		if [ "$fstype" != f2fs ] || [ ! -x /usr/sbin/f2fs_io ] ||
+		   ! /usr/sbin/f2fs_io pinfile set "$tmp" >/dev/null ||
+		   ! /usr/sbin/f2fs_io fallocate 0 0 536870912 "$tmp" >/dev/null; then
+			rm -f "$tmp"
+			: > "$tmp" || return 1
+			i=0
+			while [ "$i" -lt 8 ]; do
+				nice -n 19 dd if=/dev/zero of="$tmp" bs=1048576 count=64 seek=$((i * 64)) conv=notrunc,fsync 2>/dev/null || {
+					rm -f "$tmp"
+					logger -t myos-swap 'SD swap allocation failed'
+					return 1
+				}
+				i=$((i + 1))
+				sleep 1
+			done
+		fi
 		busybox mkswap "$tmp" || return 1
 		mv "$tmp" "$MAX_SWAP_DIR/swapfile" || return 1
-		sync
 	fi
 	busybox swapon -p 10 "$MAX_SWAP_DIR/swapfile" || {
 		logger -t myos-swap 'SD swap activation failed'

@@ -1,6 +1,12 @@
 #!/bin/sh
 # Ultra has factory identity in SPI bdinfo; its SD device tree supplies no GMAC MACs.
 [ "$(cat /tmp/sysinfo/board_name 2>/dev/null)" = nradio,c2000-ultra ] || exit 0
+
+# Config-preserving upgrades can carry over the retired MWRT scheduler's cron entry.
+if [ -f /etc/crontabs/root ]; then
+	sed -i '\|^\* \* \* \* \* /usr/bin/mwrt-fansched apply >/dev/null 2>&1$|d' /etc/crontabs/root
+fi
+
 . /lib/functions.sh
 . /lib/functions/system.sh
 . /lib/functions/myos-factory-wifi.sh

@@ -236,6 +236,9 @@ fi
 # 残留清扫: qmodem 段可能早就不在了(手工删过、或上一版回收过),但 network/dhcp/
 # 防火墙里的同名条目还在。按伴生口反推出的段名直接清。
 for leftover in "$twin_sect" "${twin_sect}v6"; do
+	if [ "$(board_name)" = "nradio,c2000-ultra" ]; then
+		case "$leftover" in 2_1|2_1v6) continue ;; esac
+	fi
 	if [ -n "$(uci -q get "network.$leftover")" ]; then
 		uci -q delete "network.$leftover"
 		uci -q commit network

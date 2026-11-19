@@ -1,0 +1,7 @@
+{
+  "luci-app-dual-pdp": {
+    "description": "View dual PDP status and manage scoped device and secondary APN settings",
+    "read": { "ubus": { "dual-pdp": [ "status", "job", "catalog" ] } },
+    "write": { "ubus": { "dual-pdp": [ "set_devices", "set_apn", "set_options", "set_policy", "connect", "disconnect", "reconnect", "check_public" ] } }
+  }
+}

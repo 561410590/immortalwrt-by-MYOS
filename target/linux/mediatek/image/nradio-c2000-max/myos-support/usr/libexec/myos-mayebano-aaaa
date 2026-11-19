@@ -1,0 +1,24 @@
+#!/bin/sh
+
+lookup() {
+	awk '/^Name:/ { answer=1; next }
+	     answer && /^Address( [0-9]+)?:[[:space:]]/ && $NF ~ /^[23][0-9A-Fa-f]*:[0-9A-Fa-f:]+$/ { print $NF }'
+}
+
+host=mayebano.shop
+for server in 223.5.5.5 2400:3200::1 1.1.1.1 2606:4700:4700::1111; do
+	addresses=$(timeout 3 nslookup -type=AAAA "$host" "$server" 2>/dev/null | lookup)
+	if [ -n "$addresses" ]; then
+		printf '%s\n' "$addresses"
+		exit 0
+	fi
+done
+
+addresses=$(curl --noproxy '*' -fsS --connect-timeout 3 --max-time 5 \
+	-H 'Accept: application/dns-json' "https://1.1.1.1/dns-query?name=$host&type=AAAA" 2>/dev/null |
+	jsonfilter -e '@.Answer[@.type=28].data' 2>/dev/null | awk '/^[23][0-9A-Fa-f]*:[0-9A-Fa-f:]+$/')
+if [ -n "$addresses" ]; then
+	printf '%s\n' "$addresses"
+else
+	timeout 3 nslookup -type=AAAA "$host" 2>/dev/null | lookup
+fi

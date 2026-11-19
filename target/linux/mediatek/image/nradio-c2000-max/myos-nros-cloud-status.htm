@@ -1,7 +1,11 @@
-<fieldset class="cbi-section">
-	<legend><%:远控运行状态%></legend>
+<section class="cbi-section myos-remote-card">
+	<div class="myos-remote-heading">
+		<h3><%:官方 APP 运行状态%></h3>
+		<span id="myos-nros-overall" role="status"><%:正在读取…%></span>
+	</div>
+	<details class="myos-remote-details">
+		<summary><%:查看诊断明细%></summary>
 	<table class="table" id="myos-nros-status">
-		<tr><td width="35%"><%:总体状态%></td><td id="myos-nros-overall"><em><%:正在读取...%></em></td></tr>
 		<tr><td><%:官方云桥接%></td><td id="myos-nros-bridge"><em><%:正在读取...%></em></td></tr>
 		<tr><td><%:远程登录隧道%></td><td id="myos-nros-rweb"><em><%:正在读取...%></em></td></tr>
 		<tr><td><%:MQTT 服务%></td><td id="myos-nros-mqtt"><em><%:正在读取...%></em></td></tr>
@@ -11,8 +15,8 @@
 		<tr><td><%:身份与凭据%></td><td id="myos-nros-identity"><em><%:正在读取...%></em></td></tr>
 		<tr><td><%:状态更新时间%></td><td id="myos-nros-updated"><em><%:正在读取...%></em></td></tr>
 	</table>
-	<div class="cbi-section-descr"><%:开启远控后，客户端可登录 LuCI 菜单，并通过会话临时公钥免密登录 SSH。SSH 授权随连接撤销，异常退出时 120 秒后自动清理。%></div>
-</fieldset>
+	</details>
+</section>
 
 <style type="text/css">
 	.myos-nros-ok { color: #2e7d32; font-weight: bold; }
@@ -36,7 +40,10 @@
 
 	XHR.poll(5, '<%=luci.dispatcher.build_url("admin", "system", "myos_nros", "status")%>', null,
 		function(x, data) {
-			if (!x || x.status != 200 || !data) return;
+			if (!x || x.status != 200 || !data) {
+				setText('myos-nros-overall', '<%:状态读取失败%>', 'warn');
+				return;
+			}
 
 			var overall = {
 				disabled: ['<%:已停用%>', 'muted'],

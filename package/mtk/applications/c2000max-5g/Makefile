@@ -123,7 +123,7 @@ define Package/luci-app-embed
   CATEGORY:=LuCI
   SUBMENU:=3. Applications
   TITLE:=LuCI Embedded Page opener
-  VERSION:=1.0.0-r2
+  VERSION:=1.0.0-r3
   PKGARCH:=all
   DEPENDS:=+luci-base +tom_modem
 endef
@@ -137,9 +137,9 @@ define Package/luci-app-embed/install
 	$(INSTALL_BIN) ./files/luci-app-embed/etc/uci-defaults/80_embed_simcard $(1)/etc/uci-defaults/
 	$(INSTALL_DATA) ./files/luci-app-embed/usr/share/luci/menu.d/luci-app-embed.json $(1)/usr/share/luci/menu.d/
 	$(INSTALL_DATA) ./files/luci-app-embed/usr/share/rpcd/acl.d/luci-app-embed.json $(1)/usr/share/rpcd/acl.d/
-	$(INSTALL_DATA) ./files/luci-app-embed/www/luci-static/resources/view/embed/htmlview.js \
-		./files/luci-app-embed/www/luci-static/resources/view/embed/simcard.js \
-		$(1)/www/luci-static/resources/view/embed/
+	$(INSTALL_DATA) ./files/luci-app-embed/www/luci-static/resources/view/embed/htmlview.js $(1)/www/luci-static/resources/view/embed/
+	$(INSTALL_DATA) $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-ultra/c2000ultra-simcard.js \
+		$(1)/www/luci-static/resources/view/embed/simcard.js
 endef
 
 $(eval $(call BuildPackage,quectel-CM-5G-M))

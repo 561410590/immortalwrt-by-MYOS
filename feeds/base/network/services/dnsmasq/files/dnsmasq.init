@@ -5,6 +5,7 @@ START=19
 
 USE_PROCD=1
 PROG=/usr/sbin/dnsmasq
+[ ! -x /usr/libexec/inst-dual-pdp/dnsmasq ] || PROG=/usr/libexec/inst-dual-pdp/dnsmasq
 
 ADD_LOCAL_DOMAIN=1
 ADD_LOCAL_HOSTNAME=1

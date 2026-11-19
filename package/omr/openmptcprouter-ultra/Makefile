@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openmptcprouter-ultra
 PKG_VERSION:=2026.09.11
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_LICENSE:=GPL-3.0-only
 
 include $(INCLUDE_DIR)/package.mk
@@ -16,7 +16,7 @@ define Package/openmptcprouter-ultra
 	+mptcp +luci-app-mptcp +omr-tracker +luci-app-omr-tracker \
 	+glorytun +luci-app-glorytun-tcp \
 	+shadowsocks-libev-ss-local +shadowsocks-libev-ss-tunnel \
-	+shadowsocks-libev-ss-rules-nft +luci-app-shadowsocks-libev \
+	+shadowsocks-libev-ss-rules-nft \
 	+ip-full +ss +nstat +tc-full +kmod-sched-core +kmod-inet-mptcp-diag \
 	+firewall4 +nftables-json +iptables-nft +iputils-ping +conntrack \
 	+ca-bundle +curl +resolveip +jsonfilter

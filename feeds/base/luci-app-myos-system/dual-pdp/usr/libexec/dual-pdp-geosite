@@ -1,0 +1,39 @@
+#!/bin/sh
+# Called from the existing background policy worker. Only a missing GeoSite
+# database is fetched. Keep the previous routing table until validation finishes.
+set -eu
+run=/var/run/dual-pdp-manager
+dest=/usr/share/dual-pdp
+stock=/usr/share/v2ray/geosite.dat
+state="$run/geosite-status"
+stamp="$run/geosite-retry"
+version=20260518025449
+hash=330e9383df4b232747d900c70ff1718d396e0fff4914930285c24657e7f013a1
+[ -s "$stock" ] || [ -s "$dest/geosite.dat" ] || {
+ mkdir -p "$run" "$dest"
+ exec 9>"$run/geosite.lock"
+ flock -x 9
+ [ ! -s "$stock" ] && [ ! -s "$dest/geosite.dat" ] || exit 0
+ now=$(date +%s)
+ if [ -f "$stamp" ] && [ "$now" -lt "$(cat "$stamp")" ]; then exit 1; fi
+ tmp="$dest/.geosite-download"
+ trap 'rm -f "$tmp"' EXIT
+ trap 'exit 1' HUP INT TERM
+ status() { printf '%s\n' "$1" > "$state.tmp"; mv -f "$state.tmp" "$state"; }
+ status '正在下载 GeoSite 域名库'
+ for url in "https://sources.immortalwrt.org/dlc.dat.$version" "https://github.com/v2fly/domain-list-community/releases/download/$version/dlc.dat"; do
+  if curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 4 --max-time 25 --max-filesize 12582912 -o "$tmp" "$url"; then
+   status '正在校验 GeoSite 域名库'
+   if printf '%s  %s\n' "$hash" "$tmp" | sha256sum -c - >/dev/null; then
+    chmod 644 "$tmp"; mv -f "$tmp" "$dest/geosite.dat"
+    rm -f "$state" "$stamp"
+    exit 0
+   fi
+   reason='GeoSite 文件校验失败'
+  else reason='GeoSite 下载失败，请检查网络'; fi
+ done
+ echo $((now+300)) > "$stamp"
+ status "$reason，5 分钟后可重试"
+ exit 1
+}
+exit 0

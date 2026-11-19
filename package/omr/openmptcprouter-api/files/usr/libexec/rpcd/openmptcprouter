@@ -443,6 +443,7 @@ function default_vpn(default_vpn)
 			ucic:set("network","omr6in4","ipaddr","10.255.254.2")
 			ucic:set("network","omr6in4","peeraddr","10.255.254.1")
 		else
+			vpn_intf = ucic:get("glorytun","vpn","dev") or "glorytun0"
 			ucic:set("glorytun","vpn","proto","tcp")
 			ucic:set("glorytun","vpn","localip","10.255.255.2")
 			ucic:set("glorytun","vpn","remoteip","10.255.255.1")

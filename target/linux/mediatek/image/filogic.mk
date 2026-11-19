@@ -209,9 +209,9 @@ define Build/prepare-c2000ultra-app-rootfs
 	$(STAGING_DIR_HOST)/bin/unsquashfs4 \
 		-pf $(KDIR)/root-c2000ultra-$(1)-app.pseudo \
 		$(IMAGE_ROOTFS) >/dev/null
-	$(STAGING_DIR_HOST)/bin/unsquashfs4 -excludes \
+	$(STAGING_DIR_HOST)/bin/unsquashfs4 \
 		-d $(KDIR)/root-c2000ultra-$(1)-app \
-		$(IMAGE_ROOTFS) dev/console >/dev/null
+		$(IMAGE_ROOTFS) >/dev/null
 	sh $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/MYOS-nros-app-patch.sh \
 		$(KDIR)/root-c2000ultra-$(1)-app $(C2000MAX_FACTORY_LED_ROOTFS)
 	$(TARGET_CC) $(TARGET_CFLAGS) -Os -static -Wall -Wextra -Werror \
@@ -260,7 +260,10 @@ define Build/prepare-c2000ultra-app-rootfs
 	done
 	python3 $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-ultra/restore-modes.py \
 		$(KDIR)/root-c2000ultra-$(1)-app
-	python3 $(TOPDIR)/scripts/prepare-public-rootfs.py $(KDIR)/root-c2000ultra-$(1)-app
+	python3 $(TOPDIR)/target/linux/mediatek/image/install-myos-support.py \
+		$(KDIR)/root-c2000ultra-$(1)-app $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max
+	python3 $(TOPDIR)/../immortalwrt-mt798x-6.6/target/linux/mediatek/image/install-kunpeng-ai.py \
+		$(KDIR)/root-c2000ultra-$(1)-app $(STAGING_DIR_HOST)/bin/opkg --myos-runtime
 	$(STAGING_DIR_HOST)/bin/mksquashfs4 \
 		$(KDIR)/root-c2000ultra-$(1)-app \
 		$(KDIR)/root-c2000ultra-$(1)-app.squashfs \
@@ -993,7 +996,6 @@ define Build/prepare-c2000max-rootfs
 		find $(C2000MAX_MYOS_ROOTFS_DIR)/$${path} -type d -exec chmod 755 {} +; \
 		find $(C2000MAX_MYOS_ROOTFS_DIR)/$${path} -type f -exec chmod 644 {} +; \
 	done
-	python3 $(TOPDIR)/scripts/prepare-public-rootfs.py $(C2000MAX_MYOS_ROOTFS_DIR)
 	$(STAGING_DIR_HOST)/bin/mksquashfs4 $(C2000MAX_MYOS_ROOTFS_DIR) $(C2000MAX_MYOS_ROOTFS) \
 		-nopad -noappend -root-owned -comp xz -Xpreset 9 -Xe -Xlc 0 -Xlp 2 -Xpb 2 \
 		-b 1048576 -no-xattrs \
@@ -3483,9 +3485,15 @@ define Device/nradio_c2000-ultra
   BOARD_NAME := nradio,c2000-ultra
   SUPPORTED_DEVICES += nradio,c2000-ultra HCMT7987-SNSD
   DEVICE_PACKAGES := \
-	luci-theme-myos-new luci-app-myos-ultra \
+	kmod-nft-queue \
+	-luci-app-ssr-plus -luci-i18n-ssr-plus-zh-cn \
+	-luci-app-shadowsocks-libev \
+	luci-theme-myos-new luci-app-myos-ultra luci-app-vantage luci-i18n-vantage-zh-cn \
 	openmptcprouter-ultra \
 	libip4tc libip6tc kmod-ipt-extra iptables-mod-extra \
+	iptables-nft ip6tables-nft ca-certificates libseccomp tini btrfs-progs \
+	kmod-ipt-nat kmod-ipt-nat6 kmod-ipt-physdev kmod-nf-ipvs kmod-veth \
+	luci-lib-docker ttyd \
 	kmod-fuse kmod-sound-core kmod-fs-cifs \
 	kmod-md-mod kmod-md-raid0 kmod-md-raid1 kmod-md-raid10 \
 	kmod-ipt-conntrack-extra kmod-ipt-ipopt kmod-ipt-filter \
@@ -3510,7 +3518,7 @@ define Device/nradio_c2000-ultra
 	myos-ubus-at mt5700-web-go luci-app-mt5700-web luci-app-embed \
 	miniupnpd-nftables luci-app-upnp luci-i18n-upnp-zh-cn \
 	python3-light uhttpd uhttpd-mod-ubus \
-	f2fsck mkf2fs e2fsprogs \
+	f2fsck f2fs-tools mkf2fs e2fsprogs \
 	zram-swap kmod-zram \
 	kmod-usb3 kmod-usb-core kmod-usb-xhci-hcd kmod-usb-xhci-mtk \
 	kmod-usb-acm kmod-usb-ehci kmod-usb-ohci kmod-usb-uhci \
