@@ -1,0 +1,189 @@
+#!/usr/bin/lua
+local fs, nixio = require "nixio.fs", require "nixio"
+local json, md5 = require "luci.jsonc", require "md5"
+local secondary = require "c5800_secondary"
+local util, sys = require "luci.util", require "luci.sys"
+
+local status_path = "/tmp/myos-c5800-sms.status"
+local history_path = "/etc/myos-c5800-sms.seen"
+local payload_path = "/tmp/myos-c5800-sms.payload"
+
+local function write(path, value)
+    local file = nixio.open(path .. ".new", "w", 384)
+    if not file then return false end
+    local content = json.stringify(value)
+    local length = file:writeall(content)
+    file:close()
+    if length == #content and fs.rename(path .. ".new", path) then return true end
+    fs.unlink(path .. ".new")
+    return false
+end
+
+local function identity(source)
+    local sim
+    if source == "cpe1" then
+        sim = secondary.cached_signal()
+    else
+        local modem = util.ubus("infocd", "cpestatus") or {}
+        for _, entry in ipairs(modem.result or {}) do
+            if entry.status and entry.status.name == "cpe" then sim = entry.status; break end
+        end
+    end
+    local iccid = sim and sim.iccid
+    if type(iccid) == "string" and #iccid >= 18 and iccid:match("^%d+$") then
+        return source .. ":" .. md5.sumhexa(iccid)
+    end
+end
+
+local function main_at(command, wait)
+    local ok, reply = pcall(util.ubus, "atsdcpe", "at_cmd", {cmd=command, wait=wait, block=1})
+    if ok and type(reply) == "table" and tonumber(reply.code) == 0 and
+            type(reply.respone) == "string" and reply.respone:match("\nOK%s*$") then
+        return reply.respone
+    end
+end
+
+local function main_messages()
+    local raw = main_at("AT+CMGL=4", 8)
+    if not raw then return nil, "内置模组未返回完整短信列表" end
+    return require("myos_c5800_pdu").decode(raw)
+end
+
+local function main_storage()
+    local raw = main_at("AT+CPMS?", 5) or ""
+    local store, used, total = raw:match('+CPMS:%s*"([A-Z]+)"%s*,%s*(%d+)%s*,%s*(%d+)')
+    if store then return {name=store, used=tonumber(used), total=tonumber(total)} end
+end
+
+local function odu_messages()
+    local reply, detail = secondary.request("sms")
+    local result = reply and reply.result
+    if type(result) ~= "table" or tonumber(result.ready) == 0 or
+        (result.code ~= nil and tonumber(result.code) ~= 0) or type(result.smslist) ~= "table" then
+        return nil, detail or "副模组短信列表暂不可读"
+    end
+    local messages = {}
+    for _, group in ipairs(result.smslist) do
+        for _, item in ipairs(group.list or {group}) do
+            if tonumber(item.role or 0) == 0 then
+                messages[#messages + 1] = {sender=item.contact or group.contact,
+                    text=item.content, time=item.timestamp}
+            end
+        end
+    end
+    return messages
+end
+
+local function inbox(source)
+    local key = identity(source)
+    if not key then return nil, "未读取到当前 SIM 标识" end
+    local reader = source == "cpe" and main_messages or odu_messages
+    local messages, error_message = reader()
+    if not messages then return nil, error_message end
+    if identity(source) ~= key then return nil, "读取期间 SIM 信息变化" end
+    return messages, nil, key
+end
+
+local function push(url, payload)
+    if not write(payload_path, payload) then return false end
+    local command = "curl -fsS --connect-timeout 3 --max-time 8 -o /dev/null -w '%{http_code}' " ..
+        "-H 'Content-Type: application/json' --data-binary @" .. payload_path .. " --url " .. util.shellquote(url)
+    local code = sys.exec(command .. " 2>/dev/null")
+    fs.unlink(payload_path)
+    return code and code:match("^2%d%d$") ~= nil
+end
+
+local function poll(url)
+    local history = url and (json.parse(fs.readfile(history_path) or "") or {}) or {}
+    local status = {}
+    for _, source in ipairs({"cpe", "cpe1"}) do
+        local messages, error_message, key = inbox(source)
+        status[source] = {available=messages ~= nil, count=messages and #messages, error=error_message}
+        if url and messages then
+            local seen, baseline = history[key] or {}, history[key] == nil
+            local changed = baseline
+            history[key] = seen
+            for _, message in ipairs(messages) do
+                if message.complete ~= false and type(message.sender) == "string" and
+                        message.sender ~= "" and type(message.text) == "string" then
+                    local id = md5.sumhexa(table.concat({key, message.sender,
+                        tostring(message.time or ""), message.text}, "\0"))
+                    if not seen[id] then
+                        if baseline or push(url, {source=source, sender=message.sender,
+                            message=message.text, timestamp=message.time, id=id}) then
+                            seen[id], changed = true, true
+                            if not baseline and not write(history_path, history) then
+                                status[source].error = "无法保存短信记录"
+                                break
+                            end
+                        else
+                            status[source].error = "Webhook 投递失败，下次重试"
+                            break
+                        end
+                    end
+                end
+            end
+            if changed and baseline and not write(history_path, history) then
+                status[source].error = "无法保存短信基线"
+            end
+        end
+    end
+    return status
+end
+
+if arg[1] == "--inbox" then
+    local source = arg[2]
+    local messages, error_message, storage
+    if source == "cpe" then
+        messages, error_message = main_messages()
+        storage = main_storage()
+    elseif source == "cpe1" then
+        messages, error_message = odu_messages()
+    else
+        error_message = "无效的短信来源"
+    end
+    print(json.stringify({available=messages ~= nil, messages=messages, error=error_message, storage=storage}))
+    return
+end
+
+if arg[1] == "--delete" then
+    local selection = arg[2] or ""
+    local commands = {}
+    if selection == "all" then
+        commands[1] = "AT+CMGD=0,4"
+    elseif #selection <= 2048 and selection:match("^%d[%d,]*$") then
+        local indices = {}
+        for value in selection:gmatch("%d+") do
+            local index = tonumber(value)
+            if index <= 65535 then indices[#indices + 1] = index end
+        end
+        -- Delete larger indices first if the modem compacts its storage.
+        table.sort(indices, function(a, b) return a > b end)
+        for _, index in ipairs(indices) do commands[#commands + 1] = "AT+CMGD=" .. index end
+    end
+    if #commands == 0 then
+        print(json.stringify({error="无效的短信位置"}))
+        return
+    end
+    for _, command in ipairs(commands) do
+        if not main_at(command, 8) then
+            print(json.stringify({error="模组未确认删除，请查看刷新后的列表"}))
+            return
+        end
+    end
+    print(json.stringify({ok=true}))
+    return
+end
+
+if arg[1] == "--probe" then
+    print(json.stringify(poll()))
+    return
+end
+
+while true do
+    local config = require("luci.model.uci").cursor():get_all("myos_c5800_sms", "main") or {}
+    local url = config.webhook
+    if config.enabled ~= "1" or not url or not url:match("^https?://[^%s]+$") then return end
+    write(status_path, poll(url))
+    nixio.nanosleep(60)
+end

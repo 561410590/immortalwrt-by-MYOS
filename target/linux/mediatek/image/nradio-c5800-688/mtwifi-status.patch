@@ -1,0 +1,59 @@
+--- a/wireless.js
++++ b/wireless.js
+@@ -166,12 +166,13 @@
+ 	const is_mtwifi = (uci.get('wireless', radioDev.getName(), 'type') == 'mtwifi');
+ 	const name = is_mtwifi ? radioDev.getName() : radioDev.getI18n().replace(/ Wireless Controller .+$/, '');
+ 	const node = E('div', [ E('big', {}, E('strong', {}, name)), E('div') ]);
+-	let channel, frequency, bitrate;
++	let channel, frequency, bitrate, htmode;
+ 
+ 	wifiNets.forEach(wifiNet => {
+ 		channel   = channel   ?? wifiNet.getChannel();
+ 		frequency = frequency ?? wifiNet.getFrequency();
+ 		bitrate   = bitrate   ?? wifiNet.getBitRate();
++		htmode    = htmode    ?? wifiNet.ubus('net', 'iwinfo', 'htmode');
+ 	});
+ 
+ 	if (is_mtwifi) {
+@@ -185,7 +186,9 @@
+ 	if (radioDev.isUp() || is_mtwifi)
+ 		L.itemlist(node.lastElementChild, [
+ 			_('Channel'), `${channel ?? '?'} (${frequency ?? '?'} ${_('GHz')})`,
+-			_('Bitrate'), `${bitrate ?? '?'} ${_('Mbit/s')}`
++			_('Bitrate'), `${bitrate ?? '?'} ${_('Mbit/s')}`,
++			...(is_mtwifi ? [ '实际带宽', htmode?.match(/^(?:HT|VHT|HE|EHT)(\d+(?:\+80)?)$/)
++				? htmode.replace(/^[A-Z]+/, '') + ' MHz' : '未知' ] : [])
+ 		], ' | ');
+ 	else
+ 		node.lastElementChild.appendChild(E('em', _('Device is not active')));
+@@ -788,6 +791,11 @@
+ 			else
+ 				hint = name || ipv4 || ipv6 || '?';
+ 
++			const isMtwifi = uci.get('wireless', bss.network.getWifiDeviceName(), 'type') === 'mtwifi';
++			const signal = render_signal_badge(Math.min((bss.signal + 110) / 70 * 100, 100),
++				bss.signal, bss.noise);
++			const rxPackets = bss.rx?.packets ?? '未知';
++			const txPackets = bss.tx?.packets ?? '未知';
+ 			let row = [
+ 				E('span', {
+ 					'class': 'ifacebadge',
+@@ -805,11 +813,16 @@
+ 				]),
+ 				bss.mac,
+ 				hint,
+-				render_signal_badge(Math.min((bss.signal + 110) / 70 * 100, 100), bss.signal, bss.noise),
++				isMtwifi ? E('span', [
++					signal, E('br'), E('small', 'SNR ' + (Number.isFinite(bss.snr) ? bss.snr + ' dB' : '未知'))
++				]) : signal,
+ 				E('span', {}, [
+ 					E('span', format_wifirate(bss.rx)),
+ 					E('br'),
+-					E('span', format_wifirate(bss.tx))
++					E('span', format_wifirate(bss.tx)),
++					...(isMtwifi ? [
++						E('br'), E('small', `收包 ${rxPackets} · 发包 ${txPackets}`)
++					] : [])
+ 				])
+ 			];
+ 

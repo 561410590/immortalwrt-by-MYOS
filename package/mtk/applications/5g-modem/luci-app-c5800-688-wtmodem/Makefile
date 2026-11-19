@@ -5,7 +5,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-c5800-688-wtmodem
 PKG_VERSION:=1.0.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
 
@@ -41,7 +41,27 @@ define Build/Compile
 endef
 
 define Package/$(PKG_NAME)/install
-	$(CP) ./root/. $(1)/
+	$(INSTALL_DIR) $(1)/etc/config $(1)/etc/init.d $(1)/etc/uci-defaults
+	$(INSTALL_DATA) ./root/etc/config/* $(1)/etc/config/
+	$(INSTALL_BIN) ./root/etc/uci-defaults/* $(1)/etc/uci-defaults/
+	$(INSTALL_DIR) $(1)/usr/bin $(1)/usr/sbin $(1)/usr/lib $(1)/usr/share/modem
+	$(INSTALL_BIN) $(filter-out %/pdul.lua %/smstrun-title.conf,$(wildcard ./root/usr/bin/*)) $(1)/usr/bin/
+	$(INSTALL_DATA) ./root/usr/bin/pdul.lua ./root/usr/bin/smstrun-title.conf $(1)/usr/bin/
+	$(INSTALL_BIN) ./root/usr/sbin/c5800-route-mode $(1)/usr/sbin/
+	$(INSTALL_DATA) ./root/usr/lib/libbdinfo.so* $(1)/usr/lib/
+	$(INSTALL_BIN) $(filter-out %/Quectel %/RM500X,$(wildcard ./root/usr/share/modem/*)) $(1)/usr/share/modem/
+	$(INSTALL_DATA) ./root/usr/share/modem/Quectel ./root/usr/share/modem/RM500X $(1)/usr/share/modem/
+	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller $(1)/usr/lib/lua/luci/model/cbi
+	$(INSTALL_DATA) ./root/usr/lib/lua/*.lua $(1)/usr/lib/lua/
+	$(INSTALL_DATA) ./root/usr/lib/lua/luci/controller/*.lua $(1)/usr/lib/lua/luci/controller/
+	$(INSTALL_DATA) ./root/usr/lib/lua/luci/model/cbi/*.lua $(1)/usr/lib/lua/luci/model/cbi/
+	$(foreach view,Smstrun cellscan zmode, \
+		$(INSTALL_DIR) $(1)/usr/lib/lua/luci/view/$(view); \
+		$(INSTALL_DATA) ./root/usr/lib/lua/luci/view/$(view)/*.htm $(1)/usr/lib/lua/luci/view/$(view)/;)
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/protocol
+	$(INSTALL_DATA) ./root/www/luci-static/resources/*.css ./root/www/luci-static/resources/*.js $(1)/www/luci-static/resources/
+	$(INSTALL_DATA) ./root/www/luci-static/resources/protocol/*.js $(1)/www/luci-static/resources/protocol/
+	$(FIND) $(1) -type d -exec chmod 0755 {} +
 endef
 
 $(eval $(call BuildPackage,$(PKG_NAME)))

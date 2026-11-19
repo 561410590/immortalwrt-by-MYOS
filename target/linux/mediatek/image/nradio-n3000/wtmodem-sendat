@@ -1,0 +1,10 @@
+#!/bin/sh
+# WTModem's numeric USB index is the fallback before QModem discovers the port.
+index=${1:-1}
+command=$2
+seconds=${3:-3}
+port="$(uci -q get 'qmodem.@modem-device[0].at_port')"
+case "$port" in
+	/dev/*) exec /usr/bin/tom_modem -d "$port" -o a -c "$command" -t "$seconds" ;;
+	*) exec /usr/bin/sendat2 "$index" "$command" "$seconds" ;;
+esac

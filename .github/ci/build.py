@@ -16,6 +16,8 @@ LOGS = WORK / 'logs'
 OUTPUT = WORK / 'output'
 IMAGE = SOURCE / 'target/linux/mediatek/image'
 KDIR = SOURCE / 'build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic'
+KUNPENG_IMAGE = WORK / 'immortalwrt-mt798x-6.6/target/linux/mediatek/image'
+KUNPENG_PACKAGES = KUNPENG_IMAGE / 'nradio-c5800-688/kunpeng-ai/packages/native'
 CONFIG_VERSION = re.search(r'^CONFIG_VERSION_NUMBER="[Vv]?(\d+\.\d+\.\d+)', (SOURCE / '.config').read_text(), re.M)[1]
 VERSION = CONFIG_VERSION + '-' + os.environ['BUILD_STAMP']
 KERNEL = json.loads((LOGS / 'upstream.json').read_text())['kernel']
@@ -62,6 +64,10 @@ def prepare():
     if MODEL != 'C2000MAX':
         unpack('factory')
     unpack(BRANCH)
+    unpack('kunpeng')
+    if BRANCH == 'main':
+        shutil.copytree(KUNPENG_PACKAGES, IMAGE / 'nradio-c5800-688/kunpeng-ai/packages/native',
+                        dirs_exist_ok=True)
     if BRANCH != 'main':
         (SOURCE / 'dl').mkdir(exist_ok=True)
         shutil.copy2(INPUTS / 'Xray-core-26.10.10.tar.gz', SOURCE / 'dl')
@@ -78,6 +84,20 @@ def prepare():
     shutil.rmtree(INPUTS)
     config = SOURCE / '.config'
     text = re.sub(r'(?m)^CONFIG_VERSION_NUMBER=.*$', 'CONFIG_VERSION_NUMBER="' + MAKE_VERSION + '"', config.read_text())
+    required = ['kmod-nft-queue']
+    if BRANCH == 'main':
+        required += ['lua-md5', 'lua-mosquitto', 'libcares', 'libmosquitto-nossl', 'mosquitto-nossl',
+                     'luci-app-qiyougamebooster', 'luci-i18n-qiyougamebooster-zh-cn', 'qiyougamebooster']
+    if MODEL == 'C8-688':
+        required += ['luci-app-ttyd', 'luci-app-package-manager', 'luci-i18n-ttyd-zh-cn',
+                     'luci-i18n-package-manager-zh-cn', 'ppp', 'ppp-mod-pppoe', 'luci-proto-ppp',
+                     'wireguard-tools', 'luci-proto-wireguard']
+        text = re.sub(r'(?m)^(?:# )?CONFIG_MTK_WPA3_SUPPORT(?:=.*| is not set)\n', '', text)
+        text += '\nCONFIG_MTK_WPA3_SUPPORT=y\n'
+    for package in required:
+        symbol = 'CONFIG_PACKAGE_' + package
+        text = re.sub(rf'(?m)^(?:# )?{re.escape(symbol)}(?:=.*| is not set)\n', '', text)
+        text += f'\n{symbol}=y\n'
     if MODEL in MAIN_PROFILES:
         text = re.sub(r'(?m)^(?:# )?CONFIG_TARGET_(?:mediatek_filogic_DEVICE_\S+|PROFILE=\S+).*\n', '', text)
         text += f'CONFIG_TARGET_mediatek_filogic_DEVICE_{MAIN_PROFILES[MODEL]}=y\n'
@@ -120,7 +140,8 @@ def assemble(model):
         root = max((p for p in KDIR.glob(root_pattern) if p.is_dir()), key=lambda p: p.stat().st_mtime)
     run(model + '-permissions', ['python3', Path(__file__).with_name('permissions.py'),
         '--source', SOURCE, '--root', root, '--firmware', firmware,
-        '--output', LOGS / (model + '-permissions'), '--version', VERSION])
+        '--output', LOGS / (model + '-permissions'), '--version', VERSION,
+        '--package-input', KUNPENG_PACKAGES])
     target = OUTPUT / filename
     shutil.copy2(firmware, target)
     return {'model': model, 'version': VERSION, 'date': datetime.datetime.now(datetime.timezone.utc).isoformat(),

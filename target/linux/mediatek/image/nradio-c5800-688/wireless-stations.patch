@@ -1,0 +1,146 @@
+--- a/wireless.js
++++ b/wireless.js
+@@ -11,6 +11,7 @@
+ 'require network';
+ 'require firewall';
+ 'require tools.widgets as widgets';
++'require view.network.c5800-wireless-stations as wirelessStations';
+ 
+ const isReadonlyView = !L.hasViewPermission();
+ 
+@@ -773,99 +774,1 @@
+-		const table = document.querySelector('#wifi_assoclist_table');
+-		const hosts = data[0];
+-		let trows = [];
+-		const radios = data[3];
+-		const zones = data[4];
+-
+-		radios.forEach(zone => {
+-			const bss = zone;
+-			const name = hosts.getHostnameByMACAddr(bss.mac);
+-			const ipv4 = hosts.getIPAddrByMACAddr(bss.mac);
+-			const ipv6 = hosts.getIP6AddrByMACAddr(bss.mac);
+-
+-			let hint;
+-
+-			if (name && ipv4 && ipv6)
+-				hint = `${'%h'.format(name)} <span class="hide-xs">(${ipv4}, ${ipv6})</span>`;
+-			else if (name && (ipv4 ?? ipv6))
+-				hint = `${'%h'.format(name)} <span class="hide-xs">(${ipv4 || ipv6})</span>`;
+-			else
+-				hint = name || ipv4 || ipv6 || '?';
+-
+-			const isMtwifi = uci.get('wireless', bss.network.getWifiDeviceName(), 'type') === 'mtwifi';
+-			const signal = render_signal_badge(Math.min((bss.signal + 110) / 70 * 100, 100),
+-				bss.signal, bss.noise);
+-			const rxPackets = bss.rx?.packets ?? '未知';
+-			const txPackets = bss.tx?.packets ?? '未知';
+-			let row = [
+-				E('span', {
+-					'class': 'ifacebadge',
+-					'data-ifname': bss.network.getIfname(),
+-					'data-ssid': bss.network.getSSID()
+-				}, [
+-					E('img', {
+-						'src': L.resource('icons/wifi%s.svg').format((bss.network.isUp() || uci.get('wireless', bss.network.getWifiDeviceName(), 'type') == 'mtwifi') ? '' : '_disabled'),
+-						'title': bss.radio.getI18n()
+-					}),
+-					E('span', [
+-						` ${bss.network.getShortName()} `,
+-						E('small', `(${bss.network.getIfname()})`)
+-					])
+-				]),
+-				bss.mac,
+-				hint,
+-				isMtwifi ? E('span', [
+-					signal, E('br'), E('small', 'SNR ' + (Number.isFinite(bss.snr) ? bss.snr + ' dB' : '未知'))
+-				]) : signal,
+-				E('span', {}, [
+-					E('span', format_wifirate(bss.rx)),
+-					E('br'),
+-					E('span', format_wifirate(bss.tx)),
+-					...(isMtwifi ? [
+-						E('br'), E('small', `收包 ${rxPackets} · 发包 ${txPackets}`)
+-					] : [])
+-				])
+-			];
+-
+-			if (bss.vlan) {
+-				const desc = bss.vlan.getI18n();
+-				const vlan_network = bss.vlan.getNetwork();
+-				let vlan_zone;
+-
+-				if (vlan_network && zones)
+-					for (let zone of zones)
+-						if (zone.getNetworks().includes(vlan_network))
+-							vlan_zone = zone;
+-
+-				row[0].insertBefore(
+-					E('div', {
+-						'class' : 'zonebadge',
+-						'title' : desc,
+-						'style' : firewall.getZoneColorStyle(vlan_zone)
+-					}, [ desc ]), row[0].firstChild);
+-			}
+-
+-			if (bss.network.isClientDisconnectSupported()) {
+-				if (table.firstElementChild.childNodes.length < 6)
+-					table.firstElementChild.appendChild(E('th', { 'class': 'th cbi-section-actions'}));
+-
+-				row.push(E('button', {
+-					'class': 'cbi-button cbi-button-remove',
+-					'click': L.bind(function(net, mac, ev) {
+-						dom.parent(ev.currentTarget, '.tr').style.opacity = 0.5;
+-						ev.currentTarget.classList.add('spinning');
+-						ev.currentTarget.disabled = true;
+-						ev.currentTarget.blur();
+-
+-						net.disconnectClient(mac, true, 5, 60000);
+-					}, this, bss.network, bss.mac),
+-					'disabled': isReadonlyView || null
+-				}, [ _('Disconnect') ]));
+-			}
+-			else {
+-				row.push('-');
+-			}
+-
+-			trows.push(row);
+-		});
+-
+-		cbi_update_table(table, trows, E('em', _('No information available')));
++		this.stations.update(data[0], data[2], data[3], data[4], isReadonlyView);
+@@ -904,3 +807,16 @@
+ 			this.handleReset = null;
+-			return simplewifi.render();
++			return simplewifi.render().then(nodes => {
++				this.stations = wirelessStations.create(format_wifirate);
++				poll.add(async () => {
++					const [hosts, wifiNetworks] = await Promise.all([
++						network.getHostHints(), network.getWifiNetworks()
++					]);
++					const associated = await Promise.all(wifiNetworks.map(async wifi =>
++						(await wifi.getAssocList()).map(station => Object.assign({ network: wifi }, station))
++					));
++					this.stations.update(hosts, wifiNetworks, associated.flat(), data[3], isReadonlyView);
++					return network.flushCache();
++				}, 5);
++				return E([ nodes, this.stations.element ]);
++			});
+ 		}
+@@ -2511,14 +2427,3 @@
+-			const table = E('table', { 'class': 'table assoclist', 'id': 'wifi_assoclist_table' }, [
+-				E('tr', { 'class': 'tr table-titles' }, [
+-					E('th', { 'class': 'th nowrap' }, _('Network')),
+-					E('th', { 'class': 'th hide-xs' }, _('MAC address')),
+-					E('th', { 'class': 'th' }, _('Host')),
+-					E('th', { 'class': 'th' }, _('Signal / Noise')),
+-					E('th', { 'class': 'th' }, _('RX Rate / TX Rate'))
+-				])
+-			]);
+-
+-			cbi_update_table(table, [], E('em', { 'class': 'spinning' }, _('Collecting data...')));
+-
+-			return E([ nodes, E('h3', _('Associated Stations')), table ]);
++			this.stations = wirelessStations.create(format_wifirate);
++			return E([ nodes, this.stations.element ]);
+ 		}, this, m));

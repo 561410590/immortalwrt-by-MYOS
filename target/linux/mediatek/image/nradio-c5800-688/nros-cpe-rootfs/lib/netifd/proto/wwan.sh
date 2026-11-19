@@ -256,11 +256,8 @@ send_sig_wanchk(){
 	local sig_type=$2
 	local sig_name="SIGUSR2"
 	local _status="lock"
-	if uci get wanchk.${iface_name}_4 ;then
-		wanchk_cpe_pid=$(ps -w|grep wanchk|grep ${iface_name}_4|awk -F ' ' '{print $1}')
-	else
-		wanchk_cpe_pid=$(ps -w|grep wanchk|grep ${iface_name}|awk -F ' ' '{print $1}')
-	fi
+	local wanchk_cpe_pid
+	wanchk_cpe_pid=$(pgrep -f "^(/bin/ash |/bin/sh )?/usr/bin/wanchk[.]sh -i ${iface_name}(_4)?( |$)")
 
 	if [ "$sig_type" = "recovery" ];then
 		_status="unlock"

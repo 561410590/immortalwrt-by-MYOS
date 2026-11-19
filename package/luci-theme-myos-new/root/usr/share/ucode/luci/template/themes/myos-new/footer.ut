@@ -1,13 +1,21 @@
-{% if (!blank_page): %}
+{% if (!blank_page):
+ const board = ubus.call('system', 'board') ?? {};
+ const model = replace(lc(board.model ?? ''), /[^a-z0-9]/g, '');
+ const device = replace(lc(board.board_name ?? ''), /[^a-z0-9]/g, '');
+ const compact = model in ['c5800688', 'nradioc5800688', 'c8688', 'nradioc8688',
+                           'c8new688', 'nradioc8new688', 'nbcpe688', 'nradionbcpe688', 'nradionb68no2'] ||
+                  device in ['nradioc5800688', 'hcmt7981688emmc', 'nradiowt9104no2manpernew688',
+                            'hcmt7981emmcnb68', 'nradionbcpe688', 'nradiowt9111no2manpernb68'];
+%}
  </main>
  <footer class="m-footer"><span>MYOS-NEW</span><span>{{ entityencode(version.luciname ?? 'LuCI') }} · {{ entityencode(ubus.call('system', 'board')?.release?.version ?? '') }}</span></footer>
 </div>
-<script src="{{ media }}/shell.js?v=20261112-theme-overview2"></script>
-<script src="{{ media }}/unlock.js?v=1.0.2-r3b"></script>
+<script src="{{ media }}/shell.js?v=20261114-theme-r8{{ compact && !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-submenu1' : '' }}"></script>
+<script src="{{ media }}/unlock.js?v=20261114-c8-feedback1"></script>
 <script src="{{ media }}/notices.js?v=20261112-theme-polish2"></script>
-<script src="{{ media }}/layout.js?v=20261112-theme-mobile1"></script>
+<script src="{{ media }}/layout.js?v=20261114-c8-feedback1{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-tablet1' : '' }}"></script>
 {% endif %}
-<script src="{{ media }}/background.js?v=20261112-login-model1"></script>
+<script src="{{ media }}/background.js?v=20261114-c8-feedback1"></script>
 <script src="{{ media }}/liquid.js?v=20261107-appearance1"></script>
 </body>
 </html>

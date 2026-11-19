@@ -1,0 +1,46 @@
+<%+header%>
+<%
+local url = require("luci.dispatcher").build_url
+local escape = require("luci.xml").pcdata
+local function display(v)
+    return escape(v ~= nil and v ~= "" and tostring(v) or "—")
+end
+%>
+<h2>WTModem 蜂窝状态</h2>
+<div class="cbi-section">
+<% if #devices == 0 then %>
+    <p>尚未发现蜂窝模组。</p>
+<% else %>
+    <table class="table">
+        <tr class="tr table-titles"><th class="th">模组</th><th class="th">数据接口</th><th class="th">网卡</th><th class="th">AT 端口</th></tr>
+        <% for _, m in ipairs(devices) do %>
+        <tr class="tr"><td class="td"><%=display(m.name)%></td><td class="td"><%=display(m.data_interface)%></td><td class="td"><%=display(m.network)%></td><td class="td"><%=display(m.at_port)%></td></tr>
+        <% end %>
+    </table>
+<% end %>
+    <a class="btn" href="<%=url("admin","modem","qmodem","overview")%>">模组详情</a>
+    <a class="btn" href="<%=url("admin","modem","qmodem","network_config")%>">拨号与 APN</a>
+    <a class="btn" href="<%=url("admin","modem","smsc")%>">短信管理</a>
+</div>
+<% if mt5700 then %>
+<div class="cbi-section">
+    <h3>MT5700 小区信息</h3>
+    <form method="post" action="<%=url("admin","modem","wtmodem","refresh")%>">
+        <input type="hidden" name="token" value="<%=token%>" />
+        <button type="submit" class="btn cbi-button-action">读取当前小区</button>
+    </form>
+    <% if snapshot and snapshot.serving then local s = snapshot.serving %>
+    <p><%=display(snapshot.ts and os.date("%Y-%m-%d %H:%M:%S", snapshot.ts))%> · <%=display(snapshot.rat)%> · APN <%=display(snapshot.apn)%></p>
+    <table class="table">
+        <tr class="tr table-titles"><th class="th">小区</th><th class="th">频点</th><th class="th">RSRP (dBm)</th><th class="th">RSRQ (dB)</th><th class="th">SINR (dB)</th></tr>
+        <tr class="tr"><td class="td">服务小区 <%=display(s.cid)%></td><td class="td"><%=display(s.arfcn)%></td><td class="td"><%=display(s.rsrp)%></td><td class="td"><%=display(s.rsrq)%></td><td class="td"><%=display(s.sinr)%></td></tr>
+        <% for _, n in ipairs(snapshot.neighbours or {}) do %>
+        <tr class="tr"><td class="td">邻区 PCI <%=display(n.pci)%></td><td class="td"><%=display(n.earfcn)%></td><td class="td"><%=display(n.rsrp)%></td><td class="td"><%=display(n.rsrq)%></td><td class="td"><%=display(n.sinr)%></td></tr>
+        <% end %>
+    </table>
+    <% for _, carrier in ipairs(snapshot.ca or {}) do %>
+    <p><%=display(carrier.role)%> · Band <%=display(carrier.band)%> · 下行 <%=display(carrier.dl_bw)%> MHz · 上行 <%=display(carrier.ul_bw)%> MHz</p>
+    <% end end %>
+</div>
+<% end %>
+<%+footer%>

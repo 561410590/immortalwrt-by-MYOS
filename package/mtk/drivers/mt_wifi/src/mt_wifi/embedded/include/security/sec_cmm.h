@@ -11,7 +11,7 @@
 
 #include "security/owe_cmm.h"
 
-#ifdef SUPP_SAE_SUPPORT
+#if defined(DOT11_SAE_SUPPORT) || defined(SUPP_SAE_SUPPORT)
 #include "security/sae_cmm.h"
 #endif
 

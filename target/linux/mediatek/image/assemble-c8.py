@@ -183,34 +183,14 @@ def main():
         'luci-theme-vantage', 'luci-app-vantage', 'luci-i18n-vantage-zh-cn',
         'lua-cjson', 'lua-md5', 'lua-mosquitto', 'libmosquitto-nossl',
         'mosquitto-nossl', 'libcares', 'luci-lua-runtime',
-        'python3-urllib', 'python3-email',
+        'python3-light', 'python3-ctypes', 'python3-openssl', 'python3-urllib',
     }
     required, missing = helpers.required_closure(roots, available)
     unwanted = {name for name in required if 'quickstart' in name.lower()
                 or name == 'luci-app-package-manager'}
     if unwanted:
         raise RuntimeError('Unwanted dashboard/store dependency: ' + repr(sorted(unwanted)))
-    if 'python3-light' not in records:
-        raise RuntimeError('The C8 native adapter requires the reference Python standard library')
-    native = {'python3-light'}
-    final = {name: records[name] for name in native}
-    final.update({name: available[name][1] for name in required})
-    # Retain only native Python's own dependency closure when a modern provider is absent.
-    pending = list(native)
-    while pending:
-        name = pending.pop()
-        dependencies = re.search(r'^Depends: (.+)$', final[name], re.M)
-        for expression in dependencies[1].split(',') if dependencies else []:
-            choices = helpers.dependency_choices(expression)
-            if any(helpers.satisfies(record, choice) for record in final.values() for choice in choices):
-                continue
-            dependency = next((candidate for candidate, record in records.items()
-                               if candidate not in final and not candidate.startswith('kmod-')
-                               and any(helpers.satisfies(record, choice) for choice in choices)), None)
-            if dependency is not None:
-                native.add(dependency)
-                final[dependency] = records[dependency]
-                pending.append(dependency)
+    final = {name: available[name][1] for name in required}
     kernel_abi = helpers.package_version(available['kernel'][1])
     mismatches = {}
     gaps = {}
@@ -225,7 +205,7 @@ def main():
                 gaps.setdefault(name, []).append(expression)
     plan = {'version': VERSION, 'kernel': KERNEL, 'board': BOARD,
             'reference_sha256': REFERENCE_SHA256, 'required_packages': sorted(required),
-            'native_packages': sorted(native), 'missing_packages': missing,
+            'native_packages': [], 'missing_packages': missing,
             'kernel_abi': kernel_abi, 'abi_mismatches': mismatches,
             'dependency_gaps': gaps, 'source_config_sha256': hashlib.sha256(config.encode()).hexdigest(),
             'live_device_validation': 'pending'}
@@ -243,7 +223,7 @@ def main():
             assets / 'reference-tar/sysupgrade-HCMT7981-688-emmc/root', 'dev/console', 'lib/modules')
         write(work, '.c8-build-owner', VERSION + '\n')
     info = work / 'usr/lib/opkg/info'
-    removed = set(records) - native - required
+    removed = set(records) - required
     plan['removed_reference_packages'] = sorted(removed)
     for name in removed:
         listing = info / (name + '.list')
@@ -270,6 +250,7 @@ def main():
     app = common / 'app-assets/root'
     copy_file(work / 'www/cgi-bin/luci', work / 'www/cgi-bin/luci.ucode')
     overlay_tree(app, work)
+    (work / 'usr/lib/lua/myos_nradio_app_config.lua').chmod(0o644)
     copy_file(work / 'usr/lib/lua/myos_nradio_data.lua',
               work / 'usr/lib/lua/myos_nradio_data_generic.lua')
     for name in ('luci-theme-c2000max-ui', 'luci-theme-mwrt'):
@@ -280,7 +261,9 @@ def main():
             if directory.exists():
                 overlay_tree(directory, destination)
     overlay_tree(common / 'vantage/root', work)
-    overlay_tree(source / 'target/linux/mediatek/image/nradio-system-switch/root', work)
+    system_switch = source / 'target/linux/mediatek/image/nradio-system-switch'
+    overlay_tree(system_switch / 'root', work)
+    copy_file(system_switch / 'myos-nros-version', work / 'usr/libexec/myos-nros-version')
     board_files = source / 'target/linux/mediatek/filogic/base-files'
     for relative in ('etc/board.d/02_network', 'lib/upgrade/platform.sh'):
         copy_file(board_files / relative, work / relative)
@@ -412,7 +395,8 @@ def main():
             with path.open('rb') as stream:
                 shebang = stream.read(2) == b'#!'
             path.chmod(0o755 if shebang or path.stat().st_mode & 0o111 else 0o644)
-    for relative in ('etc/board.d/02_network', 'usr/libexec/myos-boot-system', 'usr/libexec/myos-ubenv'):
+    for relative in ('etc/board.d/02_network', 'usr/libexec/myos-boot-system', 'usr/libexec/myos-ubenv',
+                     'usr/libexec/myos-nros-version'):
         (work / relative).chmod(0o755)
     (work / 'usr/share/myos-nros/id_rsa.db').chmod(0o400)
     for relative in ('etc/shadow', 'etc/config/myos_nros', 'etc/config/mosquitto'):
@@ -425,6 +409,7 @@ def main():
         output = assets / ('root-c8-myos-' + VERSION + '.squashfs')
         pseudo = assets / 'c8-console.pseudo'
         pseudo.write_text('dev/console c 0600 0 0 5 1\n', encoding='utf-8')
+        run('python3', source / 'scripts/install-myos-688-upgrade.py', source, work)
         run(host / 'mksquashfs4', work, output, '-nopad', '-noappend', '-root-owned',
             '-comp', 'xz', '-b', '256k', '-no-xattrs', '-pf', pseudo, '-processors', '6')
         print('C8 squashfs:', output, output.stat().st_size, flush=True)

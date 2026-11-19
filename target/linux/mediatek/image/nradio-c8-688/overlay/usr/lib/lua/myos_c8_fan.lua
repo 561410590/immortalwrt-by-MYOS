@@ -1,4 +1,9 @@
 local M = {}
+M.duties = { 76, 127, 204, 255 }
+M.thresholds = { 50, 60, 70, 80 }
+function M.percent(pwm)
+    return math.floor(pwm * 100 / 255 + 0.5)
+end
 function M.status()
     local file = io.open("/tmp/myos-c8-fan.json", "r")
     local raw = file and file:read(65536) or ""

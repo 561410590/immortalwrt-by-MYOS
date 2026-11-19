@@ -2,11 +2,8 @@
  'use strict';
  const body=document.body;
  const button=document.querySelector('#m-background');
- const model=(body.dataset.deviceModel||'').toLowerCase().replace(/[^a-z0-9]/g,'').replace(/^nradio/,'');
- const board=(body.dataset.deviceBoard||'').toLowerCase().replace(/[^a-z0-9]/g,'');
- const ultra=model==='c2000ultra'||board==='nradioc2000ultra';
- const ultraLogin=ultra&&body.classList.contains('m-auth');
- if(!button&&!ultraLogin)return;
+ const login=body.classList.contains('m-auth');
+ if(!button&&!login)return;
  const reduced=matchMedia('(prefers-reduced-motion:reduce)');
  const make=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=text;return n;};
  let database,current=null,mediaURL=null,backdrop=null,backgroundVideo=null,previewVideo=null;
@@ -36,18 +33,51 @@
  title.id='m-background-title';
  const close=make('button','m-icon-button','×');close.type='button';close.setAttribute('aria-label','关闭背景设置');
  close.addEventListener('click',()=>dialog.close());heading.append(title,close);
- const note=make('p','m-muted','图片或视频应用于主页和登录页，仅保存在当前浏览器，不上传到路由器。视频静音循环播放；恢复默认后，登录页使用默认视频。');
+ const note=make('p','m-muted','纯色保存到路由器。图片和视频保存在当前浏览器。');
  const preview=make('div','m-background-preview');
  const filename=make('p','m-background-name','默认渐变');
  const file=make('input');file.type='file';file.accept='image/*,video/*';file.hidden=true;
  const choose=make('button','cbi-button cbi-button-apply','选择图片或视频');choose.type='button';
  const reset=make('button','cbi-button','恢复默认');reset.type='button';
- const actions=make('div','m-background-actions');actions.append(choose,reset);
+ const color=make('input');color.type='color';color.value='#edf0f4';
+ const colorLabel=make('label','m-background-color','纯色');colorLabel.append(color);
+ const saveColor=make('button','cbi-button','应用纯色');saveColor.type='button';
+ const actions=make('div','m-background-actions');actions.append(choose,colorLabel,saveColor,reset);
  const label=make('label','m-background-dim','背景压暗');
  const amount=make('output','','45%'),range=make('input');range.type='range';range.min='0';range.max='85';range.step='1';range.value='45';range.disabled=true;range.setAttribute('aria-label','背景压暗程度');
  label.append(amount,range);
  const status=make('p','m-background-status');status.setAttribute('role','status');
- dialog.append(heading,note,preview,filename,file,actions,label,status);document.body.append(dialog);
+ dialog.append(heading,note,preview,filename,file,actions,label);
+ if(button&&body.dataset.loginVideo){
+  const videoLabel=make('label','cbi-checkbox','官方登录视频');
+  const toggle=make('input');toggle.type='checkbox';toggle.setAttribute('role','switch');
+  const hint=make('p','m-muted','保存到路由器，仅在登录页播放。自定义背景优先。');
+  hint.id='m-login-video-hint';toggle.setAttribute('aria-describedby',hint.id);
+  toggle.checked=body.dataset.loginVideoEnabled==='1';
+  videoLabel.append(toggle);
+  dialog.append(videoLabel,hint);
+  toggle.addEventListener('change',async()=>{
+   toggle.disabled=true;
+   status.textContent='正在保存…';
+   try{
+    const response=await fetch(L.url('admin','myos','login_video'),{
+     method:'POST',
+     body:new URLSearchParams({token:L.env.token,enabled:toggle.checked?'1':'0'})
+    });
+    if(!response.ok)throw new Error();
+    const result=await response.json();
+    if(typeof result.enabled!=='boolean')throw new Error();
+    body.dataset.loginVideoEnabled=result.enabled?'1':'0';
+    status.textContent=result.enabled?'已开启官方登录视频。':'已关闭官方登录视频。';
+   }catch(_){
+    status.textContent='保存失败，请重试。';
+   }finally{
+    toggle.checked=body.dataset.loginVideoEnabled==='1';
+    toggle.disabled=false;
+   }
+  });
+ }
+ dialog.append(status);document.body.append(dialog);
  function syncVideo(){
   for(const video of [backgroundVideo,previewVideo]){
    if(!video)continue;
@@ -60,10 +90,14 @@
  function apply(value){
   const old=mediaURL;disposeVideo(backgroundVideo);disposeVideo(previewVideo);
   if(backdrop)backdrop.remove();backdrop=backgroundVideo=previewVideo=null;
-  current=value;mediaURL=value?URL.createObjectURL(value.blob):null;
-  const isVideo=!!value&&(value.kind==='video'||value.blob.type.startsWith('video/'));
+  current=value;mediaURL=value?.blob?URL.createObjectURL(value.blob):null;
+  const isVideo=!!mediaURL&&(value.kind==='video'||value.blob.type.startsWith('video/'));
+  const solid=value?.color;
   document.body.classList.toggle('m-custom-background',!!value);
   document.body.classList.toggle('m-custom-video',isVideo);
+  document.body.classList.toggle('m-solid-background',!!solid);
+  if(solid)document.body.style.setProperty('--m-solid-background',solid);
+  else document.body.style.removeProperty('--m-solid-background');
   if(value){
    if(isVideo){
     document.body.style.removeProperty('--m-custom-wallpaper');
@@ -73,25 +107,31 @@
     backgroundVideo.addEventListener('loadeddata',syncVideo);previewVideo.addEventListener('loadeddata',syncVideo);
     backgroundVideo.addEventListener('error',()=>{status.textContent='视频无法播放，请选择当前浏览器支持的视频格式。';});
     backdrop.append(backgroundVideo);document.body.prepend(backdrop);preview.append(previewVideo);
-   }else document.body.style.setProperty('--m-custom-wallpaper','url('+JSON.stringify(mediaURL)+')');
+   }else document.body.style.setProperty('--m-custom-wallpaper',solid?
+    'linear-gradient('+solid+','+solid+')':'url('+JSON.stringify(mediaURL)+')');
    range.value=String(value.dim==null?45:value.dim);
   }else{
    document.body.style.removeProperty('--m-custom-wallpaper');range.value='45';
   }
-  range.disabled=!value;amount.textContent=range.value+'%';
+  label.hidden=!mediaURL;range.disabled=!mediaURL;amount.textContent=range.value+'%';
   document.body.style.setProperty('--m-background-dim',Number(range.value)/100);
-  preview.style.backgroundImage=value&&!isVideo?'linear-gradient(rgba(5,10,20,'+Number(range.value)/100+'),rgba(5,10,20,'+Number(range.value)/100+')),url('+JSON.stringify(mediaURL)+')':'';
+  preview.style.backgroundImage=solid?'linear-gradient('+solid+','+solid+')':
+   mediaURL&&!isVideo?'linear-gradient(rgba(5,10,20,'+Number(range.value)/100+'),rgba(5,10,20,'+Number(range.value)/100+')),url('+JSON.stringify(mediaURL)+')':'';
   preview.classList.toggle('m-background-preview-video',isVideo);
   filename.textContent=value?value.name:'默认渐变';
   if(old)URL.revokeObjectURL(old);
   syncVideo();
   window.dispatchEvent(new Event('myos:background'));
  }
- function busy(value){choose.disabled=reset.disabled=value;range.disabled=value||!current;}
- const ready=storage(null,false).then(saved=>{if(saved&&saved.blob)apply(saved);})
+ function busy(value){choose.disabled=reset.disabled=color.disabled=saveColor.disabled=value;range.disabled=value||!mediaURL;}
+ const configured=body.dataset.backgroundColor;
+ const solidValue=value=>({color:value,dim:0,name:'纯色 '+value});
+ if(/^#[0-9a-f]{6}$/i.test(configured)){color.value=configured;apply(solidValue(configured));}
+ else label.hidden=true;
+ const ready=storage(null,false).then(saved=>{if(saved?.blob)apply(saved);})
   .catch(()=>{status.textContent='无法读取浏览器背景存储，请检查浏览器设置。';})
   .finally(()=>{
-   if(!ultraLogin)return;
+   if(!login)return;
    body.dataset.backgroundReady='true';
    window.dispatchEvent(new Event('myos:background'));
   });
@@ -103,6 +143,16 @@
  window.addEventListener('pagehide',()=>{backgroundVideo?.pause();previewVideo?.pause();});
  window.addEventListener('pageshow',syncVideo);
  choose.addEventListener('click',()=>file.click());
+ saveColor.addEventListener('click',async()=>{
+  busy(true);
+  try{
+   await window.MYOSAppearance.save('background_color',color.value);
+   try{await storage(null,true);}catch(_){}
+   body.dataset.backgroundColor=color.value;
+   apply(solidValue(color.value));status.textContent='纯色已保存到路由器。';
+  }catch(_){status.textContent='路由器未保存背景。';}
+  finally{busy(false);}
+ });
  file.addEventListener('change',async()=>{
   const selected=file.files[0];if(!selected)return;
   const isVideo=selected.type.startsWith('video/')||(!selected.type&&/\.(mp4|m4v|webm|mov|ogv)$/i.test(selected.name));
@@ -131,8 +181,13 @@
  });
  reset.addEventListener('click',async()=>{
   busy(true);
-  try{await storage(null,true);apply(null);status.textContent='已恢复默认渐变。';}
-  catch(e){status.textContent='恢复未完成，请检查浏览器存储设置。';}
+  try{
+   if(current?.blob)await storage(null,true);
+   else if(body.dataset.backgroundColor)try{await storage(null,true);}catch(_){}
+   if(body.dataset.backgroundColor)await window.MYOSAppearance.save('background_color','');
+   body.dataset.backgroundColor='';
+   apply(null);status.textContent='已恢复默认背景。';
+  }catch(_){status.textContent='恢复默认背景失败，请重试。';}
   finally{busy(false);}
  });
 })();

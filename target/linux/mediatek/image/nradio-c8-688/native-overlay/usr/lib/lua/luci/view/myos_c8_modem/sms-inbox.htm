@@ -1,0 +1,30 @@
+<%
+local escape = require("luci.util").pcdata
+local messages, err, storage = require("myos_c8_sms").inbox(self.reply)
+%>
+<div class="cbi-section">
+    <h3>收件箱</h3>
+    <% if not messages then %>
+        <p role="status"><%=escape(err)%></p>
+    <% else %>
+        <% if storage.used and storage.total then %>
+            <p>模组存储 <%=storage.used%> / <%=storage.total%></p>
+        <% end %>
+        <% if #messages == 0 then %>
+            <p>当前没有收到短信。</p>
+        <% else %>
+            <table class="table cbi-section-table">
+                <tr class="tr table-titles"><th class="th">发件人</th><th class="th">时间</th><th class="th">内容</th></tr>
+                <% for _, message in ipairs(messages) do %>
+                    <tr class="tr">
+                        <td class="td"><%=escape(message.sender)%></td>
+                        <td class="td"><%=escape(message.time)%></td>
+                        <td class="td"><div style="white-space:pre-wrap;overflow-wrap:anywhere"><%=escape(message.text)%></div>
+                            <% if not message.complete then %><small>长短信分段尚未收齐</small><% end %>
+                        </td>
+                    </tr>
+                <% end %>
+            </table>
+        <% end %>
+    <% end %>
+</div>

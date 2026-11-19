@@ -21,6 +21,7 @@ def main():
     for name in ('source', 'root', 'firmware', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--version', required=True)
+    parser.add_argument('--package-input', type=Path, action='append', default=[])
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     def save(name, value):
@@ -33,7 +34,9 @@ def main():
     selected = {}
     for directory in (args.source / 'bin',
             args.source / 'target/linux/mediatek/image/nradio-c8-688/packages',
-            args.source / 'target/linux/mediatek/image/nradio-nbcpe-688/vantage/packages'):
+            args.source / 'target/linux/mediatek/image/nradio-nbcpe-688/vantage/packages',
+            args.source / 'target/linux/mediatek/image/nradio-c5800-688/vantage/packages',
+            *args.package_input):
         for path in directory.rglob('*.ipk'):
             with tarfile.open(path) as outer:
                 cm = next(m for m in outer if Path(m.name).name.startswith('control.tar'))
@@ -51,7 +54,8 @@ def main():
             for part in ('control', 'data'):
                 cm = next(m for m in outer.getmembers() if Path(m.name).name.startswith(part + '.tar'))
                 with tarfile.open(fileobj=io.BytesIO(outer.extractfile(cm).read())) as inner:
-                    package_rows.extend(member(m) | dict(package=name, part=part, archive=str(path.relative_to(args.source))) for m in inner)
+                    package_rows.extend(member(m) | dict(package=name, part=part,
+                        archive=os.path.relpath(path, args.source)) for m in inner)
     save('ipk-metadata.json', package_rows)
     assembly = []
     for path in [args.root, *args.root.rglob('*')]:

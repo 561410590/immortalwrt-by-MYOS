@@ -35,13 +35,16 @@ return view.extend({
 				]);
 			})
 		}, '返回官方系统（实验性）');
+		var details = [
+			E('p', {}, '切换到设备 eMMC 中保留的官方系统。官方系统和 MYOS 各自保留自己的配置。'),
+			E('p', {}, status.error || status.message || '无法取得双系统状态')
+		];
+		if ('nros_version' in status)
+			details.push(E('p', {}, '原厂 NROS 版本：' + (status.nros_version || '未能读取')));
+		details.push(button);
 		return E('div', {}, [
 			E('h2', {}, '返回官方系统（实验性）'),
-			E('div', { 'class': 'cbi-section' }, [
-				E('p', {}, '切换到设备 eMMC 中保留的官方系统。官方系统和 MYOS 各自保留自己的配置。'),
-				E('p', {}, status.error || status.message || '无法取得双系统状态'),
-				button
-			])
+			E('div', { 'class': 'cbi-section' }, details)
 		]);
 	},
 	handleSave: null, handleSaveApply: null, handleReset: null

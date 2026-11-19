@@ -27,21 +27,31 @@ if [ -z "$(uci -q get network.cpe1.disabled)" ]; then
 	uci -q set network.cpe1.auto='0'
 fi
 
-if uci -q get network.@device[0] >/dev/null 2>&1; then
-		uci -q set network.@device[0].type='bridge'
-	uci -q set network.@device[0].name='br-lan'
-	uci -q delete network.@device[0].ports
-	uci -q add_list network.@device[0].ports='lan1'
-	uci -q add_list network.@device[0].ports='lan2'
-	uci -q add_list network.@device[0].ports='lan3'
-else
-	uci -q set network.c5800_lan='device'
-	uci -q set network.c5800_lan.type='bridge'
-	uci -q set network.c5800_lan.name='br-lan'
-	uci -q delete network.c5800_lan.ports
-	uci -q add_list network.c5800_lan.ports='lan1'
-	uci -q add_list network.c5800_lan.ports='lan2'
-	uci -q add_list network.c5800_lan.ports='lan3'
+lan_dev=
+idx=0
+while uci -q get "network.@device[$idx]" >/dev/null; do
+	dev="network.@device[$idx]"
+	if [ "$(uci -q get "$dev.name")" = br-lan ]; then
+		lan_dev="$dev"
+		break
+	fi
+	idx=$((idx + 1))
+done
+if [ -z "$lan_dev" ]; then
+	lan_dev=network.c5800_lan
+	uci -q set "$lan_dev=device"
+fi
+uci -q set "$lan_dev.type=bridge"
+uci -q set "$lan_dev.name=br-lan"
+uci -q delete "$lan_dev.ports"
+uci -q add_list "$lan_dev.ports=lan1"
+uci -q add_list "$lan_dev.ports=lan2"
+uci -q add_list "$lan_dev.ports=lan3"
+
+# Repair saved configurations in which the old migration turned the PoE port into a bridge.
+if [ "$(uci -q get network.port5.type)" = bridge ]; then
+	uci -q delete network.port5.type
+	uci -q delete network.port5.ports
 fi
 
 uci -q batch <<'EOF'

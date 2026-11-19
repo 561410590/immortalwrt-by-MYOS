@@ -1,0 +1,34 @@
+<%
+local state = self.state
+local current = tonumber(state["设备温度"])
+local percent, pwm = state["风扇转速百分比"], state["风扇PWM"]
+%>
+<section class="cbi-section" id="c8-fan-status">
+ <div class="cbi-value">
+  <span class="cbi-value-title"><%:当前 CPU 温度%></span>
+  <span class="cbi-value-field" data-temperature><%=pcdata(current and string.format("%.1f °C", current) or translate("暂不可用"))%></span>
+ </div>
+ <div class="cbi-value">
+  <span class="cbi-value-title"><%:当前占空比%></span>
+  <span class="cbi-value-field" data-duty><%=pcdata(percent and string.format("%d%% (PWM %d/255)", percent, pwm) or translate("暂不可用"))%></span>
+ </div>
+</section>
+<script>
+(function() {
+ const root = document.querySelector('#c8-fan-status');
+ if (!root) return;
+ const update = () => fetch(L.url('admin', 'myos_c8_fan', 'status'), {cache: 'no-store'})
+  .then(response => { if (!response.ok) throw Error(); return response.json(); })
+  .then(state => {
+   const temperature = state['设备温度'];
+   const pwm = state['风扇PWM'], percent = state['风扇转速百分比'];
+   root.querySelector('[data-temperature]').textContent = Number.isFinite(temperature) ? temperature.toFixed(1) + ' °C' : '暂不可用';
+   root.querySelector('[data-duty]').textContent = Number.isFinite(percent) && Number.isFinite(pwm) ?
+    percent + '% (PWM ' + pwm + '/255)' : '暂不可用';
+  }).catch(() => {
+   root.querySelector('[data-temperature]').textContent = '暂不可用';
+   root.querySelector('[data-duty]').textContent = '暂不可用';
+  });
+ L.poll.add(update, 5);
+})();
+</script>

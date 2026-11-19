@@ -3486,15 +3486,16 @@ const UIMenu = baseclass.singleton(/** @lends LuCI.ui.menu.prototype */ {
 	/**
 	 * Load and cache current menu tree.
 	 *
+	 * @param {boolean} [fresh] Fetch the current server menu for this page.
 	 * @returns {Promise<LuCI.ui.menu.MenuNode>}
 	 * Returns a promise resolving to the root element of the menu tree.
 	 */
-	load() {
+	load(fresh = false) {
 		if (this.menu == null)
-			this.menu = session.getLocalData('menu');
+			this.menu = fresh ? null : session.getLocalData('menu');
 
-		if (!L.isObject(this.menu)) {
-			this.menu = request.get(L.url('admin/menu')).then(L.bind((menu) => {
+		if (fresh || !L.isObject(this.menu)) {
+			this.menu = request.get(L.url('admin/menu'), { cache: false }).then(L.bind((menu) => {
 				this.menu = scrubMenu(menu.json());
 				session.setLocalData('menu', this.menu);
 

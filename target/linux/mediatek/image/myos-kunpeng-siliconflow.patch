@@ -1,0 +1,39 @@
+--- a/lib/zeroclaw/zeroclaw.sh
++++ b/lib/zeroclaw/zeroclaw.sh
+@@ -161,10 +161,26 @@
+ 	local api_key="$4"
+ 	local uri="$5"
+ 	local country=$(uci -q get oem.board.country)
++	local native_tools=
+ 
+ 	if [ -z "$provider_alias" ] || [ -z "$provider" ] || [ -z "$model" ] || [ -z "$api_key" ]; then
+ 		zc_log_info "missing provider alias or provider or model or api key"
+ 		return 1
++	fi
++	if [ "$provider.$provider_alias" = custom.alias ]; then
++		local siliconflow="https://api.siliconflow.cn/v1"
++		local deepseek="deepseek-ai/DeepSeek-V4.1-Flash"
++		if [ "${uri%/}" = "$siliconflow" ] && [ "$model" = "$deepseek" ]; then
++			native_tools=true
++		else
++			local old_uri="$($ZEROCLAW_CFG_GET providers.models.custom.alias.uri 2>/dev/null)"
++			if [ "${old_uri%/}" = "$siliconflow" ] &&
++			   [ "$($ZEROCLAW_CFG_GET providers.models.custom.alias.model 2>/dev/null)" = "$deepseek" ] &&
++			   [ "$($ZEROCLAW_CFG_GET providers.models.custom.alias.native_tools 2>/dev/null)" = true ]; then
++				printf '%s\n' '[{"op":"remove","path":"/providers/models/custom/alias/native_tools"}]' |
++					$ZEROCLAW_EXEC config patch -
++			fi
++		fi
+ 	fi
+ 	if [ "$country" == "CN" ];then
+ 		$ZEROCLAW_CFG_SET providers.models."$provider"."$provider_alias".endpoint "cn"
+@@ -175,6 +191,9 @@
+ 	$ZEROCLAW_CFG_SET providers.models."$provider"."$provider_alias".api_key "$api_key"
+ 	if [ -n "$uri" ]; then
+ 		$ZEROCLAW_CFG_SET providers.models."$provider"."$provider_alias".uri "$uri"
++	fi
++	if [ "$native_tools" = true ]; then
++		$ZEROCLAW_CFG_SET providers.models.custom.alias.native_tools true
+ 	fi
+ }
+ 

@@ -1,0 +1,15 @@
+. /lib/functions.sh
+
+n3000_wifi_calibration() {
+	local factory buffer=/tmp/n3000-wifi-e2p
+	factory="$(find_mmc_part Factory)"
+	[ -b "$factory" ] || factory="$(find_mmc_part factory)"
+	[ -b "$factory" ] || return 0
+	# The installed MT7981 profile requests 0x5000 bytes starting at offset 0.
+	dd if="$factory" of="$buffer" bs=4096 count=5 2>/dev/null || return 0
+	[ "$(wc -c < "$buffer")" -eq 20480 ] || return 0
+	[ "$(hexdump -n 2 -ve '1/1 "%02x"' "$buffer")" = 8179 ] || return 0
+	mount -o bind "$buffer" /lib/firmware/e2p
+}
+
+boot_hook_add preinit_main n3000_wifi_calibration

@@ -1,0 +1,5 @@
+config sched 'main'
+	option enabled '0'
+	option mode 'schedule'
+	option starttime '23:00'
+	option endtime '07:00'

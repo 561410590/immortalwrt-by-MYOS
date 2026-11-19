@@ -1,0 +1,2 @@
+obj-m += r8152.o aqc111.o asix.o ax88179_178a.o ax88796b.o ipheth.o huawei_cdc_ncm.o
+asix-y := asix_devices.o asix_common.o ax88172a.o

@@ -37,6 +37,7 @@ define Device/nradio_nbcpe-688
   SUPPORTED_DEVICES := HCMT7981-emmc-NB68
   DEVICE_IMG_PREFIX := MYOS-NBCPE-688-$(NBCPE_VERSION)
   DEVICE_PACKAGES := \
+	kmod-nft-queue \
 	luci-app-qiyougamebooster luci-i18n-qiyougamebooster-zh-cn \
 	kmod-gpio-button-hotplug kmod-leds-gpio kmod-mediatek_hnat luci-app-c5800-hnat mtk-smp \
 	kmod-mt_wifi kmod-conninfra kmod-warp mtwifi-cfg luci-app-mtwifi-cfg \
@@ -45,9 +46,10 @@ define Device/nradio_nbcpe-688
 	kmod-usb-net-rndis kmod-usb-serial-option kmod-usb-wdm \
 	usbutils usbids f2fsck mkf2fs \
 	python3-light luci-theme-c2000max-ui luci-theme-mwrt uhttpd uhttpd-mod-ubus \
-	luci-app-store luci-app-firewall luci-app-package-manager \
+	luci-app-store luci-app-firewall luci-app-package-manager luci-lib-docker ttyd \
 	lua-cjson lua-md5 lua-mosquitto libmosquitto-nossl mosquitto-nossl libcares \
-	curl libcurl4 luci-lua-runtime libip4tc libip6tc kmod-ipt-extra iptables-mod-extra
+	curl libcurl4 luci-lua-runtime libip4tc libip6tc kmod-ipt-extra iptables-mod-extra \
+	ca-certificates libseccomp tini btrfs-progs
   KERNEL_LOADADDR := 0x48000000
   KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb | pad-to 64k
   KERNEL_INITRAMFS := kernel-bin | lzma | \

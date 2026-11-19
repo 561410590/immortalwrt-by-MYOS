@@ -5,6 +5,7 @@ local json = require "luci.jsonc"
 local nixio = require "nixio"
 local util = require "luci.util"
 local cursor = require("luci.model.uci").cursor
+local rm520n = require "c5800_rm520n"
 
 local function read(path)
     return json.parse(fs.readfile(path) or "") or {}
@@ -26,7 +27,16 @@ end
 local function secondary_host()
     local ok, status = pcall(util.ubus, "network.interface.cpe1_4", "status", {})
     for _, route in ipairs(ok and type(status) == "table" and status.route or {}) do
-        if route.target == "0.0.0.0" and route.nexthop then return route.nexthop end
+        if route.target == "0.0.0.0" and route.nexthop and route.nexthop ~= "0.0.0.0" then
+            local address = (status["ipv4-address"] or {})[1]
+            local net = cursor():get_all("network", "cpe1") or {}
+            if status.up and status.l3_device == "port5" and net.mode == "odu" and
+                net.disabled == "0" and address and address.address and
+                fs.readfile("/sys/class/net/port5/carrier") == "1\n" then
+                return route.nexthop, {host = route.nexthop, address = address.address}
+            end
+            return route.nexthop
+        end
     end
     return cursor():get("network", "cpe1", "auto_sniffer") or ""
 end
@@ -37,7 +47,9 @@ function M.cached_signal()
     local net = cursor():get_all("network", "cpe1") or {}
     if net.mode ~= "odu" or net.disabled ~= "0" or
         fs.readfile("/sys/class/net/port5/carrier") ~= "1\n" then return nil end
-    local host = secondary_host()
+    local host, peer = secondary_host()
+    local rm_signal, rm_stamp = rm520n.cached(peer)
+    if rm_signal then return rm_signal, rm_stamp end
     local latest, latest_stamp
     for _, device in ipairs((read("/tmp/infocd/cache/kpcped").parameter or {}).list or {}) do
         if host ~= "" and device.host == host then
@@ -61,10 +73,19 @@ function M.cached_signal()
     end
 end
 
+local function rm520n_status(signal, host)
+    return {iface = "cpe1", id = "", name = "Quectel " .. signal.model, version = signal.revision,
+        transport = "ATSD", host = host, connected = true, read_only = true, signal = signal,
+        slots = {}, cur = 0, max = 0, mode = 0, default = 0, stype = "", gval = "",
+        profile = {}, profiles = {}, apn = {}, capability = {}, cpesel = {}}
+end
+
 function M.status(refresh)
     local uci = cursor()
     local net = uci:get_all("network", "cpe1") or {}
-    local host = secondary_host()
+    local host, peer = secondary_host()
+    local rm_signal = not refresh and rm520n.cached(peer)
+    if rm_signal then return rm520n_status(rm_signal, host) end
     local id, info = "", {}
     for _, device in ipairs((read("/tmp/infocd/cache/kpcped").parameter or {}).list or {}) do
         if host ~= "" and device.host == host then
@@ -79,6 +100,7 @@ function M.status(refresh)
     local read_error
     if refresh then
         local reply, err = M.request("info", {type="all"})
+        if reply and reply.rm520n then return rm520n_status(reply.rm520n, host) end
         if reply and type(reply.result) == "table" then info = reply.result
         else read_error = err end
     end
@@ -106,6 +128,7 @@ function M.status(refresh)
     end
     if refresh then
         local reply = M.request("signal", {})
+        if reply and reply.rm520n then return rm520n_status(reply.rm520n, host) end
         if reply and type(reply.result) == "table" then signal = reply.result end
     end
     local signal_slot = tonumber(signal.simno)
@@ -140,12 +163,29 @@ end
 -- kpcpe-ctl performs the original authenticated/encrypted ODU request.
 -- No local interface, modem, selector or network service is restarted here.
 function M.request(action, payload)
-    if action ~= "cpesel" and action ~= "earfcn" and action ~= "apn" and action ~= "info" and action ~= "signal" then
+    if action ~= "cpesel" and action ~= "earfcn" and action ~= "apn" and action ~= "info" and action ~= "signal" and action ~= "sms" then
         return nil, "副设备操作无效"
     end
-    local host = secondary_host()
+    if action == "sms" then payload = {action="read", type="all", index="1"} end
+    local host, peer = secondary_host()
+    local function rm520n_reply(signal)
+        if action == "signal" then return {result=signal, rm520n=signal} end
+        if action == "info" then
+            return {result={basic={name="Quectel " .. signal.model, version=signal.revision}},
+                rm520n=signal}
+        end
+        return nil, "RM520N 副模组当前仅支持读取状态"
+    end
+    local rm_signal = rm520n.cached(peer)
+    if rm_signal then
+        if action == "signal" or action == "info" then
+            rm_signal = rm520n.read(peer)
+            if not rm_signal then return nil, "RM520N 副模组未返回状态" end
+        end
+        return rm520n_reply(rm_signal)
+    end
     local params = action == "signal" and "{}" or json.stringify(payload)
-    local cmd = "/usr/bin/kpcpe-ctl -H " .. util.shellquote(host) .. " -i cpe -a " .. action ..
+    local cmd = (action == "sms" and "timeout 10 " or "") .. "/usr/bin/kpcpe-ctl -H " .. util.shellquote(host) .. " -i cpe -a " .. action ..
         " -p " .. util.shellquote(params)
     local function fetch()
         local pipe = io.popen(cmd .. " 2>/dev/null")
@@ -155,6 +195,17 @@ function M.request(action, payload)
         return json.parse(raw)
     end
     local reply = fetch()
+    if peer and (action == "info" or action == "signal") then
+        local data = type(reply) == "table" and
+            (type(reply.result) == "table" and reply.result or reply.code == nil and reply)
+        local native = type(data) == "table" and
+            (action == "info" and type(data.basic) == "table" and next(data.basic) or
+                action == "signal" and (data.model or data.mode or data.rsrp))
+        if not native then
+            rm_signal = rm520n.read(peer)
+            if rm_signal then return rm520n_reply(rm_signal) end
+        end
+    end
     -- A bare code=1 is the native APP's expired-session response. Refresh only
     -- this management session; never repeat SIM/APN/radio writes.
     local reading = action == "info" or (action == "earfcn" and tonumber(payload.action) == 0)
@@ -186,6 +237,7 @@ end
 
 function M.select(slot)
     local state = M.status(true)
+    if state.read_only then return nil, "RM520N 副模组当前仅支持读取状态" end
     slot = tonumber(slot)
     if not slot or slot % 1 ~= 0 or slot < 1 or slot > state.max then
         return nil, "请选择副设备实际提供的卡槽"
@@ -250,6 +302,7 @@ end
 
 function M.frequency(input, state)
     state = state or M.status(true)
+    if state.read_only then return nil, "RM520N 副模组当前仅支持读取状态" end
     local adv = profile_adv(state)
     if input.mobility and input.mobility ~= "" then
         local policy = tostring(input.mobility)
@@ -341,6 +394,7 @@ end
 
 function M.configure(input)
     local state = M.status(true)
+    if state.read_only then return nil, "RM520N 副模组当前仅支持读取状态" end
     local mode = tostring(input.mode or state.profile.freqmode or state.profile.mode or "auto")
     if mode ~= "auto" and mode ~= "sa_only" and mode ~= "lte" then return nil, "网络模式无效" end
     local adv = profile_adv(state)

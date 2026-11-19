@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-theme-myos-new
 PKG_VERSION:=1.2.3
-PKG_RELEASE:=5
+PKG_RELEASE:=8
 PKG_LICENSE:=Apache-2.0
 PKGARCH:=all
 
@@ -27,6 +27,7 @@ endef
 
 define Package/luci-theme-myos-new/conffiles
 /etc/config/myos_ping
+/etc/config/myos_appearance
 endef
 
 define Package/luci-theme-myos-new/postinst
@@ -42,12 +43,15 @@ define Package/luci-theme-myos-new/install
 	$(INSTALL_DIR) $(1)/www/luci-static/myos-new/products
 	$(INSTALL_DATA) ./root/www/luci-static/myos-new/*.css $(1)/www/luci-static/myos-new/
 	$(INSTALL_DATA) ./root/www/luci-static/myos-new/*.js $(1)/www/luci-static/myos-new/
-	$(INSTALL_DATA) ./root/www/luci-static/myos-new/*.png $(1)/www/luci-static/myos-new/
-	$(INSTALL_DATA) ./root/www/luci-static/myos-new/products/* $(1)/www/luci-static/myos-new/products/
+	$(INSTALL_DATA) $(filter-out %/c8688.png,$(wildcard ./root/www/luci-static/myos-new/products/*)) $(1)/www/luci-static/myos-new/products/
+	base64 -d ./assets/brand.png.b64 > $(1)/www/luci-static/myos-new/brand.png
+	base64 -d ./assets/c8688.webp.b64 > $(1)/www/luci-static/myos-new/products/c8688.webp
+	chmod 0644 $(1)/www/luci-static/myos-new/brand.png $(1)/www/luci-static/myos-new/products/c8688.webp
 	$(INSTALL_DIR) $(1)/www/luci-static/myos-new/media
 	$(INSTALL_DATA) ./root/www/luci-static/myos-new/media/*.mp4 $(1)/www/luci-static/myos-new/media/
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/myos-new
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/myos-new/home.js $(1)/www/luci-static/resources/view/myos-new/
+	$(INSTALL_DATA) ./root/www/luci-static/resources/view/myos-new/panel-led.js $(1)/www/luci-static/resources/view/myos-new/
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/icons
 	$(INSTALL_DATA) ./root/www/luci-static/resources/icons/*.svg $(1)/www/luci-static/resources/icons/
 	$(INSTALL_DIR) $(1)/usr/share/ucode/luci/template/themes/myos-new
@@ -59,8 +63,10 @@ define Package/luci-theme-myos-new/install
 	$(INSTALL_DATA) ./root/usr/lib/lua/luci/model/myos_history.lua $(1)/usr/lib/lua/luci/model/
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./root/etc/init.d/myos-history $(1)/etc/init.d/
+	$(INSTALL_BIN) ./root/etc/init.d/myos-connections $(1)/etc/init.d/
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_DATA) ./root/etc/config/myos_ping $(1)/etc/config/
+	$(INSTALL_DATA) ./root/etc/config/myos_appearance $(1)/etc/config/
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd $(1)/usr/share/rpcd/acl.d
 	$(INSTALL_BIN) ./root/usr/libexec/rpcd/myos-sampling $(1)/usr/libexec/rpcd/
 	$(INSTALL_DATA) ./root/usr/share/rpcd/acl.d/myos-sampling.json $(1)/usr/share/rpcd/acl.d/
@@ -68,6 +74,7 @@ define Package/luci-theme-myos-new/install
 	$(INSTALL_DATA) ./root/usr/share/myos-new/update-ca.pem $(1)/usr/share/myos-new/update-ca.pem
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) ./root/etc/uci-defaults/99-myos-new $(1)/etc/uci-defaults/
+	$(FIND) $(1) -type d -exec chmod 0755 {} +
 endef
 
 $(eval $(call BuildPackage,luci-theme-myos-new))

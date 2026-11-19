@@ -300,9 +300,47 @@ static int mtk_get_signal(const char *dev, int *buf)
 	return 0;
 }
 
+struct mtk_c5800_wifi_status {
+	uint8_t addr[6];
+	uint8_t bandwidth;
+	uint8_t valid;
+	uint64_t rx_packets;
+	uint64_t tx_packets;
+};
+
+static int mtk_c5800_query(const char *ifname, struct mtk_c5800_wifi_status *status)
+{
+	struct iwreq wrq = {};
+
+	wrq.u.data.pointer = status;
+	wrq.u.data.length = sizeof(*status);
+	wrq.u.data.flags = 0x19f0;
+
+	if (mtk_ioctl(ifname, RT_PRIV_IOCTL, &wrq) < 0 ||
+	    wrq.u.data.length != sizeof(*status) || status->valid != 1)
+		return -1;
+
+	return 0;
+}
+
 static int mtk_get_noise(const char *dev, int *buf)
 {
-	return -1;
+	const char *ifname = mtk_dev2phy(dev);
+	struct iwreq wrq = {};
+	int32_t level = 0;
+
+	if (!ifname)
+		return -1;
+
+	wrq.u.data.pointer = &level;
+	wrq.u.data.length = sizeof(level);
+	wrq.u.data.flags = 0x069d; /* OID_802_11_GET_NF */
+	if (mtk_ioctl(ifname, RT_PRIV_IOCTL, &wrq) < 0 ||
+	    wrq.u.data.length != sizeof(level) || level < -127 || level >= 0)
+		return -1;
+
+	*buf = level;
+	return 0;
 }
 
 static int mtk_get_quality(const char *dev, int *buf)
@@ -424,8 +462,10 @@ static void mtk_parse_rateinfo(RT_802_11_MAC_ENTRY *pe,
 static int mtk_get_assoclist(const char *dev, char *buf, int *len)
 {
 	struct iwreq wrq = {};
+	struct mtk_c5800_wifi_status radio_status = {};
 	RT_802_11_MAC_TABLE *table;
-	int i;
+	int i, noise = 0;
+	bool has_c5800_status;
 	const char *ifname;
 
 	*len = 0;
@@ -445,6 +485,9 @@ static int mtk_get_assoclist(const char *dev, char *buf, int *len)
 		return -1;
 	}
 
+	has_c5800_status = (mtk_c5800_query(ifname, &radio_status) == 0);
+	mtk_get_noise(dev, &noise);
+
 	for (i = 0; i < table->Num && i < MAX_NUMBER_OF_MAC &&
 	     (i + 1) * sizeof(struct iwinfo_assoclist_entry) <= IWINFO_BUFSIZE; i++) {
 		RT_802_11_MAC_ENTRY *pe = &(table->Entry[i]);
@@ -454,8 +497,24 @@ static int mtk_get_assoclist(const char *dev, char *buf, int *len)
 		memcpy(e->mac, pe->Addr, 6);
 		e->signal = pe->AvgRssi0;
 		e->signal_avg = pe->AvgRssi0;
+		e->noise = noise;
 		e->connected_time = pe->ConnectedTime;
 		mtk_parse_rateinfo(pe, &e->rx_rate, &e->tx_rate);
+
+		/* A real zero remains valid. UINT32_MAX means no measured counter. */
+		e->rx_packets = UINT32_MAX;
+		e->tx_packets = UINT32_MAX;
+		if (has_c5800_status) {
+			struct mtk_c5800_wifi_status station = {};
+
+			memcpy(station.addr, pe->Addr, sizeof(station.addr));
+			if (mtk_c5800_query(ifname, &station) == 0) {
+				if (station.rx_packets < UINT32_MAX)
+					e->rx_packets = station.rx_packets;
+				if (station.tx_packets < UINT32_MAX)
+					e->tx_packets = station.tx_packets;
+			}
+		}
 
 		*len += sizeof(struct iwinfo_assoclist_entry);
 	}
@@ -846,6 +905,7 @@ static int mtk_get_htmode(const char *dev, int *buf)
 {
 	const char *ifname;
 	struct iwreq wrq = {};
+	struct mtk_c5800_wifi_status status = {};
 	unsigned char bw = 0;
 	unsigned long wmode = 0;
 
@@ -858,11 +918,18 @@ static int mtk_get_htmode(const char *dev, int *buf)
 	if (!mtk_is_ifup(ifname))
 		return -1;
 
-	wrq.u.data.length = sizeof(bw);
-	wrq.u.data.pointer = &bw;
-	wrq.u.data.flags = OID_802_11_BW;
+	if (mtk_c5800_query(ifname, &status) == 0) {
+		bw = status.bandwidth;
+	} else {
+		wrq.u.data.length = sizeof(bw);
+		wrq.u.data.pointer = &bw;
+		wrq.u.data.flags = OID_802_11_BW;
+		if (mtk_ioctl(ifname, RT_PRIV_IOCTL, &wrq) < 0 ||
+		    wrq.u.data.length != sizeof(bw))
+			return -1;
+	}
 
-	if (mtk_ioctl(ifname, RT_PRIV_IOCTL, &wrq) >= 0)
+	/* Match the measured bandwidth to the driver's active PHY mode. */
 	{
 		wrq.u.data.length = sizeof(wmode);
 		wrq.u.data.pointer = &wmode;

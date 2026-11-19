@@ -7,6 +7,7 @@ end
 function status()
     local http = require("luci.http")
     http.prepare_content("application/json")
+    http.header("Cache-Control", "no-store")
     http.write_json(require("myos_c8_fan").status())
 end
 function set_mode()

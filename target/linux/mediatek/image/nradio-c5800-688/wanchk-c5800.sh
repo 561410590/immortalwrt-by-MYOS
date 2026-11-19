@@ -323,6 +323,7 @@ power_ctl(){
 	else
 		$(cpetools.sh -i "$_net" -c reset)
 		proto_set_available "$_net" 1
+		ifup "$_net"
 	fi
 }
 
@@ -605,6 +606,22 @@ check_net6_using()
 	ipv6_enabled=$(uci -q get network.$1.ipv6)
 	[ "$ipv6_enabled" = "0" ] && return 1
 	return 0
+}
+check_builtin_ipv6() {
+	local _ifaces_label="$g6Iface"
+	local probe_device
+	local result="down"
+	local probe_file="$WANCHK_STATUS_DIR/iface_state/ip_check.$g6Iface.$g6Pdns1"
+
+	network_flush_cache
+	if [ "$1" != "0" ] && check_net6_using "$gNet" &&
+		network_get_device probe_device "$g6UbusIface" &&
+		ping -6 -I "$probe_device" -c 2 -W 2 -w 3 "$g6Pdns1" >"$probe_file" 2>&1; then
+		result="up"
+	fi
+	if [ "$result" != "$(cat "$WANCHK_STATUS_DIR/iface_state/$g6Iface" 2>/dev/null)" ]; then
+		set_net_status "$g6Iface" "$result"
+	fi
 }
 check_main(){
 	local _netdev= _ifstatus=
@@ -981,6 +998,10 @@ while true; do
 		else
 			g6New="down"
 		fi
+	elif [ "$gNet" = "cpe" ]; then
+		# Report IPv6 reachability independently of the legacy recovery loop.
+		check_builtin_ipv6 "$ipv6"
+		g6New="down"
 	else
 		if [ "$g6New" != "down" ]; then
 			log_info "net disable $g6New -> down"

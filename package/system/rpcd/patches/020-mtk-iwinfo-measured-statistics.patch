@@ -1,0 +1,51 @@
+--- a/iwinfo.c
++++ b/iwinfo.c
+@@ -497,7 +497,7 @@
+ 	struct ether_addr *macaddr = NULL;
+ 	void *c = NULL, *d, *e;
+ 	struct blob_attr *tb[__RPC_A_MAX];
+-	bool found = false;
++	bool found = false, mtk;
+ 
+ 	blobmsg_parse(rpc_assoclist_policy, __RPC_A_MAX, tb,
+ 	              blob_data(msg), blob_len(msg));
+@@ -509,6 +509,7 @@
+ 	if (tb[RPC_A_MACADDR])
+ 		macaddr = ether_aton(blobmsg_data(tb[RPC_A_MACADDR]));
+ 
++	mtk = !strcmp(iw->name, "mtk");
+ 	blob_buf_init(&buf, 0);
+ 
+ 	if (!macaddr)
+@@ -532,7 +533,10 @@
+ 			blobmsg_add_string(&buf, "mac", mac);
+ 			blobmsg_add_u32(&buf, "signal", a->signal);
+ 			blobmsg_add_u32(&buf, "signal_avg", a->signal_avg);
+-			blobmsg_add_u32(&buf, "noise", a->noise);
++			if (!mtk || a->noise < 0)
++				blobmsg_add_u32(&buf, "noise", a->noise);
++			if (mtk && a->signal < 0 && a->noise < 0)
++				blobmsg_add_u32(&buf, "snr", a->signal - a->noise);
+ 			blobmsg_add_u32(&buf, "inactive", a->inactive);
+ 			blobmsg_add_u32(&buf, "connected_time", a->connected_time);
+ 			blobmsg_add_u32(&buf, "thr", a->thr);
+@@ -552,7 +556,8 @@
+ 
+ 			e = blobmsg_open_table(&buf, "rx");
+ 			blobmsg_add_u64(&buf, "drop_misc", a->rx_drop_misc);
+-			blobmsg_add_u32(&buf, "packets", a->rx_packets);
++			if (!mtk || a->rx_packets != UINT32_MAX)
++				blobmsg_add_u32(&buf, "packets", a->rx_packets);
+ 			blobmsg_add_u64(&buf, "bytes", a->rx_bytes);
+ 			rpc_iwinfo_add_rateinfo(&a->rx_rate);
+ 			blobmsg_close_table(&buf, e);
+@@ -560,7 +565,8 @@
+ 			e = blobmsg_open_table(&buf, "tx");
+ 			blobmsg_add_u32(&buf, "failed", a->tx_failed);
+ 			blobmsg_add_u32(&buf, "retries", a->tx_retries);
+-			blobmsg_add_u32(&buf, "packets", a->tx_packets);
++			if (!mtk || a->tx_packets != UINT32_MAX)
++				blobmsg_add_u32(&buf, "packets", a->tx_packets);
+ 			blobmsg_add_u64(&buf, "bytes", a->tx_bytes);
+ 			rpc_iwinfo_add_rateinfo(&a->tx_rate);
+ 			blobmsg_close_table(&buf, e);

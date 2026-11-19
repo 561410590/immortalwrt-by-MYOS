@@ -1,0 +1,41 @@
+--- a/iwinfo_cli.c
++++ b/iwinfo_cli.c
+@@ -801,23 +801,32 @@
+ 
+ 	for (i = 0; i < len; i += sizeof(struct iwinfo_assoclist_entry))
+ 	{
++		char snr[16] = "unknown", rx_packets[16] = "unknown", tx_packets[16] = "unknown";
++
+ 		e = (struct iwinfo_assoclist_entry *) &buf[i];
+ 
+-		printf("%s  %s / %s (SNR %d)  %d ms ago\n",
++		if (e->signal < 0 && e->noise < 0)
++			snprintf(snr, sizeof(snr), "%d dB", e->signal - e->noise);
++		if (e->rx_packets != UINT32_MAX)
++			snprintf(rx_packets, sizeof(rx_packets), "%u", e->rx_packets);
++		if (e->tx_packets != UINT32_MAX)
++			snprintf(tx_packets, sizeof(tx_packets), "%u", e->tx_packets);
++
++		printf("%s  %s / %s (SNR %s)  %d ms ago\n",
+ 			format_bssid(e->mac),
+ 			format_signal(e->signal),
+ 			format_noise(e->noise),
+-			(e->signal - e->noise),
++			snr,
+ 			e->inactive);
+ 
+-		printf("	RX: %-38s  %8d Pkts.\n",
++		printf("	RX: %-38s  %8s Pkts.\n",
+ 			format_assocrate(&e->rx_rate),
+-			e->rx_packets
++			rx_packets
+ 		);
+ 
+-		printf("	TX: %-38s  %8d Pkts.\n",
++		printf("	TX: %-38s  %8s Pkts.\n",
+ 			format_assocrate(&e->tx_rate),
+-			e->tx_packets
++			tx_packets
+ 		);
+ 
+ 		printf("	expected throughput: %s\n\n",

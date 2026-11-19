@@ -1,0 +1,64 @@
+--- a/mt_wifi/embedded/ap/ap_cfg.c
++++ b/mt_wifi/embedded/ap/ap_cfg.c
+@@ -26,6 +26,9 @@
+ 
+ 
+ #include "rt_config.h"
++#ifdef MT7981
++#include <linux/of.h>
++#endif
+ 
+ #ifdef RLM_CAL_CACHE_SUPPORT
+ #include "phy/rlm_cal_cache.h"
+@@ -9606,6 +9609,51 @@
+ 	}
+ 
+ 	switch (cmd) {
++#ifdef MT7981
++	case 0x19f0: /* C5800 read-only AP bandwidth and associated-station counters */
++	{
++		struct {
++			UCHAR addr[MAC_ADDR_LEN];
++			UCHAR bandwidth;
++			UCHAR valid;
++			UINT64 rx_packets;
++			UINT64 tx_packets;
++		} status = {};
++		const UCHAR radio_query[MAC_ADDR_LEN] = {};
++		MAC_TABLE_ENTRY *entry;
++
++		if (!wdev || !wdev->if_dev || !netif_running(wdev->if_dev) ||
++		    !of_machine_is_compatible("HCMT7981-emmc") ||
++		    wrq->u.data.length != sizeof(status)) {
++			Status = -EOPNOTSUPP;
++			break;
++		}
++
++		if (copy_from_user(status.addr, wrq->u.data.pointer,
++				   sizeof(status.addr))) {
++			Status = -EFAULT;
++			break;
++		}
++
++		if (!memcmp(status.addr, radio_query, sizeof(radio_query))) {
++			status.bandwidth = wlan_operate_get_bw(wdev);
++		} else {
++			entry = MacTableLookup(pAd, status.addr);
++			if (!entry || entry->wdev != wdev || !IS_ENTRY_CLIENT(entry) ||
++			    entry->Sst != SST_ASSOC) {
++				Status = -ENOENT;
++				break;
++			}
++			status.rx_packets = READ_ONCE(entry->RxPackets.QuadPart);
++			status.tx_packets = READ_ONCE(entry->TxPackets.QuadPart);
++		}
++
++		status.valid = 1;
++		Status = copy_to_user(wrq->u.data.pointer, &status, sizeof(status)) ?
++			-EFAULT : NDIS_STATUS_SUCCESS;
++		break;
++	}
++#endif
+ #ifdef NF_SUPPORT_V2
+ 	case OID_802_11_GET_NF:
+ 		{

@@ -2,6 +2,9 @@
 local uci = require("luci.model.uci").cursor()
 local json = require("cjson.safe")
 local fs = require("nixio.fs")
+local fan = require("myos_c8_fan")
+local schedule = require("myos_c8_schedule")
+local hysteresis = 2
 
 local function read(path)
     local file = io.open(path, "r")
@@ -73,22 +76,50 @@ local function apply()
     if temperature and (temperature < -20 or temperature > 150) then temperature = nil end
     local protect = setting("protecttemp", 85, 60, 100)
     local protected = not temperature or temperature >= protect
-    local pwm, label
+    local pwm, label, auto_step, auto_thresholds, quiet_hot
     if protected then
         pwm, label = 255, "保护"
     elseif mode == 0 then
-        local thresholds = { setting("temp1", 50, 30, 90), setting("temp2", 60, 30, 90),
-            setting("temp3", 70, 30, 90), setting("temp4", 80, 30, 95) }
+        local thresholds = {}
+        for index, default in ipairs(fan.thresholds) do
+            thresholds[index] = setting("temp" .. index, default, 30, index == 4 and 95 or 90)
+        end
         table.sort(thresholds)
+        auto_thresholds = table.concat(thresholds, ",")
+        local previous = json.decode(read("/tmp/myos-c8-fan.json") or "") or {}
+        local saved_at = tonumber(previous.sampled_at) or 0
+        local age = os.time() - saved_at
+        local previous_step = tonumber(previous.auto_step) or 0
+        if previous.mode ~= 0 or previous.protected or age < 0 or age > 90 or
+           previous.auto_thresholds ~= auto_thresholds then
+            previous_step = 0
+        end
+        auto_step = 0
         pwm = math.floor(setting("smartmin", 30, 0, 50) * 255 / 100)
-        for index, value in ipairs({ 76, 127, 204, 255 }) do
-            if temperature >= thresholds[index] then pwm = math.max(pwm, value) end
+        for index, value in ipairs(fan.duties) do
+            local threshold = thresholds[index]
+            if temperature >= threshold or (index <= previous_step and temperature > threshold - hysteresis) then
+                auto_step = index
+                pwm = math.max(pwm, value)
+            end
         end
         label = "智能"
+        if uci:get("fanctrl", "fanctrl", "quiet") == "1" and schedule.active(
+                uci:get("fanctrl", "fanctrl", "quiet_start") or "23:00",
+                uci:get("fanctrl", "fanctrl", "quiet_end") or "07:00",
+                uci:get("fanctrl", "fanctrl", "quiet_days")) then
+            local ceiling = setting("quiet_temp", 65, 40, 80)
+            quiet_hot = temperature >= ceiling or
+                (age >= 0 and age <= 90 and previous.quiet_hot and temperature > ceiling - hysteresis)
+            if not quiet_hot then
+                local maximum = setting("quiet_gear", 1, 0, 2)
+                pwm, label = math.min(pwm, fan.duties[maximum] or 0), "夜间静音"
+            end
+        end
     elseif mode == 5 then
         pwm, label = setting("manual_pwm", 127, 0, 255), "无极"
     else
-        pwm = ({ 76, 127, 204, 255 })[mode]
+        pwm = fan.duties[mode]
         label = ({ "低速", "中速", "高速", "全速" })[mode]
     end
     local available, backend = false, nil
@@ -109,9 +140,9 @@ local function apply()
     end
     if available then write("/sys/class/gpio/fan-hw/value", pwm > 0 and 1 or 0) end
     local state = { available = available, cpu_temperature = temperature, pwm = available and pwm or nil,
-        percent = available and math.floor(pwm * 100 / 255 + 0.5) or nil, mode = mode,
+        percent = available and fan.percent(pwm) or nil, mode = mode,
         mode_label = label, protected = protected, sampled_at = os.time(), temperature_source = "cpu",
-        control_backend = backend }
+        control_backend = backend, auto_step = auto_step, auto_thresholds = auto_thresholds, quiet_hot = quiet_hot }
     local encoded = json.encode(state)
     if encoded and write("/tmp/myos-c8-fan.json.new", encoded .. "\n") then
         os.rename("/tmp/myos-c8-fan.json.new", "/tmp/myos-c8-fan.json")

@@ -1,0 +1,1135 @@
+--- a/etc/init.d/zeroclaw
++++ b/etc/init.d/zeroclaw
+@@ -10,58 +10,27 @@
+ start_service() {
++	local HOME="/"
+ 	local config_dir="/root/.zeroclaw"
+ 	local agent_alias="$(uci -q get aiagent.nradio.alias)"
+-	# create a symlink if binary is not exist for mini installed
+-	if [ ! -f $PROG ] && [ -f /mnt/storage/data/nradio/bin/zeroclaw ]; then
+-		ln -sn /mnt/storage/data/nradio/bin/zeroclaw $PROG
+-	fi
+-
+-	if ! $PROG -V >/dev/null 2>&1; then
+-		return 0
+-	fi
++	local providers="$(uci -q get aiagent.default.providers)"
++	local alias="$(uci -q get aiagent.default.alias)"
++	local model="$(uci -q get aiagent.default.model)"
++	local key="$(uci -q get aiagent.default.key)"
++	local uri="$(uci -q get aiagent.default.uri)"
+ 
+-	if [ ! -e "$config_dir" ]; then
+-		if [ -d /mnt/storage/data ]; then
+-			mkdir -p /root
+-			if mkdir -p /mnt/storage/data/nradio/.zeroclaw; then
+-				ln -sn "/mnt/storage/data/nradio/.zeroclaw" $config_dir
+-			else
+-				logger -t "zeroclaw" "Failed to create config on storage, falling back to local"
+-				mkdir -p "$config_dir"
+-			fi
+-		else
+-			mkdir -p "$config_dir"
+-		fi
+-	else
+-		if [ -d /mnt/storage/data ]; then
+-			if ! test -L "$config_dir"; then
+-				logger -t "zeroclaw" "re-link $config_dir"
+-				rm -rf "$config_dir"
+-				ln -sn "/mnt/storage/data/nradio/.zeroclaw" $config_dir
+-			fi
+-		fi
+-	fi
++	[ "$(uci -q get aiagent.default.type)" = custom ] && providers=custom
++	[ -n "$agent_alias" ] || agent_alias=nradio
++	mkdir -p -m 0700 "$config_dir"
++	[ -e /.zeroclaw ] || ln -snf "$config_dir" /.zeroclaw
++	export HOME
+ 
+-	if [ ! -e /.zeroclaw ]; then
+-		ln -sn "$config_dir" /.zeroclaw
+-		rm -rf /.zeroclaw/*
++	if ! $ZEROCLAW_CFG_GET agents."$agent_alias".risk_profile >/dev/null 2>&1; then
+ 		zc_init_profile "$agent_alias"
+-	else
+-		if ! test -L /.zeroclaw; then
+-			logger -t "zeroclaw" "re-link /.zeroclaw"
+-			rm -rf /.zeroclaw
+-			ln -sn "$config_dir" /.zeroclaw
+-		fi
+-		local providers="$(uci -q get aiagent.default.providers)"
+-		local alias="$(uci -q get aiagent.default.alias)"
+-		local model="$(uci -q get aiagent.default.model)"
+-		local key="$(uci -q get aiagent.default.key)"
+-		local uri="$(uci -q get aiagent.default.uri)"
+-
++	fi
++	if [ -n "$providers" ] && [ -n "$alias" ] && [ -n "$model" ]; then
+ 		zc_create_model "$providers" "$alias" "$model" "$key" "$uri"
+ 		zc_set_agent_model "${providers}.${alias}" "$agent_alias"
+-		zc_bind_channel "$agent_alias"
+-		zc_switch_risk_preset "$agent_alias"
+ 	fi
++	zc_bind_channel "$agent_alias"
+ 
+ 	procd_open_instance
+-	procd_set_param command "$PROG" daemon
++	procd_set_param command "$PROG" daemon --config-dir "$ZEROCLAW_CFG_PATH"
+--- a/lib/zeroclaw/zeroclaw.sh
++++ b/lib/zeroclaw/zeroclaw.sh
+@@ -132,11 +132,7 @@
+ 	[ -z "$language" ] && language="zh-CN, Chinese"
+ 
+ 	$ZEROCLAW_EXEC agents create "$agent_alias"
+-	if _zc_check_overlay_size; then
+-		$ZEROCLAW_CFG_SET agents."$agent_alias".risk_profile "yolo"
+-	else
+-		$ZEROCLAW_CFG_SET agents."$agent_alias".risk_profile "balanced"
+-	fi
++	$ZEROCLAW_CFG_SET agents."$agent_alias".risk_profile "balanced"
+ 	$ZEROCLAW_CFG_SET agents."$agent_alias".runtime_profile "unbounded"
+ 	if [ -n "$model" ]; then
+ 		$ZEROCLAW_CFG_SET agents."$agent_alias".model_provider "$model"
+@@ -171,6 +167,22 @@
+ 	fi
+ 
+ 	$ZEROCLAW_EXEC providers create models "$provider" "$provider_alias"
++	model="$(printf '%s' "$model" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
++	if [ "$provider.$provider_alias" = custom.alias ]; then
++		local mimo_uri="https://token-plan-cn.xiaomimimo.com/v1"
++		local mimo_model="mimo-v2.6-pro"
++		if [ "${uri%/}" = "$mimo_uri" ] && [ "$model" = "$mimo_model" ]; then
++			$ZEROCLAW_CFG_SET providers.models.custom.alias.native_tools true
++		else
++			local old_uri="$($ZEROCLAW_CFG_GET providers.models.custom.alias.uri 2>/dev/null)"
++			if [ "${old_uri%/}" = "$mimo_uri" ] &&
++			   [ "$($ZEROCLAW_CFG_GET providers.models.custom.alias.model 2>/dev/null)" = "$mimo_model" ] &&
++			   [ "$($ZEROCLAW_CFG_GET providers.models.custom.alias.native_tools 2>/dev/null)" = true ]; then
++				printf '%s\n' '[{"op":"remove","path":"/providers/models/custom/alias/native_tools"}]' |
++					$ZEROCLAW_EXEC config patch -
++			fi
++		fi
++	fi
+ 	$ZEROCLAW_CFG_SET providers.models."$provider"."$provider_alias".model "$model"
+ 	$ZEROCLAW_CFG_SET providers.models."$provider"."$provider_alias".api_key "$api_key"
+ 	if [ -n "$uri" ]; then
+--- a/usr/lib/lua/luci/controller/nradio/ai.lua
++++ b/usr/lib/lua/luci/controller/nradio/ai.lua
+@@ -1,213 +1,86 @@
+ -- Copyright 2017 NRadio
+ 
+ module("luci.controller.nradio.ai", package.seeall)
+-local nr = require "luci.nradio"
++local http = require "luci.http"
+ local uci = require "luci.model.uci".cursor()
+ local util = require "luci.util"
+ local providers_alias = "alias"
+ 
+ function index()
+-	local nr = require "luci.nradio"
+-	local uci = require "luci.model.uci".cursor()
+-	local first = uci:get("luci", "main", "first") or "1"
+-	local fs = require "nixio.fs"
+-
+-	if fs.access("/usr/bin/zeroclaw") then
+-		page = entry({"nradioadv", "system", "aibot"}, template("nradio_ai/index"),
+-			_("AIAgentTitle"), 95, true)
+-		page.show = true
+-		page.icon = 'nradio-aibot'
+-	end
+-
+-	if nr.has_ai and nr.has_ai() then
+-		if tonumber(first) == 0 then
+-			entry({"nradio", "ai"}, template("nradio_ai/AI_chat"), _("AINradioTitle"), 1, true).index = true
+-		else
+-			entry({"nradio", "ai"}, template("nradio_ai/AI_first"), _("AINradioTitle"), 0, true).index = true
+-		end
+-		entry({"nradio", "ai", "internetMode"}, call("action_mode_set"), nil, nil, true).leaf = true
+-		entry({"nradio", "ai", "wifiset"}, call("action_wifi_set"), nil, nil, true).leaf = true
+-		entry({"nradio", "ai", "netcheck"}, call("action_netcheck"), nil, nil, true).leaf = true
+-	else
+-		entry({"nradio", "ai"}, template("nradio_ai/index"),_("AINradioTitle"), 99, true).index = true
+-	end
+-	entry({"nradio", "ai", "providers"}, call("action_providers"), nil, nil, true).leaf = true
+-	entry({"nradio", "ai", "model"}, call("action_model"), nil, nil, true).leaf = true
+-	entry({"nradio", "ai", "channels"}, call("action_channels"), nil, nil, true).leaf = true
+-	entry({"nradio", "ai", "get_channel_info"}, call("get_channel_info"), nil, nil, true).leaf = true
+-	entry({"nradio", "ai", "reset_channel_info"}, call("reset_channel_info"), nil, nil, true).leaf = true
+-	entry({"nradio", "ai", "test"}, call("action_model"), nil, nil, true).leaf = true
+-	entry({"nradio", "ai", "finish"}, call("action_finish"), nil, nil, true).leaf = true
+-end
+-
+-function action_wifi_set()
+-	local sys  = require "luci.sys"
+-	local ssid = luci.http.formvalue("ssid") or nil
+-	local key = luci.http.formvalue("key") or nil
+-	local dual = luci.http.formvalue("dualBand") or nil
+-
+-	-- save temporarily, it will be deleted later
+-	uci:set("cloudd", "t0", "ssid_wlan", "X"..ssid)
+-	if key then
+-		uci:set("cloudd", "t0", "key_wlan", "X"..key)
+-	end
+-	uci:set("cloudd", "t0", "hidden_wlan", "X0")
+-	uci:set("cloudd", "t0", "disabled_wlan", "X0")
+-	if dual then
+-		uci:set("cloudd", "t0", "diff_2_4_wlan", "X0")
+-	else
+-		uci:set("cloudd", "t0", "diff_2_4_wlan", "X1")
+-	end
+-	local cl = require "luci.model.cloudd".init()
+-	local ca = require "cloudd.api"
+-	local id = ca.cloudd_get_self_id()
+-	local cdev = cl.get_device(id, "master")
+-	local slaves = cdev:slaves_sort()
+-	for i = 1, #slaves do
+-		local slave = slaves[i]
+-		local radio_cnt = slave:get_radiocnt()
+-		local radio_band2 = (radio_cnt.band2 or 1)
+-		local radio_band5 = (radio_cnt.band5 or 1)
+-
+-		for j = 1, radio_band2 + radio_band5 do
+-			local index = j - 1
+-			local wlan
+-			local group = nil
+-			if radio_band2 ~= 0 then
+-				wlan = "wlan"..index
+-			else
+-				wlan = "wlan"..(index + 1)
+-			end
+-
+-			uci:foreach("cloudd", "group",
+-						function(s)
+-							if s.device then
+-								for idx = 1, #s.device do
+-									if s.device[idx] == slave.sid then
+-										group = s[".name"].."wlan"
+-										return false
+-									end
+-								end
+-							end
+-						end
+-			)
+-			uci:delete("cloudd", group, "disabled_"..wlan)
+-			uci:delete("cloudd", group, "ssid_"..wlan)
+-			uci:delete("cloudd", group, "encryption_"..wlan)
+-			uci:delete("cloudd", group, "key_"..wlan)
+-			uci:delete("cloudd", group, "hidden_"..wlan)
+-			uci:delete("cloudd", group, "macfilter_"..wlan)
+-			uci:delete("cloudd", group, "acllist_"..wlan)
+-		end
+-	end
+-	uci:delete("cloudd", "config", "md5")
+-	uci:commit("cloudd")
+-	nr.luci_call_result("{'result':'OK'}")
+-end
+-function action_mode_set()
+-	local mode = luci.http.formvalue("mode")
+-	if mode == "dhcp" then
+-		uci:set("network", "wan", "proto", "dhcp")
+-		uci:set("network", "wan", "disabled", "0")
+-		uci:delete("network", "wan", "username")
+-		uci:delete("network", "wan", "password")
+-		uci:delete("network", "wan", "ipaddr")
+-		uci:delete("network", "wan", "netmask")
+-		uci:delete("network", "wan", "gateway")
+-		uci:delete("network", "wan", "dns")
+-		uci:commit("network")
+-		os.execute("ifup wan >/dev/null 2>&1")
+-		nr.luci_call_result("{'result':'OK'}")
+-	elseif mode == "pppoe" then 
+-		local username = luci.http.formvalue("account")
+-		local password = luci.http.formvalue("password")
+-		uci:set("network", "wan", "proto", "pppoe")
+-		uci:set("network", "wan", "username", username)
+-		uci:set("network", "wan", "password", password)
+-		uci:set("network", "wan", "disabled", "0")
+-		uci:delete("network", "wan", "ipaddr")
+-		uci:delete("network", "wan", "netmask")
+-		uci:delete("network", "wan", "gateway")
+-		uci:delete("network", "wan", "dns")
+-		uci:commit("network")
+-		os.execute("ifup wan >/dev/null 2>&1")
+-		nr.luci_call_result("{'result':'OK'}")
+-	elseif mode == "static" then
+-		local ipaddr = luci.http.formvalue("ip")
+-		local netmask = luci.http.formvalue("netmask")
+-		local gateway = luci.http.formvalue("gateway")
+-		local dns = luci.http.formvalue("dns")
+-
+-		uci:set("network", "wan", "disabled", "0")
+-		uci:set("network", "wan", "proto", "static")
+-		uci:set("network", "wan", "ipaddr", ipaddr)
+-		uci:set("network", "wan", "netmask", netmask)
+-		uci:set("network", "wan", "gateway", gateway)
+-		uci:set("network", "wan", "dns", dns)
+-		uci:delete("network", "wan", "username")
+-		uci:delete("network", "wan", "password")
+-		uci:commit("network")
+-		os.execute("ifup wan >/dev/null 2>&1")
+-		nr.luci_call_result("{'result':'OK'}")
+-	end
+-end
+-function action_netcheck()
+-	local result = util.ubus("infocd", "basic",{name="wans"}) or { }
+-	nr.luci_call_result(result)
++	entry({"admin", "services", "aibot"}, template("nradio_ai/index"), "鲲鹏智能体", 95)
++	entry({"admin", "services", "aibot", "providers"}, post("action_providers")).leaf = true
++	entry({"admin", "services", "aibot", "model"}, post("action_model")).leaf = true
++	entry({"admin", "services", "aibot", "channels"}, post("action_channels")).leaf = true
++	entry({"admin", "services", "aibot", "get_channel_info"}, post("get_channel_info")).leaf = true
++	entry({"admin", "services", "aibot", "reset_channel_info"}, post("reset_channel_info")).leaf = true
++	entry({"admin", "services", "aibot", "test"}, post("action_model")).leaf = true
++end
++
++local function reply(result)
++	http.prepare_content("application/json")
++	http.write_json({result = result})
++end
++
++local function preview_catalog(provider, uri, key)
++	local path = util.exec("mktemp -d /tmp/myos-ai-catalog.XXXXXX"):match("^(/tmp/myos%-ai%-catalog%.%w+)\n?$")
++	if not path then
++		return nil
++	end
++
++	local dir = util.shellquote(path)
++	local alias = provider .. "." .. providers_alias
++	local field = "providers.models." .. alias
++	local create = "/usr/bin/zeroclaw providers create --config-dir " .. dir
++	local set = "/usr/bin/zeroclaw config set --config-dir " .. dir .. " --no-interactive "
++	local commands = {create .. " models " .. util.shellquote(provider) .. " " .. providers_alias .. " >/dev/null 2>&1"}
++	if uri ~= "" then
++		commands[#commands + 1] = set .. field .. ".uri " .. util.shellquote(uri) .. " >/dev/null 2>&1"
++	end
++	if key ~= "" then
++		commands[#commands + 1] = set .. field .. ".api_key " .. util.shellquote(key) .. " >/dev/null 2>&1"
++	end
++	commands[#commands + 1] = "timeout 15 /usr/bin/zeroclaw models preview --config-dir " .. dir ..
++		" --model-provider " .. util.shellquote(alias) .. " --json 2>/dev/null"
++	local output = util.exec(table.concat(commands, " && "))
++	util.exec("rm -rf -- " .. dir)
++	return require("cjson.safe").decode(output)
+ end
+ 
+ function action_model()
+-	local providers = luci.http.formvalue("providers") or nil
+-	local key = luci.http.formvalue("key") or nil
+-
+-	local models = {code=-1}
+-	local cjson = require "cjson.safe"
+-
+-	if providers and #providers > 0 and providers:match("^[a-zA-Z0-9%.%-_]+$") then
+-		util.exec("zeroclaw providers create models '"..providers:gsub("'", "'\\''").."' "..providers_alias)
+-		if key and #key > 0 then
+-			util.exec("zeroclaw config set --no-interactive providers.models."..providers.."."..providers_alias..".api_key '"..key:gsub("'", "'\\''").."'")
+-		end
+-		local models_return = util.exec("zeroclaw models preview --model-provider "..providers.."."..providers_alias.." --json")
+-		local info = cjson.decode(models_return)
+-		nixio.syslog("err","models_return:"..models_return);
+-		if info and info.models then
+-			local exsit = false
+-			local models_buffer = ""
+-			for _,item in pairs(info.models) do
+-				exsit = true
+-				if #models_buffer > 0 then
+-					models_buffer = models_buffer..","..item
+-				else
+-					models_buffer = item
+-				end
+-			end
+-			nixio.syslog("err","models_buffer:"..models_buffer);
+-			if exsit then
+-				models = info
+-				models.code = 0
+-				nixio.syslog("err","providers:"..providers);
+-				uci:set("aiagent", providers, "provider")
+-				uci:set("aiagent", providers, "models", models_buffer)
+-				uci:commit("aiagent")
+-			end
+-		end
+-	end
+-
+-	if not models then
+-		models = {code=-1}
++	local provider = http.formvalue("providers") or ""
++	local uri = http.formvalue("uri") or ""
++	local key = http.formvalue("key") or ""
++	if http.formvalue("type") == "custom" then
++		provider = "custom"
++	end
++	if not provider:match("^[%w_%-]+$") then
++		return reply({code = -1})
++	end
++
++	-- DeepSeek's native catalog can fall back to public models after an auth failure.
++	-- The native OpenAI-compatible adapter queries only the configured endpoint.
++	if provider == "deepseek" then
++		provider = "custom"
++		if uri == "" then
++			uri = "https://api.deepseek.com"
++		end
++	end
++	local result = preview_catalog(provider, uri, key)
++	if result and result.live == true and type(result.models) == "table" and #result.models > 0 then
++		result.code = 0
++		return reply(result)
+ 	end
+-
+-	nr.luci_call_result(models)
++	reply({code = -1})
+ end
+ 
+ function action_providers()
+-	local providers = luci.http.formvalue("providers") or nil
+-	local model = luci.http.formvalue("model") or nil
+-	local uri = luci.http.formvalue("uri") or nil
+-	local key = luci.http.formvalue("key") or nil
+-	local llm_type = luci.http.formvalue("type") or nil
+-	local popular_providers = luci.http.formvalue("popular_providers") or nil
++	local providers = http.formvalue("providers") or nil
++	local model = http.formvalue("model") or nil
++	if model then model = model:match("^%s*(.-)%s*$") end
++	local uri = http.formvalue("uri") or nil
++	local key = http.formvalue("key") or nil
++	local llm_type = http.formvalue("type") or nil
++	local popular_providers = http.formvalue("popular_providers") or nil
+ 
+ 	local cfg_data = uci:get_all("aiagent", "default")
+ 
+@@ -231,13 +104,12 @@
+-		util.exec("rm /.zeroclaw/wechat/owner/account.json")	
+ 		util.exec("/etc/init.d/zeroclaw restart >/dev/null 2>&1")
+ 	end
+-	nr.luci_call_result("{'result':'OK'}")
++	reply("OK")
+ end
+ 
+ function action_channels()
+-	local channels = luci.http.formvalue("channels") or nil
+-	local agent = luci.http.formvalue("agent") or nil
+-	local cleanall = luci.http.formvalue("cleanall")
++	local channels = http.formvalue("channels") or nil
++	local agent = http.formvalue("agent") or nil
++	local cleanall = http.formvalue("cleanall")
+ 	local ZEROCLAW_CFG_PATH="/.zeroclaw"
+ 	if channels and agent then
+ 		local channel_arr = util.split(channels,",")
+@@ -276,14 +148,14 @@
+ 			util.exec("/etc/init.d/zeroclaw restart >/dev/null 2>&1")
+ 		end
+ 	end
+-	nr.luci_call_result("{'result':'OK'}")
++	reply("OK")
+ end
+ function reset_channel_info()
+-	local channels = luci.http.formvalue("channels") or nil
+-	local agent = luci.http.formvalue("agent") or nil
++	local channels = http.formvalue("channels") or nil
++	local agent = http.formvalue("agent") or nil
+ 
+ 	if not channels or not channels:match("^[,a-zA-Z0-9%.]+$") then
+-		nr.luci_call_result("{'result':'FAIL'}")
++		reply("FAIL")
+ 		return
+ 	end
+ 
+@@ -304,18 +176,18 @@
+ 		end
+ 		util.exec("/etc/init.d/zeroclaw restart >/dev/null 2>&1")
+ 	end
+-	nr.luci_call_result("{'result':'OK'}")
++	reply("OK")
+ end
+ 
+ function get_channel_info()
+-	local channels = luci.http.formvalue("channels") or nil
+-	local agent = luci.http.formvalue("agent") or nil
++	local channels = http.formvalue("channels") or nil
++	local agent = http.formvalue("agent") or nil
+ 	local cjson = require "cjson.safe"
+ 	local ZEROCLAW_CFG_PATH="/.zeroclaw"
+ 	local data = {}
+ 
+ 	if not channels or not channels:match("^[,a-zA-Z0-9%.]+$") then
+-		nr.luci_call_result("{'result':'FAIL'}")
++		reply("FAIL")
+ 		return
+ 	end
+ 
+@@ -363,11 +235,5 @@
+ 		end
+ 
+ 	end
+-	nr.luci_call_result(data)
+-end
+-
+-function action_finish()
+-	uci:set("luci", "main", "first", "0")
+-	uci:commit("luci")
+-	nr.luci_call_result("{'result':'OK'}")
++	reply(data)
+ end
+--- a/usr/lib/lua/luci/view/nradio_ai/index.htm
++++ b/usr/lib/lua/luci/view/nradio_ai/index.htm
+@@ -11,65 +11,237 @@
+      - channel cards (微信 / WhatsApp) + QR + status             step6.png..step8.png
+    智能体运行中:                                                    step_finish.png
+ 
+- All backend interactions go through luci.model.aiagent_backend
+- (see the /nradioadv/system/aibot/* leaf actions).
++ Backend actions are below /admin/services/aibot.
+ -%>
+ <%
+-	local nr = require "luci.nradio"
++	local dispatcher = require "luci.dispatcher"
++	local agent_url = dispatcher.build_url("admin", "services", "aibot")
++	local agent_token = dispatcher.context.authtoken or ""
++	local ai_media = "/luci-static/nradio"
+ 	local ai = require "luci.ai"
+ 	local util = require "luci.util"
+-	local llm_info = util.serialize_json(ai.get_llm_info(),nil)
++	local llm = ai.get_llm_info()
++	local wechat_running = false
++	if llm.channel == "wechat.owner" then
++		local cjson = require "cjson.safe"
++		local fs = require "nixio.fs"
++		local account = cjson.decode(fs.readfile("/.zeroclaw/wechat/owner/account.json") or "")
++		if type(account) == "table" and type(account.account_id) == "string" and account.account_id ~= "" then
++			local status = cjson.decode(util.exec("curl -fsS --max-time 2 http://127.0.0.1:42617/health 2>/dev/null"))
++			local runtime = type(status) == "table" and status.runtime
++			local channel = runtime and runtime.components and runtime.components["channel:wechat.owner"]
++			wechat_running = channel and status.status == "ok" and channel.status == "ok" or false
++		end
++	end
++	local llm_info = util.serialize_json(llm,nil)
+ 	local providers_list = ai.get_providers_list()
+ 	if not providers_list or #providers_list == 0 then
+ 		providers_list = "[]"
+ 	end
+ %>
+ <%+header%>
+-<h2><%: AIAgentTitle %></h2>
+-<link rel="stylesheet" type="text/css" href="<%=media%>/css/aibot.css?v=git-26.243.16431-dc24020">
+-<script src="<%=media%>/js/qrcode.min.js?v=git-26.243.16431-dc24020"></script>
++<h2>鲲鹏智能体</h2>
++<link rel="stylesheet" type="text/css" href="<%=ai_media%>/css/aibot.css?v=git-26.243.16431-dc24020">
++<script src="<%=ai_media%>/js/jquery.min.js"></script>
++<script src="<%=ai_media%>/js/qrcode.min.js?v=git-26.243.16431-dc24020"></script>
+ <style>
+-:root {
+-  /* Color System */
+-  --bg-dark: #2D3138;
+-  --bg-dark2: #2B2D30;
+-  --bg-card: #363B44;
+-  --bg-card2: #3A3F47;
+-  --bg-card3: #444A53;
+-  --border-color: #4A505C;
+-  --border-light: #444850;
+-  --accent: #00BFFF;
+-  --accent-green: #4ADE80;
+-  --accent-red: #EF4444;
+-  --text-white: #FFFFFF;
+-  --text-white-80: rgba(255,255,255,0.8);
+-  --text-white-60: rgba(255,255,255,0.6);
+-  --text-white-50: rgba(255,255,255,0.5);
+-  --text-white-40: rgba(255,255,255,0.4);
+-  --text-white-35: rgba(255,255,255,0.35);
+-  --text-white-30: rgba(255,255,255,0.3);
+-  --text-white-25: rgba(255,255,255,0.25);
+-  --text-white-20: rgba(255,255,255,0.2);
+-  --text-white-15: rgba(255,255,255,0.15);
+-  --text-white-10: rgba(255,255,255,0.1);
+-  --text-white-08: rgba(255,255,255,0.08);
+-  --text-white-05: rgba(255,255,255,0.05);
+-  --text-gray-300: #D1D5DB;
+-  --text-gray-400: #9CA3AF;
+-  --text-gray-500: #6B7280;
+-  --text-gray-600: #4B5563;
+-  --radius-sm: 8px;
++.myos-aibot {
++  --bg-dark: var(--m-inset);
++  --bg-card: var(--m-surface);
++  --border-color: var(--m-line);
++  --accent: var(--m-blue);
++  --text-gray-500: var(--m-muted);
+   --radius-md: 12px;
+   --radius-lg: 16px;
+-  --radius-xl: 20px;
+-  --radius-2xl: 24px;
+-  --radius-full: 9999px;
+-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+-  --font-mono: 'SF Mono', 'Fira Code', monospace;
+-
+-  /* Sidebar widths */
+-  --sidebar-width: 280px;
+-  --sidebar-width-lg: 320px;
++  --radius-xl: 18px;
++  color: var(--m-text);
++  padding: clamp(18px, 4vw, 36px);
++}
++
++.myos-aibot .aibot-stepper {
++  margin: 0 auto 22px;
++  max-width: 344px;
++}
++
++.myos-aibot .aibot-step {
++  min-width: 84px;
++}
++
++.myos-aibot .aibot-step-circle,
++.myos-aibot .aibot-step:not(.active) .aibot-step-circle {
++  width: 32px;
++  height: 32px;
++  background: var(--m-blue-soft);
++  opacity: 1;
++}
++
++.myos-aibot .aibot-step-circle .aibot-step-num {
++  color: var(--m-blue);
++  font-weight: 650;
++}
++
++.myos-aibot .aibot-step:not(.active) .aibot-step-circle {
++  background: var(--m-soft);
++}
++
++.myos-aibot .aibot-step:not(.active) .aibot-step-num,
++.myos-aibot :is(.aibot-step-label, .aibot-card-desc, .aibot-bind-status, .form-label) {
++  color: var(--m-muted);
++}
++
++.myos-aibot .aibot-step.active .aibot-step-label,
++.myos-aibot :is(.aibot-section-desc, .aibot-card-title, .aibot-channel-name, .running-status, .running-detail) {
++  color: var(--m-text);
++}
++
++.myos-aibot .aibot-step-connector {
++  background: var(--m-line);
++}
++
++.myos-aibot .aibot-step-connector.active {
++  background: var(--m-blue);
++}
++
++.myos-aibot .aibot-cards:not([hidden]) {
++  display: grid !important;
++  grid-template-columns: repeat(2, minmax(0, 1fr));
++  max-width: 640px;
++  gap: 12px;
++  margin: 20px auto 0;
++}
++
++.myos-aibot .aibot-cards > .aibot-card,
++.myos-aibot .aibot-channel-card {
++  min-height: 96px;
++  padding: 18px;
++  background: var(--m-surface);
++  border: 1px solid var(--m-line);
++  border-radius: var(--radius-lg);
++  font: inherit;
++  text-align: start;
++  transition: background-color .15s, border-color .15s;
++}
++
++.myos-aibot :is(.aibot-card, .aibot-channel-card, .provider-card):hover,
++.myos-aibot :is(.aibot-card, .aibot-channel-card, .provider-card).selected {
++  background: var(--m-blue-soft);
++  border-color: var(--m-blue) !important;
++}
++
++.myos-aibot :is(button, input, select):focus-visible {
++  outline: 2px solid var(--m-blue);
++  outline-offset: 2px;
++}
++
++.myos-aibot .aibot-card-title,
++.myos-aibot .aibot-card-desc {
++  display: block;
++}
++
++.myos-aibot .aibot-card-title {
++  font-size: 16px;
++  font-weight: 650;
++  margin-bottom: 5px;
++}
++
++.myos-aibot .aibot-card-desc {
++  line-height: 1.5;
++}
++
++.myos-aibot #wakeup-form fieldset.cbi-section {
++  background: transparent;
++  border: 0;
++  padding: 0;
++  box-shadow: none;
++}
++
++.myos-aibot .onboarding-content-inner {
++  max-width: 520px;
++  margin: 0 auto;
++}
++
++.myos-aibot #provider-select {
++  margin: 16px 0 0;
++}
++
++.myos-aibot .form-label {
++  font-size: 13px;
++  font-weight: 550;
++}
++
++.myos-aibot .form-input {
++  color: var(--m-text);
++  border-color: var(--m-line);
++}
++
++.myos-aibot .form-input::placeholder {
++  color: var(--m-muted);
++}
++
++.myos-aibot .password-input {
++  padding-inline-end: 48px;
++}
++
++.myos-aibot .toggle-password {
++  color: var(--m-muted);
++}
++
++.myos-aibot .aibot-test-btn {
++  margin-top: 10px;
++}
++
++.myos-aibot .aibot-nav {
++  flex-direction: row-reverse !important;
++  justify-content: center;
++  flex-wrap: wrap;
++  margin: 16px 0 0;
++}
++
++.myos-aibot .aibot-nav .cbi-button {
++  width: auto;
++  min-width: 104px;
++}
++
++.myos-aibot .aibot-nav .cbi-button:disabled {
++  opacity: .55;
++}
++
++.myos-aibot .aibot-nav input.cbi-button-cancel,
++.myos-aibot .aibot-nav input.cbi-button-cancel:hover {
++  background: var(--m-surface) !important;
++  border-color: var(--m-line) !important;
++  color: var(--m-text) !important;
++}
++
++.myos-aibot .aibot-nav input:not(:disabled):not(.cbi-button-cancel) {
++  color: var(--m-blue);
++  background: var(--m-blue-soft);
++  border-color: var(--m-blue);
++}
++
++.myos-aibot :is(.aibot-test-result, .aibot-bind-status).success {
++  color: var(--m-green);
++}
++
++.myos-aibot :is(.aibot-test-result, .aibot-bind-status).failure {
++  color: var(--m-red);
++}
++
++.myos-aibot .aibot-test-result.testing {
++  color: var(--m-blue);
++}
++
++.myos-aibot .aibot-logo {
++  width: min(180px, 100%);
++  height: 180px;
++}
++
++@media (max-width: 560px) {
++  .myos-aibot .aibot-cards:not([hidden]) { grid-template-columns: 1fr; }
++}
++
++@media (prefers-reduced-motion: reduce) {
++  .myos-aibot :is(.aibot-card, .aibot-channel-card, .provider-card) { transition: none; }
+ }
+ 
+ .onboarding-content-inner {
+@@ -90,10 +262,10 @@
+ }
+ .provider-card.selected {
+   border-color: var(--accent);
+-  box-shadow: 0 0 0 2px rgba(0, 191, 255, 0.2);
++  box-shadow: 0 0 0 2px var(--m-blue-soft);
+ }
+ .provider-card:hover:not(.selected) {
+-  border-color: rgba(0, 191, 255, 0.5);
++  border-color: var(--m-blue);
+ }
+ .provider-icon-box {
+   width: 40px;
+@@ -112,7 +284,7 @@
+ .form-label {
+     display: block;
+     font-size: 12px;
+-    color: rgba(255, 255, 255, 0.4);
++    color: var(--m-muted);
+     margin-bottom: 6px;
+ }
+ .form-input {
+@@ -121,8 +293,8 @@
+     padding: 0 12px;
+     border-radius: var(--radius-md);
+     background: var(--bg-dark);
+-    border: 1px solid rgba(255, 255, 255, 0.1);
+-    color: white;
++    border: 1px solid var(--m-line);
++    color: var(--m-text);
+     font-size: 14px;
+     outline: none;
+     transition: border-color 0.2s;
+@@ -134,7 +306,7 @@
+     width: 100%;
+     height: 40px;
+     border-radius: var(--radius-md);
+-    background: rgba(0, 191, 255, 0.1);
++    background: var(--m-blue-soft);
+     border: 1px solid var(--accent);
+     color: var(--accent);
+     font-size: 14px;
+@@ -159,7 +331,7 @@
+     border: none;
+     cursor: pointer;
+     transition: background 0.15s;
+-    color: rgba(255, 255, 255, 0.4);
++    color: var(--m-muted);
+ }
+ .icon {
+     width: 16px;
+@@ -206,9 +378,9 @@
+ }
+ 
+ </style>
+-<fieldset class="cbi-section">
++<fieldset class="cbi-section myos-aibot">
+ 			<!-- ============ Stepper (hidden when running) ============ -->
+-			<div id="aibot-stepper" class="aibot-stepper">
++			<div id="aibot-stepper" class="aibot-stepper"<% if wechat_running then %> style="display:none"<% end %>>
+ 				<div class="aibot-step active" data-step="1">
+ 					<div class="aibot-step-circle"><span class="aibot-step-num">1</span></div>
+ 					<span class="aibot-step-label"><%:AIStepWakeup%></span>
+@@ -221,24 +393,20 @@
+ 			</div>
+ 
+ 			<!-- ============ Section: 唤醒智能体 ============ -->
+-			<div id="section-wakeup">
++			<div id="section-wakeup"<% if wechat_running then %> style="display:none"<% end %>>
+ 				<!-- description (only shown in cards substate) -->
+ 				<div id="wakeup-cards-desc" class="aibot-section-desc onboarding-content-inner"><%:AIWakeupCardsDesc%></div>
+ 
+ 				<!-- substate A: card selection -->
+ 				<div id="wakeup-cards" class="aibot-cards">
+-					<div class="panel panel-info device-panel aibot-card" id="card-preset" data-type="popular">
+-						<div class="panel-body text-center">
+-							<div class="aibot-card-title"><%:AIPopularModels%></div>
+-							<div class="aibot-card-desc"><%:AIPopularModelsDesc%></div>
+-						</div>
+-					</div>
+-					<div class="panel panel-info device-panel aibot-card" id="card-custom" data-type="custom">
+-						<div class="panel-body text-center">
+-							<div class="aibot-card-title"><%:AICustomEndpoint%></div>
+-							<div class="aibot-card-desc"><%:AICustomEndpointDesc%></div>
+-						</div>
+-					</div>
++					<button type="button" class="aibot-card" id="card-preset" data-type="popular">
++						<span class="aibot-card-title"><%:AIPopularModels%></span>
++						<span class="aibot-card-desc"><%:AIPopularModelsDesc%></span>
++					</button>
++					<button type="button" class="aibot-card" id="card-custom" data-type="custom">
++						<span class="aibot-card-title"><%:AICustomEndpoint%></span>
++						<span class="aibot-card-desc"><%:AICustomEndpointDesc%></span>
++					</button>
+ 				</div>
+ 
+ 				<!-- substate B: provider/model/api-key form -->
+@@ -290,7 +458,7 @@
+ 			</div>
+ 
+ 			<!-- ============ Section: 智能体运行中 ============ -->
+-			<div id="section-running" style="display:none">
++			<div id="section-running"<% if not wechat_running then %> style="display:none"<% end %>>
+ 				<div class="panel">
+ 					<div class="panel-body text-center" style="padding:40px 20px">
+ 						<div class="aibot-running-logo">
+@@ -318,6 +486,10 @@
+ //   'binding' / 'running' — separate top-level sections
+ var WAKEUP_CARDS = 0, WAKEUP_FORM = 1;
+ var llm_info = <%=llm_info%>;
++function postAgent(action, data, callback) {
++	var fields = Object.assign({}, data, { token: '<%=agent_token%>' });
++	(new XHR()).post('<%=agent_url%>/' + action, fields, callback);
++}
+ const providerLogoPaths = {
+ 	gemini: 'ai/gemini.png',
+ 	deepseek: 'ai/deepseek.png',
+@@ -349,45 +521,36 @@
+ const path = providerLogoPaths[providerId];
+ 	//if (!path) return `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${(AppState.providers.find(p => p.name === providerId) || {}).color || '#ccc'}"></div>`;
+ 	if (!path)
+-		return `<img src="<%=media%>/ai/custom.svg" alt="${providerId}" width="${size}" height="${size}" style="object-fit:contain;display:block;" />`;
+-	return `<img src="<%=media%>/${path}" alt="${providerId}" width="${size}" height="${size}" style="object-fit:contain;display:block;" />`;
++		return `<img src="<%=ai_media%>/ai/custom.svg" alt="${providerId}" width="${size}" height="${size}" style="object-fit:contain;display:block;" />`;
++	return `<img src="<%=ai_media%>/${path}" alt="${providerId}" width="${size}" height="${size}" style="object-fit:contain;display:block;" />`;
+ }
+ // Simulate fetching models from a provider
+-function fetchModelsFromProvider(providerId) {
+-	var data = {};
+-	data['providers'] = providerId;
+-	if(AppState.customApiKey)
+-		data['key'] = AppState.customApiKey;
++function escapeAgentHtml(value) {
++	const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
++	return String(value).replace(/[&<>"']/g, char => entities[char]);
++}
+ 
++function fetchModelsFromProvider(providerId) {
++	const data = { providers: providerId, uri: AppState.customApiEndpoint, key: AppState.customApiKey };
+ 	AppState.fetchingModels = true;
+ 	AppState.loadProviderPopularDetail();
+ 
+-	(new XHR()).post('<%=controller%>nradio/ai/model', data, function(xhr){
+-		if (xhr.getResponseHeader("Content-Type") == "application/json") {
+-				var match = 0;
+-				try {
+-					var data_res = eval('(' + xhr.responseText + ')');
+-					if (data_res && data_res.result) {
+-						if (data_res.result.code == 0){
+-							const provider = AppState.providers.find(p => p.name === providerId);
+-							provider.models = data_res.result.models;
+-							AppState.fetchedModels = (provider && provider.models)? provider.models : [];
+-
+-							if (!llm_info.provider_models)
+-									llm_info.provider_models = {};
+-							llm_info.provider_models[providerId] = AppState.fetchedModels.length>1?AppState.fetchedModels.join(","):AppState.fetchedModels[0];
+-							match = 1;
+-						}
+-					}
+-				}
+-				catch(e) {
+-				}
+-				if(!match){
++	postAgent('model', data, function(xhr) {
++		let result;
++		try { result = JSON.parse(xhr.responseText).result; } catch (e) { }
++		AppState.fetchingModels = false;
++		if (AppState.llmOption !== 'popular' || AppState.selectedProvider !== providerId)
++			return;
+ 
+-				}
+-				AppState.fetchingModels = false;
+-				AppState.loadProviderPopularDetail();
+-		}
++		if (result && result.code === 0) {
++			llm_info.provider_models = llm_info.provider_models || {};
++			llm_info.provider_models[providerId] = result.models.join(',');
++		}
++		AppState.loadProviderPopularDetail();
++		if (!result || result.code !== 0)
++			AppState.showTestResult(false, '<%:AIConnectFailed%>');
++		else
++			AppState.hideTestResult();
+ 	});
+ }
+ function resetChannelStatus() {
+@@ -395,10 +558,10 @@
+ 	data['agent'] = AppState.agent;
+ 	data['channels'] = AppState.channel;
+ 	AppState.qrcode ="";
+-	(new XHR()).post('<%=controller%>nradio/ai/reset_channel_info', data, function(xhr){
+-		if (xhr.getResponseHeader("Content-Type") == "application/json") {
++	postAgent('reset_channel_info', data, function(xhr){
++		if ((xhr.getResponseHeader("Content-Type") || "").split(";")[0] === "application/json") {
+ 			try {
+-				var data_res = eval('(' + xhr.responseText + ')');
++				var data_res = JSON.parse(xhr.responseText);
+ 				if (data_res && data_res.result) {
+ 				}
+ 			}
+@@ -408,10 +571,10 @@
+ 	});
+ }
+ function getChannelStatus(PostDta,webchat_interval) {
+-	(new XHR()).post('<%=controller%>nradio/ai/get_channel_info', PostDta, function(xhr){
+-		if (xhr.getResponseHeader("Content-Type") == "application/json") {
++	postAgent('get_channel_info', PostDta, function(xhr){
++		if ((xhr.getResponseHeader("Content-Type") || "").split(";")[0] === "application/json") {
+ 			try {
+-				var data_res = eval('(' + xhr.responseText + ')');
++				var data_res = JSON.parse(xhr.responseText);
+ 				if (data_res && data_res.result) {
+ 					var channel_result = data_res.result[PostDta.channels];
+ 					if(channel_result.bind_result){
+@@ -534,7 +697,7 @@
+ 
+ 	/* ---------- routing ---------- */
+ 
+-	init: function() {
++	init: function(restoreRunning) {
+ 		/* card click: just toggle selected style + llmOption. User clicks
+ 		   "下一步" to actually advance into the form substate. */
+ 		$('#btn-reconfigure').off("click").on('click', function() {
+@@ -546,6 +709,11 @@
+ 			AppState.refreshQRcode();
+ 		});
+ 
++		if (restoreRunning) {
++			AppState.showRunning();
++			return;
++		}
++
+ 		if (AppState.llmOption === 'default'){
+ 			AppState.showCards();
+ 		}
+@@ -743,20 +911,20 @@
+ 			<div style="padding:16px;border-radius:var(--radius-xl);border:1px solid var(--border-color);background:var(--bg-card);margin-bottom:12px;">
+ 			<div class="form-field">
+ 				<label class="form-label"><%:AILoginModelProviders%></label>
+-				<input class="form-input" type="text" placeholder="<%:AILoginCustomAPIProvidersPlaceholder%>" value="${AppState.customProviders}" oninput="oninput_llm(this,'providers');""/>
++				<input class="form-input" type="text" placeholder="<%:AILoginCustomAPIProvidersPlaceholder%>" value="${escapeAgentHtml(AppState.customProviders)}" oninput="oninput_llm(this,'providers');"/>
+ 			</div>
+ 			<div class="form-field">
+ 				<label class="form-label"><%:AILoginModelName%></label>
+-				<input class="form-input" type="text" placeholder="<%:AILoginCustomAPIModelNamePlaceholder%>" value="${AppState.customModelName}" oninput="oninput_llm(this,'modelName');"/>
++				<input class="form-input" type="text" placeholder="<%:AILoginCustomAPIModelNamePlaceholder%>" value="${escapeAgentHtml(AppState.customModelName)}" oninput="oninput_llm(this,'modelName');"/>
+ 			</div>
+ 			<div class="form-field">
+ 				<label class="form-label"><%:AILoginApiEndpoint%></label>
+-				<input class="form-input" type="text" placeholder="<%:AILoginCustomAPIEndpointPlaceholder%>" value="${AppState.customApiEndpoint}" oninput="oninput_llm(this,'apiEndpoint');"/>
++				<input class="form-input" type="text" placeholder="<%:AILoginCustomAPIEndpointPlaceholder%>" value="${escapeAgentHtml(AppState.customApiEndpoint)}" oninput="oninput_llm(this,'apiEndpoint');"/>
+ 			</div>
+ 			<div class="form-field">
+ 				<label class="form-label"><%:AILoginApiKey%></label>
+ 				<div class="password-field">
+-						<input class="form-input password-input" type="${AppState.showPassword ? 'text' : 'password'}" placeholder="sk-..." value="${AppState.customApiKey}" oninput="oninput_llm(this,'apiKey');"/>
++						<input class="form-input password-input" type="${AppState.showPassword ? 'text' : 'password'}" placeholder="sk-..." value="${escapeAgentHtml(AppState.customApiKey)}" oninput="oninput_llm(this,'apiKey');"/>
+ 						<button type="button" class="toggle-password" onclick="togglePasswordVisibility()">
+ 							${AppState.showPassword
+ 							? '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
+@@ -831,9 +999,9 @@
+                     </div>
+                ` : AppState.fetchedModels.length > 0 ? `
+                     <div class="model-list">
+-                    ${AppState.fetchedModels.map(m => `
+-                    <div class="model-item ${AppState.selectedModelId === m ? 'selected' : ''}" onclick="AppState.selectedModelId='${m}';AppState.customModelName='${m}';AppState.loadProviderPopularDetail();">
+-                         <span style="font-weight:500;">${m}</span>
++                    ${AppState.fetchedModels.map((m, index) => `
++                    <div class="model-item ${AppState.selectedModelId === m ? 'selected' : ''}" onclick="AppState.selectedModelId=AppState.fetchedModels[${index}];AppState.customModelName=AppState.selectedModelId;AppState.loadProviderPopularDetail();">
++                         <span style="font-weight:500;">${escapeAgentHtml(m)}</span>
+                          <span style="font-size:11px;color:var(--text-gray-500);margin-left:4px;"></span>
+                          ${AppState.selectedModelId === m ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>` : ''}
+                     </div>
+@@ -860,16 +1028,16 @@
+                <div style="padding:16px;border-radius:var(--radius-xl);border:1px solid var(--border-color);background:var(--bg-card);margin-bottom:12px;">
+                <div class="form-field">
+                     <label class="form-label"><%:AILoginModelName%></label>
+-                    <input class="form-input" type="text" class="popular_modelname" placeholder="<%:AILoginCustomAPIModelNamePlaceholder%>" value="${AppState.customModelName}" oninput="oninput_llm(this,'modelName');"/>
++                    <input class="form-input" type="text" class="popular_modelname" placeholder="<%:AILoginCustomAPIModelNamePlaceholder%>" value="${escapeAgentHtml(AppState.customModelName)}" oninput="oninput_llm(this,'modelName');"/>
+                </div>
+                <div class="form-field">
+                     <label class="form-label"><%:AILoginApiEndpoint%></label>
+-                    <input class="form-input" type="text" placeholder="<%:AILoginCustomAPIEndpointPlaceholder%>" value="${AppState.customApiEndpoint}" oninput="oninput_llm(this,'apiEndpoint');"/>
++                    <input class="form-input" type="text" placeholder="<%:AILoginCustomAPIEndpointPlaceholder%>" value="${escapeAgentHtml(AppState.customApiEndpoint)}" oninput="oninput_llm(this,'apiEndpoint');"/>
+                </div>
+                <div class="form-field">
+                     <label class="form-label"><%:AILoginApiKey%></label>
+                     <div class="password-field">
+-                         <input class="form-input password-input" type="${AppState.showPassword ? 'text' : 'password'}" placeholder="sk-..." value="${AppState.customApiKey}" oninput="oninput_llm(this,'apiKey');"/>
++                         <input class="form-input password-input" type="${AppState.showPassword ? 'text' : 'password'}" placeholder="sk-..." value="${escapeAgentHtml(AppState.customApiKey)}" oninput="oninput_llm(this,'apiKey');"/>
+                          <button type="button" class="toggle-password" onclick="togglePasswordVisibility()">
+                               ${AppState.showPassword
+                               ? '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
+@@ -902,20 +1070,22 @@
+ 			AppState.showTestResult(false, '<%:AIKeyRequired%>');
+ 			return;
+ 		}
+-		var data = { };
+-
+-		data['providers'] = AppState.customProviders;
+-		data['key'] = key;
++		const data = {
++			providers: AppState.customProviders,
++			type: AppState.llmOption,
++			uri: AppState.customApiEndpoint,
++			key: key
++		};
+ 
+ 		var btn = $(obj);
+ 		btn.val('<%:AITesting%>').prop('disabled', true);
+ 		AppState.showTestResult(null, '<%:AITesting%>');
+-		(new XHR()).post('<%=controller%>nradio/ai/test', data, function(xhr) {
++		postAgent('test', data, function(xhr) {
+ 			btn.prop('disabled', false);
+ 			var json = null;
+-			try { json = eval('(' + xhr.responseText + ')'); } catch (e) { }
++			try { json = JSON.parse(xhr.responseText); } catch (e) { }
+ 			var r = (json && json.result) ? json.result : {};
+-			if (r.code == 0) {
++			if (r.code === 0) {
+ 				AppState.testOk = true;
+ 				var msg = '<%:AIConnectSuccess%>';
+ 				AppState.showTestResult(true, msg);
+@@ -926,7 +1096,6 @@
+ 				btn.val('<%:AIRetest%>');
+ 			}
+ 
+-			AppState.loadProviderPopularDetail();
+ 		});
+ 
+ 	},
+@@ -950,10 +1119,10 @@
+ 		data['agent'] = AppState.agent;
+ 		if(type)
+ 			data['cleanall'] = "1";
+-		(new XHR()).post('<%=controller%>nradio/ai/channels', data, function(xhr){
+-			if (xhr.getResponseHeader("Content-Type") == "application/json") {
++		postAgent('channels', data, function(xhr){
++			if ((xhr.getResponseHeader("Content-Type") || "").split(";")[0] === "application/json") {
+ 					try {
+-						var data_res = eval('(' + xhr.responseText + ')');
++						var data_res = JSON.parse(xhr.responseText);
+ 						if (AppState.pollTimer) {
+ 							clearInterval(AppState.pollTimer);
+ 							AppState.pollTimer = null;
+@@ -981,10 +1150,10 @@
+ 		data['type'] = AppState.llmOption;
+ 		if (AppState.llmOption == "popular")
+ 				data['popular_providers'] = AppState.selectedProvider;
+-		(new XHR()).post('<%=controller%>nradio/ai/providers', data, function(xhr){
+-			if (xhr.getResponseHeader("Content-Type") == "application/json") {
++		postAgent('providers', data, function(xhr){
++			if ((xhr.getResponseHeader("Content-Type") || "").split(";")[0] === "application/json") {
+ 					try {
+-						var data_res = eval('(' + xhr.responseText + ')');
++						var data_res = JSON.parse(xhr.responseText);
+ 						AppState.llmConfirmed=true;
+ 						AppState.showBind();
+ 					}
+@@ -1003,7 +1172,7 @@
+ 		const channelsCards = AppState.channels.map(p => `
+ 			<div class="panel panel-info device-panel aibot-channel-card ${AppState.channel === p.name ? 'selected' : ''}" data-channel="${p.name}" onclick="AppState.selectChannel('${p.name}');">
+ 				<div class="panel-body text-center">
+-					<img src="<%=media%>/ai/${p.img}" width="15px" height="15px" style="object-fit:contain;display:inline;" />
++					<img src="<%=ai_media%>/ai/${p.img}" width="15px" height="15px" style="object-fit:contain;display:inline;" />
+ 					<span class="aibot-channel-name">${p.lang}</span>
+ 				</div>
+ 			</div>
+@@ -1143,7 +1312,7 @@
+ 
+ $(document).ready(function() {
+ 	AppState.providers = sort_provider(AppState.providers,providerLogoPaths);
+-	AppState.init();
++	AppState.init(<%=wechat_running and "true" or "false"%>);
+ });
+ //]]></script>
+ <%+footer%>

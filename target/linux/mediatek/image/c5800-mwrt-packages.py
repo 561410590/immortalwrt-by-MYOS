@@ -10,17 +10,18 @@ import shutil
 import subprocess
 import tarfile
 
+SSR_PLUS_PACKAGES = {'luci-app-ssr-plus', 'luci-i18n-ssr-plus-zh-cn'}
+
 PACKAGES = {
     'luci-app-openclash', 'luci-app-passwall', 'luci-app-passwall2',
-    'luci-app-ssr-plus', 'luci-i18n-passwall-zh-cn',
-    'luci-i18n-passwall2-zh-cn', 'luci-i18n-ssr-plus-zh-cn',
+    'luci-i18n-passwall-zh-cn', 'luci-i18n-passwall2-zh-cn',
     'sing-box', 'xray-core', 'xray-plugin', 'hysteria', 'tuic-client',
     'naiveproxy', 'shadowsocks-rust-sslocal', 'shadowsocks-rust-ssserver',
     'shadowsocksr-libev-ssr-local', 'shadowsocksr-libev-ssr-redir',
     'shadowsocksr-libev-ssr-server', 'chinadns-ng', 'dns2socks', 'dns2tcp',
     'haproxy', 'v2ray-plugin', 'v2ray-geoip', 'v2ray-geosite', 'smartdns',
     'microsocks', 'ipt2socks', 'shadow-tls', 'simple-obfs-client',
-}
+} | SSR_PLUS_PACKAGES
 
 # Resolve these against the target's current IPKs, including its kernel ABI.
 SYSTEM_PACKAGES = {
@@ -30,7 +31,7 @@ SYSTEM_PACKAGES = {
     'ipset', 'libipset13', 'tc-full', 'libltdl7', 'liblua5.3-5.3', 'dnsmasq-full',
 }
 
-def install(source, work, records):
+def install(source, work, records, excluded_packages=()):
     image = Path(os.environ.get('MWRT_REFERENCE',
         '/mnt/f/Download/Mwrt-c2000ultra-tf-1153-24-20261028.bin'))
     unpack = source / 'target/linux/mediatek/image/nradio-c5800-688/mwrt-1153-24-packages'
@@ -54,7 +55,7 @@ def install(source, work, records):
         match = re.search(r'^Provides: (.+)$', record, re.M)
         if match:
             provided.update(x.strip().split()[0] for x in match[1].split(','))
-    wanted = set(PACKAGES)
+    wanted = PACKAGES - set(excluded_packages)
     pending = list(wanted)
     while pending:
         name = pending.pop()
@@ -111,15 +112,13 @@ def install(source, work, records):
             for name in sorted(wanted)}
 
 
-def install_bundle(source, work, records):
-    versions = install(source, work, records)
+def install_bundle(source, work, records, excluded_packages=()):
+    versions = install(source, work, records, excluded_packages)
     assets = source / 'target/linux/mediatek/image/nradio-c5800-688'
     for name in ('ASN.mmdb', 'GeoIP.dat'):
         shutil.copy2(assets / ('openclash-' + name), work / 'etc/openclash' / name)
         with (work / 'usr/lib/opkg/info/luci-app-openclash.list').open('a') as stream:
             stream.write('/etc/openclash/' + name + '\n')
-    shutil.copy2(work / 'usr/share/shadowsocksr/shadowsocksr.config',
-                 work / 'etc/config/shadowsocksr')
 
     def defaults(name, section, options):
         path = work / 'etc/config' / name
@@ -139,11 +138,16 @@ def install_bundle(source, work, records):
         defaults(name, 'global_delay', {'start_week_mode': None, 'stop_week_mode': None, 'restart_week_mode': None})
         defaults(name, 'global_rules', {'update_week_mode': None})
         defaults(name + '_server', 'global', {'enable': '0'})
-    defaults('shadowsocksr', 'global', {'global_server': 'nil', 'enable_switch': '0'})
-    defaults('shadowsocksr', 'socks5_proxy', {'server': 'nil'})
-    defaults('shadowsocksr', 'http_proxy', {'server': 'nil'})
-    defaults('shadowsocksr', 'server_global', {'enable_server': '0'})
-    defaults('shadowsocksr', 'server_subscribe', {'auto_update': '0'})
+    services = ('openclash', 'passwall', 'passwall2', 'passwall_server', 'passwall2_server')
+    if 'luci-app-ssr-plus' in versions:
+        shutil.copy2(work / 'usr/share/shadowsocksr/shadowsocksr.config',
+                     work / 'etc/config/shadowsocksr')
+        defaults('shadowsocksr', 'global', {'global_server': 'nil', 'enable_switch': '0'})
+        defaults('shadowsocksr', 'socks5_proxy', {'server': 'nil'})
+        defaults('shadowsocksr', 'http_proxy', {'server': 'nil'})
+        defaults('shadowsocksr', 'server_global', {'enable_server': '0'})
+        defaults('shadowsocksr', 'server_subscribe', {'auto_update': '0'})
+        services += ('shadowsocksr',)
     defaults('openclash', 'openclash', {
         'enable': '0', 'enable_redirect_dns': '0', 'interface_name': '0',
         'core_type': 'Smart', 'smart_enable': '1', 'enable_geoip_dat': '1',
@@ -153,8 +157,7 @@ def install_bundle(source, work, records):
         'geosite_auto_update': '1', 'geoasn_auto_update': '1',
     })
     # Keep normal init registration; each plugin retains its disabled ROM default.
-    for name in ('openclash', 'passwall', 'passwall2', 'passwall_server',
-                 'passwall2_server', 'shadowsocksr'):
+    for name in services:
         text = (work / 'etc/init.d' / name).read_text()
         for key, prefix in (('START', 'S'), ('STOP', 'K')):
             match = re.search(r'^' + key + r'=(\d+)', text, re.M)

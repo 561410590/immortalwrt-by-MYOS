@@ -68,7 +68,7 @@ function render_iface(dev, alias) {
 	]);
 }
 
-function render_status(node, ifc, with_device) {
+function render_status(node, ifc, with_device, zone) {
 	var desc = null, c = [];
 
 	if (ifc.isDynamic())
@@ -93,23 +93,50 @@ function render_status(node, ifc, with_device) {
 		return Array.isArray(array) ? array.flatMap((item) => [label, item]) : [label, null];
 	}
 
-	return L.itemlist(node, [
+	const ipv4 = changecount ? [] : ifc.getIPAddrs() || [];
+	const ipv6 = changecount ? [] : ifc.getIP6Addrs() || [];
+	const errors = ifc.getErrors();
+	const pending = changecount ? E('a', {
+		href: '#',
+		click: L.bind(ui.changes.displayChanges, ui.changes)
+	}, _('Interface has %d pending changes').format(changecount)) : null;
+	const compact = !with_device && document.body.classList.contains('m-submenu-compact');
+	let target = node;
+	if (compact) {
+		let summary = node.querySelector(':scope > .m-interface-summary');
+		let details = node.querySelector(':scope > .m-interface-details');
+		if (!summary || !details) {
+			summary = E('div', { class: 'm-interface-summary' });
+			details = E('details', { class: 'm-interface-details' }, [ E('summary', '接口详情'), E('div') ]);
+			dom.content(node, [summary, details]);
+		}
+		const up = ifc.isUp(), disabled = ifc.get('disabled') === '1';
+		const state = disabled ? _('Interface disabled') : up ? '已连接' : '未连接';
+		const address = ipv4[0] || ipv6[0];
+		dom.content(summary, [
+			E('div', { class: 'm-interface-reading' }, [
+				zone ? E('strong', zone === 'lan' || zone === 'wan' ? zone.toUpperCase() : zone) : E([]),
+				E('span', { class: up && !disabled ? 'is-up' : '' }, state),
+				address ? E('span', { class: 'm-interface-address' }, address) : E([])
+			]),
+			pending || (errors?.length ? E('span', { class: 'm-interface-error' }, errors[0]) : E([]))
+		]);
+		target = details.lastElementChild;
+	}
+	return L.itemlist(target, [
 		_('Protocol'), with_device ? null : (desc || '?'),
 		_('Device'), with_device ? (maindev ? maindev.getShortName() : E('em', _('Not present'))) : null,
 		_('Uptime'), (!changecount && ifc.isUp()) ? '%t'.format(ifc.getUptime()) : null,
 		_('MAC'), (cond01) ? macaddr : null,
 		_('RX'), (cond02) ? '%.2mB (%d %s)'.format(maindev.getRXBytes(), maindev.getRXPackets(), _('Pkts.')) : null,
 		_('TX'), (cond02) ? '%.2mB (%d %s)'.format(maindev.getTXBytes(), maindev.getTXPackets(), _('Pkts.')) : null,
-		...addEntries(_('IPv4'), changecount ? [] : ifc.getIPAddrs()),
-		...addEntries(_('IPv6'), changecount ? [] : ifc.getIP6Addrs()),
+		...addEntries(_('IPv4'), compact ? ipv4.slice(1) : ipv4),
+		...addEntries(_('IPv6'), compact && !ipv4.length ? ipv6.slice(1) : ipv6),
 		...addEntries(_('IPv6-PD'), changecount ? null : ifc.getIP6Prefixes?.()),
 		_('Information'), with_device ? null : (ifc.get('disabled') != '1' ? null : _('Interface disabled')),
 		_('Information'), with_device ? null : (ifc.get('auto') != '0' ? null : _('Not started on boot')),
-		...addEntries(_('Error'), ifc.getErrors()),
-		null, changecount ? E('a', {
-			href: '#',
-			click: L.bind(ui.changes.displayChanges, ui.changes)
-		}, _('Interface has %d pending changes').format(changecount)) : null
+		...addEntries(_('Error'), errors),
+		null, compact ? null : pending
 	]);
 }
 
@@ -150,6 +177,7 @@ function render_ifacebox_status(node, ifc) {
 	dom.content(node, c);
 
 	return firewall.getZoneByNetwork(ifc.getName()).then(L.bind(function(zone) {
+		this.dataset.zone = zone ? zone.getName() : '';
 		this.style.cssText = firewall.getZoneColorStyle(zone);
 		this.title = zone ? _('Part of zone %q').format(zone.getName()) : _('No zone assigned');
 	}, node.previousElementSibling));
@@ -293,7 +321,7 @@ return view.extend({
 				dom.content(dsc, E('em', _('Interface is stopping...')));
 			}
 			else if (ifc.getProtocol() || uci.get('network', ifc.getName()) == null) {
-				render_status(dsc, ifc, false);
+				render_status(dsc, ifc, false, box.previousElementSibling?.dataset.zone);
 			}
 			else if (!ifc.getProtocol()) {
 				var e = map.querySelector('[id="cbi-network-%s"] .cbi-button-edit'.format(ifc.getName()));
@@ -1376,7 +1404,8 @@ return view.extend({
 
 			var node = E('div', { 'id': '%s-ifc-description'.format(section_id) });
 
-			render_status(node, net, false);
+			const zone = this.section.zones.find(z => z.getNetworks().includes(section_id));
+			render_status(node, net, false, zone?.getName());
 
 			return node;
 		};

@@ -1024,6 +1024,13 @@ static bool rpc_luci_get_iwinfo(struct blob_buf *buf, const char *devname,
 		iw_call_num(iw->quality_max, devname, buf, "quality_max");
 		iw_call_num(iw->bitrate, devname, buf, "bitrate");
 
+		if (!iw->htmode(devname, &nret) && nret > 0 && !(nret & (nret - 1))) {
+			unsigned int bit = __builtin_ctz((unsigned int)nret);
+
+			if (bit < IWINFO_HTMODE_COUNT)
+				blobmsg_add_string(buf, "htmode", iw_htmodenames[bit]);
+		}
+
 		if (!iw->mode(devname, &nret))
 			blobmsg_add_string(buf, "mode", iw_modenames[nret]);
 

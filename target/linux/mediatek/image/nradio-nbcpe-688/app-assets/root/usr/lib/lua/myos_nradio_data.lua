@@ -1171,8 +1171,8 @@ local function ready_cpin(value)
 	return (value == "ready" or value == "0") and "0" or value
 end
 
-function M.cpe_item(options)
-	local summary = M.summary(options)
+function M.cpe_item(options, summary)
+	summary = summary or M.summary(options)
 	local simtype, simno = app_sim_slot(summary.simno)
 	if summary.native_nbcpe then
 		simtype = summary.sim_slot == 0 and "0" or (summary.sim_slot == 1 and "4" or "")
@@ -1288,8 +1288,8 @@ function M.cpe_items(options)
 	return result
 end
 
-function M.speed(name)
-	local summary = M.summary()
+function M.speed(name, summary)
+	summary = summary or M.summary()
 	local tx, rx, tx_packets, rx_packets = interface_stats(summary.dev)
 	return { list = { {
 		name = trim(name) ~= "" and trim(name) or "cpe",
@@ -2031,10 +2031,11 @@ local function sms_snapshot(section, maximum_age)
 end
 
 local LED_ENGINE = "/usr/bin/mwrt-ledsched"
+local NBCPE_LED_ENGINE = "/usr/share/modem-AK68/netmodeled-AK68.sh"
 
 function M.led_supported()
 	if not (ok_fs and type(fs.access) == "function") then return false end
-	if not fs.access(LED_ENGINE) then return false end
+	if not fs.access(LED_ENGINE) and not (M.is_native_nbcpe() and fs.access(NBCPE_LED_ENGINE)) then return false end
 	-- At least one LED whose brightness we can actually drive.
 	local names = fs.dir and fs.dir("/sys/class/leds")
 	if not names then return false end
@@ -2048,7 +2049,7 @@ function M.led_supported()
 end
 
 function M.led_tick()
-	if not M.led_supported() then return true end
+	if M.is_native_nbcpe() or not M.led_supported() then return true end
 	if not acquire_lock("app_led") then return false end
 	local ok, result = pcall(function()
 		-- Lua 5.1's os.execute returns the raw exit status; 0 means applied.
@@ -2073,7 +2074,9 @@ local function led_state(settings)
 	local enabled = settings:get("mwrt_led", "main", "enabled") == "1"
 	local mode = settings:get("mwrt_led", "main", "mode")
 	local manual = settings:get("mwrt_led", "main", "manual")
-	local dark = manual == "off" or (enabled and mode == "always_off")
+	local legacy_off = M.is_native_nbcpe() and
+		(fs.access("/tmp/ledflag.conf") or fs.access("/usr/bin/ledflagc.conf"))
+	local dark = legacy_off or manual == "off" or (enabled and mode == "always_off")
 	return dark, enabled and mode ~= "always_off"
 end
 
@@ -2090,13 +2093,18 @@ function M.led(data)
 	-- The APP sends partial updates (only the field the user touched), so a
 	-- missing key must leave the corresponding setting alone.
 	local values, clear = {}, {}
+	local native = M.is_native_nbcpe()
+	local panel_enabled
 
 	if data.led ~= nil then
 		local value = tostring(data.led)
 		if value ~= "0" and value ~= "1" then
 			return { code = 2, message = "Invalid LED setting" }
 		end
-		if value == "0" then
+		if native then
+			panel_enabled = value == "1"
+			clear.manual = true
+		elseif value == "0" then
 			values.manual = "off"
 		else
 			-- Back to whatever the schedule says.
@@ -2138,7 +2146,16 @@ function M.led(data)
 		if not acquire_lock("app_led") then return { code = 2, message = "LED control is busy" } end
 		local ok, failure = pcall(function()
 			settings = require("luci.model.uci").cursor()
-			local changed = false
+			if not fs.access("/etc/config/mwrt_led") then
+				if not fs.writefile("/etc/config/mwrt_led", "config sched 'main'\n") then
+					return "Cannot create LED settings"
+				end
+				settings:load("mwrt_led")
+			end
+			local changed = settings:get("mwrt_led", "main") == nil
+			if changed and not settings:section("mwrt_led", "sched", "main") then
+				return "Cannot create LED settings"
+			end
 			for option, value in pairs(values) do
 				if settings:get("mwrt_led", "main", option) ~= value then
 					if not settings:set("mwrt_led", "main", option, value) then
@@ -2158,14 +2175,27 @@ function M.led(data)
 				settings:unload("mwrt_led")
 				return "Cannot save LED settings"
 			end
+			if panel_enabled ~= nil then
+				for _, flag in ipairs({"/usr/bin/ledflagc.conf", "/tmp/ledflag.conf"}) do
+					if panel_enabled then
+						if fs.access(flag) and not fs.unlink(flag) then return "Cannot enable panel LEDs" end
+					elseif not fs.writefile(flag, "0\n") then
+						return "Cannot disable panel LEDs"
+					end
+				end
+			end
 		end)
 		release_lock("app_led")
 		if not ok or failure then
 			return { code = 2, message = ok and failure or "Cannot save LED settings" }
 		end
-		if not M.led_tick() then
-			return { code = 2, message = "Cannot apply LED settings" }
+		local applied
+		if native then
+			applied = os.execute(NBCPE_LED_ENGINE .. " apply >/dev/null 2>&1") == 0
+		else
+			applied = M.led_tick()
 		end
+		if not applied then return { code = 2, message = "Cannot apply LED settings" } end
 		settings = require("luci.model.uci").cursor()
 	end
 

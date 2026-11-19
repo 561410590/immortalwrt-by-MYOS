@@ -1,0 +1,85 @@
+#!/usr/bin/lua
+
+if arg[1] == "list" and arg[2] == nil then
+	io.write('{"runtime":{}}\n')
+	return
+end
+if arg[1] ~= nil and not (arg[1] == "call" and arg[2] == "runtime" and arg[3] == nil) then
+	os.exit(1)
+end
+
+local json = require "cjson.safe"
+local util = require "luci.util"
+local data = require "myos_nradio_data"
+
+local function status(object, method)
+	local ok, result = pcall(util.ubus, object, method, {})
+	return ok and type(result) == "table" and result or nil
+end
+
+local board = status("system", "board") or {}
+local system = status("system", "info") or {}
+local usage = data.system_usage()
+local modem = data.summary()
+local active_wan = modem.network or "wan"
+local result = {
+	global = {
+		model = board.model, uptime = system.uptime, load = system.load,
+		cpu_percent = usage.cpu_percent, mem_percent = usage.mem_percent,
+		net_type = data.app_network_mode()
+	}
+}
+
+local function interface(name)
+	local state = status("network.interface." .. name, "status")
+	if state then
+		return { name = name, up = state.up, proto = state.proto,
+			device = state.l3_device or state.device, uptime = state.uptime }
+	end
+end
+
+local wans = {}
+for _, name in ipairs(active_wan == "wan" and { "wan" } or { "wan", active_wan }) do
+	local wan = interface(name)
+	if wan then
+		if name == active_wan then
+			wan.upload, wan.download = modem.tx, modem.rx
+		end
+		table.insert(wans, wan)
+	end
+end
+if #wans > 0 then result.wans = wans end
+local lan = interface("lan")
+if lan then result.lans = { lan } end
+
+if modem.section and ((modem.model or "") ~= "" or
+		(modem.mode or "") ~= "" or (modem.rsrp or "") ~= "") then
+	result.cpe = { {
+		mode = modem.mode, band = modem.band, model = modem.model,
+		operator = modem.operator, rsrp = modem.rsrp, rsrq = modem.rsrq,
+		sinr = modem.sinr, rssi = modem.rssi, up = modem.up
+	} }
+end
+
+local online = {}
+for _, client in ipairs(data.clients()) do
+	if client.exsit == 1 then
+		table.insert(online, { ipaddr = client.ipaddr, mac = client.mac,
+			hostname = client.hostname, type = client.type, rssi = client.rssi })
+	end
+end
+result.terminal_all = { count = #online }
+if #online > 0 then result.terminal_all.client = online end
+
+local wifi = status("network.wireless", "status")
+if wifi and next(wifi) then
+	local radios = {}
+	for name, radio in pairs(wifi) do
+		local cfg = radio.config or {}
+		table.insert(radios, { name = name, up = radio.up,
+			channel = cfg.channel, band = cfg.band })
+	end
+	result.wlan = { radio = radios }
+end
+
+io.write(assert(json.encode(result)), "\n")

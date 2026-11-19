@@ -162,10 +162,13 @@ function M.gateway_status()
 		["当前网关 / Gateway"] = gateway, ["当前物理接口 / Current Interface"] = device }
 end
 
--- The generic APP/remote path may carry automatic SIM requests. Only the module
--- settings controller can originate the explicit local operation.
-function M.apply_native_cpesel() return false end
-function M.sim_swap() return false end
+function M.apply_native_cpesel(slot, mode)
+	-- The APP may also submit an automatic SIM policy. C8 accepts explicit manual switches.
+	if tonumber(mode) ~= 1 or not slot or slot % 1 ~= 0 or slot < 1 or slot > 4 then return false end
+	local result = M.request({ action = "select_sim", slot = slot, origin = "app_manual" })
+	return result.ok == true, result.error, result.ok == true and result.slot or nil
+end
+function M.sim_swap(slot) return tonumber(slot) end
 function M.invalidate() return true end
 function M.neighbour() return { code = -4, message = "Neighbour scan unavailable", list = {} } end
 function M.sms_supported()

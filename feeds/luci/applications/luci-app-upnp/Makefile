@@ -12,6 +12,12 @@ LUCI_DEPENDS:=+luci-base +miniupnpd +rpcd-mod-ucode
 PKG_LICENSE:=Apache-2.0
 PKG_MAINTAINER:=Jo-Philipp Wich <jo@mein.io>
 
+define Build/Prepare/luci-app-upnp
+	# These two resources are served by uhttpd and may come from a NAS export.
+	chmod 0644 $(PKG_BUILD_DIR)/htdocs/luci-static/resources/view/upnp/upnp.js \
+		$(PKG_BUILD_DIR)/htdocs/luci-static/resources/view/status/include/80_upnp.js
+endef
+
 include ../../luci.mk
 
 # call BuildPackage - OpenWrt buildroot signature

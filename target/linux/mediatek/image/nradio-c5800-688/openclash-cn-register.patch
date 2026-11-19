@@ -1,0 +1,22 @@
+--- a/etc/init.d/openclash
++++ b/etc/init.d/openclash
+@@ -3811,6 +3811,19 @@
+    {
+       LOG_OUT "Step 1: Get The Configuration..."
++      if ! uci -q get openclash.c5800_cn_route >/dev/null; then
++         uci -q batch <<'C5800_CN_ROUTE' || LOG_WARN "C5800 domestic route module registration failed"
++set openclash.c5800_cn_route=config_overwrite
++set openclash.c5800_cn_route.name='c5800_cn_route'
++set openclash.c5800_cn_route.type='file'
++set openclash.c5800_cn_route.enable='1'
++set openclash.c5800_cn_route.order='1'
++add_list openclash.c5800_cn_route.config='/etc/openclash/config/clash-all-smart.yaml'
++commit openclash
++C5800_CN_ROUTE
++         QUICK_START=false
++      fi
++
+       # Check instead of restart
+       check_run_quick
+       overwrite_file
+       get_config

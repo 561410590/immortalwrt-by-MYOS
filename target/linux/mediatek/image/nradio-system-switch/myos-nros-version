@@ -1,0 +1,27 @@
+#!/bin/sh
+
+read_revision() {
+	awk -F= '$1 == "DISTRIB_REVISION" {
+		gsub(/["\047\r]/, "", $2)
+		if ($2 ~ /^[0-9][A-Za-z0-9._+-]*$/)
+			print $2
+		exit
+	}' "$1/etc/openwrt_release"
+}
+
+device=$(/usr/sbin/blkid -t PARTLABEL=rootfs -o device) || exit 1
+[ -b "$device" ] || exit 1
+
+mounted=$(awk -v device="$device" '$1 == device && $3 == "squashfs" { print $2; exit }' /proc/self/mounts)
+if [ -n "$mounted" ]; then
+	read_revision "$mounted"
+	exit $?
+fi
+
+directory=$(mktemp -d /tmp/myos-nros.XXXXXX) || exit 1
+if ! mount -t squashfs -o ro,nodev,nosuid,noexec "$device" "$directory"; then
+	rmdir "$directory"
+	exit 1
+fi
+trap 'umount "$directory" && rmdir "$directory"' EXIT
+read_revision "$directory"

@@ -141,6 +141,7 @@ def main():
     work = assets / ('root-c8-myos-' + VERSION)
     stock = assets / 'stock-root'
     helpers = package_helpers(source)
+    presentation = runpy.run_path(str(source / 'target/linux/mediatek/image/myos-new-image.py'))
     reference = assets / 'reference.bin'
     if hashlib.sha256(reference.read_bytes()).hexdigest() != REFERENCE_SHA256:
         raise RuntimeError('C8 reference SHA256 differs')
@@ -161,9 +162,16 @@ def main():
     config = (source / '.config').read_text(encoding='utf-8')
     selected = set(re.findall(r'^CONFIG_PACKAGE_([^=]+)=y$', config, re.M))
     roots = {'kernel'} | {name for name in selected if name.startswith('kmod-')}
+    roots.update(presentation['add_vantage_packages'](source, available, helpers.read_ipk))
+    for path in presentation['kunpeng_packages']():
+        name, record, fields, _ = helpers.read_ipk(path)
+        available[name] = path, record, fields
+        roots.add(name)
     roots |= {
         'qiyougamebooster', 'luci-app-qiyougamebooster', 'luci-i18n-qiyougamebooster-zh-cn',
-        'libip4tc2', 'libip6tc2', 'iptables-mod-extra',
+        'libseccomp', 'tini', 'btrfs-progs',
+        'luci-lib-docker', 'ttyd', 'luci-app-ttyd', 'luci-app-package-manager',
+        'luci-i18n-ttyd-zh-cn', 'luci-i18n-package-manager-zh-cn',
         'base-files', 'busybox', 'libc', 'libgcc1', 'libpthread', 'dropbear',
         'luci-base', 'luci-lib-base', 'luci-compat', 'luci-mod-admin-full',
         'luci-mod-network', 'luci-mod-system', 'luci-mod-status', 'luci-lib-jsonc',
@@ -176,6 +184,7 @@ def main():
         'uhttpd', 'uhttpd-mod-ubus', 'firewall4', 'nftables-json',
         'luci-app-firewall', 'luci-app-store', 'luci-proto-ipv6', 'kmod-nft-fullcone',
         'opkg', 'openwrt-keyring', 'iptables-nft', 'ip6tables-nft', 'iptables-mod-extra',
+        'kmod-ipt-nat', 'kmod-ipt-nat6', 'kmod-ipt-physdev', 'kmod-nf-ipvs', 'kmod-veth',
         'libip4tc2', 'libip6tc2',
         'mtwifi-cfg', 'luci-app-mtwifi-cfg', 'wifi-dats', 'wifi-profile', 'mtk-smp', 'ethtool',
         'luci-app-turboacc', 'luci-i18n-turboacc-zh-cn',
@@ -186,37 +195,19 @@ def main():
         'losetup', 'kmod-loop', 'kmod-ifb', 'kmod-fs-ext4', 'e2fsprogs',
         'mkf2fs', 'f2fsck', 'usbutils', 'usb-modeswitch',
         'luci-theme-myos-new', 'luci-app-myos-system', 'at-webserver',
+        'ppp', 'ppp-mod-pppoe', 'luci-proto-ppp', 'wireguard-tools', 'luci-proto-wireguard',
         'lua-cjson', 'lua-md5', 'lua-mosquitto', 'libmosquitto-nossl',
         'mosquitto-nossl', 'libcares', 'luci-lua-runtime', 'libpcre2',
+        'python3-light', 'python3-codecs', 'python3-ctypes', 'python3-openssl', 'python3-urllib',
     }
     proxy_bundle = runpy.run_path(str(source / 'target/linux/mediatek/image/c5800-mwrt-packages.py'))
+    excluded_proxy_packages = proxy_bundle['SSR_PLUS_PACKAGES']
     roots |= proxy_bundle['SYSTEM_PACKAGES']
     required, missing = helpers.required_closure(roots, available)
-    unwanted = {name for name in required if 'quickstart' in name.lower()
-                or name == 'luci-app-package-manager'}
+    unwanted = {name for name in required if 'quickstart' in name.lower()}
     if unwanted:
         raise RuntimeError('Unwanted dashboard/store dependency: ' + repr(sorted(unwanted)))
-    native = {'python3-light', 'python3-urllib'}
-    if not native <= records.keys():
-        raise RuntimeError('The C8 native adapter requires reference Python light/urllib')
-    final = {name: records[name] for name in native}
-    final.update({name: available[name][1] for name in required})
-    # Retain only native Python's own dependency closure when a modern provider is absent.
-    pending = list(native)
-    while pending:
-        name = pending.pop()
-        dependencies = re.search(r'^Depends: (.+)$', final[name], re.M)
-        for expression in dependencies[1].split(',') if dependencies else []:
-            choices = helpers.dependency_choices(expression)
-            if any(helpers.satisfies(record, choice) for record in final.values() for choice in choices):
-                continue
-            dependency = next((candidate for candidate, record in records.items()
-                               if candidate not in final and not candidate.startswith('kmod-')
-                               and any(helpers.satisfies(record, choice) for choice in choices)), None)
-            if dependency is not None:
-                native.add(dependency)
-                final[dependency] = records[dependency]
-                pending.append(dependency)
+    final = {name: available[name][1] for name in required}
     kernel_abi = helpers.package_version(available['kernel'][1])
     mismatches = {}
     gaps = {}
@@ -231,7 +222,7 @@ def main():
                 gaps.setdefault(name, []).append(expression)
     plan = {'version': VERSION, 'kernel': KERNEL, 'board': BOARD,
             'reference_sha256': REFERENCE_SHA256, 'required_packages': sorted(required),
-            'native_packages': sorted(native), 'missing_packages': missing,
+            'native_packages': [], 'missing_packages': missing,
             'kernel_abi': kernel_abi, 'abi_mismatches': mismatches,
             'dependency_gaps': gaps, 'source_config_sha256': hashlib.sha256(config.encode()).hexdigest(),
             'live_device_validation': 'pending'}
@@ -249,9 +240,9 @@ def main():
             assets / 'reference-tar/sysupgrade-HCMT7981-688-emmc/root', 'dev/console', 'lib/modules')
         write(work, '.c8-build-owner', VERSION + '\n')
     info = work / 'usr/lib/opkg/info'
-    removed = set(records) - native - required
+    removed = set(records) - required
     plan['removed_reference_packages'] = sorted(removed)
-    for name in removed:
+    for name in removed | excluded_proxy_packages | {'kunpeng-ai-patch'}:
         listing = info / (name + '.list')
         for relative in listing.read_text(encoding='utf-8').splitlines() if listing.is_file() else []:
             path = root_path(work, relative.lstrip('/'))
@@ -266,19 +257,28 @@ def main():
     for name in sorted(required):
         _, record, fields, payload = helpers.read_ipk(available[name][0], data=True)
         entries = extract_ipk(payload, work)
-        record = re.sub(r'^Status:.*\n?', '', record, flags=re.M).strip()
-        final[name] = record + '\nStatus: install ok installed'
+        record = re.sub(r'^(Status|Auto-Installed):.*\n?', '', record, flags=re.M).strip()
+        # opkg can treat whitespace-only description lines as record separators.
+        record = re.sub(r'(?m)^[ \t]+$', ' .', record)
+        # Explicit firmware packages remain installed when opkg removes unused dependencies.
+        status = 'user' if name in roots else 'ok'
+        final[name] = record + f'\nStatus: install {status} installed'
         write(work, 'usr/lib/opkg/info/' + name + '.list', '\n'.join(entries) + '\n')
         for key, (data, mode) in fields.items():
             path = info / (name + '.' + key)
             path.write_bytes(data)
             path.chmod(mode)
+    (work / 'etc/uci-defaults/99-kunpeng-ai-patch').unlink(missing_ok=True)
+    presentation['configure_kunpeng'](work, run)
     app = common / 'app-assets/root'
     copy_file(work / 'www/cgi-bin/luci', work / 'www/cgi-bin/luci.ucode')
     overlay_tree(app, work)
+    (work / 'usr/lib/lua/myos_nradio_app_config.lua').chmod(0o644)
     copy_file(work / 'usr/lib/lua/myos_nradio_data.lua',
               work / 'usr/lib/lua/myos_nradio_data_generic.lua')
-    overlay_tree(source / 'target/linux/mediatek/image/nradio-system-switch/root', work)
+    system_switch = source / 'target/linux/mediatek/image/nradio-system-switch'
+    overlay_tree(system_switch / 'root', work)
+    copy_file(system_switch / 'myos-nros-version', work / 'usr/libexec/myos-nros-version')
     board_files = source / 'target/linux/mediatek/filogic/base-files'
     for relative in ('etc/board.d/02_network', 'lib/upgrade/platform.sh'):
         copy_file(board_files / relative, work / relative)
@@ -367,16 +367,17 @@ def main():
     write(work, 'etc/opkg/customfeeds.conf', '')
     write(work, 'etc/opkg.conf', helpers.configured_opkg(source))
     write(work, 'usr/lib/opkg/status', '\n\n'.join(final.values()) + '\n\n')
-    # The public source uses the upstream default instead of a reference login hash.
-    copy_file(source / 'package/base-files/files/etc/shadow', work / 'etc/shadow')
+    # The image retains the reference's login hash; retained-config upgrades retain the user's hash.
+    copy_file(stock / 'etc/shadow', work / 'etc/shadow')
     core_services = {
         'sysfixtime', 'urngd', 'boot', 'system', 'fstab', 'sysctl', 'log', 'rpcd',
         'openssl', 'dnsmasq', 'dropbear', 'firewall', 'wpad', 'network', 'usbmode',
-        'odhcpd', 'istore', 'tasks', 'cron', 'uhttpd', 'ucitrack', 'turboacc',
+        'odhcpd', 'istore', 'tasks', 'cron', 'uhttpd', 'ucitrack', 'turboacc', 'ttyd',
         'qiyougamebooster',
         'done', 'sysntpd', 'mtk_smp', 'urandom_seed',
-        'myos-nros-app', 'myos-nros-mqtt',
+        'myos-nros-app', 'myos-nros-mqtt', 'myos-connections', 'myos-history',
         'myos-c8-identity', 'myos-c8-cellular', 'myos-c8-led', 'myos-c8-fan', 'myos-c8-factory-wifi',
+        'myos-c8-sms', 'zeroclaw',
         'myos-c8-calibration', 'myos-c8-wan-phy', 'atsd', 'infocd', 'smsd', 'at-webserver',
     }
     rc = work / 'etc/rc.d'
@@ -411,9 +412,22 @@ def main():
             path.unlink()
     # Install current remote and reporting files after all model/theme overlays.
     helpers.install_remote_access(source, work)
-    plan['proxy_packages'] = proxy_bundle['install_bundle'](source, work, final)
+    plan['proxy_packages'] = proxy_bundle['install_bundle'](
+        source, work, final, excluded_packages=excluded_proxy_packages)
     helpers.restore_package_alternatives(work, final)
-    runpy.run_path(str(source / 'target/linux/mediatek/image/myos-new-image.py'))['install'](work)
+    presentation['install'](work)
+    presentation['configure_vantage'](work)
+    presentation['install_upgrade_preservation'](work)
+    theme = source / 'package/luci-theme-myos-new/root'
+    for relative in ('usr/lib/lua/luci/controller/myos_new.lua',
+                     'www/luci-static/resources/view/myos-new/home.js'):
+        copy_file(theme / relative, work / relative)
+    run('patch', '-d', work, '-p1', '-i', assets / 'myos-new-c8.patch')
+    header = 'usr/share/ucode/luci/template/header.ut'
+    write(work, header, (work / header).read_text(encoding='utf-8')
+          .replace('{# PKG_VERSION #}', VERSION)
+          .replace('20261114-c8-feedback1', '20261115-c8-mwrt1'))
+    runpy.run_path(str(assets / 'adapt-c8-mt5700-webui.py'))['install'](work)
     module_root = work / 'lib/modules' / KERNEL
     for filename in ('modules.builtin', 'modules.builtin.modinfo', 'modules.order'):
         path = kdir / ('linux-' + KERNEL) / filename
@@ -433,11 +447,12 @@ def main():
             with path.open('rb') as stream:
                 shebang = stream.read(2) == b'#!'
             path.chmod(0o755 if shebang or path.stat().st_mode & 0o111 else 0o644)
-    for relative in ('etc/board.d/02_network', 'usr/libexec/myos-boot-system', 'usr/libexec/myos-ubenv'):
+    for relative in ('etc/board.d/02_network', 'usr/libexec/myos-boot-system', 'usr/libexec/myos-ubenv',
+                     'usr/libexec/myos-nros-version'):
         (work / relative).chmod(0o755)
-    run('python3', source / 'scripts/prepare-public-rootfs.py', work)
     (work / 'usr/share/myos-nros/id_rsa.db').chmod(0o400)
-    for relative in ('etc/shadow', 'etc/config/myos_nros', 'etc/config/mosquitto'):
+    for relative in ('etc/shadow', 'etc/config/myos_nros', 'etc/config/mosquitto',
+                     'etc/config/myos_c8_sms', 'etc/ppp/chap-secrets'):
         path = work / relative
         if path.is_file():
             path.chmod(0o600)
@@ -447,6 +462,7 @@ def main():
         output = assets / ('root-c8-myos-' + VERSION + '.squashfs')
         pseudo = assets / 'c8-console.pseudo'
         pseudo.write_text('dev/console c 0600 0 0 5 1\n', encoding='utf-8')
+        run('python3', source / 'scripts/install-myos-688-upgrade.py', source, work)
         run(host / 'mksquashfs4', work, output, '-nopad', '-noappend', '-root-owned',
             '-comp', 'xz', '-b', '256k', '-no-xattrs', '-pf', pseudo, '-processors', '6')
         print('C8 squashfs:', output, output.stat().st_size, flush=True)

@@ -1,0 +1,68 @@
+#!/usr/bin/lua
+local fs, nixio = require "nixio.fs", require "nixio"
+local json, util = require "luci.jsonc", require "luci.util"
+local sms = require "myos_c8_sms"
+local cursor = require("luci.model.uci").cursor()
+local history_path = "/etc/myos-c8-sms.seen"
+local payload_path = "/tmp/myos-c8-sms.payload"
+local status_path = "/tmp/myos-c8-sms.status"
+
+local function write_private(path, content)
+    local temporary = path .. ".new"
+    local file = nixio.open(temporary, "w", 384)
+    if not file then return false end
+    local length = file:writeall(content)
+    file:close()
+    if length == #content and fs.rename(temporary, path) then return true end
+    fs.unlink(temporary)
+    return false
+end
+
+local function push(url, message)
+    local payload = json.stringify({sender=message.sender, timestamp=message.time, text=message.text})
+    if not write_private(payload_path, payload) then return false end
+    local status = util.exec("curl -sS -g --connect-timeout 3 --max-time 8 -o /dev/null -w '%{http_code}' " ..
+        "-H 'Content-Type: application/json' --data-binary @" .. payload_path .. " --url " ..
+        util.shellquote(url) .. " 2>/dev/null")
+    fs.unlink(payload_path)
+    return type(status) == "string" and status:match("^2%d%d$") ~= nil
+end
+
+local function poll(url)
+    local identity = sms.sim_identity()
+    if not identity then return "未读取到当前 SIM 的 ICCID" end
+    local messages, err = sms.inbox()
+    if not messages then return err end
+    if sms.sim_identity() ~= identity then return "读取短信期间 SIM 发生变化，本轮稍后重试" end
+    local history = json.parse(fs.readfile(history_path) or "") or {}
+    local seen = history[identity]
+    if not seen then
+        seen = {}
+        for _, message in ipairs(messages) do
+            if message.complete then seen[message.key] = true end
+        end
+        history[identity] = seen
+        if not write_private(history_path, json.stringify(history)) then return "无法保存短信去重记录" end
+        return "已记录当前 SIM 的现有短信，等待新短信"
+    end
+    local sent = 0
+    for _, message in ipairs(messages) do
+        if message.complete and not seen[message.key] then
+            if not push(url, message) then return "Webhook 未确认接收，下次重试" end
+            seen[message.key] = true
+            if not write_private(history_path, json.stringify(history)) then return "短信已推送，但去重记录保存失败" end
+            sent = sent + 1
+        end
+    end
+    return "收件箱 " .. #messages .. " 条，本轮推送 " .. sent .. " 条"
+end
+
+while true do
+    cursor:unload("myos_c8_sms")
+    local config = cursor:get_all("myos_c8_sms", "main") or {}
+    if config.enabled ~= "1" then return end
+    local url = config.webhook
+    local status = url and url:match("^https?://[^%s]+$") and poll(url) or "未配置有效 Webhook"
+    write_private(status_path, os.date("%H:%M:%S") .. " · " .. status)
+    nixio.nanosleep(60)
+end

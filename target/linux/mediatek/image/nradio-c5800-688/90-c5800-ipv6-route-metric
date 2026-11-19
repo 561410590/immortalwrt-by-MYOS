@@ -4,7 +4,10 @@ case "$ACTION" in
 	ifup|ifupdate) ;;
 	ifdown)
 		case "$INTERFACE" in
-			cpe1|cpe1_6|nbdevice) ip -6 route del default dev port5 metric 10 2>/dev/null ;;
+			cpe1|cpe1_6|nbdevice)
+				rm -f /var/run/myos-c5800-poe-ipv6-renew
+				ip -6 route del default dev port5 metric 10 2>/dev/null
+				;;
 			cpe|cpe_6) ip -6 route del default dev eth1 metric 20 2>/dev/null ;;
 		esac
 		exit 0
@@ -13,7 +16,7 @@ case "$ACTION" in
 esac
 
 case "$INTERFACE" in
-	cpe|cpe_6|cpe1|cpe1_6|nbdevice|"") ;;
+	cpe|cpe_6|cpe1|cpe1_6|nbdevice|lan|"") ;;
 	*) exit 0 ;;
 esac
 
@@ -31,9 +34,68 @@ ensure_port5_linklocal() {
 	ip -6 addr add "fe80::${first}${2}:${3}ff:fe${4}:${5}${6}/64" dev port5 2>/dev/null
 }
 
+sync_poe_lan_ndp() {
+	[ "$(uci -q get dhcp.cpe1_6.ndp)" = "relay" ] || return 0
+	[ "$(uci -q get dhcp.lan.ndp)" = "relay" ] || return 0
+
+	local prefixes lan_status prefix address
+	prefixes="$(ubus call network.interface.cpe1_6 status 2>/dev/null |
+		jsonfilter -e '@["ipv6-prefix"][*].assigned.lan.address')"
+	[ -n "$prefixes" ] || return 0
+	lan_status="$(ubus call network.interface.lan status 2>/dev/null)"
+	for prefix in $prefixes; do
+		case "$prefix" in 2???:*|3???:*) ;; *) continue ;; esac
+		address="$(printf '%s\n' "$lan_status" | jsonfilter -e \
+			"@[\"ipv6-prefix-assignment\"][@.address=\"$prefix\"][\"local-address\"].address")"
+		[ -n "$address" ] && ip -6 neigh replace proxy "$address" dev port5
+	done
+}
+
+poe_ipv6_lease() {
+	ubus call network.interface.cpe1_6 status 2>/dev/null | ucode -e '
+		import { stdin } from "fs";
+
+		function prefix64(address) {
+			return join(".", slice(iptoarr(address), 0, 8));
+		}
+
+		let reply = stdin.read("all");
+		if (!reply)
+			exit(0);
+		let status = json(reply);
+		let active = {}, deprecated = {};
+		for (let prefix in status["ipv6-prefix"] ?? []) {
+			if (prefix.mask != 64 || (iptoarr(prefix.address)[0] & 0xe0) != 0x20)
+				continue;
+			let key = prefix64(prefix.address);
+			if (prefix.preferred == 0)
+				deprecated[key] = true;
+			else
+				active[key] = true;
+		}
+
+		let obsolete;
+		for (let lease in status["ipv6-address"] ?? []) {
+			if (lease.mask != 128 || lease.preferred == 0)
+				continue;
+			let key = prefix64(lease.address);
+			if (active[key]) {
+				print(lease.address);
+				exit(0);
+			}
+			if (deprecated[key])
+				obsolete = lease.address;
+		}
+
+		if (obsolete && length(keys(active)))
+			print("renew ", obsolete, "/", join(",", sort(keys(active))));
+	'
+}
+
 set_ipv6_default_metric() {
 	local dev="$1"
 	local metric="$2"
+	local source="$3"
 	local dst from src via gw devkw route_dev rest
 	if [ "$(cat /sys/class/net/"$dev"/carrier 2>/dev/null)" != 1 ]; then
 		ip -6 route del default dev "$dev" metric "$metric" 2>/dev/null
@@ -49,11 +111,40 @@ set_ipv6_default_metric() {
 
 		ip -6 route del default via "$gw" dev "$dev" metric 100 2>/dev/null
 		ip -6 route del default via "$gw" dev "$dev" metric 200 2>/dev/null
+		if [ -n "$source" ] &&
+			ip -6 route replace default via "$gw" dev "$dev" src "$source" metric "$metric" 2>/dev/null; then
+			continue
+		fi
 		ip -6 route replace default via "$gw" dev "$dev" metric "$metric" 2>/dev/null ||
 			ip -6 route add default via "$gw" dev "$dev" metric "$metric" 2>/dev/null
 	done
 }
 
+case "$INTERFACE" in
+	cpe1_6) sync_poe_lan_ndp ;;
+	lan) sync_poe_lan_ndp; exit 0 ;;
+esac
+
 ensure_port5_linklocal
-set_ipv6_default_metric port5 10
+renew_state=/var/run/myos-c5800-poe-ipv6-renew
+lease="$(poe_ipv6_lease)"
+case "$lease" in
+	"renew "*)
+		# A new RA prefix can arrive well before the old DHCPv6 lease's T1.
+		lease_change="${lease#renew }"
+		if [ "$INTERFACE" = cpe1_6 ] && [ "$lease_change" != "$(cat "$renew_state" 2>/dev/null)" ]; then
+			printf '%s\n' "$lease_change" >"$renew_state"
+			ubus call network.interface.cpe1_6 renew >/dev/null
+		fi
+		;;
+	?*)
+		port5_source="$lease"
+		rm -f "$renew_state"
+		ip -6 -o addr show dev port5 scope global dadfailed deprecated |
+			awk '{ print $4 }' | while read -r address; do
+				ip -6 addr del "$address" dev port5
+			done
+		;;
+esac
+set_ipv6_default_metric port5 10 "$port5_source"
 set_ipv6_default_metric eth1 20

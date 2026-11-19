@@ -5,6 +5,7 @@
 @media(max-width:360px){.c8-cellular-nav{gap:0 12px}.c8-cellular-nav a{font-size:13px}.c8-metrics{gap:8px}.c8-metrics strong{flex-wrap:wrap;gap:0 3px}}
 body.vt-auth :is(.c8-cellular,.c8-cellular-nav){--surface:var(--s2);--surface-soft:var(--s1);--text-secondary:var(--text-2);--border:var(--line);--hover:var(--s3);--success:var(--ok);--warning:var(--warn);--font-sans:var(--font);--font-mono:var(--mono)}
 /* C8 pages use the active MYOS-NEW palette in both light and dark mode. */
+body.myos-new :is(.c8-cellular,#cbi-c8_modem){max-width:none;margin-inline:0}
 body.myos-new :is(.c8-cellular,.c8-cellular-nav,#cbi-c8_modem){--text:var(--m-text);--text-secondary:var(--m-muted);--surface:var(--m-glass);--surface-soft:var(--m-inset);--border:var(--m-line);--hover:var(--m-soft);--accent:var(--m-blue);--success:var(--m-green);--warning:var(--m-orange);color:var(--m-text)}
 body.myos-new .c8-columns{gap:18px;margin-top:18px}
 body.myos-new :is(.c8-section,.c8-connection){padding:22px;border:1px solid var(--m-edge);border-radius:24px;background:var(--m-glass);box-shadow:var(--m-shadow);backdrop-filter:blur(24px) saturate(150%);-webkit-backdrop-filter:blur(24px) saturate(150%)}

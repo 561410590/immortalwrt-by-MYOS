@@ -96,6 +96,8 @@ function index()
 		template_name = "zmode/net_status_MT5700M"
 	end
 	entry({"admin", "modem", "smsc"}, template("zmode/smsc"), _("短信管理"), 95)
+	entry({"admin", "modem", "sms_inbox"}, post("action_sms_inbox")).leaf = true
+	entry({"admin", "modem", "sms_delete"}, post("action_sms_delete")).leaf = true
 	entry({"admin", "modem", "nets"}, template(template_name), _("模组状态"), 96)
 	entry({"admin", "modem", "at"}, template("zmode/at"), _("串口调试"), 97)
 	entry({"admin", "modem", "at2"}, template("zmode/at2"), _("网络调试"), 98)
@@ -471,6 +473,25 @@ function action_route_set()
 		return
 	end
 	http.write_json(route_state())
+end
+
+local function c5800_sms_command(mode, value)
+	local http, util = require "luci.http", require "luci.util"
+	local board = util.ubus("system", "board") or {}
+	if board.model ~= "NRadio-C5800-688" then return http.status(404, "Not Found") end
+	local raw = require("luci.sys").exec("/usr/libexec/myos-c5800-sms " .. mode .. " " ..
+		util.shellquote(value or ""))
+	local result = require("luci.jsonc").parse(raw or "")
+	http.prepare_content("application/json")
+	return http.write_json(result or {error="短信服务未返回有效结果"})
+end
+
+function action_sms_inbox()
+	return c5800_sms_command("--inbox", require("luci.http").formvalue("source"))
+end
+
+function action_sms_delete()
+	return c5800_sms_command("--delete", require("luci.http").formvalue("indices"))
 end
 
 function action_smscs()

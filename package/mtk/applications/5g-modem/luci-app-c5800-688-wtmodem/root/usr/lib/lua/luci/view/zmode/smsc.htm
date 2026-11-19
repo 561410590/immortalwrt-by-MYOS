@@ -1,101 +1,118 @@
 <%+header%>
 <%+zmode/cellular_assets%>
-<section class="c5800-cellular">
-
-    
-    
+<section class="c5800-cellular" id="c5800-sms-inbox"
+    data-inbox="<%=luci.dispatcher.build_url('admin','modem','sms_inbox')%>"
+    data-delete="<%=luci.dispatcher.build_url('admin','modem','sms_delete')%>"
+    data-token="<%=luci.dispatcher.context.authtoken%>">
     <h2>短信管理</h2>
-    <p class="cellular-help">收取短信前，请在蜂窝设置中启用短信功能。</p>
-    
-
+    <p class="cellular-help">收取短信前，请在对应模组的蜂窝设置中启用短信功能。</p>
     <div class="cellular-panel">
-        <button class="button" onclick="sendcmd()">刷新短信</button>
-        <button class="button-2" onclick="confirmDelete()">删除所有短信</button>
-        <div class="cellular-table-scroll"><table id="messages">
-            <thead>
-                <tr>
-                    <th>发件人</th>
-                    <th>发件时间</th>
-                    <th>内容</th>
-                    <th>操作</th>
-                </tr>
-            </thead>
-            <tbody>
-            </tbody>
-        </table></div>
+        <label>收件箱 <select data-source>
+            <option value="cpe">内置 5G</option>
+            <option value="cpe1">PoE 副 5G</option>
+        </select></label>
+        <button type="button" class="button" data-refresh>刷新短信</button>
+        <button type="button" class="button-2" data-delete-all hidden>删除所有短信</button>
+        <p class="cellular-help" data-storage hidden></p>
+        <p class="cellular-help" data-status role="status"></p>
+        <div class="cellular-table-scroll">
+            <table>
+                <thead><tr><th>发件人</th><th>发件时间</th><th>状态</th><th>内容</th><th>操作</th></tr></thead>
+                <tbody data-messages></tbody>
+            </table>
+        </div>
     </div>
-
-    <script type="text/javascript">
-        function sendcmd() {
-            var s = 'at+cmgl=4'; 
-            var v = '1'; 
-            XHR.get('<%=luci.dispatcher.build_url("admin", "modem", "smscs")%>', { set: s, p: v }, function(x, rv) {
-                var pd = rv.smsc;
-                displayMessages(pd);
-            });
-        }
-
-        function confirmDelete() {
-            var userConfirmed2 = confirm("你确定要删除所有短信吗？此操作无法撤销。");
-            if (userConfirmed2) {
-                deleteallMessage()
-            } 
-        }
-
-        function deleteMessage(index) {
-            var command = 'AT+CMGD=' + index;
-            var port = '1'; 
-            XHR.get('<%=luci.dispatcher.build_url("admin", "modem", "smscs")%>', { set: command, p: port }, function(x, rv) {
-                sendcmd();
-            });
-        }
-
-        function deleteallMessage() {
-            var command = 'AT+CMGD=0,4'
-            var port = '1'; 
-            XHR.get('<%=luci.dispatcher.build_url("admin", "modem", "smscs")%>', { set: command, p: port }, function(x, rv) {
-                sendcmd();
-                alert('用户已删除所有短信！');
-            });
-        }
-
-        function displayMessages(smsData) {
-            var messagesContainer = document.getElementById("messages").getElementsByTagName('tbody')[0];
-            messagesContainer.innerHTML = ''; // 清空之前的短信
-            var messages = smsData.split('------------------------------------------------------\n');
-            messages.forEach(function(message, index) {
-                if (message.trim() !== '') {
-                    var lines = message.split('\n');
-                    var sender = lines[2].split(':')[1];
-                    var time = lines[3].split(':')[1];
-                    var content = lines.slice(4).join('\n');
-                    var row = document.createElement('tr');
-                    row.innerHTML = `
-                        <td>${sender}</td>
-                        <td>${time}</td>
-                        <td>${content}</td>
-                        <td><button class="delete-button" data-index="${index}">删除</button></td>
-                    `;
-                    messagesContainer.appendChild(row);
-                }
-            });
-
-            var deleteButtons = document.querySelectorAll('.delete-button');
-                deleteButtons.forEach(function(button) {
-                    button.addEventListener('click', function() {
-                        var index = this.getAttribute('data-index');
-                        var userConfirmed = confirm('您确定要删除第 ' + index + ' 条短信吗？');
-                        if (userConfirmed) {
-                            deleteMessage(index);
-                        } 
-                    });
-                });
-        }
-
-        window.onload = function() {
-            sendcmd();
-        };
-    </script>
-
 </section>
+<script type="text/javascript">
+(function () {
+    const page = document.getElementById('c5800-sms-inbox');
+    const source = page.querySelector('[data-source]');
+    const refresh = page.querySelector('[data-refresh]');
+    const deleteAll = page.querySelector('[data-delete-all]');
+    const storage = page.querySelector('[data-storage]');
+    const status = page.querySelector('[data-status]');
+    const table = page.querySelector('[data-messages]');
+
+    async function post(url, fields) {
+        const body = new URLSearchParams(Object.assign({token: page.dataset.token}, fields));
+        const response = await fetch(url, {method: 'POST', body: body});
+        if (!response.ok) throw new Error('短信请求失败');
+        return response.json();
+    }
+
+    function render(messages) {
+        messages.forEach(function (message) {
+            const row = table.insertRow();
+            const stamp = typeof message.time === 'number' ?
+                new Date(message.time * 1000).toLocaleString() : message.time;
+            const reading = message.unread === true ? '未读' : message.unread === false ? '已读' : '—';
+            [message.sender, stamp, message.complete === false ? reading + ' · 分段未收齐' : reading,
+                message.text].forEach(function (value, index) {
+                const cell = row.insertCell();
+                cell.textContent = value == null ? '—' : value;
+                if (index === 3) cell.style.whiteSpace = 'pre-wrap';
+            });
+            const actions = row.insertCell();
+            if (source.value === 'cpe' && Array.isArray(message.indices) && message.indices.length) {
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'button-2';
+                remove.textContent = '删除';
+                remove.addEventListener('click', function () {
+                    if (confirm('删除这条短信及其已收到的分段？')) removeMessages(message.indices.join(','));
+                });
+                actions.appendChild(remove);
+            }
+        });
+    }
+
+    async function load(notice) {
+        source.disabled = refresh.disabled = true;
+        deleteAll.hidden = storage.hidden = true;
+        table.replaceChildren();
+        status.textContent = '正在读取短信…';
+        try {
+            const data = await post(page.dataset.inbox, {source: source.value});
+            const messages = Array.isArray(data.messages) ? data.messages : [];
+            if (data.storage) {
+                const names = {ME: '模组', SM: 'SIM 卡', MT: '模组与 SIM 卡'};
+                const name = names[data.storage.name] || data.storage.name;
+                storage.textContent = name + '存储 ' + data.storage.used + ' / ' + data.storage.total;
+                storage.hidden = false;
+            }
+            deleteAll.hidden = !data.available || source.value !== 'cpe';
+            render(messages);
+            const detail = data.available ? (messages.length ? '' : '收件箱为空') :
+                data.error || '短信暂不可读';
+            status.textContent = [notice, detail].filter(Boolean).join(' · ');
+        } catch (error) {
+            status.textContent = [notice, error.message].filter(Boolean).join(' · ');
+        } finally {
+            source.disabled = refresh.disabled = false;
+        }
+    }
+
+    async function removeMessages(indices) {
+        source.disabled = refresh.disabled = true;
+        deleteAll.hidden = true;
+        table.replaceChildren();
+        status.textContent = '正在删除短信…';
+        let notice;
+        try {
+            const result = await post(page.dataset.delete, {indices: indices});
+            notice = result.ok ? '已删除' : result.error;
+        } catch (error) {
+            notice = error.message;
+        }
+        await load(notice);
+    }
+
+    source.addEventListener('change', function () { load(); });
+    refresh.addEventListener('click', function () { load(); });
+    deleteAll.addEventListener('click', function () {
+        if (confirm('删除内置 5G 存储中的所有短信？此操作无法撤销。')) removeMessages('all');
+    });
+    load();
+}());
+</script>
 <%+footer%>

@@ -1,0 +1,58 @@
+--- a/usr/sbin/myos-support
++++ b/usr/sbin/myos-support
+@@ -17,6 +17,7 @@
+ RELAY_HOST = "mayebano.shop"
+ RELAY_PORT = 46224
+ RELAY_TLS_NAME = "myos-support"
++RELAY_REPLY_TIMEOUT = 15
+ OPERATOR_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBwoXfJbc9P9GA7/75FrPXWD8nSb+7pTMr3VOM/2qYas"
+ RELAY_CERTIFICATE = """-----BEGIN CERTIFICATE-----
+ MIIBnDCCAUKgAwIBAgIUWpaZx37rRFQOx9KVb9+mpa3Q558wCgYIKoZIzj0EAwIw
+@@ -131,6 +132,7 @@
+             return
+         try:
+             with socket.create_connection(("127.0.0.1", local_port), timeout=3) as local, dial(address, interface) as remote:
++                remote.settimeout(RELAY_REPLY_TIMEOUT)
+                 with channels_lock:
+                     channels.add(remote)
+                 try:
+@@ -175,8 +177,13 @@
+                     if interface not in interfaces:
+                         interfaces.append(interface)
+             for address, interface in ((addr, dev) for addr in resolved for dev in interfaces):
++                failure = "连接中继失败"
+                 try:
++                    state("正在连接 " + endpoint)
+                     with dial(address, interface) as connection:
++                        failure = "中继登记失败"
++                        state("正在等待中继分配动态密码 " + endpoint)
++                        connection.settimeout(RELAY_REPLY_TIMEOUT)
+                         send(connection, {
+                             "action": "register", "mac": session_id,
+                             "token": token, "host_key": host_key,
+@@ -188,6 +195,7 @@
+                         if not isinstance(code, str) or len(code) != 4 or not code.isascii() or not code.isdecimal():
+                             raise ValueError("中继未分配 4 位动态密码")
+                         (STATE / "code").write_text(code + "\n")
++                        failure = "中继会话中断"
+                         state("已连接 " + endpoint + " · IPv6")
+                         connection.settimeout(0.5)
+                         next_ping = time.monotonic() + 10
+@@ -203,7 +211,7 @@
+                                 continue
+                             if not first:
+                                 raise EOFError("中继连接已断开")
+-                            connection.settimeout(5)
++                            connection.settimeout(RELAY_REPLY_TIMEOUT)
+                             data = first
+                             while not data.endswith(b"\n") and len(data) < 8192:
+                                 part = connection.recv(1)
+@@ -217,7 +225,7 @@
+                     break
+                 except (OSError, EOFError, ValueError) as error:
+                     (STATE / "code").unlink(missing_ok=True)
+-                    state("连接中继失败 " + endpoint + " " + str(error))
++                    state(f"{failure} {endpoint} {error}")
+             time.sleep(2)
+     finally:
+         (STATE / "code").unlink(missing_ok=True)

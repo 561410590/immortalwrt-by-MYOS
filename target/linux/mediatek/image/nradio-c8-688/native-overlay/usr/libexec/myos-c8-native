@@ -804,8 +804,8 @@ def restore_saved_slot():
 
 
 def select_sim(request, action_lock=None):
-    if request.get("origin") != "module_settings":
-        raise RuntimeError("SIM changes require an explicit module-settings action")
+    if request.get("origin") not in ("module_settings", "app_manual"):
+        raise RuntimeError("SIM changes require an explicit manual request")
     slot = request.get("slot")
     if type(slot) is not int or slot not in SIM_MAP:
         raise ValueError("Invalid C8 SIM slot")

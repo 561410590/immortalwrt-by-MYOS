@@ -219,9 +219,10 @@ class Merger:
             if not line.startswith('src-git '):
                 continue
             _, name, address = line.split()[:3]
-            url, _, branch = address.partition(';')
-            branch = branch or 'HEAD'
-            old = snapshot['feed_origins'][name]
+            url, pin_separator, pin = address.partition('^')
+            url, _, branch = url.partition(';')
+            branch = pin if pin_separator else (branch or 'HEAD')
+            old = pin if pin_separator else snapshot['feed_origins'][name]
             latest = self.fetch(name, url, branch, old)
             local = self.text('rev-parse', tree + ':feeds/' + name)
             old_tree, new_tree = self.prepare_feed(name, self.text('rev-parse', old + '^{tree}'),

@@ -1,0 +1,31 @@
+#!/bin/sh
+# Repair a retained dnsmasq redirect after the AdGuard Home provider was removed.
+adguard=AdGuardHome.AdGuardHome
+[ "$(uci -q get "$adguard.redirect")" = dnsmasq-upstream ] || exit 0
+port=$(uci -q get "$adguard.old_port")
+[ -n "$port" ] || exit 0
+
+binary=$(uci -q get "$adguard.binpath")
+config=$(uci -q get "$adguard.configpath")
+if [ -x "$binary" ] && [ -s "$config" ] &&
+   { /etc/init.d/AdGuardHome enabled 2>/dev/null || /etc/init.d/adguardhome enabled 2>/dev/null; }; then
+	exit 0
+fi
+
+stale="127.0.0.1#$port"
+servers=$(uci -q get 'dhcp.@dnsmasq[0].server')
+case " $servers " in
+	*" $stale "*) ;;
+	*) exit 0 ;;
+esac
+
+uci -q del_list "dhcp.@dnsmasq[0].server=$stale"
+use_peer_dns=1
+for server in $servers; do
+	case "$server" in
+		"$stale") ;;
+		'/#/'*|[!/]*) use_peer_dns=0 ;;
+	esac
+done
+[ "$use_peer_dns" = 0 ] || uci -q delete 'dhcp.@dnsmasq[0].noresolv'
+uci -q commit dhcp

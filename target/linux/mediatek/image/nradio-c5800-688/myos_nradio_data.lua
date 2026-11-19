@@ -803,6 +803,7 @@ local function build_base_summary(options)
 			"international_mobile_equipment_identity"),
 		imsi = imsi,
 		iccid = iccid,
+		reported_simno = native and tonumber(first_field(fields, "simno", "sim_no")) or nil,
 		simno = native and tostring(fields.simno or fields.sim_no or
 			uci:get("cpesel", alias == "cpe1" and "sim1" or "sim", "cur") or "1") or
 			tostring(logical_sim_slot(section, modem_slot)),
@@ -1121,9 +1122,10 @@ end
 function M.native_cpesel_info()
 	local settings = require("luci.model.uci").cursor()
 	local sel = settings:get_all("cpesel", "sim") or {}
-	local cur = tonumber(sel.cur) or 1
 	local maximum = tonumber(sel.max) or 0
 	local m = M.summary({ network = "cpe" })
+	local observed = m.reported_simno
+	local cur = observed and observed >= 1 and observed <= maximum and observed or tonumber(sel.cur) or 1
 	local info, iccid = {}, {}
 	for i = 1, maximum do
 		local typ = tostring(sel.stype or ""):match("^" .. string.rep("[^,]*,", i - 1) .. "([^,]*)") or "0"
@@ -1161,7 +1163,7 @@ function M.apply_native_request(req)
 		if tonumber(values[2]) ~= state.cur and not secondary.select(values[2]) then return false end
 	end
 	local cur = tonumber(values and values[1] or req.cur)
-	if not cur then return true end
+	if not cur then return values ~= nil and values[2] ~= nil end
 	local mode = type(req.mode) == "table" and req.mode[1] or req.mode
 	return M.apply_native_cpesel(cur, tonumber(mode) or 1)
 end
@@ -1175,14 +1177,28 @@ function M.apply_native_cpesel(slot, mode)
 	for _ in (mapping .. ","):gmatch("([^,]+),") do count = count + 1 end
 	if count > 0 then maximum = count end
 	if not slot or slot % 1 ~= 0 or slot < 1 or slot > maximum then return false end
-	if tostring(slot) == settings:get("cpesel", "sim", "cur") and
-	   tostring(mode) == settings:get("cpesel", "sim", "mode") then return true end
-	settings:set("cpesel", "sim", "cur", tostring(slot))
+	local current = M.summary({ network = "cpe" }).reported_simno
+	local configured = tonumber(settings:get("cpesel", "sim", "cur"))
+	local old_mode = tonumber(settings:get("cpesel", "sim", "mode"))
+	if current == slot and configured == slot and old_mode == mode then return true end
+
+	if mode == 1 and current ~= slot then
+		local result = os.execute("/usr/bin/cpetools.sh -i cpe -s " .. slot .. " >/dev/null 2>&1")
+		if result ~= 0 and result ~= true then return false end
+	end
+	settings:unload("cpesel")
+	settings:load("cpesel")
 	settings:set("cpesel", "sim", "mode", tostring(mode))
+	if mode == 0 or current == slot then
+		settings:set("cpesel", "sim", "cur", tostring(slot))
+	end
 	if not settings:commit("cpesel") then return false end
 	local result = os.execute("/etc/init.d/cpesel reload >/dev/null 2>&1")
 	M.invalidate()
-	return result == true or result == 0
+	if result ~= true and result ~= 0 then return false end
+	-- cpetools runs the switch asynchronously. The APP must read the
+	-- modem's reported slot instead of treating this dispatch as completion.
+	return true
 end
 
 local function app_sim_slot(logical)

@@ -97,6 +97,12 @@ function M.summary()
 	if slot == nil then
 		slot = ({ ["外置SIM卡"] = 0, ["内置SIM1"] = 1 })[status.sim_label]
 	end
+	-- AK68 stores bandwidth in MHz and session AMBR in kbps.
+	-- The APP expects kHz and kbps respectively.
+	local down_mhz, up_mhz = (fields.Band_raw or ""):match(
+		"Bandwidth%s+(%d+)%s+MHz%s+Down%s*|%s*(%d+)%s+MHz%s+Up")
+	local down_kbps = (fields.downlink or ""):match("^(%d+)%s+kbps$")
+	local up_kbps = (fields.uplink or ""):match("^(%d+)%s+kbps$")
 	local result = {
 		section = "AK68", network = trim(ipv4.interface or ipv6.interface or "cpe_4"),
 		dev = device, at_port = "", native_nros = true, native_nbcpe = true,
@@ -118,7 +124,10 @@ function M.summary()
 		earfcn = fields.ARFCN or "", band = (fields.Band or ""):gsub("^[BbNn]", ""),
 		rsrp = fields.RSRP or "", rsrq = fields.RSRQ or "",
 		sinr = fields.SINR or "", rssi = fields.RSSI or "",
-		dlbw = "", ulbw = "", cqi = fields.QCI or "", ambr_dl = "", ambr_ul = "",
+		dlbw = down_mhz and tostring(1000 * tonumber(down_mhz)) or "",
+		ulbw = up_mhz and tostring(1000 * tonumber(up_mhz)) or "",
+		cqi = (fields.QCI or ""):gsub("\\%-", "-"),
+		ambr_dl = down_kbps or "", ambr_ul = up_kbps or "",
 		temp = fields.temperature or "", apn = fields.APN or "",
 		cache_only = true, cache_age = age, stale = stale,
 		cache_state = status.cache_state or "missing",

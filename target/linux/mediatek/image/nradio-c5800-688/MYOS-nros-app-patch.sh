@@ -52,6 +52,8 @@ cp -fp "$script_dir/myos-nradio-app.lua" "$root/usr/lib/lua/luci/controller/nrad
 cp -fp "$script_dir/myos_nradio_app_crypto.lua" "$root/usr/lib/lua/myos_nradio_app_crypto.lua"
 cp -fp "$script_dir/myos_nradio_app_session.lua" "$root/usr/lib/lua/myos_nradio_app_session.lua"
 chmod 644 "$root/usr/lib/lua/myos_nradio_app_session.lua"
+cp -fp "$script_dir/myos_nradio_app_config.lua" "$root/usr/lib/lua/myos_nradio_app_config.lua"
+chmod 644 "$root/usr/lib/lua/myos_nradio_app_config.lua"
 cp -fp "$script_dir/myos_nradio_data.lua" "$root/usr/lib/lua/myos_nradio_data.lua"
 cp -fp "$script_dir/plmn.json" "$root/etc/plmn.json"
 cp -fp "$script_dir/myos-nradio-app-fast.lua" "$root/usr/sbin/myos-nradio-app-fast"

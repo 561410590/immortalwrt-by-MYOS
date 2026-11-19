@@ -29,9 +29,17 @@ M.led_supported = function()
     return true
 end
 M.led_tick = function()
-    return os.execute("/usr/libexec/myos-c8-led apply >/dev/null 2>&1") == 0
+    local status = os.execute("/usr/libexec/myos-c8-led apply >/dev/null 2>&1")
+    return status == true or status == 0
 end
 -- Reuse the APP's partial-update semantics; both themes use this same UCI state.
 M.led = function(data) return generic_led(data) end
+
+function M.app_reboot(delay)
+    local command = string.format('(/bin/sleep %d; /bin/ubus call system reboot) </dev/null >/dev/null 2>&1 &',
+        delay == 3 and 3 or 1)
+    local rc = os.execute(command)
+    return rc == 0 or rc == true
+end
 
 return M

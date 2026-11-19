@@ -1,0 +1,9 @@
+#include "mt7981-nradio-wt9138-N3000-No2.dts"
+
+&{/memory} {
+	device_type = "memory";
+};
+
+&{/chosen} {
+	bootargs-override = "console=ttyS0,115200n1 rootwait loglevel=8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=rootfs_2nd rootfstype=squashfs,f2fs";
+};

@@ -408,6 +408,8 @@ create_backup_archive() {
 
 		if [ $ret -eq 0 ]; then
 			for service in /etc/init.d/*; do
+				# The internal WWAN protocol requires AT discovery after restore.
+				[ "$service" = /etc/init.d/atsd ] && continue
 				if ! $service enabled; then
 				disabled="$disabled$service disable\n"
 				fi

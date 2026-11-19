@@ -220,14 +220,17 @@ function M.apply_sim(slot, mode)
 	if mode ~= 0 and mode ~= 1 then return false end
 	if not (ok_fs and fs.access("/etc/init.d/cpesel")) then return false end
 	local config = settings()
-	local changed = current_slot(config) ~= slot or (config:get("cpesel", "sim", "mode") or "0") ~= tostring(mode)
+	local observed = tonumber(require("myos_nbcpe_data").summary().simno)
+	local changed_slot = (observed or current_slot(config)) ~= slot
+	local changed_mode = (config:get("cpesel", "sim", "mode") or "0") ~= tostring(mode)
 	config:set("cpesel", "sim", "cpesel")
 	config:set("cpesel", "sim", "max", "2")
 	config:set("cpesel", "sim", "cur", tostring(slot))
 	config:set("cpesel", "sim", "mode", tostring(mode))
 	if not config:commit("cpesel") then return false end
-	if not changed then return true end
-	return execute("/etc/init.d/cpesel reload")
+	if changed_slot and mode == 1 and not execute(CLI .. " -i cpe -s " .. slot) then return false end
+	if changed_slot or changed_mode then return execute("/etc/init.d/cpesel reload") end
+	return true
 end
 
 -- Read the same settings that the active official WWAN owner uses. A single

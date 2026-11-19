@@ -5,6 +5,56 @@ nbcpe_optional_led() {
     [ -w "$path" ] || return 0
     echo "$2" > "$path"
 }
+nbcpe_led_minutes() {
+    case "$1" in [0-9]:[0-9]|[0-9][0-9]:[0-9]|[0-9]:[0-9][0-9]|[0-9][0-9]:[0-9][0-9]) ;; *) return 1 ;; esac
+    local hour=${1%:*} minute=${1#*:}
+    echo "$(( 0${hour#0} * 60 + 0${minute#0} ))"
+}
+
+nbcpe_led_dark() {
+    local manual mode first last now
+    manual=$(uci -q get mwrt_led.main.manual)
+    [ "$manual" = off ] && return 0
+    if [ -f /tmp/ledflag.conf ] || [ -f /usr/bin/ledflagc.conf ]; then
+        return 0
+    fi
+    [ "$(uci -q get mwrt_led.main.enabled)" = 1 ] || return 1
+    mode=$(uci -q get mwrt_led.main.mode)
+    [ "$mode" = always_off ] && return 0
+    [ "$mode" = schedule ] || return 1
+    first=$(nbcpe_led_minutes "$(uci -q get mwrt_led.main.starttime)") || return 1
+    last=$(nbcpe_led_minutes "$(uci -q get mwrt_led.main.endtime)") || return 1
+    [ "$first" -ne "$last" ] || return 1
+    now=$(nbcpe_led_minutes "$(date +%H:%M)") || return 1
+    if [ "$first" -lt "$last" ]; then
+        [ "$now" -ge "$first" ] && [ "$now" -lt "$last" ]
+    else
+        [ "$now" -ge "$first" ] || [ "$now" -lt "$last" ]
+    fi
+}
+
+nbcpe_led_panel_off() {
+    local led
+    for led in status wifi cmode4 cmode5 sig1 sig2 sig3 int; do
+        nbcpe_optional_led "$led" 0 || return 1
+    done
+}
+
+nbcpe_led_panel_on() {
+    local wifi=0 dev state
+    for dev in ra0 rax0 wlan0 wlan1; do
+        [ -r "/sys/class/net/$dev/operstate" ] || continue
+        read -r state < "/sys/class/net/$dev/operstate"
+        [ "$state" = up ] && wifi=1
+    done
+    nbcpe_optional_led status 1 && nbcpe_optional_led wifi "$wifi"
+}
+
+if [ "$1" = apply ]; then
+    if nbcpe_led_dark; then nbcpe_led_panel_off; else nbcpe_led_panel_on; fi
+    exit $?
+fi
+
 lock_file="/var/run/network_status_update-AK68.lock"
 exec 200>$lock_file
 flock -n 200 || exit 1
@@ -28,7 +78,7 @@ nbcpe_led_write() {
 
 nbcpe_cached_leds() {
     local status age registered mode sample last_sample= bad=0
-    local selected=0 last_good=0 now uptime led wifi dev
+    local selected=0 last_good=0 now uptime led
     for led in status wifi cmode4 cmode5; do
         [ -w "/sys/class/leds/hc:blue:$led/trigger" ] &&
             echo none > "/sys/class/leds/hc:blue:$led/trigger"
@@ -57,17 +107,10 @@ nbcpe_cached_leds() {
         fi
         last_sample=$sample
         [ "$((now - last_good))" -le 120 ] || selected=0
-        if [ -f /tmp/ledflag.conf ] || [ -f /usr/bin/ledflagc.conf ]; then
-            for led in status wifi cmode4 cmode5; do nbcpe_led_write "$led" 0; done
+        if nbcpe_led_dark; then
+            nbcpe_led_panel_off
         else
-            nbcpe_led_write status 1
-            wifi=0
-            for dev in ra0 rax0 wlan0 wlan1; do
-                [ -r "/sys/class/net/$dev/operstate" ] || continue
-                read -r state < "/sys/class/net/$dev/operstate"
-                [ "$state" = up ] && wifi=1
-            done
-            nbcpe_led_write wifi "$wifi"
+            nbcpe_led_panel_on
             if [ "$selected" = 5 ]; then
                 nbcpe_led_write cmode4 0
                 nbcpe_led_write cmode5 1
@@ -91,6 +134,11 @@ fi
 while true
 do
     sleep 8
+    if nbcpe_led_dark; then
+        nbcpe_led_panel_off
+        continue
+    fi
+    nbcpe_led_panel_on
     if nbcpe_mt5700_odu; then
         echo "MT5700" > /tmp/modconf-AK68.conf
     elif ping -c 1 192.168.225.1 > /dev/null 2>&1; then
@@ -141,7 +189,7 @@ do
     fi
     #判断不同模组执行不同的判断
     modconf=$(cat /tmp/modconf-AK68.conf)
-    if [ ! -f "/tmp/ledflag.conf" ]; then
+    if ! nbcpe_led_dark; then
         if echo "$modconf" | grep -q "RM520N"; then
             network_mode=$(atsd_tools_cli -i cpe -c at+qnwinfo | grep '+QNWINFO' | awk -F\" '{print $2}' | tr -d '\r')
             OX=$( atsd_tools_cli -i cpe -c "AT+CSQ" |grep "+CSQ:")

@@ -1,0 +1,40 @@
+/dts-v1/;
+
+#include "mt7981-nradio-emmc-N3000-No2.dtsi"
+
+/ {
+	model = "NRadio-N3000";
+
+	aliases {
+		led-boot = &led_status;
+		led-failsafe = &led_status;
+		led-running = &led_status;
+		led-upgrade = &led_status;
+	};
+
+	gpio_export {
+		compatible = "gpio-export";
+		#size-cells = <0>;
+	};
+
+	gpio-leds {
+		compatible = "gpio-leds";
+
+		led_status: status {
+			label = "hc:blue:status";
+			gpios = <&pio 10 GPIO_ACTIVE_LOW>;
+		};
+
+		error {
+			label = "hc:red:error";
+			gpios = <&pio 9 GPIO_ACTIVE_LOW>;
+		};
+
+		// wifi {
+		// 	label = "hc:blue:wifi";
+		// 	gpios = <&pio 13 GPIO_ACTIVE_LOW>;
+		// };
+	};
+};
+
+

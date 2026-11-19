@@ -6,7 +6,7 @@ local ok_crypto, app_crypto = pcall(require, "myos_nradio_app_crypto")
 local ok_md5, md5 = pcall(require, "md5")
 local shared = require "myos_nradio_data"
 local app_session = require "myos_nradio_app_session"
-local app_uci = require("luci.model.uci").cursor()
+local app_config = require "myos_nradio_app_config"
 
 local cache_file = "/tmp/myos-nradio-app-summary.json"
 local cellular_record_state_file = "/tmp/myos-cellular-record-enabled"
@@ -832,120 +832,13 @@ local function cpesel_info()
 end
 
 local function wifi_info()
-	if app_uci then
-		pcall(function() app_uci:load("wireless") end)
-		local list, index = {}, 0
-		app_uci:foreach("wireless", "wifi-iface", function(section)
-			local mode = trim(section.mode):lower()
-			if mode == "" or mode == "ap" then
-				local device = tostring(section.device or "")
-				list[#list + 1] = {
-					rule_name = "wlan" .. tostring(index),
-					ruleName = "wlan" .. tostring(index),
-					ssid = section.ssid or "",
-					password = section.key or "",
-					encryption = section.encryption or "none",
-					hidden = section.hidden or "0",
-					disabled = section.disabled or
-						app_uci:get("wireless", device, "disabled") or "0",
-					channel = device ~= "" and
-						(app_uci:get("wireless", device, "channel") or "auto") or
-						"auto",
-					band = index,
-					max_link = tonumber(section.maxassoc or section.maxstanum or "0") or 0
-				}
-				index = index + 1
-			end
-		end)
-		if #list == 0 then list[1] = {} end
-		return require("luci.controller.nradio.app").wifi_app_list(list)
-	end
-	local list, cur = {}, nil
-	local f = io.open("/etc/config/wireless", "r")
-	if f then
-		for line in f:lines() do
-			if line:match("^config%s+wifi%-iface") then
-				cur = { rule_name = "wlan" .. tostring(#list), ruleName = "wlan" .. tostring(#list), hidden = "0", encryption = "none", channel = "auto", disabled = "0", band = #list, max_link = 0 }
-				list[#list + 1] = cur
-			elseif cur then
-				local k, v = line:match("^%s*option%s+([%w_%-]+)%s+'?(.-)'?%s*$")
-				if k == "ssid" then cur.ssid = v elseif k == "key" then cur.password = v elseif k == "encryption" then cur.encryption = v elseif k == "disabled" then cur.disabled = v elseif k == "hidden" then cur.hidden = v end
-			end
-		end
-		f:close()
-	end
-	if #list == 0 then list[1] = {} end
-	return require("luci.controller.nradio.app").wifi_app_list(list)
+	return require("luci.controller.nradio.app").wifi_info()
 end
 
-local function valid_wifi_text(value, max_len, required)
-	if type(value) ~= "string" and type(value) ~= "number" then return false end
-	value = tostring(value)
-	if required and value == "" then return false end
-	return #value <= max_len and not value:find("[%z\r\n]")
-end
 
-local function wifi_item_for_index(list, index)
-	local wanted = "wlan" .. tostring(index - 1)
-	for _, item in ipairs(list or {}) do
-		if type(item) == "table" then
-			local rule = trim(item.rule_name or item.ruleName)
-			if rule == wanted or rule == "t0" then return item end
-		end
-	end
-	return list and list[index]
-end
 
 local function apply_wifi(req)
-	if type(req.list) ~= "table" or #req.list == 0 or #req.list > 8 then return false end
-	local sections = {}
-	for _, section in ipairs(parse_uci("wireless", "wifi-iface")) do
-		local mode = trim(section.mode):lower()
-		if mode == "" or mode == "ap" then sections[#sections + 1] = section end
-	end
-	if #sections == 0 then return false end
-	for index, section in ipairs(sections) do
-		local item = wifi_item_for_index(req.list, index)
-		if item then
-			local ssid = item.ssid
-			local password = item.password
-			local encryption = item.encryption
-			local channel = item.channel
-			if tostring(channel or "") == "0" then channel = nil end
-			local hidden = item.hidden
-			local disabled = item.disabled
-			if ssid ~= nil and not valid_wifi_text(ssid, 32, true) then return false end
-			if password ~= nil and not valid_wifi_text(password, 64, false) then return false end
-			if encryption ~= nil then
-				encryption = trim(encryption):lower()
-				if encryption == "" or not encryption:match("^[%w%+%-]+$") then return false end
-			end
-			if channel ~= nil then
-				channel = trim(channel):lower()
-				if channel ~= "" and channel ~= "auto" and not channel:match("^%d%d?%d?$") then return false end
-			end
-			if hidden ~= nil and not tostring(hidden):match("^[01]$") then return false end
-			if disabled ~= nil and not tostring(disabled):match("^[01]$") then return false end
-			local name = trim(section.section)
-			if name == "" then return false end
-			if ssid ~= nil then run("uci -q set " .. shell_quote("wireless." .. name .. ".ssid=" .. tostring(ssid))) end
-			if encryption ~= nil then run("uci -q set " .. shell_quote("wireless." .. name .. ".encryption=" .. encryption)) end
-			if password ~= nil then
-				if tostring(password) == "" or encryption == "none" then
-					run("uci -q delete " .. shell_quote("wireless." .. name .. ".key"))
-				else
-					run("uci -q set " .. shell_quote("wireless." .. name .. ".key=" .. tostring(password)))
-				end
-			end
-			if hidden ~= nil then run("uci -q set " .. shell_quote("wireless." .. name .. ".hidden=" .. tostring(hidden))) end
-			if disabled ~= nil then run("uci -q set " .. shell_quote("wireless." .. name .. ".disabled=" .. tostring(disabled))) end
-			local device = trim(section.device)
-			if channel ~= nil and channel ~= "" and device ~= "" then run("uci -q set " .. shell_quote("wireless." .. device .. ".channel=" .. channel)) end
-		end
-	end
-	run("uci -q commit wireless")
-	os.execute("(wifi reload) >/dev/null 2>&1 &")
-	return true
+	return require("luci.controller.nradio.app").apply_wifi(req)
 end
 
 local function dhcp_clients()
@@ -1064,10 +957,10 @@ local function info_result()
 	local sms = type(shared.sms_supported) == "function" and shared.sms_supported() and 1 or 0
 	return {
 		runtime = runtime_info(),
-		basic = { version = app_api_version, sys_version = sys_version, api_version = app_api_version, mac = device_id(), name = shared.app_device_name(), net_prefer = "", active_modem = shared.native_modems(), modem_cnt = #shared.native_modems() },
+		basic = { version = app_api_version, sys_version = sys_version, api_version = app_api_version, mac = device_id(), device_code = device_code(), name = shared.app_device_name(), net_prefer = "", active_modem = shared.native_modems(), modem_cnt = #shared.native_modems() },
 		diagnosis = { netlink = m.up and 1 or 0, speedlimit = 0, list = { { using = true, nosignal = (tonumber(m.rsrp) or tonumber(m.rssi)) and 0 or 1, model = 0, register = ((m.isp or "") ~= "" or (m.operator or "") ~= "") and 0 or 1, sim = m.iccid ~= "" and 0 or 1, isp = (m.isp or "") ~= "" and m.isp or (m.operator or ""), operator = m.operator or "" } } },
-		cpesel = cpesel_info(),
-		cpecfg = shared.native_cpecfg_info(), apn = {}, client = clients, client_count = count, client_info = { count = count, client = clients }, auth_on = 0,
+		cpesel = app_config.apn_info(cpesel_info()),
+		cpecfg = shared.native_cpecfg_info(), apn = app_config.apn_list(), client = clients, client_count = count, client_info = { count = count, client = clients }, auth_on = 0,
 		wifi = wifi_info(), bat = { percent = "-1", charging = false }, cellular = shared.with_secondary_capability({ { earfcn = m.earfcn, pci = m.pci, nrcap = 1, nrrc = 0, ippass = 0, blacklist_band = "", compatibility = 0, automatic = 0, sms = sms, command_equal = 0, mobility = 0, simisolate = 1 } }),
 		cpe = cpe_item(), intstatus = { mode = (m.operator or "") ~= "" and (m.operator .. "," .. band_mode(m.mode)) or band_mode(m.mode), time = m.uptime }, status = status_info(), speed = speed_result()
 	}
@@ -1102,7 +995,10 @@ if not enabled then
 	json_out({ code = "1", result = "local app disabled", trans_id = req.trans_id }, nil, "404 Not Found")
 	return
 elseif endpoint == "auth" then
-	if not encrypted or not auth_request_valid(req) then
+	local valid
+	if encrypted then valid = auth_request_valid(req)
+	else valid = app_session.password_valid(req) end
+	if not valid then
 		json_out({ code = "1", result = "invalid auth", trans_id = req.trans_id })
 	else
 		local token = issue_auth_token()
@@ -1166,7 +1062,7 @@ elseif endpoint == "cpesel" then
 	json_out({ code = "0", result = { cpesel = cpesel_info(true) } })
 elseif endpoint == "combo" then
 	if req.combo ~= nil then
-		json_out({ code = "2", result = "unsupported on MYOS" })
+		json_out(app_config.combo(req))
 	else
 		json_out({ code = "0", result = runtime_info() })
 	end
@@ -1177,13 +1073,7 @@ elseif endpoint == "neighbour" then
 	if filter ~= "4" and filter ~= "5" then filter = "" end
 	json_out({ code = "0", result = { neighbour = neighbour_info(filter) }, trans_id = req.trans_id })
 elseif endpoint == "earfcn" then
-	local action = tonumber(req.action or 2)
-	if action ~= 2 or req.mode ~= nil or req.band ~= nil or req.earfcn ~= nil or req.earfcns ~= nil or req.adv ~= nil or req.earfreq_mode ~= nil then
-		json_out({ code = "1", result = "unsupported on MYOS" })
-	else
-		local m = summary()
-		json_out({ code = "0", result = { index = tonumber(req.index) or 1, action = 2, sim = tonumber(req.sim) or shared.sim_swap(m.simno) or 1, mode = "auto", band = { status = "0", freq = "" }, earfcn = {} } })
-	end
+	json_out(app_config.radio(req))
 	elseif endpoint == "sms" then
 		if not shared.sms_request_allowed(req) then
 			json_out({ code = "1", result = "invalid device identity", trans_id = req.trans_id })
@@ -1198,7 +1088,11 @@ elseif endpoint == "earfcn" then
 			end
 		end
 		json_out(shared.led(req))
-	elseif endpoint == "apn" or endpoint == "sync" or endpoint == "lan" then
+	elseif endpoint == "apn" then
+		json_out(app_config.apn(req))
+	elseif endpoint == "lan" then
+		json_out(app_config.lan(req))
+	elseif endpoint == "sync" then
 		json_out({ code = "1", result = "unsupported on MYOS", trans_id = req.trans_id })
 elseif endpoint == "wifiauth" then
 	json_out({ wifiauth = -1, trans_id = req.trans_id })
@@ -1209,10 +1103,17 @@ elseif endpoint == "cmd" and req.cmd == "service" and req.name == "cellular_reco
 	local enabled = cellular_record_enabled()
 	if req.enabled ~= nil then enabled = set_cellular_record_enabled(req.enabled) end
 	json_out({ code = "0", name = "cellular_record", enabled = enabled, cellular_record = { enabled = enabled } })
-elseif endpoint == "cmd" and req.cmd == "reboot" and device_code() ~= "" and req.device_code and tostring(req.device_code) == device_code() then
-	json_out({ code = "0", result = {} })
-	os.execute("(sleep 1; reboot) >/dev/null 2>&1 &")
-elseif endpoint == "password" or endpoint == "cmd" then
+elseif endpoint == "cmd" and req.cmd == "reboot" then
+	local code = device_code()
+	if code == "" or trim(req.device_code) ~= code then
+		json_out({ code = "2", message = "Invalid device identity" })
+	else
+		local rc = os.execute("(sleep 1; /sbin/reboot) >/dev/null 2>&1 &")
+		json_out({ code = (rc == 0 or rc == true) and "0" or "2" })
+	end
+elseif endpoint == "password" then
+	json_out(app_config.password(req))
+elseif endpoint == "cmd" then
 	json_out({ code = "1", result = "disabled on MYOS" })
 else
 	json_out({ code = "1", result = "unsupported on MYOS", trans_id = req.trans_id })

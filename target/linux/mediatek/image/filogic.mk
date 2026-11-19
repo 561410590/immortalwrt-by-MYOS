@@ -2517,8 +2517,11 @@ define Device/nradio_c5800-688
   BOARD_NAME := nradio_c5800-688
   SUPPORTED_DEVICES += HCMT7981-emmc
   DEVICE_PACKAGES := \
+	kmod-nft-queue \
 	luci-app-qiyougamebooster luci-i18n-qiyougamebooster-zh-cn \
 	libip4tc libip6tc kmod-ipt-extra iptables-mod-extra \
+	ca-certificates libseccomp tini btrfs-progs \
+	luci-lib-docker ttyd \
 	kmod-mediatek_hnat luci-app-c5800-hnat \
 	mtk-smp luci-app-c5800-688-wtmodem mt5700-web-go luci-app-mt5700-web openvpn-openssl kmod-tun \
 	kmod-mt_wifi kmod-conninfra kmod-warp mtwifi-cfg luci-app-mtwifi-cfg \
@@ -2527,9 +2530,10 @@ define Device/nradio_c5800-688
 	kmod-usb-net-qmi-wwan kmod-usb-net-qmi-wwan-fibocom \
 	kmod-usb-net-qmi-wwan-quectel kmod-usb-net-huawei-cdc-ncm \
 	fibocom-dial quectel-CM-5G quectel-cm modemband sms-tool umbim \
-	adb f2fsck mkf2fs \
+	adb jq f2fsck mkf2fs \
 	usbutils usbids uqmi \
-	python3-light luci-theme-myos-new luci-app-myos-system uhttpd uhttpd-mod-ubus \
+	python3-light python3-codecs python3-ctypes \
+	luci-theme-myos-new luci-app-myos-system uhttpd uhttpd-mod-ubus \
 	kmod-usb3 kmod-usb-core kmod-usb-xhci-hcd kmod-usb-xhci-mtk \
 	kmod-usb-acm kmod-usb-ehci kmod-usb-ohci kmod-usb-uhci \
 	kmod-usb-storage \
@@ -2564,17 +2568,22 @@ define Device/nradio_c8-688
   BOARD_NAME := HCMT7981-688-emmc
   SUPPORTED_DEVICES := HCMT7981-688-emmc
   DEVICE_PACKAGES := \
+	ppp ppp-mod-pppoe luci-proto-ppp wireguard-tools luci-proto-wireguard \
 	luci-app-qiyougamebooster luci-i18n-qiyougamebooster-zh-cn \
-	kmod-conninfra kmod-mediatek_hnat kmod-mt_wifi kmod-warp kmod-nft-fullcone \
+	kmod-conninfra kmod-mediatek_hnat kmod-mt_wifi kmod-warp kmod-nft-fullcone kmod-nft-queue \
 	wifi-dats wifi-profile mtwifi-cfg luci-app-mtwifi-cfg \
 	mtk-smp \
 	libustream-openssl ca-bundle ca-certificates coreutils-sha256sum block-mount blkid lsblk \
 	libip4tc libip6tc kmod-ipt-extra iptables-mod-extra \
+	iptables-nft ip6tables-nft kmod-ipt-nat kmod-ipt-nat6 kmod-ipt-physdev kmod-nf-ipvs kmod-veth \
+	libseccomp tini btrfs-progs \
+	luci-lib-docker ttyd luci-app-ttyd luci-app-package-manager \
+	luci-i18n-ttyd-zh-cn luci-i18n-package-manager-zh-cn \
 	losetup kmod-loop kmod-ifb kmod-fs-ext4 e2fsprogs \
 	luci-app-turboacc luci-i18n-turboacc-zh-cn mtkhqos_util \
 	adb usbutils usbids pciutils pciids usb-modeswitch \
 	uqmi umbim chat comgt comgt-directip comgt-ncm wwan \
-	python3-light luci-theme-myos-new luci-app-myos-system uhttpd uhttpd-mod-ubus \
+	python3-light python3-codecs python3-ctypes python3-openssl python3-urllib luci-theme-myos-new luci-app-myos-system uhttpd uhttpd-mod-ubus \
 	f2fsck mkf2fs kmod-hwmon-core kmod-hwmon-pwmfan \
 	kmod-usb2 kmod-usb3 kmod-usb-core kmod-usb-xhci-hcd kmod-usb-xhci-mtk \
 	kmod-usb-acm kmod-usb-ehci kmod-usb-ohci kmod-usb-uhci \

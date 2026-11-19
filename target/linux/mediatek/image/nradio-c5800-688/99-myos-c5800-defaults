@@ -1,4 +1,39 @@
 #!/bin/sh
+# Move the plain-text unlock flag restored by upgrades out of the UCI directory.
+if [ -f /etc/config/Outofnetwork ]; then
+	if [ -e /etc/Outofnetwork ]; then
+		rm -f /etc/config/Outofnetwork
+	else
+		mv /etc/config/Outofnetwork /etc/Outofnetwork
+	fi
+fi
+
+# Old backup archives may disable the native modem discovery service.
+/etc/init.d/atsd enable
+
+# A restored AdGuard Home forwarding address is unusable without its provider.
+adguard_port=$(uci -q get AdGuardHome.AdGuardHome.old_port)
+if [ -n "$adguard_port" ] && [ "$(uci -q get AdGuardHome.AdGuardHome.redirect)" = dnsmasq-upstream ]; then
+	adguard_bin=$(uci -q get AdGuardHome.AdGuardHome.binpath)
+	adguard_config=$(uci -q get AdGuardHome.AdGuardHome.configpath)
+	if [ ! -x "$adguard_bin" ] || [ ! -s "$adguard_config" ] ||
+	   { [ ! -x /etc/init.d/AdGuardHome ] && [ ! -x /etc/init.d/adguardhome ]; }; then
+		stale_server="127.0.0.1#$adguard_port"
+		keep_peer_dns=1
+		had_stale_server=0
+		for server in $(uci -q get 'dhcp.@dnsmasq[0].server'); do
+			case "$server" in
+				"$stale_server") had_stale_server=1 ;;
+				'/#/'*|[!/]*) keep_peer_dns=0 ;;
+			esac
+		done
+		if [ "$had_stale_server" = 1 ]; then
+			uci -q del_list "dhcp.@dnsmasq[0].server=$stale_server"
+			[ "$keep_peer_dns" = 0 ] || uci -q delete 'dhcp.@dnsmasq[0].noresolv'
+		fi
+	fi
+fi
+
 # Repair the inherited on-disk GPT without delaying the existing boot flow.
 (/sbin/sysupgrade --repair-gpt 2>&1 | logger -t c5800-gpt) &
 # A preserved empty password must receive the same default as a clean install.

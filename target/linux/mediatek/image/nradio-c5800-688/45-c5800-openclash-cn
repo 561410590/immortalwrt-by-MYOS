@@ -1,0 +1,53 @@
+#!/bin/sh
+
+# mwan3 has already processed interface and tracking events at this point.
+case "$ACTION:$INTERFACE" in
+	policy:*|openclash:*) ;;
+	ifup:cpe_4|ifdown:cpe_4|connected:cpe_4|disconnected:cpe_4|\
+	ifup:cpe1|ifdown:cpe1|connected:cpe1|disconnected:cpe1|\
+	ifup:cpe1_4|ifdown:cpe1_4) ;;
+	*) exit 0 ;;
+esac
+
+sync_cn_route() {
+	[ "$(uci -q get openclash.config.enable)" = 1 ] || return
+	[ "$(uci -q get openclash.c5800_cn_route.enable)" = 1 ] || return
+	[ "$(uci -q get openclash.config.config_path)" = "$(uci -q get openclash.c5800_cn_route.config)" ] || return
+
+	policy=$(uci -q get mwan3.lan_default.use_policy)
+	case "$policy" in ''|*[!a-zA-Z0-9_]*) return ;; esac
+	status=$(ubus -t 2 call mwan3 status '{"section":"policies"}') || return
+	members=$(printf '%s\n' "$status" | jsonfilter -e "@.policies.ipv4['$policy'][*].interface")
+
+	main=0
+	poe=0
+	for member in $members; do
+		case "$member" in
+			cpe_4) main=1 ;;
+			cpe1|cpe1_4) poe=1 ;;
+		esac
+	done
+	case "$main:$poe" in
+		1:0) target='国内直连-内置蜂窝' ;;
+		0:1) target='国内直连-PoE' ;;
+		1:1) target='国内直连-均衡' ;;
+		*) target='直连' ;;
+	esac
+
+	port=$(uci -q get 'openclash.@overwrite[0].cn_port')
+	[ -n "$port" ] || port=$(uci -q get openclash.config.cn_port)
+	secret=$(uci -q get 'openclash.@overwrite[0].dashboard_password')
+	[ -n "$secret" ] || secret=$(uci -q get openclash.config.dashboard_password)
+	url="http://127.0.0.1:$port/proxies/%E5%9B%BD%E5%86%85%E7%9B%B4%E8%BF%9E-%E8%87%AA%E5%8A%A8"
+
+	api() {
+		printf 'Authorization: Bearer %s\n' "$secret" |
+			curl --noproxy '*' -fsS --max-time 3 -H @- "$@" "$url"
+	}
+
+	current=$(api) || return
+	[ "$(printf '%s\n' "$current" | jsonfilter -e '@.now')" = "$target" ] && return
+	api -X PUT -H 'Content-Type: application/json' -d "{\"name\":\"$target\"}" >/dev/null
+}
+
+sync_cn_route </dev/null >/dev/null 2>&1 &

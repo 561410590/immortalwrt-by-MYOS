@@ -1,6 +1,7 @@
 #!/usr/bin/lua
 local uci = require("luci.model.uci").cursor()
 local json = require("cjson.safe")
+local schedule = require("myos_c8_schedule")
 
 local function read(path)
     local file = io.open(path, "r")
@@ -12,15 +13,10 @@ end
 
 local function write(path, value)
     local file = io.open(path, "w")
-    if not file then return end
-    file:write(tostring(value))
-    file:close()
-end
-
-local function minutes(value)
-    local h, m = tostring(value or ""):match("^(%d%d?):(%d%d?)$")
-    h, m = tonumber(h), tonumber(m)
-    if h and m and h < 24 and m < 60 then return h * 60 + m end
+    if not file then return false end
+    local written = file:write(tostring(value))
+    local closed = file:close()
+    return written ~= nil and closed ~= nil
 end
 
 local function dark()
@@ -30,13 +26,9 @@ local function dark()
     local mode = uci:get("mwrt_led", "main", "mode")
     if mode == "always_off" then return true end
     if mode ~= "schedule" then return false end
-    local first = minutes(uci:get("mwrt_led", "main", "starttime"))
-    local last = minutes(uci:get("mwrt_led", "main", "endtime"))
-    if not first or not last or first == last then return false end
-    local now = os.date("*t")
-    now = now.hour * 60 + now.min
-    return first < last and now >= first and now < last or
-        first > last and (now >= first or now < last)
+    return schedule.active(
+        uci:get("mwrt_led", "main", "starttime"), uci:get("mwrt_led", "main", "endtime"),
+        uci:get("mwrt_led", "main", "weekdays"))
 end
 
 local function apply()
@@ -56,12 +48,16 @@ local function apply()
     local values = { status = true, cmode5 = modem_valid and is5g,
         cmode4 = modem_valid and is4g and not is5g, wifi = radio_on }
     local off = dark()
+    local applied = true
     for name, lit in pairs(values) do
         local base = "/sys/class/leds/hc:blue:" .. name .. "/"
-        write(base .. "trigger", "none")
-        write(base .. "brightness", not off and lit and 1 or 0)
+        local brightness = not off and lit and 1 or 0
+        local trigger = write(base .. "trigger", "none")
+        local output = write(base .. "brightness", brightness)
+        applied = trigger and output and tonumber(read(base .. "brightness")) == brightness and applied
     end
+    return applied
 end
 
-if arg[1] == "apply" then apply(); return end
+if arg[1] == "apply" then os.exit(apply() and 0 or 1) end
 while true do apply(); os.execute("sleep 2"); end

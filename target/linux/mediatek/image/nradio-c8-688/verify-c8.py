@@ -516,8 +516,8 @@ def check_root_files(root, version):
     require(data_constants == {"DATA_DEVICE": "eth1", "DATA_CID": 8},
             "Native data path must be Ethernet eth1/CID8")
     selection = ast.get_source_segment(adapter, functions["select_sim"])
-    require('request.get("origin") != "module_settings"' in selection,
-            "Native SIM change lacks explicit module-settings origin")
+    require('request.get("origin") not in ("module_settings", "app_manual")' in selection,
+            "Native SIM change lacks an explicit manual origin")
     configure = ast.get_source_segment(adapter, functions["configure_slot"])
     require('"/usr/bin/cpetools.sh", "-i", "cpe", "-s", str(slot)' in configure
             and not re.search(r"SCICHG|HVSST|CFUN|write_text", configure),
@@ -553,10 +553,8 @@ def check_root_files(root, version):
     lua = text("usr/lib/lua/myos_c8_modem.lua")
     require("/tmp/myos-cellular.json" in lua and "/usr/libexec/myos-c8-native request" in lua,
             "Native LuCI adapter is not using the shared collector/request endpoints")
-    for name in ("apply_native_cpesel", "sim_swap"):
-        body = re.search(r"function M\." + name + r"\([^)]*\)\s+return false\s+end", lua)
-        require(body,
-                "Legacy application SIM trigger remains active: " + name)
+    require('tonumber(mode) ~= 1' in lua and 'origin = "app_manual"' in lua,
+            "APP SIM changes must use the native explicit manual entry point")
     wrapper = text("usr/lib/lua/myos_nradio_data.lua")
     require('require("myos_nradio_data_generic")' in wrapper
             and 'require("myos_c8_modem")' in wrapper
@@ -564,12 +562,12 @@ def check_root_files(root, version):
             and "M.is_native_c5800 = function() return false end" in wrapper
             and "return modem.apply_native_cpesel(slot, mode)" in wrapper,
             "APP does not gate the shared legacy SIM implementation through the C8 adapter")
-    for relative in ("usr/lib/lua/luci/controller/nradio/app.lua", "usr/sbin/myos-nradio-app-fast"):
-        caller = text(relative)
-        require(re.search(r"local function apply_cpesel\(req\)\s*"
-                          r"-- C8 SIM writes belong exclusively to explicit module settings\.\s*"
-                          r"return false\s*end", caller),
-                "APP's local SIM selection fallback is still active: " + relative)
+    require("return shared.apply_native_cpesel(tonumber(slot), tonumber(mode))" in
+            text("usr/lib/lua/luci/controller/nradio/app.lua"),
+            "LuCI APP SIM must use the C8 modem adapter")
+    require('require("luci.controller.nradio.app").apply_cpesel(req)' in
+            text("usr/sbin/myos-nradio-app-fast"),
+            "Fast CGI APP SIM must use the same C8 APP handler")
     for path in (root / "usr/lib/lua").rglob("*.lua"):
         if path == root / "usr/lib/lua/myos_nradio_data.lua":
             continue

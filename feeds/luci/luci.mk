@@ -81,6 +81,13 @@ LUA_LIBRARYDIR = /usr/lib/lua
 LUCI_LIBRARYDIR = $(LUA_LIBRARYDIR)/luci
 UCODE_LIBRARYDIR = /usr/share/ucode/luci
 
+LUCI_MYOS_WEB_PERMISSIONS := $(filter y,$(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_c8-688) \
+	$(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_c5800-688) \
+	$(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_nbcpe-688))
+ifneq ($(LUCI_MYOS_WEB_PERMISSIONS),)
+  STAMP_BUILT_DEPENDS += $(TOPDIR)/feeds/luci/luci.mk
+endif
+
 
 # 1: everything expect po subdir or only po subdir
 define findrev
@@ -226,6 +233,10 @@ define Package/$(PKG_NAME)/install
 	$(call Build/Install/Default)
 	$(CP) $(PKG_INSTALL_DIR)/* $(1)/
  endif
+ ifneq ($(LUCI_MYOS_WEB_PERMISSIONS),)
+	[ ! -d "$(1)$(HTDOCS)" ] || $(FIND) "$(1)$(HTDOCS)" -type f \
+		! -path "$(1)$(HTDOCS)/cgi-bin/*" -exec chmod a+r,go-w {} +
+ endif
 	# NAS ACLs can leave copied public directories inaccessible to ubusd.
 	$(FIND) $(1) -type d -exec chmod 0755 {} +
 endef
@@ -259,7 +270,7 @@ ifeq ($(LUCI_MINIFY_JS),1)
   define JsMin
 	$(FIND) $(1) -type f -name '*.js' | while read src; do \
 		if jsmin < "$$$$src" > "$$$$src.o"; \
-		then mv "$$$$src.o" "$$$$src"; fi; \
+		then chmod --reference="$$$$src" "$$$$src.o" && mv "$$$$src.o" "$$$$src"; fi; \
 	done
   endef
 else

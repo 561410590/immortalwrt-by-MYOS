@@ -572,9 +572,21 @@ update_cell_info() {
 	gCellStat=
 	gCellSim=
 	if [ "$gCellName" = cpe1 ]; then
-		# ODU registration and signal come from its gateway-matched cache,
-		# not the empty local AT record for cpe1.
-		_data=$(lua -e 'local s=require("c5800_secondary").cached_signal(); if s then print(require("luci.jsonc").stringify(s)) end')
+		# The ODU signal cache is refreshed by the native signal request.
+		# Reuse a fresh sample so an open dashboard and the LEDs can share it.
+		_data=$(timeout 5 lua -e '
+			local secondary = require("c5800_secondary")
+			local signal, stamp = secondary.cached_signal()
+			local age = stamp and os.time() - stamp
+			local rsrp = signal and tonumber(signal.rsrp)
+			if not rsrp or rsrp >= 0 or not age or age < 0 or age >= 12 then
+				local reply = secondary.request("signal", {})
+				signal = reply and reply.result
+			end
+			if type(signal) == "table" then
+				print(require("luci.jsonc").stringify(signal))
+			end
+		')
 		gCellRsrp=$(jsonfilter -s "$_data" -e '@.rsrp')
 		gCellRadio=$(jsonfilter -s "$_data" -e '@.mode')
 		if [ "$(jsonfilter -s "$_data" -e '@.netlink')" = 1 ]; then
@@ -1009,38 +1021,26 @@ set_ctrl_code() {
 }
 
 check_schedule_time(){
-	local ymd_s=$(date +%Y-%m-%d)
-	local now_t=$(date +%s)
-	local starttime
-	local endtime
-	if [ "$gScheduleStatus" != "1" ];then
+	[ "$gScheduleStatus" = "1" ] || return 1
+	local _clock _now _day _start _end
+	_clock=$(date '+%H%M %w')
+	_now=${_clock% *}
+	_day=${_clock##* }
+	_start=${gScheduleStarttime:-00:00}
+	_end=${gScheduleEndtime:-00:00}
+	_start=${_start%:*}${_start#*:}
+	_end=${_end%:*}${_end#*:}
+	if [ "$_start" -lt "$_end" ]; then
+		[ "$_now" -ge "$_start" ] && [ "$_now" -lt "$_end" ] || return 1
+	elif [ "$_now" -lt "$_end" ]; then
+		_day=$(( (_day + 6) % 7 ))
+	elif [ "$_now" -lt "$_start" ]; then
 		return 1
 	fi
-
-	if [ -n "$gScheduleStarttime" ];then
-		starttime="${gScheduleStarttime}:00"
-	else
-		starttime="00:00:00"
-	fi
-	starttime_s=$(date -d "$ymd_s $starttime" +%s)
-	if [ -n "$gScheduleEndtime" ];then
-		endtime="${gScheduleEndtime}:00"
-	else
-		endtime="00:00:00"
-	fi
-	endtime_s=$(date -d "$ymd_s $endtime" +%s)
-
-	if [ $starttime_s -ge $endtime_s ];then
-		if [ $now_t -lt $endtime_s ];then
-			return 0
-		fi
-		endtime_s=$((endtime_s+86400))
-	fi
-
-	if [ $now_t -gt $starttime_s -a $now_t -lt $endtime_s ];then
-		return 0
-	fi
-	return 1
+	case " $gScheduleDays " in
+		*" $_day "*) return 0 ;;
+	esac
+	[ -z "$gScheduleDays" ]
 }
 
 has_wan() {
@@ -1193,6 +1193,7 @@ gLedCmode4=$(init_dev "cmode4")
 gScheduleStatus=$(uci -q get ledctrl.ledctrl.schedule)
 gScheduleStarttime=$(uci -q get ledctrl.ledctrl.starttime)
 gScheduleEndtime=$(uci -q get ledctrl.ledctrl.endtime)
+gScheduleDays=$(uci -q get ledctrl.ledctrl.weekdays)
 
 if [ "$gMode" = "1" ] || check_schedule_time; then
 	disable_all_leds

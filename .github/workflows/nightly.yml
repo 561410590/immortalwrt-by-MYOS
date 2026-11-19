@@ -76,6 +76,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /jammy-build-debs.tar.part*
+            /kunpeng.tar.gz
             /${{ matrix.branch }}.tar.gz*
             /${{ matrix.branch }}.patch
             ${{ matrix.model != 'C2000MAX' && '/factory.tar.gz*' || '' }}
@@ -114,7 +115,17 @@ jobs:
           printf 'deb [trusted=yes] file:%s ./\n' "$apt_repo" > "$apt_sources"
           apt_options=(-o "Dir::Etc::sourcelist=$apt_sources" -o Dir::Etc::sourceparts=-)
           sudo apt-get "${apt_options[@]}" update -qq
-          sudo apt-get "${apt_options[@]}" install -y --no-install-recommends build-essential ccache clang flex bison g++ gawk gcc-multilib gettext git libelf-dev libncurses-dev libssl-dev python3 python3-distutils python3-setuptools rsync swig unzip zlib1g-dev file wget curl patch perl tar xz-utils zstd jq libfuse-dev libtool autoconf automake cmake ninja-build device-tree-compiler squashfs-tools
+          packages=(build-essential ccache clang flex bison g++ gawk gcc-multilib gettext git libelf-dev libncurses-dev libssl-dev python3 python3-distutils python3-setuptools rsync swig unzip zlib1g-dev file wget curl patch perl tar xz-utils zstd jq libfuse-dev libtool autoconf automake cmake ninja-build device-tree-compiler squashfs-tools)
+          if ! sudo apt-get "${apt_options[@]}" install -y --no-install-recommends "${packages[@]}"; then
+            echo "Retrying with the current Ubuntu Jammy packages for this runner"
+            printf '%s\n' \
+              'deb https://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse' \
+              'deb https://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse' \
+              'deb https://security.ubuntu.com/ubuntu jammy-security main restricted universe multiverse' > "$apt_sources"
+            apt_options+=(-o Acquire::Retries=3)
+            sudo apt-get "${apt_options[@]}" update -qq
+            sudo apt-get "${apt_options[@]}" install -y --no-install-recommends "${packages[@]}"
+          fi
           rm -rf "$apt_repo"
           df -h .
       - name: Prepare build inputs

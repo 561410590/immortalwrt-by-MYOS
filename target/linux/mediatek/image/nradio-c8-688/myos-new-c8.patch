@@ -1,0 +1,174 @@
+--- a/usr/lib/lua/luci/controller/myos_new.lua
++++ b/usr/lib/lua/luci/controller/myos_new.lua
+@@ -1,25 +1,18 @@
+ module("luci.controller.myos_new", package.seeall)
+-
+-local function is_c5800()
+-    local board = require("luci.util").ubus("system", "board") or {}
+-    return board.model == "NRadio-C5800-688"
+-end
+ 
+ function index()
+     local active = require("luci.model.uci").cursor():get("luci", "main", "mediaurlbase") == "/luci-static/myos-new"
+-    local c5800 = require("nixio.fs").access("/usr/libexec/myos-c5800-portprobe", "x")
++    local probe_installed = require("nixio.fs").access("/usr/libexec/myos-c8-portprobe", "x")
+     local page = entry({"admin", "myos"}, view("myos-new/home"), active and _("首页") or nil, 1)
+     page.dependent = false
+     entry({"admin", "myos", "data"}, call("snapshot")).leaf = true
+     entry({"admin", "myos", "product_image"}, call("product_image")).leaf = true
+     entry({"admin", "myos", "fast"}, call("fast_snapshot")).leaf = true
+     entry({"admin", "myos", "link_quality"}, call("link_quality")).leaf = true
+-    if c5800 then
++    if probe_installed then
+         entry({"admin", "myos", "port_probe"}, post("port_probe")).leaf = true
+     end
+-    if is_c5800() then
+-        entry({"admin", "myos", "route_lookup"}, post("route_lookup")).leaf = true
+-    end
++    entry({"admin", "myos", "route_lookup"}, post("route_lookup")).leaf = true
+     entry({"admin", "myos", "ping_target"}, post("save_ping_target")).leaf = true
+     entry({"admin", "myos", "login_video"}, post("save_login_video")).leaf = true
+     entry({"admin", "myos", "appearance"}, call("appearance_settings")).leaf = true
+@@ -28,9 +21,7 @@
+     leds.acl_depends = {"luci-mod-system-config"}
+     entry({"admin", "system", "myos_panel_led", "status"}, call("panel_led_status")).leaf = true
+     entry({"admin", "system", "myos_panel_led", "save"}, post("save_panel_led")).leaf = true
+-    if c5800 then
+-        entry({"admin", "system", "myos_panel_led", "schedule"}, post("save_panel_led_schedule")).leaf = true
+-    end
++    entry({"admin", "system", "myos_panel_led", "schedule"}, post("save_panel_led_schedule")).leaf = true
+     entry({"admin", "myos", "acceleration"}, call("acceleration")).leaf = true
+     entry({"admin", "myos", "sim_names"}, call("sim_names")).leaf = true
+     entry({"admin", "myos", "modem_refresh"}, call("modem_refresh")).leaf = true
+@@ -132,10 +123,10 @@
+ function port_probe()
+     local name = luci.http.formvalue("port")
+     local sys, util = require "luci.sys", require "luci.util"
+-    if device_profile(util.ubus("system", "board") or {}) == "c5800688" then
+-        for _, port in ipairs(physical_ports("c5800688", {})) do
++    if device_profile(util.ubus("system", "board") or {}) == "c8688" then
++        for _, port in ipairs(physical_ports("c8688", {})) do
+             if name == port then
+-                local response = sys.exec("/usr/libexec/myos-c5800-portprobe " .. port)
++                local response = sys.exec("/usr/libexec/myos-c8-portprobe " .. port)
+                 local result = require("luci.jsonc").parse(response or "")
+                 if result then
+                     local offer = result.dhcp
+@@ -169,20 +160,17 @@
+     luci.http.status(400, "Invalid port")
+ end
+ 
+-local c5800_egress = {cpe="内置 5G", cpe1="PoE 副 5G", wan="有线 WAN"}
++local c8_egress = {cpe="蜂窝", wan="有线 WAN", wan6="有线 WAN"}
+ 
+ function route_lookup()
+     local http, util = require "luci.http", require "luci.util"
+-    if not is_c5800() then
+-        return http.status(404, "Not Found")
+-    end
+     local target, family = require("luci.model.myos_liquid").parse_ping_target(http.formvalue("target"))
+     http.prepare_content("application/json")
+     if not family then
+         http.status(400, "Invalid address")
+         return http.write_json({error="请输入 IPv4 或 IPv6 地址"})
+     end
+-    local raw = require("luci.sys").exec("/usr/bin/ip " .. family .. " -j route get " ..
++    local raw = require("luci.sys").exec("/sbin/ip " .. family .. " -j route get " ..
+         util.shellquote(target) .. " 2>/dev/null")
+     local routes = require("luci.jsonc").parse(raw or "")
+     local route = type(routes) == "table" and routes[1]
+@@ -193,7 +181,7 @@
+     local label, matched_gateway, ambiguous, shared_gateway
+     for _, net in ipairs(dump.interface or {}) do
+         local name = (net.interface or ""):gsub("[_][46]$", "")
+-        local candidate = c5800_egress[name] or (name == "wan6" and c5800_egress.wan)
++        local candidate = c8_egress[name]
+         if candidate and net.up and (net.l3_device or net.device) == route.dev then
+             if label and label ~= candidate then ambiguous = true end
+             label = candidate
+@@ -810,10 +798,8 @@
+ end
+ 
+ local function panel_led_schedule(cursor)
+-    if device_profile(require("luci.util").ubus("system", "board") or {}) ~= "c5800688" then return nil end
+-    local config = cursor:get_all("ledctrl", "ledctrl")
+-    if not config then return nil end
+-    return {active=config.schedule == "1", start=config.starttime or "23:00",
++    local config = cursor:get_all("mwrt_led", "main") or {}
++    return {active=config.enabled == "1" and config.mode == "schedule", start=config.starttime or "23:00",
+         finish=config.endtime or "07:00", days=config.weekdays or "0 1 2 3 4 5 6"}
+ end
+ 
+@@ -846,18 +832,31 @@
+         luci.http.status(400, "Invalid schedule")
+         return output({error="请选择星期并填写不同的起止时间。"})
+     end
+-    local keys = {schedule=active, starttime=start, endtime=finish, weekdays=days}
+-    local original = cursor:get_all("ledctrl", "ledctrl")
+-    for name, value in pairs(keys) do cursor:set("ledctrl", "ledctrl", name, value) end
+-    if cursor:commit("ledctrl") and sys.call("/etc/init.d/ledctrl restart >/dev/null 2>&1") == 0 then
++    local original = cursor:get_all("mwrt_led", "main") or {}
++    local keys = {enabled=active, mode="schedule", starttime=start, endtime=finish, weekdays=days}
++    if active == "0" and original.mode == "always_off" then
++        keys.enabled, keys.mode = original.enabled or "0", original.mode
++    end
++    local saved
++    if original[".type"] then
++        saved = cursor:tset("mwrt_led", "main", keys)
++    else
++        saved = cursor:section("mwrt_led", "sched", "main", keys)
++    end
++    local apply = "/usr/libexec/myos-c8-led apply >/dev/null 2>&1"
++    if saved and cursor:commit("mwrt_led") and sys.call(apply) == 0 then
+         return output({schedule=panel_led_schedule(cursor)})
+     end
+-    for name in pairs(keys) do
+-        if original[name] then cursor:set("ledctrl", "ledctrl", name, original[name])
+-        else cursor:delete("ledctrl", "ledctrl", name) end
+-    end
+-    cursor:commit("ledctrl")
+-    sys.call("/etc/init.d/ledctrl restart >/dev/null 2>&1")
++    if original[".type"] then
++        for name in pairs(keys) do
++            if original[name] then cursor:set("mwrt_led", "main", name, original[name])
++            else cursor:delete("mwrt_led", "main", name) end
++        end
++    else
++        cursor:delete("mwrt_led", "main")
++    end
++    cursor:commit("mwrt_led")
++    sys.call(apply)
+     luci.http.status(500, "Schedule update failed")
+     return output({error="灯光定时未能应用。"})
+ end
+@@ -1326,7 +1325,7 @@
+         stable_ts=stable and previous.stable_ts or os.time(),meta_ts=os.time(),boot=fast.boot,
+         hardware=profile=="n5000" and {kind="双网口路由器",usb="USB 3.2"} or nil}
+     local cpu = {}
+-    result.port_probe = profile=="c5800688" and fs.access("/usr/libexec/myos-c5800-portprobe", "x")
++    result.port_probe = profile=="c8688" and fs.access("/usr/libexec/myos-c8-portprobe", "x")
+     for n in (rd("/proc/stat"):match("^cpu%s+([^\n]+)") or ""):gmatch("%d+") do append(cpu, tonumber(n)) end
+     local total = 0
+     for i=1,math.min(#cpu,8) do total=total+cpu[i] end
+@@ -1443,10 +1442,10 @@
+             clients[key]={mac=key,ip=ip,name=n.name,kind="LAN",state="邻居记录",device=dev,lease_expires=n.expires}
+             local port = dev == "br-lan" and lan_port_by_mac[key]
+             local online = port and lan_port_age[key] and lan_port_age[key] <= (n.ip==ip and 280 or 180)
+-            if profile=="c5800688" and online then
++            if profile=="c8688" and online then
+                 clients[key].state, clients[key].device = "有线在线", port.name
+             end
+-            if port and (profile~="c5800688" or online) then append(port.client_ipv4, ip) end
++            if port and (profile~="c8688" or online) then append(port.client_ipv4, ip) end
+         end
+     end
+     for _, port in pairs(lan_port_by_number) do table.sort(port.client_ipv4) end
+@@ -1484,7 +1483,7 @@
+             end
+         end
+     end
+-    if profile=="c5800688" then routed_ipv4_clients(clients) end
++    if profile=="c8688" then routed_ipv4_clients(clients) end
+     for _,c in pairs(clients) do append(result.clients,c) end
+     table.sort(result.clients,function(a,b) return a.mac<b.mac end)
+     local cpu_temp=tonumber(rd("/sys/class/thermal/thermal_zone0/temp"))

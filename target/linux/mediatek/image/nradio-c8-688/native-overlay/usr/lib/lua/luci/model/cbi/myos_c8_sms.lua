@@ -2,6 +2,8 @@ local modem = require "myos_c8_modem"
 local m = SimpleForm("c8_sms", translate("C8-688 短信"))
 m.reset = false
 m.submit = translate("执行")
+local inbox = m:section(SimpleSection)
+inbox.template = "myos_c8_modem/sms-inbox"
 local s = m:section(SimpleSection)
 local operation = s:option(ListValue, "operation", translate("操作"))
 operation:value("read", translate("读取"))
@@ -21,6 +23,7 @@ function result.cfgvalue() return m.sms_result or "" end
 function m.handle(self, state, data)
 	if state ~= FORM_VALID then return true end
 	local reply = modem.sms({ action = data.operation, phone_num = data.phone_num, msg = data.msg, ids = data.ids })
+	if data.operation == "read" then inbox.reply = reply end
 	self.sms_result = require("luci.jsonc").stringify(reply, true)
 	if tonumber(reply.code) ~= 0 then self.errmessage = reply.message or translate("短信操作失败") end
 	return true

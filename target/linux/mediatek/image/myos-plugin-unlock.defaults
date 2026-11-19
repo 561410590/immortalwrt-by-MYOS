@@ -1,0 +1,10 @@
+#!/bin/sh
+# Move the preserved plain-text unlock flag out of the UCI directory.
+if [ -f /etc/config/Outofnetwork ]; then
+	if [ -e /etc/Outofnetwork ]; then
+		rm -f /etc/config/Outofnetwork
+	else
+		mv /etc/config/Outofnetwork /etc/Outofnetwork
+	fi
+fi
+exit 0

@@ -126,8 +126,8 @@ removed_packages = {
     'luci-app-istoreenhance', 'luci-app-kai', 'kai', 'kai_session',
     'luci-app-unishare', 'unishare', 'luci-mod-istorenext', 'luci-nginxer',
     'ffmpeg-remux',
-    # Docker remains available as an optional opkg package.
-    'docker', 'dockerd', 'docker-compose', 'containerd', 'runc', 'tini',
+    # Remove the donor's Docker packages before installing current libraries.
+    'tini', 'docker', 'dockerd', 'docker-compose', 'containerd', 'runc',
     'cgroupfs-mount', 'luci-app-dockerman', 'luci-lib-docker',
     'luci-i18n-dockerman-zh-cn',
 }
@@ -154,8 +154,19 @@ control = work / ('usr/lib/opkg/info/' + name + '.control')
 if control.is_file():
     control.write_text(re.sub(r'(?m)^(Depends:.*?)(?<![\w-])luci(?=,|$)', r'\1luci-base', control.read_text()))
 
+# Match the retained iwinfo package dependency to its linked libubox ABI.
+name = 'libiwinfo20210430'
+records[name] = records[name].replace('libubus20210630', 'libubox20210516')
+control = work / ('usr/lib/opkg/info/' + name + '.control')
+if control.is_file():
+    control.write_text(control.read_text().replace('libubus20210630', 'libubox20210516'))
+
+# Upstream Vantage 1.0.20 release IPKs for OpenWrt 24.10.
+vantage_packages = ('luci-app-vantage', 'luci-i18n-vantage-zh-cn')
+vantage_version = '1.0.20-r1'
 selected = set(re.findall(r'^CONFIG_PACKAGE_([^=]+)=y$', (source / '.config').read_text(), re.M))
 required = {'kernel'} | {n for n in selected if n.startswith('kmod-')}
+required.update(vantage_packages)
 required |= {'luci-theme-myos-new', 'luci-app-myos-system', 'default-settings',
              'qiyougamebooster', 'luci-app-qiyougamebooster', 'luci-i18n-qiyougamebooster-zh-cn',
              'openvpn-openssl', 'kmod-tun', 'dnsmasq-full',
@@ -165,9 +176,11 @@ required |= {'luci-theme-myos-new', 'luci-app-myos-system', 'default-settings',
              'luci-app-upnp', 'luci-i18n-upnp-zh-cn',
              'mtwifi-cfg', 'luci-app-mtwifi-cfg',
              'mkf2fs', 'f2fsck', 'blkid', 'lsblk', 'rpcd', 'rpcd-mod-luci',
-             'iwinfo', 'libiwinfo20230701'}
+             'iwinfo', 'libiwinfo20230701', 'rpcd-mod-iwinfo'}
 # Installer dependencies use the runtime package names (including library ABI suffixes).
 required |= {'libip4tc2', 'libip6tc2', 'iptables-mod-extra',
+             'ca-certificates', 'libseccomp', 'tini', 'btrfs-progs',
+             'python3-codecs', 'python3-ctypes', 'luci-lib-docker', 'ttyd',
              'coreutils-base64', 'coreutils-nohup', 'coreutils-timeout', 'lyaml',
              'libyaml', 'libudns', 'resolveip', 'libev',
              'libsodium', 'ip-full', 'libuci-lua', 'libbpf1',
@@ -187,6 +200,18 @@ for directory in (source / 'bin/targets/mediatek/filogic/packages', source / 'bi
                 continue
         if name not in available or path.stat().st_mtime > available[name][0].stat().st_mtime:
             available[name] = (path, record, content, data)
+packaged_apps = [assets / 'vantage/packages' / f'{name}_{vantage_version}_all.ipk'
+                 for name in vantage_packages]
+presentation = runpy.run_path(str(source / 'target/linux/mediatek/image/myos-new-image.py'))
+kunpeng_packages = presentation['kunpeng_packages']()
+packaged_apps.extend(kunpeng_packages)
+for path in packaged_apps:
+    package_name, record, content, data = package(path, include_data=False)
+    available[package_name] = (path, record, content, data)
+required.update(path.name.split('_', 1)[0] for path in kunpeng_packages)
+# The packaged infocd skill uses jq to read fields from the runtime response.
+required.add('jq')
+
 # Keep the native userspace, adding only dependencies absent from that ROM.
 provided = set(records)
 for record in list(records.values()) + [available[name][1] for name in required if name in available]:
@@ -230,12 +255,18 @@ for name in sorted(required):
         target.write_bytes(value)
         target.chmod(mode)
 
+presentation['configure_kunpeng'](work, run)
+
+vantage_menu = 'usr/share/luci/menu.d/zz-luci-app-vantage.json'
+menu = json.loads((work / vantage_menu).read_text(encoding='utf-8'))
+menu['admin/dashboard'].update(title='Vantage 仪表盘', order=2)
+write(vantage_menu, json.dumps(menu, ensure_ascii=False, indent='\t') + '\n')
+
 for relative, content in native_dnsmasq_config.items():
     (work / relative).write_bytes(content)
 
-# The donor ROM stripped several installed-package manifests. Use matching
-# IPKs when present, or the lists recovered from those IPKs in the local build.
-native_lists = json.loads((assets / 'native-opkg-lists.json').read_text())
+# The donor ROM stripped several installed-package manifests. Recover only
+# matching versions, checking every payload file against the assembled root.
 recovered_manifests = []
 for name, record in records.items():
     manifest = work / ('usr/lib/opkg/info/' + name + '.list')
@@ -243,18 +274,15 @@ for name, record in records.items():
         continue
     installed_version = re.search(r'^Version: (.+)$', record, re.M)[1]
     candidate = available.get(name)
-    if candidate and re.search(r'^Version: (.+)$', candidate[1], re.M)[1] == installed_version:
-        _, _, _, payload_data = package(candidate[0])
-        with tarfile.open(fileobj=io.BytesIO(payload_data), mode='r:*') as payload:
-            members = [m for m in payload.getmembers() if m.name not in ('.', './')]
-            names = ['/' + m.name.removeprefix('./').rstrip('/') for m in members]
-            files = [path for path, member in zip(names, members) if not member.isdir()]
-    else:
-        names = native_lists.get(name, {}).get(installed_version)
-        if names is None:
-            raise RuntimeError('Missing native package manifest: ' + name + ' ' + installed_version)
-        files = names
-    absent = [path for path in files if not os.path.lexists(work / path.lstrip('/'))]
+    if not candidate or re.search(r'^Version: (.+)$', candidate[1], re.M)[1] != installed_version:
+        raise RuntimeError('Missing same-version package for manifest: ' + name)
+    _, _, _, payload_data = package(candidate[0])
+    with tarfile.open(fileobj=io.BytesIO(payload_data), mode='r:*') as payload:
+        members = [m for m in payload.getmembers() if m.name not in ('.', './')]
+        names = ['/' + m.name.removeprefix('./').rstrip('/') for m in members]
+        absent = [m.name for m in members if not m.isdir()
+                  and not (work / m.name.removeprefix('./')).exists()
+                  and not (work / m.name.removeprefix('./')).is_symlink()]
     if absent:
         raise RuntimeError('Manifest references absent native files: ' + name + ': ' + ', '.join(absent))
     write('usr/lib/opkg/info/' + name + '.list', '\n'.join(names) + '\n')
@@ -263,7 +291,8 @@ print('Recovered native package manifests:', ', '.join(sorted(recovered_manifest
 write('usr/lib/opkg/status', '\n\n'.join(records.values()) + '\n\n')
 
 import runpy
-runpy.run_path(str(source / 'target/linux/mediatek/image/c5800-mwrt-packages.py'))['install'](source, work, records)
+proxy_bundle = runpy.run_path(str(source / 'target/linux/mediatek/image/c5800-mwrt-packages.py'))
+proxy_bundle['install'](source, work, records, excluded_packages=proxy_bundle['SSR_PLUS_PACKAGES'])
 
 # Include the data used by the selected Smart and GeoIP modes.
 copy(assets / 'openclash-ASN.mmdb', work / 'etc/openclash/ASN.mmdb')
@@ -290,8 +319,19 @@ run('sh', assets / 'MYOS-nros-app-patch.sh', work, factory)
 # Install the same theme-switching compatibility changes as the 2.1.32 donor.
 copy(source / 'feeds/luci/modules/luci-base/htdocs/luci-static/resources/network.js',
      work / 'www/luci-static/resources/network.js')
+write('www/luci-static/resources/ui.js',
+      (source / 'feeds/luci/modules/luci-base/htdocs/luci-static/resources/ui.js').read_text())
 copy(source / 'feeds/luci/modules/luci-mod-network/htdocs/luci-static/resources/view/network/wireless.js',
      work / 'www/luci-static/resources/view/network/wireless.js')
+for relative in ('www/luci-static/resources/view/network/wireless.js',
+                 'usr/share/luci-app-mtwifi-cfg/wireless-mtk.js'):
+    run('patch', '--batch', '--no-backup-if-mismatch',
+        work / relative, assets / 'mtwifi-status.patch')
+run('patch', '--batch', '--no-backup-if-mismatch',
+    work / 'www/luci-static/resources/view/network/wireless.js', assets / 'wireless-stations.patch')
+stations = work / 'www/luci-static/resources/view/network/c5800-wireless-stations.js'
+copy(assets / 'c5800-wireless-stations.js', stations)
+stations.chmod(0o644)
 copy(source / 'feeds/luci/modules/luci-mod-network/htdocs/luci-static/resources/view/network/interfaces.js',
      work / 'www/luci-static/resources/view/network/interfaces.js')
 # Keep the verified UPnP first-render fix scoped to C5800.
@@ -328,7 +368,7 @@ write('etc/config/luci', config)
 # Remove these owned paths along with the orphaned home application files.
 for relative in (
     'usr/bin/docker', 'usr/bin/dockerd', 'usr/bin/docker-proxy',
-    'usr/bin/docker-init', 'usr/bin/tini', 'usr/bin/docker-compose',
+    'usr/bin/docker-compose',
     'usr/bin/containerd', 'usr/bin/containerd-shim',
     'usr/bin/containerd-shim-runc-v1', 'usr/bin/containerd-shim-runc-v2',
     'usr/bin/containerd-stress', 'usr/bin/ctr', 'usr/sbin/runc',
@@ -340,7 +380,7 @@ for relative in (
     'etc/uci-defaults/luci-i18n-dockerman-zh-cn',
     'usr/lib/lua/luci/controller/dockerman.lua',
     'usr/lib/lua/luci/model/cbi/dockerman', 'usr/lib/lua/luci/model/docker.lua',
-    'usr/lib/lua/luci/view/dockerman', 'usr/lib/lua/luci/docker.lua',
+    'usr/lib/lua/luci/view/dockerman',
     'usr/lib/lua/luci/i18n/dockerman.zh-cn.lmo',
     'usr/share/rpcd/acl.d/luci-app-dockerman.json',
     'www/luci-static/resources/dockerman',
@@ -395,6 +435,7 @@ copy(source / 'feeds/luci/modules/luci-mod-status/htdocs' / status_view,
 modem_root = source / 'package/mtk/applications/5g-modem/luci-app-c5800-688-wtmodem/root'
 modem_files = (
     'usr/lib/lua/c5800_secondary.lua',
+    'usr/lib/lua/c5800_rm520n.lua',
     'usr/lib/lua/luci/view/zmode/secondary_control.htm',
     'usr/lib/lua/c5800_radio.lua',
     'usr/lib/lua/c5800_radio_lock.lua',
@@ -423,6 +464,7 @@ modem_manifest = work / 'usr/lib/opkg/info/luci-app-c5800-688_wtmodem.list'
 modem_paths = modem_manifest.read_text().splitlines()
 for relative in modem_files:
     copy(modem_root / relative, work / relative)
+    (work / relative).chmod(0o755 if relative == 'usr/sbin/c5800-route-mode' else 0o644)
     if '/' + relative not in modem_paths:
         modem_paths.append('/' + relative)
 modem_manifest.write_text('\n'.join(modem_paths) + '\n')
@@ -456,11 +498,13 @@ copy(assets / '18-c5800-mwan3-alias', work / 'etc/hotplug.d/iface/18-c5800-mwan3
 (work / 'etc/hotplug.d/iface/18-c5800-mwan3-alias').chmod(0o755)
 
 # Shared eMMC dual-system controls use the original NRadio boot environment tool.
-system_switch = source / 'target/linux/mediatek/image/nradio-system-switch/root'
-for path in system_switch.rglob('*'):
+system_switch = source / 'target/linux/mediatek/image/nradio-system-switch'
+switch_root = system_switch / 'root'
+for path in switch_root.rglob('*'):
     if path.is_file():
-        copy(path, work / path.relative_to(system_switch))
-for relative in ('usr/libexec/myos-boot-system', 'usr/libexec/myos-ubenv'):
+        copy(path, work / path.relative_to(switch_root))
+copy(system_switch / 'myos-nros-version', work / 'usr/libexec/myos-nros-version')
+for relative in ('usr/libexec/myos-boot-system', 'usr/libexec/myos-ubenv', 'usr/libexec/myos-nros-version'):
     (work / relative).chmod(0o755)
 
 description = 'MYOS by ImmortalWrt ' + version
@@ -478,11 +522,6 @@ for config in ('passwall', 'passwall2'):
     set_proxy_defaults(config, 'global_rules', {'update_week_mode': None})
 for config in ('passwall_server', 'passwall2_server'):
     set_proxy_defaults(config, 'global', {'enable': '0'})
-set_proxy_defaults('shadowsocksr', 'global', {'global_server': 'nil', 'enable_switch': '0'})
-set_proxy_defaults('shadowsocksr', 'socks5_proxy', {'server': 'nil'})
-set_proxy_defaults('shadowsocksr', 'http_proxy', {'server': 'nil'})
-set_proxy_defaults('shadowsocksr', 'server_global', {'enable_server': '0'})
-set_proxy_defaults('shadowsocksr', 'server_subscribe', {'auto_update': '0'})
 set_proxy_defaults('openclash', 'openclash', {
     'enable': '0',
     'enable_redirect_dns': '0',
@@ -502,7 +541,39 @@ set_proxy_defaults('openclash', 'openclash', {
     'geosite_auto_update': '1',
     'geoasn_auto_update': '1',
 })
+copy(assets / 'c5800_cn_route', work / 'etc/openclash/overwrite/c5800_cn_route')
+(work / 'etc/openclash/overwrite/c5800_cn_route').chmod(0o644)
+# Keep the module in clean-install defaults. Old restored configs are repaired
+# at each OpenClash start, before its overwrite and quick-start decisions.
+write('etc/config/openclash', (work / 'etc/config/openclash').read_text() + """
+config config_overwrite 'c5800_cn_route'
+	option name 'c5800_cn_route'
+	option type 'file'
+	option enable '1'
+	option order '1'
+	list config '/etc/openclash/config/clash-all-smart.yaml'
+""")
+run('patch', '--batch', '--no-backup-if-mismatch',
+    work / 'etc/init.d/openclash', assets / 'openclash-cn-register.patch')
+(work / 'etc/init.d/openclash').chmod(0o755)
+for asset, relative in (
+    ('45-c5800-openclash-cn', 'etc/hotplug.d/iface/45-c5800-openclash-cn'),
+    ('openclash_custom_firewall_rules.sh', 'etc/openclash/custom/openclash_custom_firewall_rules.sh'),
+):
+    copy(assets / asset, work / relative)
+    (work / relative).chmod(0o755)
 copy(assets / 'adguardhome.keep', work / 'lib/upgrade/keep.d/luci-app-adguardhome')
+write('lib/upgrade/keep.d/myos-plugin-data', '/etc/openclash/config/\n')
+# The legacy plugin flag is plain text. Keep its readers and writer outside UCI.
+for relative in (
+    'usr/lib/lua/myos_plugins.lua',
+    'usr/lib/lua/luci/controller/openclash.lua',
+    'usr/lib/lua/luci/controller/passwall.lua',
+    'usr/lib/lua/luci/controller/passwall2.lua',
+    'usr/lib/lua/luci/controller/zz_mwrt_features.lua',
+):
+    write(relative, (work / relative).read_text().replace('/etc/config/Outofnetwork', '/etc/Outofnetwork'))
+write('lib/upgrade/keep.d/myos-plugin-unlock', '/etc/Outofnetwork\n')
 copy(assets / '99-myos-c5800-defaults', work / 'etc/uci-defaults/99-myos-c5800-defaults')
 (work / 'etc/uci-defaults/99-myos-c5800-defaults').chmod(0o755)
 copy(assets / '90-c5800-ipv6-route-metric', work / 'etc/hotplug.d/iface/90-c5800-ipv6-route-metric')
@@ -530,17 +601,35 @@ for relative, target in (
     ('etc/rc.d/S99passwall2', '../init.d/passwall2'),
     ('etc/rc.d/K15passwall2', '../init.d/passwall2'),
     ('etc/rc.d/S99passwall2_server', '../init.d/passwall2_server'),
-    ('etc/rc.d/S95shadowsocksr', '../init.d/shadowsocksr'),
-    ('etc/rc.d/K15shadowsocksr', '../init.d/shadowsocksr'),
     ('etc/rc.d/S97mt5700-web', '../init.d/mt5700-web'),
     ('etc/rc.d/S90turboacc', '../init.d/turboacc'),
     ('etc/rc.d/S94miniupnpd', '../init.d/miniupnpd'),
     ('etc/rc.d/K15miniupnpd', '../init.d/miniupnpd'),
     ('etc/rc.d/S19myos-factory-wifi', '../init.d/myos-factory-wifi'),
+    ('etc/rc.d/S99zeroclaw', '../init.d/zeroclaw'),
+    ('etc/rc.d/S99myos-connections', '../init.d/myos-connections'),
+    ('etc/rc.d/S99myos-history', '../init.d/myos-history'),
 ):
     link(relative, target)
 
-runpy.run_path(str(source / 'target/linux/mediatek/image/myos-new-image.py'))['install'](work)
+presentation['install'](work)
+
+run('python3', source / 'target/linux/mediatek/image/install-myos-support.py', work, assets)
+
+for relative, mode in (
+    ('usr/libexec/myos-c5800-portprobe', 0o755),
+    ('usr/libexec/myos-c5800-sms', 0o755),
+    ('usr/lib/lua/myos_c5800_pdu.lua', 0o644),
+    ('etc/init.d/myos-c5800-sms', 0o755),
+    ('usr/lib/lua/luci/controller/myos_c5800_sms.lua', 0o644),
+    ('usr/lib/lua/luci/model/cbi/myos_c5800_sms.lua', 0o644),
+    ('etc/config/myos_c5800_sms', 0o600),
+    ('lib/upgrade/keep.d/myos-c5800-sms', 0o644),
+):
+    copy(assets / 'myos-extras' / relative, work / relative)
+    (work / relative).chmod(mode)
+link('etc/rc.d/S98myos-c5800-sms', '../init.d/myos-c5800-sms')
+link('etc/rc.d/K10myos-c5800-sms', '../init.d/myos-c5800-sms')
 
 module_root = work / 'lib/modules' / kernel_version
 for filename in ('modules.builtin', 'modules.builtin.modinfo', 'modules.order'):
@@ -563,10 +652,10 @@ for parent, dirs, files in os.walk(work):
             continue
         executable = bool(path.stat().st_mode & 0o111)
         path.chmod(0o755 if executable else 0o644)
-run('python3', source / 'scripts/prepare-public-rootfs.py', work)
 (work / 'etc/shadow').chmod(0o600)
 (work / 'usr/share/myos-nros/id_rsa.db').chmod(0o400)
-for relative in ('etc/config/myos_usage', 'etc/config/myos_nros', 'etc/config/mosquitto'):
+for relative in ('etc/config/myos_usage', 'etc/config/myos_nros', 'etc/config/mosquitto',
+                 'etc/config/myos_c5800_sms'):
     path = work / relative
     if path.is_file():
         path.chmod(0o600)
@@ -577,6 +666,7 @@ pseudo = kernel_dir / 'c5800-myos-console.pseudo'
 pseudo.write_text('dev/console c 0600 0 0 5 1\n')
 if output.exists():
     output.unlink()
+run('python3', source / 'scripts/install-myos-688-upgrade.py', source, work)
 run(host / 'mksquashfs4', work, output, '-nopad', '-noappend', '-root-owned',
     '-comp', 'xz', '-Xpreset', '9', '-Xe', '-Xlc', '0', '-Xlp', '2', '-Xpb', '2',
     '-b', '256k', '-no-xattrs', '-pf', pseudo, '-processors', '6')

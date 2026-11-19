@@ -25,10 +25,6 @@ def install_remote_access(source, root):
     """Use current remote transport/session code, retaining model APP handlers."""
     assets = source / 'target/linux/mediatek/image/nradio-c5800-688'
     mapping = {
-        'myos_nradio_app_session.lua': 'usr/lib/lua/myos_nradio_app_session.lua',
-        'myos-nros-cloud-cbi.lua': 'usr/lib/lua/luci/model/cbi/myos_nros.lua',
-        'myos-nros-cloud-status.htm': 'usr/lib/lua/luci/view/myos_nros/status.htm',
-        'myos-nros-cloud-controller.lua': 'usr/lib/lua/luci/controller/myos_nros.lua',
     }
     for relative in ('usr/lib/lua/myos_nradio_ssh_authorization.lua',
                      'usr/share/myos-nros/id_rsa.db',
@@ -43,6 +39,7 @@ def install_remote_access(source, root):
         shutil.copy2(assets / origin, path)
         path.chmod(0o755 if relative.startswith(('usr/sbin/', 'etc/init.d/', 'etc/uci-defaults/')) else 0o644)
     (root / 'usr/share/myos-nros/id_rsa.db').chmod(0o400)
+    run('python3', assets.parent / 'install-myos-support.py', root, assets)
     config = root / 'etc/config/myos_nros'
     text = config.read_text()
     for name in ('enabled', 'remote_web_enabled', 'remote_ssh_enabled'):
@@ -328,6 +325,12 @@ def main():
     # Keep native AK68 applications; replace the kernel ABI and the LuCI runtime.
     selected = set(re.findall(r'^CONFIG_PACKAGE_([^=]+)=y$', (source / '.config').read_text(), re.M))
     required = {'kernel'} | {n for n in selected if n.startswith('kmod-')}
+    presentation = runpy.run_path(str(source / 'target/linux/mediatek/image/myos-new-image.py'))
+    required.update(presentation['add_vantage_packages'](source, available, read_ipk))
+    for path in presentation['kunpeng_packages']():
+        name, record, fields, _ = read_ipk(path)
+        available[name] = (path, record, fields)
+        required.add(name)
     required |= {
         'libc', 'libgcc1', 'luci-base', 'luci-lib-base', 'luci-compat', 'luci-mod-admin-full',
         'luci-mod-network', 'luci-mod-system', 'luci-mod-status', 'luci-lib-jsonc',
@@ -340,6 +343,8 @@ def main():
         'luci-app-firewall', 'luci-app-store', 'luci-app-package-manager', 'opkg', 'openwrt-keyring',
         'iptables-nft', 'ip6tables-nft', 'tc-full',
         'libip4tc2', 'libip6tc2', 'iptables-mod-extra',
+        'ca-certificates', 'libseccomp', 'tini', 'btrfs-progs',
+        'luci-lib-docker', 'ttyd',
         'mtwifi-cfg', 'luci-app-mtwifi-cfg', 'jq', 'bc', 'fstools', 'block-mount',
         'uclient-fetch', 'ca-bundle', 'curl', 'libcurl4', 'libnghttp2-14', 'mkf2fs', 'f2fsck',
         'luci-theme-myos-new', 'luci-app-myos-system', 'luci-app-c5800-hnat',
@@ -350,17 +355,17 @@ def main():
         'firewall', 'luci-theme-argon', 'quickstart', 'luci-app-quickstart',
         'luci-theme-c2000max-ui', 'luci-theme-mwrt',
         'luci-theme-bootstrap', 'luci', 'luci-light', 'luci-nginx',
-        'luci-theme-vantage', 'luci-app-vantage', 'luci-i18n-vantage-zh-cn',
+        'luci-theme-vantage',
         'luci-app-istorex', 'luci-app-c5800-688-wtmodem', 'luci-app-5700webui',
         'docker', 'dockerd', 'docker-compose', 'containerd', 'runc',
-        'luci-app-dockerman', 'luci-lib-docker', 'tini', 'libseccomp', 'btrfs-progs',
+        'luci-app-dockerman', 'luci-lib-docker',
         'ttyd', 'libwebsockets-full', 'cgroupfs-mount',
         'gcc', 'make', 'python3-dev', 'python3-pip', 'python3-setuptools',
         'python-pip-conf', 'binutils', 'objdump', 'ar', 'libopcodes', 'libctf', 'libbfd',
     }
     kept_apps = {'luci-app-store', 'luci-app-ModemATSD', 'luci-app-package-manager',
                  'luci-app-mtwifi-cfg', 'luci-app-firewall', 'luci-app-myos-system',
-                 'luci-app-c5800-hnat'}
+                 'luci-app-c5800-hnat', 'luci-app-vantage'}
     removed |= {name for name in records
                 if name.startswith('luci-app-') and name not in kept_apps}
     translated_apps = {'base', 'store', 'ModemATSD', 'mtwifi-cfg', 'firewall', 'package-manager', 'vantage'}
@@ -479,6 +484,7 @@ def main():
             target = work / ('usr/lib/opkg/info/' + name + '.' + key)
             target.write_bytes(value)
             target.chmod(mode)
+    presentation['configure_kunpeng'](work, run)
     for relative, (data, mode) in preserved.items():
         path = work / relative
         path.write_bytes(data)
@@ -492,13 +498,17 @@ def main():
     for path in app_assets.rglob('*'):
         if path.is_file():
             copy(path, work / path.relative_to(app_assets))
+    (work / 'usr/lib/lua/myos_nradio_app_config.lua').chmod(0o644)
     for path in (assets / 'overlay').rglob('*'):
         if path.is_file():
             copy(path, work / path.relative_to(assets / 'overlay'))
     run('python3', assets / 'prepare-nbcpe-webui.py',
         '--frontend', source / 'package/custom/mt5700-web-go/src/web-modern',
         '--www', work / 'www')
-    # SMS decoding retains stock Python 3.9 and uses precompiled AArch64 modules.
+    # Restore the codec matching the retained stock Python 3.9 interpreter.
+    run(host / 'unsquashfs4', '-force', '-no-progress', '-no-xattrs', '-d', work,
+        assets / 'root.squashfs', 'usr/lib/python3.9/lib-dynload/unicodedata.cpython-39.so')
+    # SMS decoding uses precompiled modules for that same interpreter.
     python_runtime = assets / 'python-runtime'
     assert (python_runtime / 'usr/lib/python3.9/site-packages/bitarray/_bitarray.so').is_file()
     for path in python_runtime.rglob('*'):
@@ -579,15 +589,17 @@ def main():
                 link.unlink()
     # Install current remote and reporting files after all bundled theme overlays.
     install_remote_access(source, work)
+    run('patch', '--batch', '-p1', '-d', work, '-i', assets / 'myos-support-reply-timeout.patch')
     # The stock preinit hook writes the old kernel's unsupported ppe_cnt parameter.
     (work / 'lib/preinit/82_setup_ppenum').unlink(missing_ok=True)
-    disabled_init = set(official_manifest['disabled_init'])
+    # Dockerman starts ttyd on demand for its container console.
+    disabled_init = {*official_manifest['disabled_init'], 'ttyd'}
     for link in (work / 'etc/rc.d').iterdir():
         if link.is_symlink() and Path(os.readlink(link)).name in disabled_init:
             link.unlink()
     for script in ('qiyougamebooster', 'myos-nros-app', 'myos-nros-mqtt',
                    'myos-nbcpe-cache', 'myos-nbcpe-leds', 'myos-nbcpe-native',
-                   'myos-nbcpe-webui', 'myos-factory-wifi', 'turboacc'):
+                   'myos-nbcpe-webui', 'myos-factory-wifi', 'turboacc', 'zeroclaw'):
         target = work / ('etc/init.d/' + script)
         if target.exists():
             for key, prefix in (('START', 'S'), ('STOP', 'K')):
@@ -601,11 +613,15 @@ def main():
         if link.is_symlink() or link.exists():
             link.unlink()
         link.symlink_to(target)
-    plan['proxy_packages'] = proxy_bundle['install_bundle'](source, work, records)
+    plan['proxy_packages'] = proxy_bundle['install_bundle'](
+        source, work, records,
+        excluded_packages={'luci-app-ssr-plus', 'luci-i18n-ssr-plus-zh-cn'})
     plan['installed_package_count'] = len(records)
     plan['application_versions'].update({name: version for name, version in plan['proxy_packages'].items()
                                          if name.startswith('luci-app-')})
-    runpy.run_path(str(source / 'target/linux/mediatek/image/myos-new-image.py'))['install'](work)
+    presentation['install'](work)
+    presentation['configure_vantage'](work)
+    presentation['install_upgrade_preservation'](work)
     # The stock strings alternative points at binutils-strings, which slimming
     # removes. Preinit 02_sysinfo must invoke the retained BusyBox applet.
     restore_package_alternatives(work, records)
@@ -635,10 +651,9 @@ def main():
                 shebang = stream.read(2) == b'#!'
             executable = bool(path.stat().st_mode & 0o111) or shebang
             path.chmod(0o755 if executable else 0o644)
-    run('python3', source / 'scripts/prepare-public-rootfs.py', work)
     (work / 'etc/shadow').chmod(0o600)
     (work / 'usr/share/myos-nros/id_rsa.db').chmod(0o400)
-    for relative in ('etc/config/myos_nros', 'etc/config/mosquitto'):
+    for relative in ('etc/config/myos_usage', 'etc/config/myos_nros', 'etc/config/mosquitto'):
         path = work / relative
         if path.is_file():
             path.chmod(0o600)
@@ -656,6 +671,7 @@ def main():
         pseudo = kdir / 'nbcpe-myos-console.pseudo'
         pseudo.write_text('dev/console c 0600 0 0 5 1\n')
         output = kdir / 'root-nbcpe-myos.squashfs'
+        run('python3', source / 'scripts/install-myos-688-upgrade.py', source, work)
         run(host / 'mksquashfs4', work, output, '-nopad', '-noappend', '-root-owned',
             '-comp', 'xz', '-Xpreset', '9', '-Xe', '-Xlc', '0', '-Xlp', '2', '-Xpb', '2',
             '-b', '256k', '-no-xattrs', '-pf', pseudo, '-processors', '6')

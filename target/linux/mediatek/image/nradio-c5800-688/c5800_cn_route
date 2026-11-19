@@ -1,0 +1,28 @@
+#!NAME = c5800_cn_route
+#!DESC = 国内直连跟随 C5800 当前的 mwan3 策略
+#!CONFIG = clash-all-smart.yaml
+
+[YAML]
+proxies+:
+  - name: 国内直连-内置蜂窝
+    type: direct
+    interface-name: eth1
+  - name: 国内直连-PoE
+    type: direct
+    interface-name: port5
+proxy-groups*:
+  where:
+    name: 国内
+    type: select
+    proxies: [直连]
+  set:
+    proxies-: [直连]
+    +proxies: [国内直连-自动]
+proxy-groups+:
+  - name: 国内直连-自动
+    type: select
+    proxies: [直连, 国内直连-内置蜂窝, 国内直连-PoE, 国内直连-均衡]
+  - name: 国内直连-均衡
+    type: load-balance
+    strategy: round-robin
+    proxies: [国内直连-内置蜂窝, 国内直连-PoE]
