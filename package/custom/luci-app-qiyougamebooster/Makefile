@@ -14,3 +14,5 @@ define Build/Prepare/luci-app-qiyougamebooster
 endef
 
 include $(TOPDIR)/feeds/luci/luci.mk
+
+# call BuildPackage: luci.mk registers the app and its translations.
