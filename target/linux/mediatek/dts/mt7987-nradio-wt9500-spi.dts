@@ -99,6 +99,7 @@
 &hnat {
 	mtketh-lan2 = "hnat";
 	mtketh-ppd = "hnat";
+	/delete-property/ ext-devices;
 };
 
 &fan {

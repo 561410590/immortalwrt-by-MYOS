@@ -14,6 +14,8 @@
 #include <linux/netfilter_bridge.h>
 #include <linux/netfilter_ipv6.h>
 #include <linux/of.h>
+#include <linux/usb.h>
+#include <linux/usb/cdc.h>
 #include <net/arp.h>
 #include <net/neighbour.h>
 #include <net/netfilter/nf_conntrack_helper.h>
@@ -67,6 +69,29 @@ static inline uint8_t get_wifi_hook_if_index_from_dev(const struct net_device *d
 static inline bool c2000max_wifi_hnat_bypass(void)
 {
 	return of_machine_is_compatible("nradio,c2000-max");
+}
+
+static bool ultra_primary_ncm(const struct net_device *dev)
+{
+	const struct device *parent = dev->dev.parent;
+	const struct usb_interface_descriptor *desc;
+	const struct usb_interface *intf;
+	const struct usb_device *usb;
+
+	if (!of_machine_is_compatible("nradio,c2000-ultra") ||
+	    !parent || !parent->type || !parent->type->name ||
+	    strcmp(parent->type->name, "usb_interface"))
+		return false;
+
+	intf = to_usb_interface(parent);
+	usb = interface_to_usbdev(intf);
+	desc = &intf->cur_altsetting->desc;
+
+	return le16_to_cpu(usb->descriptor.idVendor) == 0x3466 &&
+	       le16_to_cpu(usb->descriptor.idProduct) == 0x3301 &&
+	       desc->bInterfaceNumber == 0 &&
+	       desc->bInterfaceClass == USB_CLASS_COMM &&
+	       desc->bInterfaceSubClass == USB_CDC_SUBCLASS_NCM;
 }
 
 static inline int get_ext_device_number(void)
@@ -169,8 +194,9 @@ static inline int extif_set_dev(struct net_device *dev, int try_prefix)
 	extif_index = extif_match(dev->name);
 
 	if (extif_index < 0) {
-		/* try extif prefix match */
-		if (try_prefix && extif_prefix_match(dev->name)) {
+		/* Match the Ultra modem by its NCM function before using name prefixes. */
+		if (try_prefix && (ultra_primary_ncm(dev) ||
+				   extif_prefix_match(dev->name))) {
 			number = get_ext_device_number();
 			if (number >= MAX_EXT_DEVS) {
 				pr_info("%s : extdev array is full. %s is not registered\n",

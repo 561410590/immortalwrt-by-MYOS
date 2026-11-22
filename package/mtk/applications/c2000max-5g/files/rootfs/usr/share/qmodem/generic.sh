@@ -287,7 +287,7 @@ get_driver()
                     mode="mbim"
                     break
                     ;;
-                "cdc_ncm")
+                "cdc_ncm"|"wt_cdc_ncm")
                     mode="ncm"
                     break
                     ;;

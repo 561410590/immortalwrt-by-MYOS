@@ -30,25 +30,42 @@ function count_changes(section_id) {
 	return n;
 }
 
-function render_iface(dev, alias) {
+function iface_device_fields(dev) {
+	return [
+		_('Type'),      dev ? dev.getTypeI18n() : null,
+		_('Device'),    dev ? dev.getName() : _('Not present'),
+		_('Connected'), dev && dev.isUp() ? _('yes') : _('no'),
+		_('MAC'),       dev ? dev.getMAC() : null,
+		_('RX'),        dev ? '%.2mB (%d %s)'.format(dev.getRXBytes(), dev.getRXPackets(), _('Pkts.')) : null,
+		_('TX'),        dev ? '%.2mB (%d %s)'.format(dev.getTXBytes(), dev.getTXPackets(), _('Pkts.')) : null
+	];
+}
+
+function detail_rows(fields) {
+	const rows = [];
+	for (let i = 0; i < fields.length; i += 2) {
+		const value = fields[i + 1];
+		if (value != null && value !== '')
+			rows.push(E('div', [E('dt', fields[i]), E('dd', [value])]));
+	}
+	return rows;
+}
+
+function render_iface(dev, alias, iconOnly) {
 	var type = dev ? dev.getType() : 'ethernet',
 	    up   = dev ? dev.isUp() : false;
 
+	const icon = E('img', { class: 'middle', alt: '', src: L.resource('icons/%s%s.svg').format(
+		alias ? 'alias' : type, up ? '' : '_disabled') });
+	if (iconOnly)
+		return icon;
+
 	return E('span', { class: 'cbi-tooltip-container' }, [
-		E('img', { 'class' : 'middle', 'src': L.resource('icons/%s%s.svg').format(
-			alias ? 'alias' : type,
-			up ? '' : '_disabled') }),
+		icon,
 		E('span', { 'class': 'cbi-tooltip ifacebadge large' }, [
 			E('img', { 'src': L.resource('icons/%s%s.svg').format(
 				type, up ? '' : '_disabled') }),
-			L.itemlist(E('span', { 'class': 'left' }), [
-				_('Type'),      dev ? dev.getTypeI18n() : null,
-				_('Device'),    dev ? dev.getName() : _('Not present'),
-				_('Connected'), up ? _('yes') : _('no'),
-				_('MAC'),       dev ? dev.getMAC() : null,
-				_('RX'),        dev ? '%.2mB (%d %s)'.format(dev.getRXBytes(), dev.getRXPackets(), _('Pkts.')) : null,
-				_('TX'),        dev ? '%.2mB (%d %s)'.format(dev.getTXBytes(), dev.getTXPackets(), _('Pkts.')) : null
-			])
+			L.itemlist(E('span', { 'class': 'left' }), iface_device_fields(dev))
 		])
 	]);
 }
@@ -87,12 +104,13 @@ function render_status(node, ifc, with_device, zone) {
 	}, _('Interface has %d pending changes').format(changecount)) : null;
 	const compact = !with_device && document.body.classList.contains('m-submenu-compact');
 	let target = node;
+	let members;
 	if (compact) {
 		let summary = node.querySelector(':scope > .m-interface-summary');
 		let details = node.querySelector(':scope > .m-interface-details');
 		if (!summary || !details) {
 			summary = E('div', { class: 'm-interface-summary' });
-			details = E('details', { class: 'm-interface-details' }, [ E('summary', '接口详情'), E('div') ]);
+			details = E('details', { class: 'm-interface-details' }, [E('summary', '接口详情'), E('dl'), E('div')]);
 			dom.content(node, [summary, details]);
 		}
 		const up = ifc.isUp(), disabled = ifc.get('disabled') === '1';
@@ -106,15 +124,18 @@ function render_status(node, ifc, with_device, zone) {
 			]),
 			pending || (errors?.length ? E('span', { class: 'm-interface-error' }, errors[0]) : E([]))
 		]);
-		target = details.lastElementChild;
+		target = details.children[1];
+		members = details.lastElementChild;
 	}
-	return L.itemlist(target, [
+	const fields = [
 		_('Protocol'), with_device ? null : (desc || '?'),
-		_('Device'), with_device ? (maindev ? maindev.getShortName() : E('em', _('Not present'))) : null,
+		...(compact ? iface_device_fields(maindev) : [
+			_('Device'), with_device ? (maindev ? maindev.getShortName() : E('em', _('Not present'))) : null
+		]),
 		_('Uptime'), (!changecount && ifc.isUp()) ? '%t'.format(ifc.getUptime()) : null,
-		_('MAC'), (cond01) ? macaddr : null,
-		_('RX'), (cond02) ? '%.2mB (%d %s)'.format(maindev.getRXBytes(), maindev.getRXPackets(), _('Pkts.')) : null,
-		_('TX'), (cond02) ? '%.2mB (%d %s)'.format(maindev.getTXBytes(), maindev.getTXPackets(), _('Pkts.')) : null,
+		_('MAC'), !compact && cond01 ? macaddr : null,
+		_('RX'), !compact && cond02 ? '%.2mB (%d %s)'.format(maindev.getRXBytes(), maindev.getRXPackets(), _('Pkts.')) : null,
+		_('TX'), !compact && cond02 ? '%.2mB (%d %s)'.format(maindev.getTXBytes(), maindev.getTXPackets(), _('Pkts.')) : null,
 		...addEntries(_('IPv4'), compact ? ipv4.slice(1) : ipv4),
 		...addEntries(_('IPv6'), compact && !ipv4.length ? ipv6.slice(1) : ipv6),
 		...addEntries(_('IPv6-PD'), changecount ? null : ifc.getIP6Prefixes?.()),
@@ -122,7 +143,24 @@ function render_status(node, ifc, with_device, zone) {
 		_('Information'), with_device ? null : (ifc.get('auto') != '0' ? null : _('Not started on boot')),
 		...addEntries(_('Error'), errors),
 		null, compact ? null : pending
-	]);
+	];
+	if (!compact)
+		return L.itemlist(target, fields);
+
+	if (!changecount) {
+		const gateway4 = ifc.getGatewayAddr(), gateway6 = ifc.getGateway6Addr();
+		fields.push(
+			'IPv4 默认网关', gateway4 === '0.0.0.0' ? '直连' : gateway4,
+			'IPv6 默认网关', gateway6 === '::' ? '直连' : gateway6,
+			...addEntries('IPv4 DNS', ifc.getDNSAddrs()),
+			...addEntries('IPv6 DNS', ifc.getDNS6Addrs())
+		);
+	}
+
+	dom.content(target, detail_rows(fields));
+	dom.content(members, (maindev?.getPorts() || []).map(port =>
+		E('dl', detail_rows(iface_device_fields(port)))));
+	return node;
 }
 
 function render_modal_status(node, ifc) {
@@ -140,15 +178,17 @@ function render_modal_status(node, ifc) {
 }
 
 function render_ifacebox_status(node, ifc) {
+	const inlineDetails = document.body.classList.contains('m-submenu-compact') && ifc.getProtocol() &&
+		(ifc.isDynamic() || ifc.isAlias() || uci.get('network', ifc.getName()) != null);
 	var dev = ifc.getL3Device() || ifc.getDevice(),
 	    subdevs = dev ? dev.getPorts() : null,
-	    c = [ render_iface(dev, ifc.isAlias()) ];
+	    c = [ render_iface(dev, ifc.isAlias(), inlineDetails) ];
 
 	if (subdevs && subdevs.length) {
 		var sifs = [ ' (' ];
 
 		for (var j = 0; j < subdevs.length; j++)
-			sifs.push(render_iface(subdevs[j]));
+			sifs.push(render_iface(subdevs[j], false, inlineDetails));
 
 		sifs.push(')');
 
@@ -1788,6 +1828,27 @@ return view.extend({
 
 
 		return m.render().then(L.bind(function(m, nodes) {
+			const iface = new URLSearchParams(location.search).get('iface');
+			if (iface && document.body.classList.contains('m-submenu-compact')) {
+				const details = nodes.querySelector('#' + CSS.escape(iface + '-ifc-description') + ' > .m-interface-details');
+				if (details) {
+					details.open = true;
+					requestAnimationFrame(() => {
+						const pane = details.closest('[data-tab-title][data-tab]');
+						if (pane && pane.dataset.tabActive !== 'true') {
+							const menu = pane.parentElement.previousElementSibling;
+							const tab = menu?.querySelector('li[data-tab="' + CSS.escape(pane.dataset.tab) + '"] > a');
+							if (tab) tab.click();
+							else pane.dataset.tabActive = 'true';
+						}
+						details.querySelector('summary').focus({ preventScroll: true });
+						details.scrollIntoView({ block: 'center' });
+					});
+				}
+				else {
+					ui.addNotification(null, E('p', '该逻辑接口当前不在列表中。'), 'info');
+				}
+			}
 			poll.add(L.bind(function() {
 				var section_ids = m.children[0].cfgsections(),
 				    tasks = [];

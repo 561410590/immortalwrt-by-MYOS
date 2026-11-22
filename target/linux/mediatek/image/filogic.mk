@@ -202,6 +202,8 @@ C2000MAX_REMOVE_IPK_PACKAGES := \
 	luci-app-wol luci-i18n-wol-zh-cn wol etherwake \
 	luci-app-linkease luci-i18n-linkease-zh-cn linkease linkmount
 
+C2000ULTRA_NROS_WEBUI := $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-ultra/nros-2.3.9-webui
+
 define Build/prepare-c2000ultra-app-rootfs
 	rm -rf $(KDIR)/root-c2000ultra-$(1)-app \
 		$(KDIR)/root-c2000ultra-$(1)-app.squashfs \
@@ -264,6 +266,18 @@ define Build/prepare-c2000ultra-app-rootfs
 		$(KDIR)/root-c2000ultra-$(1)-app $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max
 	python3 $(TOPDIR)/../immortalwrt-mt798x-6.6/target/linux/mediatek/image/install-kunpeng-ai.py \
 		$(KDIR)/root-c2000ultra-$(1)-app $(STAGING_DIR_HOST)/bin/opkg --myos-runtime
+	$(INSTALL_DIR) $(KDIR)/root-c2000ultra-$(1)-app/usr/lib/nros-ultra-2.3.9-webui \
+		$(KDIR)/root-c2000ultra-$(1)-app/www/luci-static/resources/view/myos-nros \
+		$(KDIR)/root-c2000ultra-$(1)-app/usr/share/luci/menu.d
+	$(CP) $(C2000ULTRA_NROS_WEBUI)/root/. \
+		$(KDIR)/root-c2000ultra-$(1)-app/usr/lib/nros-ultra-2.3.9-webui/
+	$(INSTALL_BIN) $(C2000ULTRA_NROS_WEBUI)/nros-ultra-webui.init \
+		$(KDIR)/root-c2000ultra-$(1)-app/etc/init.d/nros-ultra-webui
+	$(INSTALL_DATA) $(C2000ULTRA_NROS_WEBUI)/myos-theme-menu.json \
+		$(KDIR)/root-c2000ultra-$(1)-app/usr/share/luci/menu.d/myos-theme.json
+	$(INSTALL_DATA) $(C2000ULTRA_NROS_WEBUI)/myos-theme.js \
+		$(KDIR)/root-c2000ultra-$(1)-app/www/luci-static/resources/view/myos-nros/theme.js
+	ln -sf ../init.d/nros-ultra-webui $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/S99nros-ultra-webui
 	$(STAGING_DIR_HOST)/bin/mksquashfs4 \
 		$(KDIR)/root-c2000ultra-$(1)-app \
 		$(KDIR)/root-c2000ultra-$(1)-app.squashfs \
@@ -3489,7 +3503,7 @@ define Device/nradio_c2000-ultra
 	-luci-app-ssr-plus -luci-i18n-ssr-plus-zh-cn \
 	-luci-app-shadowsocks-libev \
 	luci-theme-myos-new luci-app-myos-ultra luci-app-vantage luci-i18n-vantage-zh-cn \
-	openmptcprouter-ultra \
+	openmptcprouter-ultra kmod-wt-ncm-ultra \
 	libip4tc libip6tc kmod-ipt-extra iptables-mod-extra \
 	iptables-nft ip6tables-nft ca-certificates libseccomp tini btrfs-progs \
 	kmod-ipt-nat kmod-ipt-nat6 kmod-ipt-physdev kmod-nf-ipvs kmod-veth \

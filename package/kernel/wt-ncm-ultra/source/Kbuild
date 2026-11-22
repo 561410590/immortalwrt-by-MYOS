@@ -1,0 +1,2 @@
+obj-m := wt_ncm_lab.o
+wt_ncm_lab-y := core.o ncm.o filter.o
