@@ -1,0 +1,2 @@
+#!/usr/bin/lua
+require("c5800_radio").run()

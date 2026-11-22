@@ -1673,7 +1673,27 @@ function M.clients()
 		file:close()
 	end
 
-	for _, interface in ipairs(wireless_interfaces()) do
+	local interfaces = wireless_interfaces()
+	local wireless_ports = {}
+	for _, interface in ipairs(interfaces) do
+		local port = tonumber(read1("/sys/class/net/" .. interface.ifname ..
+			"/brport/port_no"))
+		if port then wireless_ports[port] = interface end
+	end
+	for line in tostring(util.exec("brctl showmacs br-lan 2>/dev/null") or ""):gmatch("[^\r\n]+") do
+		local port, mac, is_local = line:match("^%s*(%d+)%s+(%S+)%s+(%S+)")
+		local interface = wireless_ports[tonumber(port)]
+		local item = clients[normalize_mac(mac)]
+		if item and interface and is_local == "no" then
+			item.type, item.wire, item.wireless = "wireless", 0, 1
+			item.ifname = interface.ifname
+			item.ssid = interface.ssid or ""
+			item.channel = interface.channel or ""
+			item.frequency = interface.frequency or ""
+			item.band = wireless_band(interface.frequency)
+		end
+	end
+	for _, interface in ipairs(interfaces) do
 		for _, station in ipairs(interface.stations) do
 			local item = client_for(station.mac, true)
 			if item then

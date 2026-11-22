@@ -1,0 +1,64 @@
+--- a/etc/board.d/04_defaults
++++ b/etc/board.d/04_defaults
+@@ -19,14 +19,6 @@
+ 		set network.lan.netmask='255.255.255.0'
+ 		delete network.lan.ifname
+ 
+-		delete network.@device[0]
+-		add network device
+-		set network.@device[-1].name='br-lan'
+-		set network.@device[-1].type='bridge'
+-		add_list network.@device[-1].ports='lan1'
+-		add_list network.@device[-1].ports='lan2'
+-		add_list network.@device[-1].ports='lan3'
+-
+ 		set network.wan='interface'
+ 		set network.wan.proto='dhcp'
+ 		set network.wan.device='eth1'
+--- a/etc/uci-defaults/11_network-migrate-bridges
++++ b/etc/uci-defaults/11_network-migrate-bridges
+@@ -19,22 +19,35 @@
+ 	uci delete network.$config.ifname
+ }
+ 
++find_bridge_device() {
++	local name
++	config_get name "$1" name
++	[ "$name" != "$2" ] || bridge_dev="$1"
++}
++
+ migrate_bridge() {
+ 	local config="$1"
+-	local type ifname
++	local type ifname bridge_dev ports port
+ 
+ 	config_get type "$config" type
+ 	[ "$type" != "bridge" ] && return
+ 
+ 	config_get ifname "$config" ifname
+ 
+-	uci -q batch <<-EOF
+-		add network device
+-		set network.@device[-1].name='br-$config'
+-		set network.@device[-1].type='bridge'
+-	EOF
++	bridge_dev=
++	config_foreach find_bridge_device device "br-$config"
++	if [ -z "$bridge_dev" ]; then
++		bridge_dev=$(uci add network device)
++		uci set "network.$bridge_dev.name=br-$config"
++		uci set "network.$bridge_dev.type=bridge"
++	fi
++	ports=$(uci -q get "network.$bridge_dev.ports")
+ 	for port in $ifname; do
+-		uci add_list network.@device[-1].ports="$port"
++		case " $ports " in
++			*" $port "*) continue ;;
++		esac
++		uci add_list "network.$bridge_dev.ports=$port"
++		ports="$ports $port"
+ 	done
+ 
+ 	uci -q batch <<-EOF
+
+

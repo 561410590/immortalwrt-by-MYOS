@@ -1,0 +1,183 @@
+#!/usr/bin/lua
+
+local json = require("luci.jsonc")
+local nixio = require("nixio")
+local fs = require("nixio.fs")
+local transport = require("myos_ap_transport")
+local lan_discovery = require("myos_ap_discovery")
+local state = "/etc/myos-ac/"
+
+local function fail(message)
+	return { error = message }
+end
+
+local function valid_mac(mac)
+	return type(mac) == "string" and #mac == 12 and mac:match("^%x+$")
+end
+
+local function ipv4(address)
+	local a, b, c, d = address:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+	if not a then return end
+	for _, part in ipairs({ a, b, c, d }) do
+		if #part > 3 or tonumber(part) > 255 or tostring(tonumber(part)) ~= part then return end
+	end
+	return address
+end
+
+local function leases()
+	local result, now = {}, os.time()
+	local file = io.open("/tmp/dhcp.leases", "r")
+	if not file then return result end
+	for line in file:lines() do
+		local expires, address, ip, name = line:match("^(%d+)%s+(%S+)%s+(%S+)%s+(%S+)")
+		if expires and (tonumber(expires) == 0 or tonumber(expires) > now) then
+			local advertised = name:match("^myos%-ap%-(%x+)$") or name:match("^myos%-n5000%-ap%-(%x+)$")
+			local mac = address:lower():gsub(":", "")
+			if valid_mac(mac) and advertised and advertised:lower() == mac and ipv4(ip) then
+				result[mac] = ip
+			end
+		end
+	end
+	file:close()
+	return result
+end
+
+local function peer(mac)
+	local contents = fs.readfile(state .. mac .. ".json")
+	return contents and json.parse(contents)
+end
+
+local function detect()
+	local found = lan_discovery.scan()
+	for mac, ip in pairs(leases()) do
+		if not found[mac] then found[mac] = { ip = ip, source = "dhcp" } end
+	end
+	return found
+end
+
+local function discover()
+	local detected, rows = detect(), {}
+	for mac, device in pairs(detected) do
+		local paired = peer(mac)
+		rows[#rows + 1] = { mac = mac, ip = device.ip, bound = paired ~= nil,
+			model = paired and paired.model or device.model, source = device.source }
+	end
+	local files = fs.dir(state)
+	if files then
+		for name in files do
+			local mac = name:match("^(%x+)%.json$")
+			if valid_mac(mac) and not detected[mac] then
+				local paired = peer(mac)
+				if paired then rows[#rows + 1] = { mac = mac, bound = true, model = paired.model } end
+			end
+		end
+	end
+	table.sort(rows, function(a, b) return a.mac < b.mac end)
+	return { devices = rows }
+end
+
+local function exchange(ip, mac, credentials, action, settings)
+	if not ip then return fail("未在 LAN 上发现此 AP，请检查有线连接") end
+	local body = settings or {}
+	body.action = action
+	local packet = transport.seal(credentials.token, "request", body)
+	if not packet then return fail("无法生成管理请求") end
+	local payload = json.stringify(packet)
+	local path = state .. "request"
+	if fs.writefile(path, payload) ~= #payload then
+		fs.unlink(path)
+		return fail("无法准备 AP 请求")
+	end
+	local command = "curl -q -fsS --noproxy '*' --connect-timeout 3 --max-time 12 --max-filesize 65536"
+		.. " -H 'Content-Type: application/json' --data-binary @" .. path
+		.. " http://" .. ip .. ":9443/cgi-bin/ap 2>/dev/null"
+	local process = io.popen(command, "r")
+	local response = process and process:read("*a")
+	if process then process:close() end
+	fs.unlink(path)
+	local result = response and transport.open(credentials.token, "reply:" .. packet.nonce, json.parse(response))
+	if not result then return fail("无法连接 AP 或配对码已失效") end
+	if type(result.error) == "string" then return fail(result.error) end
+	if result.ok ~= true or type(result.board) ~= "string" or result.board == "" or type(result.mac) ~= "string"
+		or result.mac:lower():gsub(":", "") ~= mac then
+		return fail("AP 返回的设备身份不符")
+	end
+	return { ok = true, model = type(result.model) == "string" and result.model or result.board,
+		radios = result.radios, generation = result.generation }
+end
+
+local function contact(ip, mac, credentials, action, settings)
+	if action == "configure" then
+		local current = exchange(ip, mac, credentials, "status")
+		if not current.ok then return current end
+		settings.generation = current.generation
+	end
+	return exchange(ip, mac, credentials, action, settings)
+end
+
+local function bind(request)
+	if type(request.code) ~= "string" then return fail("请输入 AP 的配对码") end
+	local mac, token = request.code:match("^MYOSAP2%.(%x+)%.([0-9a-f]+)$")
+	if not valid_mac(mac) or #token ~= 64 then return fail("配对码格式无效") end
+	mac = mac:lower()
+	local credentials = { token = token }
+	local device = detect()[mac]
+	local result = contact(device and device.ip, mac, credentials, "status")
+	if not result.ok then return result end
+	credentials.model = result.model
+	local contents = json.stringify(credentials)
+	local path = state .. mac .. ".json"
+	if fs.writefile(path .. ".new", contents) ~= #contents or not fs.rename(path .. ".new", path) then
+		fs.unlink(path .. ".new")
+		return fail("无法保存绑定")
+	end
+	return { ok = true, mac = mac }
+end
+
+local function dispatch(method, request)
+	if method == "discover" then return discover() end
+	if method == "bind" then return bind(request) end
+	local mac = request.mac
+	if not valid_mac(mac) then return fail("设备 MAC 无效") end
+	mac = mac:lower()
+	local credentials = peer(mac)
+	if not credentials then return fail("请先绑定此 AP") end
+	if method == "unbind" then
+		if not fs.unlink(state .. mac .. ".json") then return fail("无法删除绑定") end
+		return { ok = true }
+	end
+	local settings
+	if method == "configure" then
+		settings = {
+			id = request.id, ssid = request.ssid, encryption = request.encryption,
+			key = request.key, channel = request.channel, txpower = request.txpower,
+			hidden = request.hidden, enabled = request.enabled
+		}
+	end
+	local device = detect()[mac]
+	return contact(device and device.ip, mac, credentials, method, settings)
+end
+
+if arg[1] == "list" then
+	print('{"discover":{},"status":{"mac":""},"bind":{"code":""},"unbind":{"mac":""},"configure":{"mac":"","id":"","ssid":"","encryption":"","key":"","channel":"","txpower":32,"hidden":false,"enabled":false}}')
+elseif arg[1] == "call" then
+	local method = arg[2]
+	local request = json.parse(io.read("*a")) or {}
+	local result
+	if method == "discover" then
+		result = discover()
+	elseif method == "bind" or method == "status" or method == "configure" or method == "unbind" then
+		nixio.umask("077")
+		fs.mkdir(state, "700")
+		local lock = nixio.open(state .. "lock", "w", "600")
+		if lock and lock:lock("lock") then
+			result = dispatch(method, request)
+			lock:close()
+		else
+			result = fail("无法取得 AP 管理锁")
+		end
+	else
+		result = fail("未知的管理操作")
+	end
+	print(json.stringify(result))
+end

@@ -162,6 +162,54 @@ end
 
 -- kpcpe-ctl performs the original authenticated/encrypted ODU request.
 -- No local interface, modem, selector or network service is restarted here.
+function M.diagnostics()
+    local host, peer = secondary_host()
+    local link = fs.readfile("/sys/class/net/port5/carrier") == "1\n"
+    local result = {device="port5", host=host, carrier=link, present=false}
+    if not link or not peer then return result end
+    local state = M.status()
+    local reply, err = M.request("signal", {})
+    local signal = reply and reply.result or {}
+    result.name, result.transport = state.name, state.transport
+    result.error = err
+    result.present = type(signal) == "table" and (signal.model or "") ~= ""
+    if not result.present then return result end
+    result.model, result.fw, result.imei = signal.model, signal.revision, signal.imei
+    result.vendor = signal.manufacturer or signal.vendor
+    local hwid = tostring(signal.hwid or ""):lower()
+    if hwid:match("^%x%x%x%x:%x%x%x%x$") then
+        result.hwid = hwid
+        result.vendor = result.vendor or read("/lib/network/wwan/" .. hwid).vendor
+    end
+    result.mode, result.rsrp, result.sinr = signal.mode, signal.rsrp, signal.sinr
+    if reply.rm520n then
+        result.transport = "ATSD"
+        result.vendor = result.vendor or "Quectel"
+    elseif tostring(state.name):upper():find("AK68", 1, true) then
+        local identity = require("myos_c5800_ak68_sms").identity(peer)
+        if identity and identity.model == result.model and
+            (not identity.imei or not result.imei or identity.imei == result.imei) then
+            result.vendor = identity.vendor or result.vendor
+            result.fw, result.imei = identity.fw or result.fw, identity.imei or result.imei
+            result.transport = "NRFAMILY / ATSD"
+        end
+    end
+    return result
+end
+
+function M.sms_peer()
+    local _, peer = secondary_host()
+    if not peer then return nil end
+    local state = M.status()
+    local signal = state.signal or {}
+    local iccid = tostring(signal.iccid or "")
+    if not state.connected or not tostring(state.name):upper():find("AK68", 1, true) or
+        not tostring(signal.model):upper():find("MT5700", 1, true) or
+        #iccid < 18 or not iccid:match("^%d+$") then return nil end
+    peer.iccid = iccid
+    return peer
+end
+
 function M.request(action, payload)
     if action ~= "cpesel" and action ~= "earfcn" and action ~= "apn" and action ~= "info" and action ~= "signal" and action ~= "sms" then
         return nil, "副设备操作无效"

@@ -163,6 +163,7 @@ def main():
     selected = set(re.findall(r'^CONFIG_PACKAGE_([^=]+)=y$', config, re.M))
     roots = {'kernel'} | {name for name in selected if name.startswith('kmod-')}
     roots.update(presentation['add_vantage_packages'](source, available, helpers.read_ipk))
+    roots.update(presentation['add_adguard_packages'](available, helpers.read_ipk))
     for path in presentation['kunpeng_packages']():
         name, record, fields, _ = helpers.read_ipk(path)
         available[name] = path, record, fields
@@ -417,7 +418,9 @@ def main():
     helpers.restore_package_alternatives(work, final)
     presentation['install'](work)
     presentation['configure_vantage'](work)
+    presentation['configure_adguard'](work)
     presentation['install_upgrade_preservation'](work)
+    presentation['install_nros_app'](work)
     theme = source / 'package/luci-theme-myos-new/root'
     for relative in ('usr/lib/lua/luci/controller/myos_new.lua',
                      'www/luci-static/resources/view/myos-new/home.js'):

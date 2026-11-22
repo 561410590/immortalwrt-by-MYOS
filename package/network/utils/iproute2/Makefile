@@ -231,7 +231,7 @@ define Package/genl/install
 endef
 
 define Package/ip-bridge/install
-	$(INSTALL_DIR) $(1)/usr/sbin
+	$(INSTALL_DIR) $(1) $(1)/usr $(1)/usr/sbin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/bridge/bridge $(1)/usr/sbin/
 endef
 

@@ -788,6 +788,15 @@ html[data-darkmode="true"] body.myos-new .oc{--text-on-primary:#102538}
  .myos-new .m-layout-handle button:not(.m-grab) {min-width:44px}
 }
 
+.myos-new .m-traffic-inspect {cursor:crosshair}
+.myos-new .m-traffic-inspect:focus-visible {outline:2px solid var(--m-blue);outline-offset:2px}
+.myos-new .m-traffic-tip {
+ position:absolute;inset-block-start:10%;inset-inline-start:8px;display:grid;gap:2px;
+ padding:6px 10px;border:1px solid var(--m-line);border-radius:6px;background:var(--m-surface);
+ color:var(--m-text);font-size:12px;line-height:1.4;font-variant-numeric:tabular-nums;pointer-events:none;
+}
+.myos-new .m-traffic-tip.at-right {inset-inline-start:auto;inset-inline-end:8px}
+.myos-new .m-traffic-tip[hidden] {display:none}
 .myos-new .m-home-refined .m-chart-frame {
  display:grid;
  grid-template-columns:52px minmax(0,1fr);
@@ -939,11 +948,12 @@ html[data-appearance="dark"] .myos-new .m-slot-quality{
 .myos-new .m-quality-controls{max-inline-size:100%;min-inline-size:0}
 .myos-new .m-quality-outlet{font-size:12px;color:var(--m-muted);overflow-wrap:anywhere}
 .myos-new .m-quality-switch{
- display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);
+ display:flex;flex-wrap:wrap;
  padding:2px;gap:2px;border:1px solid var(--m-line);border-radius:10px;background:var(--m-inset)
 }
 .myos-new .m-quality-switch button{
- min-inline-size:0;min-block-size:32px;padding:4px 8px;border:1px solid transparent;border-radius:7px;
+ flex:1 1 auto;min-inline-size:0;max-inline-size:100%;min-block-size:32px;
+ padding:4px 8px;border:1px solid transparent;border-radius:7px;
  background:transparent;color:var(--m-text);font:inherit;font-size:12px;line-height:1.3;overflow-wrap:anywhere;cursor:pointer
 }
 .myos-new .m-quality-switch button[aria-pressed="true"]{
@@ -1180,52 +1190,52 @@ html[data-appearance="dark"] .myos-new .m-slot-quality{
 .myos-new .m-dashboard.m-home-refined.m-c5800-home .m-slot-uplinks .m-card-heading{
  gap:6px 8px;margin-block-end:6px
 }
-.myos-new .m-c5800-home .m-uplink-compact{min-block-size:32px}
-.myos-new .m-c5800-home .m-uplink-detail-rows:not(:empty){gap:6px}
-.myos-new[data-device-model="NRadio-C5800-688"] .m-c5800-wifi-stations{
+.myos-new .m-dashboard.m-home-refined .m-uplink-compact{min-block-size:32px}
+.myos-new .m-dashboard.m-home-refined .m-uplink-detail-rows:not(:empty){gap:6px}
+.myos-new .m-wireless-stations{
  margin-block:10px;min-inline-size:0
 }
-.m-c5800-wifi-heading{
+.m-wireless-heading{
  display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px;margin-block-end:6px
 }
-.m-c5800-wifi-heading h3{margin:0}
-.m-c5800-wifi-heading select{min-inline-size:0;max-inline-size:min(100%,16rem);margin:0}
-.m-c5800-wifi-stations [hidden]{display:none}
-.m-c5800-wifi-list{
+.m-wireless-heading h3{margin:0}
+.m-wireless-heading select{min-inline-size:0;max-inline-size:min(100%,16rem);margin:0}
+.m-wireless-stations [hidden]{display:none}
+.m-wireless-list{
  overflow:hidden;background:var(--m-glass);border:1px solid var(--m-line);border-radius:10px
 }
-.m-c5800-wifi-list:empty{display:none}
-.m-c5800-wifi-station+.m-c5800-wifi-station{border-block-start:1px solid var(--m-line)}
-.m-c5800-wifi-station>summary{
+.m-wireless-list:empty{display:none}
+.m-wireless-station+.m-wireless-station{border-block-start:1px solid var(--m-line)}
+.m-wireless-station>summary{
  min-block-size:36px;padding:4px 10px;display:grid;grid-template-columns:minmax(0,1fr) auto 8px;
  align-items:center;gap:8px;list-style:none;cursor:pointer
 }
-.m-c5800-wifi-station>summary::-webkit-details-marker{display:none}
-.m-c5800-wifi-station>summary::after{
+.m-wireless-station>summary::-webkit-details-marker{display:none}
+.m-wireless-station>summary::after{
  content:"";inline-size:6px;block-size:6px;border:solid var(--m-muted);border-width:0 1.5px 1.5px 0;
  transform:rotate(45deg)
 }
-.m-c5800-wifi-station[open]>summary::after{transform:rotate(225deg)}
-.m-c5800-wifi-station>summary:focus-visible{outline:2px solid var(--m-blue);outline-offset:-2px}
-.m-c5800-wifi-identity{
+.m-wireless-station[open]>summary::after{transform:rotate(225deg)}
+.m-wireless-station>summary:focus-visible{outline:2px solid var(--m-blue);outline-offset:-2px}
+.m-wireless-identity{
  display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:baseline;gap:2px 8px;min-inline-size:0
 }
-.m-c5800-wifi-identity strong,.m-c5800-wifi-ssid{overflow-wrap:anywhere}
-.m-c5800-wifi-ssid,.m-c5800-wifi-empty{color:var(--m-muted);font-size:12px}
-.m-c5800-wifi-signal{white-space:nowrap;font-variant-numeric:tabular-nums}
-.m-c5800-wifi-details{padding:6px 10px 8px;border-block-start:1px solid var(--m-line);background:var(--m-inset)}
-.m-c5800-wifi-details dl{
+.m-wireless-identity strong,.m-wireless-ssid{overflow-wrap:anywhere}
+.m-wireless-ssid,.m-wireless-empty{color:var(--m-muted);font-size:12px}
+.m-wireless-signal{white-space:nowrap;font-variant-numeric:tabular-nums}
+.m-wireless-details{padding:6px 10px 8px;border-block-start:1px solid var(--m-line);background:var(--m-inset)}
+.m-wireless-details dl{
  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px 10px;margin:0
 }
-.m-c5800-wifi-details dt{color:var(--m-muted);font-size:12px}
-.m-c5800-wifi-details dd{margin:0;overflow-wrap:anywhere}
-.m-c5800-wifi-details button:not([hidden]){margin-block-start:8px}
+.m-wireless-details dt{color:var(--m-muted);font-size:12px}
+.m-wireless-details dd{margin:0;overflow-wrap:anywhere}
+.m-wireless-details button:not([hidden]){margin-block-start:8px}
 @media (max-width:600px){
- .m-c5800-wifi-identity{grid-template-columns:1fr}
- .m-c5800-wifi-details dl{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .m-wireless-identity{grid-template-columns:1fr}
+ .m-wireless-details dl{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media (pointer:coarse){
- .m-c5800-wifi-station>summary,.m-c5800-wifi-heading select{min-block-size:44px}
+ .m-wireless-station>summary,.m-wireless-heading select{min-block-size:44px}
 }
 .myos-new :is(.m-c5800-home,.m-home-compact) .m-forwarding-count,.myos-new :is(.m-c5800-home,.m-home-compact) .m-forwarding-capacity{
  display:flex;align-items:baseline;flex-wrap:wrap;gap:2px 6px;font-variant-numeric:tabular-nums
@@ -1501,3 +1511,337 @@ body.myos-new.m-solid-background {background:var(--m-solid-background)}
  grid-column:1/-1;margin:0;font-size:12px;overflow-wrap:anywhere
 }
 .myos-new .m-home-compact .m-uplink-dialog .m-route-lookup>[role="status"]:empty{display:none}
+
+.m-dashboard.m-home-refined .m-slot-clients .m-card {
+  container: myos-clients / inline-size;
+}
+@container myos-clients (max-width: 35rem) {
+  .myos-new .m-dashboard .m-slot-clients .m-table-scroll { overflow: visible }
+  .myos-new .m-slot-clients :is(.m-table, .m-table tbody) { display: block }
+  .myos-new .m-slot-clients thead {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
+  }
+  .myos-new .m-slot-clients .m-client-row {
+    display: grid; grid-template-columns: repeat(2,minmax(0,1fr));
+    grid-template-areas: "name access" "ip actions"; gap: 3px 8px; align-items: center;
+    padding-block: 6px; border-bottom: 1px solid var(--m-line);
+  }
+  .myos-new .m-dashboard.m-home-refined .m-slot-clients .m-client-row > td {
+    display: block; min-width: 0; max-width: none; border: 0; padding: 0;
+    white-space: normal; overflow-wrap: anywhere;
+  }
+  .m-client-row .m-client-id { grid-area: name }
+  .m-client-row .m-client-ip { grid-area: ip }
+  .m-client-row .m-client-link { grid-area: access; text-align: end }
+  .m-client-row .m-client-actions { grid-area: actions; justify-self: end }
+  .myos-new .m-dashboard.m-home-refined .m-slot-clients .m-client-row > .m-client-mac { display: none }
+}
+.myos-new #maincontent #cbi-network-interface .ifacebox-head { padding: 5px 10px }
+.myos-new #maincontent #cbi-network-interface .ifacebox-body { position: relative; padding: 6px 10px }
+.myos-new #maincontent #cbi-network-interface .ifacebox-body .cbi-tooltip-container { position: static }
+.myos-new #maincontent #cbi-network-interface .ifacebox-body .cbi-tooltip.ifacebadge {
+  display: grid; grid-template-columns: auto minmax(0,1fr); gap: 8px; align-items: start;
+  left: 0; top: calc(100% + 2px); width: max-content;
+  min-width: min(16rem,65vw); max-width: min(22rem,70vw); box-sizing: border-box;
+  padding: 8px 10px; background: var(--m-surface); white-space: normal; overflow-wrap: break-word;
+}
+.myos-new #cbi-network-interface .m-interface-details dl {
+  display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,16rem),1fr));
+  margin: 4px 0; padding: 6px 10px; gap: 4px 16px; max-width: 48rem;
+  background: var(--m-inset); border-inline-start: 2px solid var(--m-line);
+}
+.myos-new .m-interface-details dl > div {
+  display: grid; grid-template-columns: max-content minmax(0,1fr); align-items: baseline; gap: 8px;
+}
+.myos-new .m-interface-details dt { color: var(--m-muted) }
+.myos-new .m-interface-details dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums }
+.myos-new .m-forward-map { display: grid; gap: 3px; white-space: normal; overflow-wrap: anywhere }
+.myos-new .m-forward-map small { color: var(--m-muted) }
+.myos-new .m-forward-map summary { width: fit-content; cursor: pointer; color: var(--m-blue) }
+.myos-new #status_leases tr:has(.m-selected-lease) > td { background: var(--m-blue-soft) }
+.myos-new #status_leases tr:has(.m-selected-lease) > td:first-child { box-shadow: inset 3px 0 var(--m-blue) }
+.myos-new #wifi_assoclist_table { scroll-margin-block-start: 5rem }
+
+.m-home-interfaces > details + details { border-block-start: 1px solid var(--m-line) }
+.m-home-interface > summary {
+  display: grid; grid-template-columns: minmax(5em,.9fr) minmax(0,1.4fr) auto .55rem;
+  gap: 4px 8px; align-items: center; padding-block: 8px; min-height: 36px;
+  list-style: none; cursor: pointer;
+}
+.m-home-interface > summary::-webkit-details-marker { display: none }
+.m-home-interface > summary::after {
+  content: ''; width: .42rem; height: .42rem; border: solid var(--m-muted);
+  border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg);
+}
+.m-home-interface[open] > summary::after { transform: rotate(45deg) }
+.m-home-interface > summary:focus-visible { outline: 2px solid var(--m-blue); outline-offset: -2px }
+.m-home-interface > summary > strong, .m-home-interface .m-interface-primary { min-width: 0; overflow-wrap: anywhere }
+.m-home-interface .m-interface-primary { color: var(--m-muted); font-variant-numeric: tabular-nums }
+.m-home-interface .m-interface-links { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 12px }
+.m-home-interface .m-interface-links a { display: inline-flex; align-items: center; max-width: 100%; overflow-wrap: anywhere; text-decoration: underline; text-underline-offset: .18em }
+@media (pointer: coarse) {
+  .m-home-interface .m-interface-links a { min-height: 44px; min-width: 44px }
+}
+.m-home-interface > .m-kv {
+  margin: 0 0 8px; padding: 4px 10px; border-inline-start: 2px solid var(--m-line); background: var(--m-inset);
+}
+.m-earlier-events > .m-event-list { margin-block: 6px 0 }
+
+.myos-new #m-menu [hidden] { display: none }
+.myos-new #m-menu details:has([aria-current]) > summary { color: var(--m-blue) }
+.myos-new #m-menu .m-menu-children { margin-inline-start: 10px; padding-inline-start: 6px; border-inline-start: 1px solid var(--m-line) }
+.myos-new #m-menu .m-menu-empty { margin: 6px 10px; color: var(--m-muted); font-size: 13px }
+.myos-new.m-submenu-compact #maincontent .cbi-map .cbi-section:not(.cbi-section-node) { padding: clamp(12px,1.2vw,18px); margin-block-end: 12px }
+.myos-new.m-submenu-compact #maincontent .cbi-section > h3 { margin-block-end: 10px }
+.myos-new.m-submenu-compact #maincontent .cbi-map .cbi-value { padding-block: 8px; column-gap: 16px }
+.myos-new.m-submenu-compact #maincontent .cbi-value-description { max-inline-size: 72ch; overflow-wrap: anywhere }
+.myos-new #c5800-modem-status .cms-heading, .myos-new #c5800-modem-status .cms-card-head { margin-block-end: 12px }
+.myos-new #c5800-modem-status .cms-modules { gap: 12px }
+.myos-new #c5800-modem-status .cms-card { padding: clamp(12px,1.4vw,20px) }
+@media (max-width:760px), (max-width:1499px) and (any-pointer:coarse) {
+  .myos-new.m-submenu-compact :is(#tabmenu > .tabs,ul.cbi-tabmenu) {
+    display: flex; flex-wrap: nowrap; max-width: 100%; overflow-x: auto;
+    gap: 4px; padding: 4px; scroll-padding-inline: 4px; scrollbar-width: thin;
+  }
+  .myos-new.m-submenu-compact :is(#tabmenu > .tabs,ul.cbi-tabmenu) > li { flex: none; white-space: nowrap }
+  .myos-new.m-submenu-compact :is(#tabmenu > .tabs,ul.cbi-tabmenu) > li > a { display: flex; align-items: center; min-height: 44px }
+}
+@media (pointer: coarse) {
+  .m-home-interface > summary, .myos-new #c5800-modem-status .cms-radio-tabs button { min-height: 44px }
+  .myos-new :is(.m-interface-details,.m-forward-map details) > summary { min-height: 44px; align-content: center }
+  .myos-new .m-dashboard.m-home-refined .m-client-actions button { min-width: 44px; min-height: 44px }
+}
+
+.myos-new .m-client-results {display:flex;align-items:center;gap:4px 10px;flex-wrap:wrap;min-width:0}
+.myos-new .m-client-results .m-copy-button[hidden] {display:none}
+.myos-new .m-title-parent {color:var(--m-muted);font-weight:400}
+@media (max-width:760px) {
+ .myos-new #m-page-title .m-title-parent,.myos-new #m-page-title .m-title-leaf {
+  display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap
+ }
+ .myos-new #m-page-title .m-title-parent {font-size:11px;line-height:1.3}
+ .myos-new #m-page-title .m-title-leaf {line-height:1.5}
+}
+@media (pointer:coarse) {
+ .myos-new .m-client-results .m-copy-button {min-height:44px}
+}
+
+/* Match the two home charts' readouts while keeping their sampled data separate. */
+.myos-new .m-dashboard.m-home-refined :is(.m-traffic-values,.m-quality-legends) {
+  padding: 0;
+}
+.myos-new .m-dashboard.m-home-refined :is(.m-traffic-values > div,.m-quality-legend) {
+  display: grid;
+  justify-items: start;
+  align-content: start;
+  gap: 4px;
+  padding: 8px clamp(5px,1vw,12px);
+}
+.myos-new .m-dashboard.m-home-refined :is(.m-traffic-direction,.m-quality-label) {
+  align-items: center;
+  min-block-size: 1.4em;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.myos-new .m-dashboard.m-home-refined :is(.m-traffic-reading,.m-quality-reading) {
+  gap: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.myos-new .m-dashboard.m-home-refined :is(.m-traffic-reading,.m-quality-reading) > strong {
+  font-size: clamp(17px,1.35vw,23px);
+  line-height: 1.15;
+  font-weight: 650;
+  letter-spacing: -.02em;
+}
+.myos-new .m-dashboard .m-health-list {
+  max-block-size: none;
+  overflow: visible;
+}
+
+/* Keep labels, inputs and actions aligned in the existing diagnostics and log panels. */
+.myos-new :is(.m-diagnostics-form,#content_syslog > .m-log-toolbar) {
+  display: grid;
+  grid-template-columns: minmax(7rem,.6fr) minmax(0,1.4fr) auto;
+  align-items: end;
+}
+.myos-new .m-diagnostics-form:has(#m-diagnostics-interface) {
+  grid-template-columns: minmax(0,1fr) auto;
+  max-inline-size: 32rem;
+}
+.myos-new :is(.m-diagnostics-form > button,.m-log-jump > button) {
+  margin: 0;
+}
+.myos-new :is(#syslog,textarea[id="widget.command-output"]) {
+  background: var(--m-inset);
+  padding: 10px 12px;
+  resize: vertical;
+  tab-size: 4;
+}
+.myos-new .m-log-options[open] {
+  padding-block-end: 8px;
+  border-block-end: 1px solid var(--m-line);
+}
+@media (max-width: 740px) {
+  .myos-new :is(.m-diagnostics-form,#content_syslog > .m-log-toolbar) {
+    grid-template-columns: minmax(0,.9fr) minmax(0,1.2fr);
+  }
+  .myos-new :is(.m-diagnostics-form:not(:has(#m-diagnostics-interface)) > button,.m-log-jump) {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Allow long station names, lease addresses and backup paths to use available space. */
+.myos-new .m-wireless-station[open] > summary {
+  background: var(--m-blue-soft);
+}
+.myos-new .m-wireless-details dl {
+  grid-template-columns: repeat(auto-fit,minmax(min(100%,8.5rem),1fr));
+  gap: 8px 12px;
+}
+.myos-new .m-wireless-details dd,
+.myos-new :is(#lease_status_table,#lease6_status_table) td {
+  font-variant-numeric: tabular-nums;
+}
+.myos-new :is(#lease_status_table,#lease6_status_table) :is(td,th) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.myos-new[data-myos-page="admin/system/flash"] #cbi-json [data-name="editlist"] textarea {
+  max-block-size: 55vh;
+  padding: 10px 12px;
+  font: 12px/1.6 ui-monospace,monospace;
+}
+@media (pointer: coarse) {
+  .myos-new :is(.m-diagnostics-form > button,.m-log-jump > button) {
+    min-block-size: 44px;
+  }
+}
+
+/* Status overview: separate the existing value from the colored meter. */
+.myos-new.m-submenu-compact[data-myos-page="admin/status/overview"] #view table.table:has(td[width="33%"]) {
+  display: table;
+  table-layout: fixed;
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/overview"] #view table.table:has(td[width="33%"]) td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/overview"] #view table.table td[width="33%"] {
+  inline-size: clamp(6.5rem,30%,14rem);
+  color: var(--m-muted);
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/overview"] #view .cbi-progressbar {
+  display: grid;
+  grid-template-rows: auto 5px;
+  gap: 5px;
+  block-size: auto;
+  padding: 5px 8px;
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/overview"] #view .cbi-progressbar::after {
+  position: static;
+  grid-area: 1 / 1;
+  text-align: start;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/overview"] #view .cbi-progressbar::before,
+.myos-new.m-submenu-compact[data-myos-page="admin/status/overview"] #view .cbi-progressbar > div {
+  grid-area: 2 / 1;
+  border-radius: 999px;
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/overview"] #view .cbi-progressbar::before {
+  content: "";
+  background: var(--m-blue-soft);
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/overview"] #view .cbi-progressbar > div {
+  max-inline-size: 100%;
+}
+
+/* Keep LuCI's native sort headers and each row's actions together. */
+.myos-new.m-submenu-compact:is([data-myos-page="admin/status/routes"],[data-myos-page="admin/status/processes"],[data-myos-page="admin/system/startup"]) #view table.table {
+  max-inline-size: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.myos-new.m-submenu-compact:is([data-myos-page="admin/status/routes"],[data-myos-page="admin/status/processes"],[data-myos-page="admin/system/startup"]) #view .table-titles > th {
+  background: var(--m-inset);
+}
+.myos-new.m-submenu-compact:is([data-myos-page="admin/status/routes"],[data-myos-page="admin/status/processes"],[data-myos-page="admin/system/startup"]) #view .table-titles > th[data-sort-direction] {
+  color: var(--m-blue);
+  background: var(--m-blue-soft);
+}
+.myos-new.m-submenu-compact:is([data-myos-page="admin/status/routes"],[data-myos-page="admin/status/processes"],[data-myos-page="admin/system/startup"]) #view table.table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/routes"] #view table + h3 {
+  margin-block-start: 20px;
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/routes"] #view table.table:not(.table:has(.table-titles > th:nth-child(6))) {
+  display: table;
+  table-layout: fixed;
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/routes"] #view table.table:has(.table-titles > th:nth-child(2):last-child) th:first-child {
+  inline-size: 7em;
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/processes"] #view table.table td:nth-child(3) > span {
+  font: 12px/1.5 ui-monospace,monospace;
+}
+.myos-new.m-submenu-compact:is([data-myos-page="admin/status/processes"],[data-myos-page="admin/system/startup"]) #view td.cbi-section-actions > div {
+  display: flex;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
+.myos-new.m-submenu-compact:is([data-myos-page="admin/status/processes"],[data-myos-page="admin/system/startup"]) #view td.cbi-section-actions button {
+  white-space: nowrap;
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/system/startup"] #view [data-tab="init"] table.table th:first-child {
+  inline-size: 7em;
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/system/startup"] #view [data-tab="init"] table.table th:last-child {
+  inline-size: min(58%,28rem);
+}
+
+.myos-new.m-submenu-compact:is([data-myos-page="admin/system/startup"],[data-myos-page="admin/system/crontab"]) #view textarea {
+  block-size: clamp(15rem,52vh,36rem);
+  padding: 10px 12px;
+  font: 13px/1.6 ui-monospace,monospace;
+  tab-size: 4;
+  resize: vertical;
+}
+@media (max-width: 900px) {
+  .myos-new.m-submenu-compact[data-myos-page="admin/status/routes"] #view .table:has(.table-titles > th:nth-child(6)),
+  .myos-new.m-submenu-compact[data-myos-page="admin/status/processes"] #view table.table {
+    display: block;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+  .myos-new.m-submenu-compact[data-myos-page="admin/status/routes"] #view .table:has(.table-titles > th:nth-child(6)) :is(th,td) {
+    min-inline-size: 4rem;
+  }
+  .myos-new.m-submenu-compact[data-myos-page="admin/status/routes"] #view .table:has(.table-titles > th:nth-child(6)) :is(th,td):is(:nth-child(2),:nth-child(3)) {
+    min-inline-size: 9rem;
+  }
+  .myos-new.m-submenu-compact[data-myos-page="admin/status/processes"] #view table.table :is(th,td):nth-child(3) {
+    min-inline-size: 12rem;
+  }
+  .myos-new.m-submenu-compact[data-myos-page="admin/status/processes"] #view table.table :is(th,td):last-child {
+    min-inline-size: 8rem;
+  }
+}
+@media (max-width: 600px) {
+  .myos-new.m-submenu-compact[data-myos-page="admin/system/startup"] #view [data-tab="init"] table.table th:first-child {
+    inline-size: 3.5em;
+  }
+}
+@media (pointer: coarse) {
+  .myos-new.m-submenu-compact:is([data-myos-page="admin/status/processes"],[data-myos-page="admin/system/startup"]) #view td.cbi-section-actions button {
+    min-block-size: 44px;
+  }
+  .myos-new.m-submenu-compact:is([data-myos-page="admin/system/startup"],[data-myos-page="admin/system/crontab"]) #view textarea {
+    font-size: 16px;
+  }
+}

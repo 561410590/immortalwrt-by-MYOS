@@ -60,7 +60,7 @@ proto_cloud_setup() {
 	}
 
 	echo "Configuring modem"
-	if [ "$work_mode" != "odu" ] && ! [ "$nettype" = "cpe" -a "$vsim_active" = "0" ]; then
+	if [ "$2" != "ethernet" ] && [ "$work_mode" != "odu" ] && ! [ "$nettype" = "cpe" -a "$vsim_active" = "0" ]; then
 		if ! adapt_apn_common "$profile" "$apn" "$auth" "$username" "$password" "$pdptype" "" ;then
 			return 
 		fi
@@ -87,7 +87,7 @@ proto_cloud_setup() {
 		ubus call network add_dynamic "$(json_dump)"
 	}
 
-	[ "$pdptype" = "ipv6" -o "$pdptype" = "ipv4v6" ] && {
+	if [ "$pdptype" = "ipv6" -o "$pdptype" = "ipv4v6" ]; then
 		json_init
 		json_add_string name "${interface}_6"
 		json_add_string ifname "@$interface"
@@ -100,7 +100,7 @@ proto_cloud_setup() {
 		}
 		json_close_object
 		ubus call network add_dynamic "$(json_dump)"
-	}
+	fi
 }
 
 proto_cloud_teardown() {

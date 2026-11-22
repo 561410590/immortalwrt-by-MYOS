@@ -2,12 +2,23 @@
 
 # mwan3 has already processed interface and tracking events at this point.
 case "$ACTION:$INTERFACE" in
-	policy:*|openclash:*) ;;
+	policy:*|openclash:*|ifup:lan|ifupdate:lan) ;;
 	ifup:cpe_4|ifdown:cpe_4|connected:cpe_4|disconnected:cpe_4|\
 	ifup:cpe1|ifdown:cpe1|connected:cpe1|disconnected:cpe1|\
 	ifup:cpe1_4|ifdown:cpe1_4) ;;
 	*) exit 0 ;;
 esac
+
+sync_core_egress() {
+	local chain="mwan3_policy_$1" previous
+	# This bit identifies Mihomo without occupying mwan3 WAN mark bits.
+	set -- -m mark --mark 0x100000/0x100000 -m comment --comment c5800-openclash-egress
+	iptables -w 3 -t mangle -C mwan3_rules "$@" -j "$chain" 2>/dev/null ||
+		iptables -w 3 -t mangle -A mwan3_rules "$@" -j "$chain" 2>/dev/null || return
+	for previous in $(iptables -w 3 -t mangle -S mwan3_rules | awk '/--comment c5800-openclash-egress / { print $NF }'); do
+		[ "$previous" = "$chain" ] || iptables -w 3 -t mangle -D mwan3_rules "$@" -j "$previous"
+	done
+}
 
 sync_cn_route() {
 	[ "$(uci -q get openclash.config.enable)" = 1 ] || return
@@ -16,6 +27,7 @@ sync_cn_route() {
 
 	policy=$(uci -q get mwan3.lan_default.use_policy)
 	case "$policy" in ''|*[!a-zA-Z0-9_]*) return ;; esac
+	sync_core_egress "$policy"
 	status=$(ubus -t 2 call mwan3 status '{"section":"policies"}') || return
 	members=$(printf '%s\n' "$status" | jsonfilter -e "@.policies.ipv4['$policy'][*].interface")
 

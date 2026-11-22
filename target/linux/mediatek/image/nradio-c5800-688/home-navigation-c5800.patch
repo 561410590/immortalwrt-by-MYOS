@@ -1,0 +1,299 @@
+--- a/www/luci-static/resources/view/myos-new/home.js
++++ b/www/luci-static/resources/view/myos-new/home.js
+@@ -157,7 +157,22 @@
+  const keepOpen=old.tagName==='DETAILS',keepLens=old.classList.contains('m-card');
+  for(const a of [...old.attributes])if(!fresh.hasAttribute(a.name)&&!(keepOpen&&a.name==='open')&&!(keepLens&&a.name==='style'))old.removeAttribute(a.name);
+  for(const a of [...fresh.attributes])if(!(keepOpen&&a.name==='open')&&old.getAttribute(a.name)!==a.value)old.setAttribute(a.name,a.value);
+- const a=[...old.childNodes],b=[...fresh.childNodes];
++ if(old.classList.contains('m-home-interfaces')&&fresh.classList.contains('m-home-interfaces')){
++  const existing=new Map(Array.from(old.children,row=>[row.dataset.key,row]));
++  const focused=document.activeElement;
++  let next=old.firstElementChild;
++  for(const incoming of [...fresh.children]){
++   const key=incoming.dataset.key,previous=existing.get(key);
++   const row=previous||incoming;
++   if(previous){patchTree(previous,incoming);existing.delete(key);}
++   if(row!==next)old.insertBefore(row,next);
++   next=row.nextElementSibling;
++  }
++  for(const row of existing.values())row.remove();
++  if(old.contains(focused)&&document.activeElement!==focused)focused.focus({preventScroll:true});
++  return;
++ }
++ const a=[...old.childNodes],b=[...fresh.childNodes];
+  for(let i=0;i<Math.max(a.length,b.length);i++){if(!a[i])old.append(b[i]);else if(!b[i])a[i].remove();else patchTree(a[i],b[i]);}
+ };
+ 
+@@ -1435,7 +1450,14 @@
+   });
+   this.clientRows=E('tbody',{role:'rowgroup'});
+   this.clientCount=badge('正在读取');
+-  this.clientSummary=node('div','m-cell-age');
++  this.clientSummary=node('div','m-cell-age');
++  this.clientReset=E('button',{type:'button',class:'m-copy-button',hidden:true,click:()=>{
++   this.clientSearch.value='';
++   this.clientFilter.value='all';
++   this.clientPage=0;
++   this.drawClients();
++   this.clientSearch.focus({preventScroll:true});
++  }},'清除筛选');
+   this.clientPager=node('div','m-client-pager');
+   this.clientButtons=[this.clientPageButton(-1),this.clientPageButton(1)];
+   this.clientPager.append(...this.clientButtons);
+@@ -1444,7 +1466,7 @@
+    node('div','m-client-tools',[this.clientSearch,this.clientFilter,E('button',{type:'button',class:'m-pill-button',click:()=>this.exportClients()},'导出 CSV')]),
+    node('div','m-table-scroll',E('table',{class:'m-table',role:'table'},[
+     E('thead',{role:'rowgroup'},E('tr',{role:'row'},['终端 / MAC','IP 地址','接入与信号','详情'].map(t=>E('th',{role:'columnheader',scope:'col'},t)))),this.clientRows
+-   ])),node('div','m-client-footer',[this.clientSummary,this.clientPager]),this.clientCopyStatus,
++   ])),node('div','m-client-footer',[node('div','m-client-results',[this.clientSummary,this.clientReset]),this.clientPager]),this.clientCopyStatus,
+    node('div','m-cell-age','无线关联可确认接入；DHCP / ARP 记录不代表当前在线。点“详情”查看租约与协商速率。')
+   ]),this.clientCount));
+   this.drawClients();
+@@ -1492,10 +1514,15 @@
+   return row;
+  },
+  filteredClients:function(){
+-  const query=this.clientSearch.value.trim().toLowerCase(),filter=this.clientFilter.value;
+-  return this.clients.filter(c=>{
+-   const matches=[c.name,c.ip,c.mac,c.ssid].some(v=>String(v||'').toLowerCase().includes(query));
+-   if(!matches)return false;
++  const terms=this.clientSearch.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
++  const filter=this.clientFilter.value;
++  return this.clients.filter(c=>{
++   if(terms.length){
++    const mac=String(c.mac||'').toLowerCase().replace(/-/g,':');
++    const fields=[c.name,c.ip,c.ssid,c.device,c.state,mac,mac.replace(/:/g,'-'),mac.replace(/:/g,'')];
++    const values=fields.map(value=>String(value||'').toLowerCase());
++    if(!terms.every(term=>values.some(value=>value.includes(term))))return false;
++   }
+    if(filter.startsWith('wifi:'))return c.state==='无线已关联'&&c.device===filter.slice(5);
+    if(filter==='wired-online')return c.state==='有线在线';
+    return filter==='all'||(filter==='wifi'&&c.state==='无线已关联')||(filter==='lan'&&c.kind==='LAN')||(filter==='dhcp'&&c.kind==='DHCP');
+@@ -1523,7 +1550,10 @@
+    if(current!==row)this.clientRows.insertBefore(row,current||null);
+   });
+   while(this.clientRows.rows.length>rows.length)this.clientRows.lastElementChild.remove();
+-  this.clientSummary.textContent='筛选 '+clients.length+' / '+this.clients.length+' 条记录 · 第 '+(this.clientPage+1)+' / '+totalPages+' 页';
++  const filtered=!!this.clientSearch.value.trim()||this.clientFilter.value!=='all';
++  this.clientReset.hidden=!filtered;
++  const count=filtered?'匹配 '+clients.length+' / '+this.clients.length+' 条':'共 '+clients.length+' 条';
++  this.clientSummary.textContent=totalPages>1?count+' · 第 '+(this.clientPage+1)+' / '+totalPages+' 页':count;
+   const [prev,next]=this.clientButtons;
+   prev.disabled=this.clientPage===0;
+   next.disabled=this.clientPage>=totalPages-1;
+--- a/www/luci-static/myos-new/shell.js
++++ b/www/luci-static/myos-new/shell.js
+@@ -60,7 +60,16 @@
+     scrim.hidden=!open;
+    };
+   }
+-  if(open)document.querySelector('.m-home').focus({preventScroll:true});else button.focus({preventScroll:true});
++  if(open){
++   const active=nav.querySelector('[aria-current="page"],[aria-current="location"]');
++   const target=active?.getClientRects().length?active:document.querySelector('.m-home');
++   target.focus({preventScroll:true});
++   if(target===active){
++    const row=target.getBoundingClientRect(),viewport=nav.getBoundingClientRect();
++    if(row.top<viewport.top)nav.scrollTop+=row.top-viewport.top;
++    else if(row.bottom>viewport.bottom)nav.scrollTop+=row.bottom-viewport.bottom;
++   }
++  }else button.focus({preventScroll:true});
+  }
+  button.addEventListener('click',e=>drawer(!open,e.detail===0));scrim.addEventListener('click',e=>drawer(false,e.detail===0));
+  narrow.addEventListener('change',()=>drawer(false,true));sidebar.inert=narrow.matches;
+@@ -160,15 +169,35 @@
+  }
+  const compactTabs=matchMedia('(max-width:760px), (max-width:1499px) and (any-pointer:coarse)');
+  function revealTab(link){
+-  if(!compactTabs.matches||!link)return;
++  if(!compactTabs.matches||!link?.getClientRects().length)return;
+   const strip=link.closest('ul'),bounds=strip.getBoundingClientRect(),tab=link.getBoundingClientRect();
+   if(tab.left<bounds.left+6)strip.scrollBy({left:tab.left-bounds.left-6});
+   else if(tab.right>bounds.right-6)strip.scrollBy({left:tab.right-bounds.right+6});
+  }
+  function revealActiveTabs(){
+-  document.querySelectorAll('#tabmenu .active>a, #maincontent ul.cbi-tabmenu>.cbi-tab>a').forEach(revealTab);
++  document.querySelectorAll('#tabmenu .active>a, ul.cbi-tabmenu>.cbi-tab>a').forEach(revealTab);
+  }
+- compactTabs.addEventListener('change',revealActiveTabs);
++ const tabLink='#tabmenu .tabs>li>a,ul.cbi-tabmenu>li>a';
++ let pageWidth=document.documentElement.clientWidth,tabFrame=0;
++ window.addEventListener('resize',()=>{
++  if(pageWidth===document.documentElement.clientWidth)return;
++  pageWidth=document.documentElement.clientWidth;
++  cancelAnimationFrame(tabFrame);
++  tabFrame=requestAnimationFrame(revealActiveTabs);
++ });
++ document.addEventListener('focusin',e=>{if(e.target.matches(tabLink))revealTab(e.target);});
++ document.addEventListener('keydown',e=>{
++  if(e.altKey||e.ctrlKey||e.metaKey||e.shiftKey||!e.target.matches(tabLink))return;
++  if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
++  const links=Array.from(e.target.closest('ul').querySelectorAll(':scope > li > a')).filter(a=>a.getClientRects().length);
++  const index=links.indexOf(e.target);
++  if(index<0)return;
++  const rtl=getComputedStyle(e.target).direction==='rtl';
++  const delta=(e.key==='ArrowRight')!==rtl?1:-1;
++  const next=e.key==='Home'?0:e.key==='End'?links.length-1:Math.max(0,Math.min(links.length-1,index+delta));
++  e.preventDefault();links[next].focus();
++ });
++ compactTabs.addEventListener('change',revealActiveTabs);
+  document.addEventListener('cbi-tab-active',e=>{
+   const tabs=e.target.parentElement?.previousElementSibling;
+   if(tabs?.matches('ul.cbi-tabmenu'))revealTab(tabs.querySelector('.cbi-tab>a'));
+@@ -291,14 +320,18 @@
+  });
+  const menuRequest=L.require('ui').then(ui=>ui.menu.load(true).then(tree=>({ui,tree})));
+  const menuSearch=document.querySelector('#m-menu-search');
+- const emptySearch=make('p','m-menu-empty','没有匹配的菜单');
+- emptySearch.setAttribute('role','status');emptySearch.hidden=true;
++ const searchStatus=make('p','m-menu-empty');
++ searchStatus.setAttribute('role','status');searchStatus.hidden=true;
++ menuSearch.setAttribute('aria-controls','m-menu');
+- let beforeSearch=null;
++ let beforeSearch=null,scrollBeforeSearch=0;
+  function filterMenu(){
+-  if(!nav.contains(emptySearch))return;
++  if(!nav.contains(searchStatus))return;
+   const terms=menuSearch.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+   const groups=[...nav.querySelectorAll('.m-menu-group')];
+-  if(terms.length&&!beforeSearch)beforeSearch=new Map(groups.map(group=>[group,group.open]));
++  if(terms.length&&!beforeSearch){
++   beforeSearch=new Map(groups.map(group=>[group,group.open]));
++   scrollBeforeSearch=nav.scrollTop;
++  }
+   let count=0;
+   nav.querySelectorAll('a[data-search]').forEach(link=>{
+    link.hidden=!terms.every(term=>link.dataset.search.includes(term));
+@@ -310,8 +343,11 @@
+    else if(beforeSearch)group.open=beforeSearch.get(group);
+    group.firstElementChild.setAttribute('aria-expanded',String(group.open));
+   }
+-  if(!terms.length)beforeSearch=null;
++  if(!terms.length&&beforeSearch){nav.scrollTop=scrollBeforeSearch;beforeSearch=null;}
+-  emptySearch.hidden=!terms.length||count>0;
++  searchStatus.hidden=!terms.length;
++  const message=terms.length?(count?'匹配 '+count+' 个菜单':'没有匹配的菜单'):'';
++  if(searchStatus.textContent!==message)searchStatus.textContent=message;
++  if(terms.length)nav.scrollTop=0;
+  }
+  window.MYOSMenu=menuRequest.then(({tree})=>tree);
+  window.MYOSMenu.catch(()=>{});
+@@ -324,7 +360,7 @@
+    const homePaths=[home.href,L.url(),L.url('admin')].map(url=>new URL(url,location.href).pathname.replace(/\/$/,''));
+    home.classList.toggle('active',homePaths.includes(path));
+    if(home.classList.contains('active'))home.setAttribute('aria-current','page');
+-   let title=home.classList.contains('active')?'首页':'设备控制台';
++   let titlePath=[home.classList.contains('active')?'首页':'设备控制台'];
+    const contextualTitle=document.body.classList.contains('m-submenu-compact');
+    const render=(node,parts,ancestors=[])=>{
+     const key=parts.join('/');if(suppressed.has(key))return null;
+@@ -340,7 +376,7 @@
+      group.open=!!list.querySelector('[aria-current]')||currentGroup;
+      if(currentGroup&&!list.querySelector('[aria-current]')){
+       summary.setAttribute('aria-current','location');
+-      title=contextualTitle?trail.join(' › '):label;
++      titlePath=contextualTitle?trail:[label];
+      }
+      summary.setAttribute('aria-expanded',String(group.open));
+      group.dataset.label=label;return group;
+@@ -354,7 +390,7 @@
+     const url=new URL(a.href,location.href).pathname;
+     if(path===url||path.startsWith(url+'/')){
+      a.classList.add('active');a.setAttribute('aria-current','page');
+-     title=contextualTitle?trail.join(' › '):label;
++     titlePath=contextualTitle?trail:[label];
+     }
+     return a;
+    };
+@@ -364,11 +400,15 @@
+     if(el?.classList.contains('m-vantage-link'))fragment.prepend(el);
+     else if(el)fragment.append(el);
+    });
+-   nav.replaceChildren(fragment,emptySearch);
++   nav.replaceChildren(searchStatus,fragment);
+    filterMenu();
+    const pageTitle=document.querySelector('#m-page-title');
+-   pageTitle.textContent=title;
+-   if(contextualTitle)pageTitle.title=title;
++   const leaf=titlePath.at(-1);
++   pageTitle.replaceChildren();
++   if(titlePath.length>1)pageTitle.append(make('span','m-title-parent',titlePath.slice(0,-1).join(' › ')+' › '));
++   pageTitle.append(make('span','m-title-leaf',leaf));
++   pageTitle.title=titlePath.join(' › ');
++   document.title=leaf+' · '+document.title;
+    const tabmenu=document.querySelector('#tabmenu'),dispatch=L.env.dispatchpath||[];
+    tabmenu.replaceChildren();tabmenu.hidden=true;
+    let current=tree,parts=[];
+@@ -391,8 +431,13 @@
+   }catch(error){nav.replaceChildren(make('p','m-error','导航载入失败，请刷新重试。'));}
+  }
+  menuSearch.addEventListener('input',filterMenu);
+- menuSearch.addEventListener('keydown',e=>{
+-  if(e.key==='Escape'&&menuSearch.value){
++ menuSearch.addEventListener('keydown',e=>{
++  if(e.isComposing||e.keyCode===229)return;
++  if(e.key==='ArrowDown'&&menuSearch.value.trim()){
++   const first=Array.from(nav.querySelectorAll('a[data-search]:not([hidden])')).find(a=>a.getClientRects().length);
++   if(first){e.preventDefault();first.focus();}
++  }
++  if(e.key==='Escape'&&menuSearch.value){
+    e.preventDefault();e.stopPropagation();menuSearch.value='';filterMenu();
+   }
+  });
+--- a/www/luci-static/myos-new/refine.css
++++ b/www/luci-static/myos-new/refine.css
+@@ -1594,5 +1594,19 @@
+ @media (pointer: coarse) {
+   .m-home-interface > summary, .myos-new #c5800-modem-status .cms-radio-tabs button { min-height: 44px }
+   .myos-new :is(.m-interface-details,.m-forward-map details) > summary { min-height: 44px; align-content: center }
+-  .myos-new .m-dashboard.m-home-refined .m-client-actions button { min-width: 44px; min-height: 44px }
+-}
++  .myos-new .m-dashboard.m-home-refined .m-client-actions button { min-width: 44px; min-height: 44px }
++}
++
++.myos-new .m-client-results {display:flex;align-items:center;gap:4px 10px;flex-wrap:wrap;min-width:0}
++.myos-new .m-client-results .m-copy-button[hidden] {display:none}
++.myos-new .m-title-parent {color:var(--m-muted);font-weight:400}
++@media (max-width:760px) {
++ .myos-new #m-page-title .m-title-parent,.myos-new #m-page-title .m-title-leaf {
++  display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap
++ }
++ .myos-new #m-page-title .m-title-parent {font-size:11px;line-height:1.3}
++ .myos-new #m-page-title .m-title-leaf {line-height:1.5}
++}
++@media (pointer:coarse) {
++ .myos-new .m-client-results .m-copy-button {min-height:44px}
++}
+--- a/usr/share/ucode/luci/template/themes/myos-new/header.ut
++++ b/usr/share/ucode/luci/template/themes/myos-new/header.ut
+@@ -43,7 +43,7 @@
+ </script>
+ <link rel="stylesheet" href="{{ media }}/style.css?v=20261111-allmodels1">
+ <link rel="stylesheet" href="{{ media }}/liquid.css?v=20261105-black-frost">
+-<link rel="stylesheet" href="{{ media }}/refine.css?v={{ board.model == 'NRadio-C5800-688' ? '20261115-c5800-overview-wan-quality2-c5800-wan1' : '20261114-c8-feedback2-wan-quality2' }}{{ join('/', ctx.path ?? []) == 'admin/myos' ? (board.model == 'NRadio-C5800-688' ? '-c5800-density2-tablet1-outlet3' : (compact ? '-home-density1-tablet1-outlet1' : '-home-density1-tablet1')) : '' }}{{ board.model == 'NRadio-C5800-688' && join('/', ctx.path ?? []) == 'admin/network/wireless' ? '-stations2' : '' }}{{ submenu ? '-submenu1' : '' }}{{ !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-views20261120' : '' }}">
++<link rel="stylesheet" href="{{ media }}/refine.css?v={{ board.model == 'NRadio-C5800-688' ? '20261115-c5800-overview-wan-quality2-c5800-wan1' : '20261114-c8-feedback2-wan-quality2' }}{{ join('/', ctx.path ?? []) == 'admin/myos' ? (board.model == 'NRadio-C5800-688' ? '-c5800-density2-tablet1-outlet3' : (compact ? '-home-density1-tablet1-outlet1' : '-home-density1-tablet1')) : '' }}{{ board.model == 'NRadio-C5800-688' && join('/', ctx.path ?? []) == 'admin/network/wireless' ? '-stations2' : '' }}{{ submenu ? '-submenu1' : '' }}{{ !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-views20261120-nav3' : '' }}">
+ {% if (node?.css): %}<link rel="stylesheet" href="{{ resource }}/{{ node.css }}">{% endif %}
+ {% if (css): %}<style>{{ css }}</style>{% endif %}
+ <script src="{{ dispatcher.build_url('admin/translations', dispatcher.lang) }}"></script>
+--- a/usr/share/ucode/luci/template/themes/myos-new/footer.ut
++++ b/usr/share/ucode/luci/template/themes/myos-new/footer.ut
+@@ -10,7 +10,7 @@
+  </main>
+  <footer class="m-footer"><span>MYOS-NEW</span><span>{{ entityencode(version.luciname ?? 'LuCI') }} · {{ entityencode(ubus.call('system', 'board')?.release?.version ?? '') }}</span></footer>
+ </div>
+-<script src="{{ media }}/shell.js?v=20261114-theme-r8{{ compact && !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-submenu1' : '' }}{{ !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-views20261120' : '' }}"></script>
++<script src="{{ media }}/shell.js?v=20261114-theme-r8{{ compact && !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-submenu1' : '' }}{{ !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-views20261120-nav3b' : '' }}"></script>
+ <script src="{{ media }}/unlock.js?v=20261114-c8-feedback1"></script>
+ <script src="{{ media }}/notices.js?v=20261112-theme-polish2"></script>
+ <script src="{{ media }}/layout.js?v=20261114-c8-feedback1{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-tablet1' : '' }}"></script>
+--- a/usr/share/ucode/luci/template/header.ut
++++ b/usr/share/ucode/luci/template/header.ut
+@@ -14,7 +14,7 @@
+ 	include(`themes/${theme}/header`);
+ -%}
+ 
+-<script src="{{ resource }}/luci.js?v={# PKG_VERSION #}-{{ pkgs_update_time }}-{{ theme == 'myos-new' ? '20261114-c8-feedback1-overview-link2-wan-quality2' : '20261112-theme-polish1' }}{{ myos_board.model == 'NRadio-C5800-688' ? (join('/', ctx.path ?? []) == 'admin/myos' ? '-c5800-wan1-c5800-density2-outlet3' : '-c5800-wan1') : (theme == 'myos-new' && join('/', ctx.path ?? []) == 'admin/myos' ? (myos_compact ? '-home-density1-outlet1' : '-home-density1') : '') }}{{ myos_board.model == 'NRadio-C5800-688' && join('/', ctx.path ?? []) == 'admin/network/wireless' ? '-stations2' : '' }}{{ myos_compact && (join('/', ctx.path ?? []) in ['admin/status/realtime/bandwidth', 'admin/status/logs/syslog', 'admin/network/network', 'admin/network/diagnostics']) ? '-submenu1' : '' }}{{ theme == 'myos-new' && !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-views20261120' : '' }}"></script>
++<script src="{{ resource }}/luci.js?v={# PKG_VERSION #}-{{ pkgs_update_time }}-{{ theme == 'myos-new' ? '20261114-c8-feedback1-overview-link2-wan-quality2' : '20261112-theme-polish1' }}{{ myos_board.model == 'NRadio-C5800-688' ? (join('/', ctx.path ?? []) == 'admin/myos' ? '-c5800-wan1-c5800-density2-outlet3-home3' : '-c5800-wan1') : (theme == 'myos-new' && join('/', ctx.path ?? []) == 'admin/myos' ? (myos_compact ? '-home-density1-outlet1' : '-home-density1') : '') }}{{ myos_board.model == 'NRadio-C5800-688' && join('/', ctx.path ?? []) == 'admin/network/wireless' ? '-stations2' : '' }}{{ myos_compact && (join('/', ctx.path ?? []) in ['admin/status/realtime/bandwidth', 'admin/status/logs/syslog', 'admin/network/network', 'admin/network/diagnostics']) ? '-submenu1' : '' }}{{ theme == 'myos-new' && !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-views20261120' : '' }}"></script>
+ <script>
+ 	L = new LuCI({{ replace(`${ {
+ 		media          : media,

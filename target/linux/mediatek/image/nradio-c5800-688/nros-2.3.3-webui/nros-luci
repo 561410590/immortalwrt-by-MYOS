@@ -1,0 +1,19 @@
+config core main
+	option first '0'
+	option lang 'zh_cn'
+	option mediaurlbase '/luci-static/nradio'
+	option resourcebase '/luci-static/resources'
+
+config internal languages
+	option zh_cn '简体中文'
+	option en 'English'
+
+config internal sauth
+	option sessionpath '/tmp/luci-sessions'
+	option sessiontime '3600'
+
+config internal ccache
+	option enable '0'
+
+config internal themes
+	option NRadio '/luci-static/nradio'

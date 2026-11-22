@@ -1,0 +1,7 @@
+{
+  "luci-app-myos-ac": {
+    "description": "Manage wired MYOS access points",
+    "read": { "ubus": { "myos.ac": [ "discover", "status" ] } },
+    "write": { "ubus": { "myos.ac": [ "bind", "configure", "unbind" ] } }
+  }
+}

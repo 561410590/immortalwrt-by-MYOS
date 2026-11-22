@@ -56,7 +56,7 @@ ifeq ($(BUILD_VARIANT),mini)
 endif
 
 define Package/tcpdump/install
-	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_DIR) $(1) $(1)/usr $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/tcpdump $(1)/usr/bin/
 endef
 

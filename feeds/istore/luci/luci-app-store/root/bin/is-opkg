@@ -372,6 +372,23 @@ else
     CMD_INSTALL="opkg install"
 fi
 
+with_luci_acl_refresh() {
+    local before ret
+    before=$(printf '%s\n' /usr/share/rpcd/acl.d/*.json)
+    "$@"
+    ret=$?
+    if [ "$ret" -eq 0 ] && [ "$before" != "$(printf '%s\n' /usr/share/rpcd/acl.d/*.json)" ]; then
+        # rpcd reload rebuilds ACLs from account rules and keeps session IDs.
+        /etc/init.d/rpcd reload || echo "Unable to refresh LuCI session permissions" >&2
+    fi
+    return "$ret"
+}
+
+install_from_store() {
+    check_space
+    wrapped_in_update do_install_in_mirrors "$@" && refresh_installed "$1" && try_upgrade_depends "$1" && try_autoconf
+}
+
 dotrun() {
     local path="$1"
     [ -f "$path" ] || { echo "file not found: $path" >&2; return 1; }
@@ -503,8 +520,7 @@ case $action in
         update
     ;;
     "install")
-        check_space
-        wrapped_in_update do_install_in_mirrors "$@" && refresh_installed "$1" && try_upgrade_depends "$1" && try_autoconf
+        with_luci_acl_refresh install_from_store "$@"
     ;;
     "autoconf")
         try_autoconf
@@ -543,7 +559,7 @@ case $action in
         opkg_wrap "$@"
     ;;
     "dotrun")
-        dotrun "$@"
+        with_luci_acl_refresh dotrun "$@"
     ;;
     "run_records")
         run_records

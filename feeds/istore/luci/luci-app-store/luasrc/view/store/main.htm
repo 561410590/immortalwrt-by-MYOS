@@ -46,7 +46,20 @@
                     return true;
                 });
             }
-            taskd.show_log("istore", true, onExit);
+            const previous = flush_menu_onclose ? L.require("ui")
+                .then(ui => ui.menu.load().then(tree => ({ui, tree: JSON.stringify(tree)})))
+                .catch(() => null) : null;
+            taskd.show_log("istore", true, function(code) {
+                if (onExit) onExit(code);
+                if (code !== 0 || !previous) return;
+                previous.then(state => {
+                    if (!state) return;
+                    state.ui.menu.flushCache();
+                    return state.ui.menu.load(true).then(tree => {
+                        if (JSON.stringify(tree) !== state.tree) window.location.reload();
+                    });
+                }).catch(error => console.warn("iStore menu refresh failed", error));
+            });
         };
     })();
 <%

@@ -31,22 +31,24 @@ lan_dev=
 idx=0
 while uci -q get "network.@device[$idx]" >/dev/null; do
 	dev="network.@device[$idx]"
-	if [ "$(uci -q get "$dev.name")" = br-lan ]; then
-		lan_dev="$dev"
-		break
-	fi
+	case "$(uci -q get "$dev.name")" in
+		br-lan) [ -n "$lan_dev" ] || lan_dev="$dev" ;;
+		eth1) [ "$(uci -q get "$dev.macaddr")" != ":" ] || uci -q delete "$dev.macaddr" ;;
+	esac
 	idx=$((idx + 1))
 done
 if [ -z "$lan_dev" ]; then
-	lan_dev=network.c5800_lan
-	uci -q set "$lan_dev=device"
+	lan_dev="network.$(uci -q add network device)"
+	uci -q set "$lan_dev.name=br-lan"
 fi
 uci -q set "$lan_dev.type=bridge"
-uci -q set "$lan_dev.name=br-lan"
-uci -q delete "$lan_dev.ports"
-uci -q add_list "$lan_dev.ports=lan1"
-uci -q add_list "$lan_dev.ports=lan2"
-uci -q add_list "$lan_dev.ports=lan3"
+uci -q del_list "$lan_dev.ports=BLUE4"
+uci -q del_list "$lan_dev.ports=port5"
+if [ -z "$(uci -q get "$lan_dev.ports")" ]; then
+	for port in lan1 lan2 lan3; do
+		uci -q add_list "$lan_dev.ports=$port"
+	done
+fi
 
 # Repair saved configurations in which the old migration turned the PoE port into a bridge.
 if [ "$(uci -q get network.port5.type)" = bridge ]; then
@@ -96,6 +98,7 @@ set network.cpe.ifname='eth1'
 set network.cpe.phyifname='eth1'
 set network.cpe.phycap='2500'
 set network.cpe.forcephy='1'
+set network.cpe.force_link='0'
 set network.cpe.auto='1'
 set network.cpe.defaultroute='1'
 set network.cpe.metric='20'

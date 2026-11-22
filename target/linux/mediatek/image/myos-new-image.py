@@ -4,6 +4,95 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
+import tarfile
+
+
+ADGUARDHOME_DIR = Path(__file__).resolve().parent / 'nradio-c5800-688/adguardhome'
+
+
+def add_adguard_packages(available, read_ipk):
+    packages = (
+        'luci-app-adguardhome_git-24.182.27136-d3d2083_all.ipk',
+        'luci-i18n-adguardhome-zh-cn_git-24.182.25496-1d4b053_all.ipk',
+    )
+    if 'wget-ssl' not in available:
+        packages += ('wget-ssl_1.24.5-r2_aarch64_cortex-a53.ipk',)
+    names = []
+    for filename in packages:
+        path = ADGUARDHOME_DIR / 'packages' / filename
+        name, record, fields, _ = read_ipk(path)
+        available[name] = path, record, fields
+        names.append(name)
+    return names
+
+
+def configure_adguard(root):
+    subprocess.run(['patch', '--batch', '--no-backup-if-mismatch', '-p1',
+                    '-i', ADGUARDHOME_DIR / 'myos-adguardhome.patch'],
+                   cwd=root, check=True)
+
+    # The .run ships these programs as 0644 and fixes them in opkg postinst.
+    share = root / 'usr/share/AdGuardHome'
+    for name in ('addhost.sh', 'firewall.start', 'getsyslog.sh', 'gfw2adg.sh',
+                 'tailto.sh', 'update_core.sh', 'waitnet.sh', 'watchconfig.sh'):
+        (share / name).chmod(0o755)
+    (share / 'AdGuardHome_template.yaml').unlink()
+    for relative in ('etc/init.d/AdGuardHome', 'etc/uci-defaults/40_luci-AdGuardHome'):
+        (root / relative).chmod(0o755)
+
+    for name in ('S95AdGuardHome', 'K01AdGuardHome'):
+        link = root / 'etc/rc.d' / name
+        link.unlink(missing_ok=True)
+        link.symlink_to('../init.d/AdGuardHome')
+
+    # Official release with the native AdGuard Home web interface.
+    archive = ADGUARDHOME_DIR / 'AdGuardHome_linux_arm64_v1.0.0.tar.gz'
+    with tarfile.open(archive) as release:
+        for member, relative, mode in (
+            ('AdGuardHome', 'usr/bin/AdGuardHome/AdGuardHome', 0o755),
+            ('LICENSE.txt', 'usr/share/licenses/AdGuardHome/LICENSE.txt', 0o644),
+        ):
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+            with release.extractfile('./AdGuardHome/' + member) as data, target.open('wb') as stream:
+                shutil.copyfileobj(data, stream)
+            target.chmod(mode)
+
+    # Keep the package manifest accurate after removing the vendor quick setup.
+    manifest = root / 'usr/lib/opkg/info/luci-app-adguardhome.list'
+    files = manifest.read_text().splitlines()
+    files.remove('/usr/share/AdGuardHome/AdGuardHome_template.yaml')
+    manifest.write_text('\n'.join(files) + '\n')
+
+
+def install_nros_app(root):
+    source = Path(__file__).resolve().parents[4]
+    files = Path(__file__).resolve().parent / 'nradio-c5800-688/nros-app-2.3.9/root'
+    shutil.copy2(source / 'feeds/luci/modules/luci-base/htdocs/cgi-bin/luci',
+                 root / 'www/cgi-bin/luci.ucode')
+    (root / 'www/cgi-bin/luci.ucode').chmod(0o755)
+    programs = {
+        'www/cgi-bin/luci', 'usr/lib/nros-app-2.3.9/cgi',
+        'usr/lib/nros-app-2.3.9/bin/nradio_crypto', 'usr/sbin/mosquitto',
+        'usr/local/bin/mosquitto_collect_sysinfo', 'etc/init.d/mosquitto',
+        'etc/init.d/myos-nros-mqtt',
+    }
+    for item in sorted(files.rglob('*')):
+        relative = item.relative_to(files)
+        target = root / relative
+        if item.is_symlink():
+            target.unlink(missing_ok=True)
+            target.symlink_to(item.readlink())
+        elif item.is_dir():
+            if not target.is_dir():
+                target.mkdir()
+                target.chmod(0o755)
+        else:
+            if target.is_symlink():
+                target.unlink()
+            shutil.copyfile(item, target)
+            target.chmod(0o755 if relative.as_posix() in programs else 0o644)
 
 def add_vantage_packages(source, available, read_ipk):
     packages = ('luci-app-vantage', 'luci-i18n-vantage-zh-cn')
@@ -79,20 +168,28 @@ def install_upgrade_preservation(root):
 
 
 def install(root):
-    luci = Path(__file__).resolve().parents[4] / 'feeds/luci/modules/luci-base'
+    tree = Path(__file__).resolve().parents[4]
+    luci = tree / 'feeds/luci/modules/luci-base'
+    network = tree / 'feeds/luci/modules/luci-mod-network/htdocs'
+    theme = tree / 'package/luci-theme-myos-new/root'
     for source, target in (
-        ('ucode/template/footer.ut', 'usr/share/ucode/luci/template/footer.ut'),
-        ('ucode/controller/admin/myos_disclaimer.uc',
+        (luci / 'ucode/template/footer.ut', 'usr/share/ucode/luci/template/footer.ut'),
+        (luci / 'ucode/controller/admin/myos_disclaimer.uc',
          'usr/share/ucode/luci/controller/admin/myos_disclaimer.uc'),
-        ('htdocs/luci-static/resources/myos-disclaimer.js',
+        (luci / 'htdocs/luci-static/resources/myos-disclaimer.js',
          'www/luci-static/resources/myos-disclaimer.js'),
-        ('root/usr/share/luci/menu.d/myos-disclaimer.json',
+        (luci / 'root/usr/share/luci/menu.d/myos-disclaimer.json',
          'usr/share/luci/menu.d/myos-disclaimer.json'),
-        ('root/lib/upgrade/keep.d/myos-disclaimer', 'lib/upgrade/keep.d/myos-disclaimer'),
+        (luci / 'root/lib/upgrade/keep.d/myos-disclaimer', 'lib/upgrade/keep.d/myos-disclaimer'),
+        (network / 'luci-static/resources/view/network/interfaces.js',
+         'www/luci-static/resources/view/network/interfaces.js'),
+        (theme / 'www/luci-static/myos-new/layout.js', 'www/luci-static/myos-new/layout.js'),
+        (theme / 'usr/share/ucode/luci/template/themes/myos-new/footer.ut',
+         'usr/share/ucode/luci/template/themes/myos-new/footer.ut'),
     ):
         destination = root / target
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(luci / source, destination)
+        shutil.copyfile(source, destination)
         destination.chmod(0o644)
 
     directories = (

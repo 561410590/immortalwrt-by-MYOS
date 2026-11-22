@@ -1,13 +1,9 @@
 --- a/wireless.js
 +++ b/wireless.js
-@@ -11,6 +11,7 @@
- 'require network';
+@@ -12,2 +12,3 @@
  'require firewall';
  'require tools.widgets as widgets';
 +'require view.network.c5800-wireless-stations as wirelessStations';
- 
- const isReadonlyView = !L.hasViewPermission();
- 
 @@ -773,99 +774,1 @@
 -		const table = document.querySelector('#wifi_assoclist_table');
 -		const hosts = data[0];

@@ -257,7 +257,7 @@ local function route_section(uci, package, kind, name, values)
 	for key,value in pairs(values) do uci:set(package,name,key,value) end
 end
 
-local function route_state()
+function route_state()
 	local uci = require("uci").cursor()
 	local power = poe_state()
 	local function enabled(name)
@@ -307,10 +307,10 @@ function action_route_status()
 	luci.http.write_json(route_state())
 end
 
-function action_route_set()
+function action_route_set(value)
 	local http, json = require "luci.http", require "luci.jsonc"
 	local uci, sys, dt = require("uci").cursor(), require "luci.sys", require "luci.cbi.datatypes"
-	local value = json.parse(http.formvalue("data") or "")
+	if type(value) ~= "table" then value = json.parse(http.formvalue("data") or "") end
 	http.prepare_content("application/json")
 	local function fail(message)
 		http.status(400, "Bad Request")

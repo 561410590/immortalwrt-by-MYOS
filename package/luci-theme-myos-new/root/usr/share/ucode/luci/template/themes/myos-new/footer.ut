@@ -10,10 +10,13 @@
  </main>
  <footer class="m-footer"><span>MYOS-NEW</span><span>{{ entityencode(version.luciname ?? 'LuCI') }} · {{ entityencode(ubus.call('system', 'board')?.release?.version ?? '') }}</span></footer>
 </div>
-<script src="{{ media }}/shell.js?v=20261114-theme-r8{{ compact && !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-submenu1' : '' }}"></script>
+<script src="{{ media }}/shell.js?v=20261114-theme-r8{{ compact && !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-submenu1' : '' }}{{ !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-views20261120-nav3b' : '' }}"></script>
 <script src="{{ media }}/unlock.js?v=20261114-c8-feedback1"></script>
-<script src="{{ media }}/notices.js?v=20261112-theme-polish2"></script>
-<script src="{{ media }}/layout.js?v=20261114-c8-feedback1{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-tablet1' : '' }}"></script>
+<script src="{{ media }}/notices.js?v=20261120-c5800-link-samples1"></script>
+{% if (ctx.authsession && model in ['c5800688', 'nradioc5800688']): %}
+<script src="{{ resource }}/c5800-calls.js" data-state="{{ dispatcher.build_url('admin/modem/incoming_state') }}" data-page="{{ dispatcher.build_url('admin/modem/incoming_calls') }}"></script>
+{% endif %}
+<script src="{{ media }}/layout.js?v=20261114-c8-feedback1-auto-layout2{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-tablet1' : '' }}"></script>
 {% endif %}
 <script src="{{ media }}/background.js?v=20261114-c8-feedback1"></script>
 <script src="{{ media }}/liquid.js?v=20261107-appearance1"></script>

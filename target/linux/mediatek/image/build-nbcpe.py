@@ -143,15 +143,9 @@ def main():
         root_data = root.read_bytes()
         root_data += bytes((-len(root_data)) % 1024)
         with tarfile.open(output, 'w', format=tarfile.USTAR_FORMAT) as archive:
-            prefix = 'sysupgrade-' + BOARD
-            directory = tarfile.TarInfo(prefix)
-            directory.type = tarfile.DIRTYPE
-            directory.mode = 0o755
-            archive.addfile(directory)
-            for name, data in ((prefix + '/CONTROL', control),
-                               (prefix + '/kernel', fit.read_bytes()),
-                               (prefix + '/root', root_data),
-                               ('sysupgrade-' + COMPATIBLE + '/CONTROL', control)):
+            for name, data in (('CONTROL', control),
+                               ('kernel', fit.read_bytes()),
+                               ('root', root_data)):
                 member = tarfile.TarInfo(name)
                 member.size = len(data)
                 member.mode = 0o644
@@ -173,12 +167,10 @@ def main():
     assert metadata['supported_devices'] == [COMPATIBLE]
     assert metadata['version']['version'] == VERSION
     with tarfile.open(output, 'r:') as archive:
-        kernels = [m for m in archive.getmembers() if m.name.endswith('/kernel')]
-        roots = [m for m in archive.getmembers() if m.name.endswith('/root')]
-        assert len(kernels) == len(roots) == 1
-        assert archive.getmember('sysupgrade-' + COMPATIBLE + '/CONTROL').size == len('BOARD=' + BOARD + '\n')
-        kernel_data = archive.extractfile(kernels[0]).read()
-        root_data = archive.extractfile(roots[0]).read()
+        assert archive.getnames() == ['CONTROL', 'kernel', 'root']
+        assert archive.extractfile('CONTROL').read() == ('BOARD=' + BOARD + '\n').encode()
+        kernel_data = archive.extractfile('kernel').read()
+        root_data = archive.extractfile('root').read()
     fit_values = fdt_properties(kernel_data)
     squashfs_size = struct.unpack_from('<Q', root_data, 40)[0]
     root_data = root_data[:squashfs_size]

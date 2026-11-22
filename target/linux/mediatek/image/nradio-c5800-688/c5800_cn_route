@@ -3,6 +3,8 @@
 #!CONFIG = clash-all-smart.yaml
 
 [YAML]
+interface-name-:
+routing-mark: 1048576
 proxies+:
   - name: 国内直连-内置蜂窝
     type: direct
@@ -10,9 +12,11 @@ proxies+:
   - name: 国内直连-PoE
     type: direct
     interface-name: port5
+  - name: 国内直连-均衡
+    type: direct
 proxy-groups*:
   where:
-    name: 国内
+    name: '/^(国内|Test)$/'
     type: select
     proxies: [直连]
   set:
@@ -22,7 +26,3 @@ proxy-groups+:
   - name: 国内直连-自动
     type: select
     proxies: [直连, 国内直连-内置蜂窝, 国内直连-PoE, 国内直连-均衡]
-  - name: 国内直连-均衡
-    type: load-balance
-    strategy: round-robin
-    proxies: [国内直连-内置蜂窝, 国内直连-PoE]

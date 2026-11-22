@@ -1,0 +1,68 @@
+--- a/lib/upgrade/emmc.sh
++++ b/lib/upgrade/emmc.sh
+@@ -3,6 +3,14 @@
+ 
+ . /lib/functions.sh
+ 
++nbcpe_flat_upgrade() {
++	[ "$(board_name)" = HCMT7981-emmc-NB68 ] || return 1
++	case "$(tar xOf "$1" CONTROL 2>/dev/null)" in
++		BOARD=nradio_wt9111_No2-manper_NB68|BOARD=HCMT7981-emmc-NB68) return 0 ;;
++		*) return 1 ;;
++	esac
++}
++
+ emmc_upgrade_tar() {
+ 	local tar_file="$1"
+ 	[ "$CI_KERNPART" -a -z "$EMMC_KERN_DEV" ] && export EMMC_KERN_DEV="$(find_mmc_part $CI_KERNPART $CI_ROOTDEV)"
+@@ -11,18 +19,23 @@
+ 	local has_kernel
+ 	local has_rootfs
+-	local board_dir kernel_member root_member
+-	board_dir=$(tar tf "$tar_file" | grep -m 1 -E '^(sysupgrade-.*/|myos-688/)$')
+-	board_dir=${board_dir%/}
+-	case "$board_dir" in
+-		myos-688)
+-			kernel_member="$(myos_688_kernel_member)" || return 1
+-			root_member=myos-688/root
+-			;;
+-		*)
+-			kernel_member="$board_dir/kernel"
+-			root_member="$board_dir/root"
+-			;;
+-	esac
++	local board_dir kernel_member root_member
++	if nbcpe_flat_upgrade "$tar_file"; then
++		kernel_member=kernel
++		root_member=root
++	else
++		board_dir=$(tar tf "$tar_file" | grep -m 1 -E '^(sysupgrade-.*/|myos-688/)$')
++		board_dir=${board_dir%/}
++		case "$board_dir" in
++			myos-688)
++				kernel_member="$(myos_688_kernel_member)" || return 1
++				root_member=myos-688/root
++				;;
++			*)
++				kernel_member="$board_dir/kernel"
++				root_member="$board_dir/root"
++				;;
++		esac
++	fi
+ 
+ 	tar tf "$tar_file" "$kernel_member" 1>/dev/null 2>/dev/null && has_kernel=1
+ 	tar tf "$tar_file" "$root_member" 1>/dev/null 2>/dev/null && has_rootfs=1
+--- a/lib/upgrade/platform.sh
++++ b/lib/upgrade/platform.sh
+@@ -215,6 +215,11 @@
+ 	local magic="$(get_magic_long "$1")"
+ 
+ 	[ "$#" -gt 1 ] && return 1
++	if nbcpe_flat_upgrade "$1"; then
++		tar tf "$1" kernel root >/dev/null && nand_verify_tar_file "$1" cat
++		return $?
++	fi
++
+ 
+ 	case "$board" in
+ 	bananapi,bpi-r3|\

@@ -1,0 +1,351 @@
+--- a/www/luci-static/resources/view/myos-new/home.js
++++ b/www/luci-static/resources/view/myos-new/home.js
+@@ -816,25 +816,34 @@
+  },
+  renderNetwork:function(d){
+   this.replace('network',{interfaces:d.interfaces,ports:d.ports,profile:d.profile},()=>{
+-   const groups={};
+-   list(d.interfaces).forEach(n=>{const key=n.device||n.name;if(!groups[key])groups[key]=[];groups[key].push(n);});
+-   return card('网络接口','↗',node('div','',Object.entries(groups).map(([name,nets])=>{
++   const groups=new Map();
++   for(const net of list(d.interfaces)){
++    const key=net.device||net.name;
++    if(!groups.has(key))groups.set(key,[]);
++    groups.get(key).push(net);
++   }
++   const labels={cpe:'内置 5G',cpe1:'PoE 副 5G',wan:'有线 WAN',wan6:'有线 WAN',lan:'局域网'};
++   const rows=Array.from(groups,([name,nets])=>{
+     const ip=nets.flatMap(n=>list(n.ipv4)),v6=nets.flatMap(n=>list(n.ipv6));
+     const routes=nets.flatMap(n=>list(n.routes)).filter(r=>Number(r.mask)===0);
+     const dns=[...new Set(nets.flatMap(n=>list(n.dns)))];
+-    const active=nets.some(n=>n.up),label=nets.map(n=>n.name).join(' / ');
+-    const port=d.profile==='nbcpe688'&&list(d.ports).find(p=>p.name===name);
+-    const title=alias(d,name)==='br-lan'?'局域网':alias(d,name);
+-    return node('div','m-network-item',[
+-     node('div','m-network-title',[node('span','',[title,node('small','',' · '+label)]),badge(active?'接口已启动':'接口未启动',active?'good':'')]),
+-     kv([['IPv4',addresses(ip)],['默认网关',[...new Set(routes.map(r=>r.nexthop).filter(Boolean))].join(' · ')||'无默认路由']]),
+-     E('details',{'class':'m-inline-details','data-key':name},[
+-      node('summary','','IPv6 与 DNS'),
+-      kv([['IPv6',addresses(v6)],['DNS',dns.join(' · ')||(active?'未配置':'未分配')],
+-       ['IPv6 前缀',addresses(nets.flatMap(n=>list(n.prefixes)))],['协议',nets.map(n=>n.proto).filter(Boolean).join(' / ')]])
+-     ])
++    const active=nets.some(n=>n.up);
++    const roles=[...new Set(nets.map(n=>labels[n.name.replace(/_[46]$/,'')]).filter(Boolean))];
++    const primary=ip[0]||v6[0];
++    const gateways=[...new Set(routes.map(r=>r.nexthop).filter(g=>g&&g!=='0.0.0.0'&&g!=='::'))];
++    return E('details',{class:'m-home-interface','data-key':name},[
++     node('summary','',[
++      node('strong','',roles.join(' / ')||name),
++      node('span','m-interface-primary',primary?addresses([primary]):'未分配地址'),
++      badge(active?'已启动':'未启动',active?'good':'')
++     ]),
++     kv([['设备',name],['逻辑接口',nets.map(n=>n.name).join(' / ')],['IPv4',addresses(ip)],['IPv6',addresses(v6)],
++      ['默认网关',gateways.join(' · ')||(routes.length?'直连':'无默认路由')],
++      ['DNS',dns.join(' · ')||(active?'未配置':'未分配')],['IPv6 前缀',addresses(nets.flatMap(n=>list(n.prefixes)))],
++      ['协议',[...new Set(nets.map(n=>n.proto).filter(Boolean))].join(' / ')]])
+     ]);
+-   })),link('接口详情','admin/network/network'));
++   });
++   return card('网络接口','↗',rows.length?node('div','m-home-interfaces',rows):node('p','m-empty','暂无接口记录'),link('接口详情','admin/network/network'));
+   });
+  },
+  renderWifi:function(d){
+@@ -1718,8 +1727,8 @@
+   const events=[...history,...this.events.filter(e=>!history.some(h=>
+    h.kind===e.kind&&h.device===e.device&&h.mac===e.mac&&h.up===e.up&&Math.abs(h.time-e.time)<=65))]
+    .sort((a,b)=>b.time-a.time).slice(0,40);
+-  this.replace('events',{events,available:log?.available},()=>card('连接事件','event',node('div','',[
+-   events.length?node('ol','m-event-list',events.slice(0,6).map(e=>{
++  this.replace('events',{events,available:log?.available},()=>{
++   const eventList=items=>node('ol','m-event-list',items.map(e=>{
+     const station=list(d.clients).find(c=>c.mac===e.mac);
+     const radio=list(d.wireless).find(w=>w.name===e.device);
+     const title=e.kind==='wifi'?(e.up?'无线终端已关联':'无线终端已断开'):
+@@ -1728,9 +1737,15 @@
+     return node('li','',[node('span','m-event-dot '+(e.up?'good':'warn')),
+      node('time','',new Date(e.time*1000).toLocaleTimeString('zh-CN',{hour12:false})),
+      node('div','',[node('strong','',title),node('small','',detail)])]);
+-   })):node('p','m-muted m-event-quiet',log?.available?'暂无连接变化':'系统日志暂不可用'),
+-   events.length&&!log?.available?node('p','m-cell-age','系统日志暂不可用，显示本次采集的连接变化。'):null
+-  ].filter(Boolean)),link('系统日志','admin/status/logs/syslog')));
++   }));
++   return card('连接事件','event',node('div','',[
++    events.length?eventList(events.slice(0,6)):node('p','m-muted m-event-quiet',log?.available?'暂无连接变化':'系统日志暂不可用'),
++    events.length>6?E('details',{class:'m-inline-details m-earlier-events'},[
++     node('summary','','更早的 '+(events.length-6)+' 条事件'),eventList(events.slice(6))
++    ]):null,
++    events.length&&!log?.available?node('p','m-cell-age','系统日志暂不可用，显示本次采集的连接变化。'):null
++   ].filter(Boolean)),link('系统日志','admin/status/logs/syslog'));
++  });
+  },
+  exportClients:function(){
+   const rows=this.filteredClients();
+@@ -1760,7 +1775,9 @@
+    node('div','m-action-buttons',[
+     E('button',{type:'button',class:'m-pill-button',disabled:!c.ip,click:()=>this.copyClient(c.ip,copyStatus)},'复制 IP'),
+     E('button',{type:'button',class:'m-pill-button',disabled:!c.mac,click:()=>this.copyClient(c.mac,copyStatus)},'复制 MAC'),
+-    link('DHCP 设置','admin/network/dhcp')
++    c.mac && c.lease_expires != null
++     ? E('a',{href:L.url('admin','status','overview')+'?lease='+encodeURIComponent(c.mac)+'#status_leases'},'查看此设备租约')
++     : link('DHCP 设置','admin/network/dhcp')
+    ]),copyStatus
+   ]);
+   close.addEventListener('click',()=>dialog.close());
+--- a/www/luci-static/myos-new/shell.js
++++ b/www/luci-static/myos-new/shell.js
+@@ -158,7 +158,7 @@
+   siblings.forEach((el,i)=>{const dy=before[i]-after[i];if(Math.abs(dy)>.5)play(el,[{transform:'translateY('+dy+'px)'},{transform:'translateY(0)'}]);});
+   changes.forEach(item=>{if(item.expanded)play(item.content,[{opacity:0,transform:'translateY(-5px)'},{opacity:1,transform:'translateY(0)'}]);});
+  }
+- const compactTabs=matchMedia('(max-width:760px), (max-width:1024px) and (pointer:coarse)');
++ const compactTabs=matchMedia('(max-width:760px), (max-width:1499px) and (any-pointer:coarse)');
+  function revealTab(link){
+   if(!compactTabs.matches||!link)return;
+   const strip=link.closest('ul'),bounds=strip.getBoundingClientRect(),tab=link.getBoundingClientRect();
+@@ -290,6 +290,29 @@
+   document.body.append(dialog);dialog.showModal();
+  });
+  const menuRequest=L.require('ui').then(ui=>ui.menu.load(true).then(tree=>({ui,tree})));
++ const menuSearch=document.querySelector('#m-menu-search');
++ const emptySearch=make('p','m-menu-empty','没有匹配的菜单');
++ emptySearch.setAttribute('role','status');emptySearch.hidden=true;
++ let beforeSearch=null;
++ function filterMenu(){
++  if(!nav.contains(emptySearch))return;
++  const terms=menuSearch.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
++  const groups=[...nav.querySelectorAll('.m-menu-group')];
++  if(terms.length&&!beforeSearch)beforeSearch=new Map(groups.map(group=>[group,group.open]));
++  let count=0;
++  nav.querySelectorAll('a[data-search]').forEach(link=>{
++   link.hidden=!terms.every(term=>link.dataset.search.includes(term));
++   if(!link.hidden)count++;
++  });
++  for(const group of groups){
++   group.hidden=!!terms.length&&!group.querySelector('a[data-search]:not([hidden])');
++   if(terms.length)group.open=!group.hidden;
++   else if(beforeSearch)group.open=beforeSearch.get(group);
++   group.firstElementChild.setAttribute('aria-expanded',String(group.open));
++  }
++  if(!terms.length)beforeSearch=null;
++  emptySearch.hidden=!terms.length||count>0;
++ }
+  window.MYOSMenu=menuRequest.then(({tree})=>tree);
+  window.MYOSMenu.catch(()=>{});
+  async function load(){
+@@ -313,17 +336,25 @@
+      summary.append(icon(node.name,parts[1]),make('span','',label));
+      const list=make('div','m-menu-children');kids.forEach(n=>list.append(n));group.append(summary,list);
+      summary.addEventListener('click',e=>animateFold(group,list,summary,e));
+-     if(list.querySelector('[aria-current]'))group.open=true;group.dataset.label=label;return group;
++     const currentGroup=path===new URL(L.url(...parts),location.href).pathname;
++     group.open=!!list.querySelector('[aria-current]')||currentGroup;
++     if(currentGroup&&!list.querySelector('[aria-current]')){
++      summary.setAttribute('aria-current','location');
++      title=contextualTitle?trail.join(' › '):label;
++     }
++     summary.setAttribute('aria-expanded',String(group.open));
++     group.dataset.label=label;return group;
+     }
+     if(['firstchild','alias'].includes(node.action?.type)&&children(node).length)return null;
+     const vantage=contextualTitle&&key==='admin/dashboard'&&node.action?.path==='vantage/overview';
+     const a=make('a',vantage?'m-menu-link m-vantage-link':'m-menu-link');
+     a.append(icon(vantage?'vantage':node.name,parts[1]),make('span','',label));a.href=L.url(...parts);a.dataset.label=label;
++    a.dataset.search=[...trail,node.title,...parts.slice(1)].join(' ').toLowerCase();
+     if(modemWebPages.has(key)){a.target='_blank';a.rel='noopener';}
+     const url=new URL(a.href,location.href).pathname;
+     if(path===url||path.startsWith(url+'/')){
+      a.classList.add('active');a.setAttribute('aria-current','page');
+-     title=contextualTitle&&parts.length>3?trail.join(' › '):label;
++     title=contextualTitle?trail.join(' › '):label;
+     }
+     return a;
+    };
+@@ -333,7 +364,8 @@
+     if(el?.classList.contains('m-vantage-link'))fragment.prepend(el);
+     else if(el)fragment.append(el);
+    });
+-   nav.replaceChildren(fragment);
++   nav.replaceChildren(fragment,emptySearch);
++   filterMenu();
+    const pageTitle=document.querySelector('#m-page-title');
+    pageTitle.textContent=title;
+    if(contextualTitle)pageTitle.title=title;
+@@ -358,10 +390,11 @@
+    revealActiveTabs();
+   }catch(error){nav.replaceChildren(make('p','m-error','导航载入失败，请刷新重试。'));}
+  }
+- document.querySelector('#m-menu-search').addEventListener('input',e=>{
+-  const q=e.target.value.trim().toLowerCase();
+-  nav.querySelectorAll('a').forEach(a=>a.hidden=!a.textContent.toLowerCase().includes(q));
+-  [...nav.querySelectorAll('details')].reverse().forEach(d=>{resetFold(d);d.hidden=!!q&&![...d.querySelectorAll('a')].some(a=>!a.hidden);if(q&&!d.hidden)d.open=true;});
++ menuSearch.addEventListener('input',filterMenu);
++ menuSearch.addEventListener('keydown',e=>{
++  if(e.key==='Escape'&&menuSearch.value){
++   e.preventDefault();e.stopPropagation();menuSearch.value='';filterMenu();
++  }
+  });
+  nav.addEventListener('click',e=>{if(e.target.closest('a')&&open)drawer(false,e.detail===0);});
+  load();
+--- a/usr/share/ucode/luci/template/themes/myos-new/footer.ut
++++ b/usr/share/ucode/luci/template/themes/myos-new/footer.ut
+@@ -10,7 +10,7 @@
+  </main>
+  <footer class="m-footer"><span>MYOS-NEW</span><span>{{ entityencode(version.luciname ?? 'LuCI') }} · {{ entityencode(ubus.call('system', 'board')?.release?.version ?? '') }}</span></footer>
+ </div>
+-<script src="{{ media }}/shell.js?v=20261114-theme-r8{{ compact && !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-submenu1' : '' }}"></script>
++<script src="{{ media }}/shell.js?v=20261120-c5800-menu2{{ compact && !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-submenu1' : '' }}"></script>
+ <script src="{{ media }}/unlock.js?v=20261114-c8-feedback1"></script>
+ <script src="{{ media }}/notices.js?v=20261112-theme-polish2"></script>
+ <script src="{{ media }}/layout.js?v=20261114-c8-feedback1{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-tablet1' : '' }}"></script>
+--- a/www/luci-static/resources/view/network/interfaces.js
++++ b/www/luci-static/resources/view/network/interfaces.js
+@@ -107,7 +107,7 @@
+ 		let details = node.querySelector(':scope > .m-interface-details');
+ 		if (!summary || !details) {
+ 			summary = E('div', { class: 'm-interface-summary' });
+-			details = E('details', { class: 'm-interface-details' }, [ E('summary', '接口详情'), E('div') ]);
++			details = E('details', { class: 'm-interface-details' }, [ E('summary', '接口详情'), E('dl') ]);
+ 			dom.content(node, [summary, details]);
+ 		}
+ 		const up = ifc.isUp(), disabled = ifc.get('disabled') === '1';
+@@ -123,9 +123,10 @@
+ 		]);
+ 		target = details.lastElementChild;
+ 	}
+-	return L.itemlist(target, [
++	const fields = [
+ 		_('Protocol'), with_device ? null : (desc || '?'),
+-		_('Device'), with_device ? (maindev ? maindev.getShortName() : E('em', _('Not present'))) : null,
++		_('Device'), (with_device || compact) ? (maindev ? maindev.getShortName() : E('em', _('Not present'))) : null,
++		_('Type'), compact && maindev ? maindev.getTypeI18n() : null,
+ 		_('Uptime'), (!changecount && ifc.isUp()) ? '%t'.format(ifc.getUptime()) : null,
+ 		_('MAC'), (cond01) ? macaddr : null,
+ 		_('RX'), (cond02) ? '%.2mB (%d %s)'.format(maindev.getRXBytes(), maindev.getRXPackets(), _('Pkts.')) : null,
+@@ -137,7 +138,18 @@
+ 		_('Information'), with_device ? null : (ifc.get('auto') != '0' ? null : _('Not started on boot')),
+ 		...addEntries(_('Error'), errors),
+ 		null, compact ? null : pending
+-	]);
++	];
++	if (!compact)
++		return L.itemlist(target, fields);
++
++	const rows = [];
++	for (let i = 0; i < fields.length; i += 2) {
++		const value = fields[i + 1];
++		if (value != null && value !== '')
++			rows.push(E('div', [E('dt', fields[i]), E('dd', [value])]));
++	}
++	dom.content(target, rows);
++	return node;
+ }
+ 
+ function render_modal_status(node, ifc) {
+--- a/www/luci-static/resources/view/firewall/forwards.js
++++ b/www/luci-static/resources/view/firewall/forwards.js
+@@ -211,22 +211,24 @@
+ 			};
+ 		}
+ 
+-		o = s.option(form.DummyValue, '_match', _('Match'));
++		o = s.option(form.DummyValue, '_match', '转发映射');
+ 		o.modalonly = false;
+ 		o.textvalue = function(s) {
+-			return E('small', [
+-				rule_proto_txt(s, ctHelpers), E('br'),
+-				rule_src_txt(s, hosts), E('br'),
+-				rule_dest_txt(s), E('br'),
+-				rule_limit_txt(s)
+-			]);
+-		};
+-
+-		o = s.option(form.ListValue, '_dest', _('Action'));
+-		o.modalonly = false;
+-		o.textvalue = function(s) {
+-			return E('small', [
+-				rule_target_txt(s)
++			const rule = uci.get('firewall', s);
++			const protocols = L.toArray(rule.proto || 'tcp udp');
++			const protocol = protocols.some(p => ['all', 'any', '*'].includes(p))
++				? '全协议' : protocols.map(p => p.toUpperCase()).join(' / ');
++			const endpoint = (ip, port) => port
++				? (ip.includes(':') ? '[' + ip + ']' : ip) + ':' + port
++				: ip;
++			const external = endpoint(rule.src_dip || '任意外部地址', rule.src_dport);
++			const internal = endpoint(rule.dest_ip || '本机', rule.dest_port || rule.src_dport);
++			return E('div', { class: 'm-forward-map' }, [
++				E('strong', external + ' → ' + internal), E('small', protocol),
++				E('details', [E('summary', '匹配详情'), E('div', [
++					rule_proto_txt(s, ctHelpers), E('br'), rule_src_txt(s, hosts), E('br'),
++					rule_dest_txt(s), E('br'), rule_target_txt(s), E('br'), rule_limit_txt(s)
++				])])
+ 			]);
+ 		};
+ 
+--- a/www/luci-static/resources/view/status/include/40_dhcp.js
++++ b/www/luci-static/resources/view/status/include/40_dhcp.js
+@@ -92,6 +92,8 @@
+ 			])
+ 		]);
+ 
++		const selected = (new URLSearchParams(location.search).get('lease') || '').toUpperCase();
++		let match = null;
+ 		cbi_update_table(table, leases.map(L.bind(function(lease) {
+ 			var exp, rows;
+ 
+@@ -110,10 +112,15 @@
+ 			else if (lease.hostname)
+ 				host = lease.hostname;
+ 
++			let macCell = lease.macaddr;
++			if (selected && selected === macCell?.toUpperCase()) {
++				match = E('span', { class: 'm-selected-lease' }, macCell);
++				macCell = match;
++			}
+ 			rows = [
+ 				host || '-',
+ 				lease.ipaddr,
+-				lease.macaddr,
++				macCell,
+ 				exp
+ 			];
+ 
+@@ -178,8 +185,17 @@
+ 			return rows;
+ 		}, this)), E('em', _('There are no active leases')));
+ 
++		if (selected && this.revealedLease !== selected) {
++			requestAnimationFrame(() => {
++				if (table.isConnected) {
++					(match?.closest('tr') || table).scrollIntoView({ block: 'center' });
++					this.revealedLease = selected;
++				}
++			});
++		}
+ 		return E([
+ 			E('h3', _('Active DHCP Leases')),
++			selected && !match ? E('p', { role: 'status' }, '当前 IPv4 租约中已无此设备。') : E([]),
+ 			table,
+ 			E('h3', _('Active DHCPv6 Leases')),
+ 			table6
+--- a/usr/share/ucode/luci/template/themes/myos-new/header.ut
++++ b/usr/share/ucode/luci/template/themes/myos-new/header.ut
+@@ -44,6 +44,7 @@
+ <link rel="stylesheet" href="{{ media }}/style.css?v=20261111-allmodels1">
+ <link rel="stylesheet" href="{{ media }}/liquid.css?v=20261105-black-frost">
+ <link rel="stylesheet" href="{{ media }}/refine.css?v={{ board.model == 'NRadio-C5800-688' ? '20261115-c5800-overview-wan-quality2-c5800-wan1' : '20261114-c8-feedback2-wan-quality2' }}{{ join('/', ctx.path ?? []) == 'admin/myos' ? (board.model == 'NRadio-C5800-688' ? '-c5800-density2-tablet1-outlet3' : (compact ? '-home-density1-tablet1-outlet1' : '-home-density1-tablet1')) : '' }}{{ board.model == 'NRadio-C5800-688' && join('/', ctx.path ?? []) == 'admin/network/wireless' ? '-stations2' : '' }}{{ submenu ? '-submenu1' : '' }}">
++<link rel="stylesheet" href="{{ media }}/c5800-network.css?v=20261120-2">
+ {% if (node?.css): %}<link rel="stylesheet" href="{{ resource }}/{{ node.css }}">{% endif %}
+ {% if (css): %}<style>{{ css }}</style>{% endif %}
+ <script src="{{ dispatcher.build_url('admin/translations', dispatcher.lang) }}"></script>
+--- a/usr/share/ucode/luci/template/header.ut
++++ b/usr/share/ucode/luci/template/header.ut
+@@ -14,7 +14,7 @@
+ 	include(`themes/${theme}/header`);
+ -%}
+ 
+-<script src="{{ resource }}/luci.js?v={# PKG_VERSION #}-{{ pkgs_update_time }}-{{ theme == 'myos-new' ? '20261114-c8-feedback1-overview-link2-wan-quality2' : '20261112-theme-polish1' }}{{ myos_board.model == 'NRadio-C5800-688' ? (join('/', ctx.path ?? []) == 'admin/myos' ? '-c5800-wan1-c5800-density2-outlet3' : '-c5800-wan1') : (theme == 'myos-new' && join('/', ctx.path ?? []) == 'admin/myos' ? (myos_compact ? '-home-density1-outlet1' : '-home-density1') : '') }}{{ myos_board.model == 'NRadio-C5800-688' && join('/', ctx.path ?? []) == 'admin/network/wireless' ? '-stations2' : '' }}{{ myos_compact && (join('/', ctx.path ?? []) in ['admin/status/realtime/bandwidth', 'admin/status/logs/syslog', 'admin/network/network', 'admin/network/diagnostics']) ? '-submenu1' : '' }}"></script>
++<script src="{{ resource }}/luci.js?v={# PKG_VERSION #}-{{ pkgs_update_time }}-c5800-views2-{{ theme == 'myos-new' ? '20261114-c8-feedback1-overview-link2-wan-quality2' : '20261112-theme-polish1' }}{{ myos_board.model == 'NRadio-C5800-688' ? (join('/', ctx.path ?? []) == 'admin/myos' ? '-c5800-wan1-c5800-density2-outlet3' : '-c5800-wan1') : (theme == 'myos-new' && join('/', ctx.path ?? []) == 'admin/myos' ? (myos_compact ? '-home-density1-outlet1' : '-home-density1') : '') }}{{ myos_board.model == 'NRadio-C5800-688' && join('/', ctx.path ?? []) == 'admin/network/wireless' ? '-stations2' : '' }}{{ myos_compact && (join('/', ctx.path ?? []) in ['admin/status/realtime/bandwidth', 'admin/status/logs/syslog', 'admin/network/network', 'admin/network/diagnostics']) ? '-submenu1' : '' }}"></script>
+ <script>
+ 	L = new LuCI({{ replace(`${ {
+ 		media          : media,

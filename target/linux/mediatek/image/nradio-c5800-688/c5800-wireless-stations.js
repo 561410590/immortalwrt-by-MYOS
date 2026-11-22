@@ -19,7 +19,7 @@ class WirelessStations {
 		this.filter.addEventListener('change', () => this.applyFilter());
 		this.list = E('div', { class: 'm-c5800-wifi-list' });
 		this.empty = E('p', { class: 'm-c5800-wifi-empty', role: 'status' }, _('Collecting data...'));
-		this.element = E('section', { class: 'm-c5800-wifi-stations' }, [
+		this.element = E('section', { id: 'wifi_assoclist_table', class: 'm-c5800-wifi-stations' }, [
 			E('div', { class: 'm-c5800-wifi-heading' }, [ E('h3', _('Associated Stations')), this.filter ]),
 			this.list, this.empty
 		]);
@@ -138,6 +138,10 @@ class WirelessStations {
 		}
 
 		this.applyFilter();
+		if (!this.openedFromHome && this.element.isConnected && location.hash === '#wifi_assoclist_table') {
+			this.openedFromHome = true;
+			this.element.scrollIntoView({ block: 'start' });
+		}
 	}
 }
 

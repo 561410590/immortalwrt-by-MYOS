@@ -1,0 +1,177 @@
+--- a/usr/lib/lua/luci/controller/AdGuardHome.lua
++++ b/usr/lib/lua/luci/controller/AdGuardHome.lua
+@@ -3,6 +3,7 @@
+ local http = require "luci.http"
+ local uci = require"luci.model.uci".cursor()
+ function index()
++    if not (fs.readfile("/etc/Outofnetwork") or ""):match("^ok") then return end
+ local page = entry({"admin", "services", "AdGuardHome"},alias("admin", "services", "AdGuardHome", "base"),_("AdGuard Home"))
+ page.order = 11
+ page.dependent = true
+@@ -16,35 +17,7 @@
+     entry({"admin", "services", "AdGuardHome", "getlog"}, call("get_log"))
+     entry({"admin", "services", "AdGuardHome", "dodellog"}, call("do_dellog"))
+     entry({"admin", "services", "AdGuardHome", "reloadconfig"}, call("reload_config"))
+-    entry({"admin", "services", "AdGuardHome", "gettemplateconfig"}, call("get_template_config"))
+ end
+-function get_template_config()
+-	local b
+-	local d=""
+-	for cnt in io.lines("/tmp/resolv.conf.auto") do
+-		b=string.match (cnt,"^[^#]*nameserver%s+([^%s]+)$")
+-		if (b~=nil) then
+-			d=d.."  - "..b.."\n"
+-		end
+-	end
+-	local f=io.open("/usr/share/AdGuardHome/AdGuardHome_template.yaml", "r+")
+-	local tbl = {}
+-	local a=""
+-	while (1) do
+-    	a=f:read("*l")
+-		if (a=="#bootstrap_dns") then
+-			a=d
+-		elseif (a=="#upstream_dns") then
+-			a=d
+-		elseif (a==nil) then
+-			break
+-		end
+-		table.insert(tbl, a)
+-	end
+-	f:close()
+-	http.prepare_content("text/plain; charset=utf-8")
+-	http.write(table.concat(tbl, "\n"))
+-end
+ function reload_config()
+ 	fs.remove("/tmp/AdGuardHometmpconfig.yaml")
+ 	http.prepare_content("application/json")
+--- a/usr/lib/lua/luci/model/cbi/AdGuardHome/base.lua
++++ b/usr/lib/lua/luci/model/cbi/AdGuardHome/base.lua
+@@ -53,12 +53,12 @@
+ o = s:option(Button, "restart", translate("Upgrade Core"))
+ o.inputtitle=translate("Update core version")
+ o.template = "AdGuardHome/AdGuardHome_check"
+-o.showfastconfig=(not fs.access(configpath))
+ o.description = string.format(translate("Current core version:") .. "<strong><font id='updateversion' style=\'color:green\'>%s </font></strong>", e)
+ ---- port warning not safe
+-local portcommand = "awk '/port:/ && ++count == 2 {sub(/[^0-9]+/, \"\", $2); printf(\"%s\\n\", $2); exit}' " .. configpath .. " 2>nul"
+-local port = luci.util.exec(portcommand)
+-if (port=="") then port="?" end
++local config = "\n" .. (fs.readfile(configpath) or "")
++local dns = config:match("\ndns:[^\n]*\n(.-)\n[^ \t\n]") or config:match("\ndns:[^\n]*\n(.*)") or ""
++local port = dns:match("\n[ \t]+port:[ \t]*(%d+)") or dns:match("^[ \t]+port:[ \t]*(%d+)") or "?"
++port = port .. " "
+ ---- Redirect
+ o = s:option(ListValue, "redirect", port..translate("Redirect"), translate("AdGuardHome redirect mode"))
+ o.placeholder = "none"
+--- a/usr/lib/lua/luci/model/cbi/AdGuardHome/manual.lua
++++ b/usr/lib/lua/luci/model/cbi/AdGuardHome/manual.lua
+@@ -5,34 +5,6 @@
+ require("string")
+ require("io")
+ require("table")
+-function gen_template_config()
+-	local b
+-	local d=""
+-	local file = "/tmp/resolv.conf.d/resolv.conf.auto"
+-	if not fs.access(file) then
+-		file = "/tmp/resolv.conf.auto"
+-	end
+-    for cnt in io.lines(file) do
+-        b = string.match(cnt, "^[^#]*nameserver%s+([^%s]+)$")
+-        if (b ~= nil) then d = d .. "  - " .. b .. "\n" end
+-	end
+-	local f=io.open("/usr/share/AdGuardHome/AdGuardHome_template.yaml", "r+")
+-	local tbl = {}
+-	local a=""
+-	while (1) do
+-    	a=f:read("*l")
+-		if (a=="#bootstrap_dns") then
+-			a=d
+-		elseif (a=="#upstream_dns") then
+-			a=d
+-		elseif (a==nil) then
+-			break
+-		end
+-		table.insert(tbl, a)
+-	end
+-	f:close()
+-	return table.concat(tbl, "\n")
+-end
+ m = Map("AdGuardHome")
+ local configpath = uci:get("AdGuardHome","AdGuardHome","configpath")
+ local binpath = uci:get("AdGuardHome","AdGuardHome","binpath")
+@@ -45,7 +17,7 @@
+ o.wrap = "off"
+ o.rmempty = true
+ o.cfgvalue = function(self, section)
+-	return  fs.readfile("/tmp/AdGuardHometmpconfig.yaml") or fs.readfile(configpath) or gen_template_config() or ""
++	return  fs.readfile("/tmp/AdGuardHometmpconfig.yaml") or fs.readfile(configpath) or ""
+ end
+ o.validate=function(self, value)
+     fs.writefile("/tmp/AdGuardHometmpconfig.yaml", value:gsub("\r\n", "\n"))
+--- a/usr/lib/lua/luci/view/AdGuardHome/AdGuardHome_check.htm
++++ b/usr/lib/lua/luci/view/AdGuardHome/AdGuardHome_check.htm
+@@ -2,9 +2,6 @@
+ <%local fs=require"nixio.fs"%>
+ <input type="button" class="btn cbi-button cbi-button-apply" id="apply_update_button" value="<%:Update core version%>" onclick=" return apply_update() "/>
+ <input type="button" class="btn cbi-button cbi-button-apply" id="apply_forceupdate_button" value="<%:Force update%>" onclick=" return apply_forceupdate()" style="display:none"/>
+-<% if self.showfastconfig then %>
+-<input type="button" class="btn cbi-button cbi-button-apply" id="to_configpage" value="<%:Fast config%>" onclick="location.href='<%=url([[admin]], [[services]], [[AdGuardHome]], [[manual]])%>'"/>
+-<%end%>
+ <div id="logview" style="display:none">
+ <input type="checkbox" id="reversetag" value="reverse" onclick=" return reverselog()" style="vertical-align:middle;height: auto;"><%:reverse%></input>
+ <textarea id="cbid.logview.1.conf" class="cbi-input-textarea" style="width: 100%;display:block;" data-update="change" rows="5" cols="60" readonly="readonly" > </textarea>
+--- a/usr/lib/lua/luci/view/AdGuardHome/yamleditor.htm
++++ b/usr/lib/lua/luci/view/AdGuardHome/yamleditor.htm
+@@ -24,16 +24,10 @@
+ 	function(x, data) {
+ 	location.reload();
+ 	});}
+-function use_template(){
+-	XHR.get('<%=url([[admin]], [[services]], [[AdGuardHome]], [[gettemplateconfig]])%>', null,
+-	function(x, data) {
+-	editor.setValue(x.responseText)
+-	});}
+ //]]>
+ </script> 
+ <%fs=require"nixio.fs"%>
+ <%if fs.access("/tmp/AdGuardHometmpconfig.yaml") then%>
+ <input type="button" id="btn apply_update_button" value="<%:Reload Config%>" onclick=" return reload_config() "/>
+ <%end%>
+-<input type="button" id="btn template_button" value="<%:Use template%>" onclick=" return use_template() "/>
+ <%+cbi/valuefooter%>
+--- a/etc/uci-defaults/40_luci-AdGuardHome
++++ b/etc/uci-defaults/40_luci-AdGuardHome
+@@ -8,5 +8,19 @@
+ 	delete AdGuardHome.AdGuardHome.ucitracktest
+ EOF
+ 
++# Preserved upgrades may restore an older core over the copy in the image.
++core=/usr/bin/AdGuardHome/AdGuardHome
++if [ ! -L "$core" ] && [ -x "/rom$core" ] &&
++   [ "$(uci -q get AdGuardHome.AdGuardHome.binpath)" = "$core" ]; then
++	adguard_core_version() {
++		"$1" --version 2>/dev/null | sed -n 's/^.*version v\([^ ,]*\).*$/\1/p'
++	}
++	current=$(adguard_core_version "$core")
++	bundled=$(adguard_core_version "/rom$core")
++	if [ -n "$current" ] && [ -n "$bundled" ] && opkg compare-versions "$current" lt "$bundled"; then
++		cp -p "/rom$core" "$core" || logger -t AdGuardHome "Cannot restore the bundled AdGuard Home core"
++	fi
++fi
++
+ rm -f /tmp/luci-indexcache
+ exit 0
+--- a/etc/init.d/AdGuardHome
++++ b/etc/init.d/AdGuardHome
+@@ -422,7 +422,9 @@
+ 	# update crontab
+ 	do_crontab
+ 	if [ "$enabled" == "0" ]; then
+-		_do_redirect 0
++		local was_enabled
++		config_get_bool was_enabled "$CONFIGURATION" old_enabled 0
++		[ "$was_enabled" = 0 ] || _do_redirect 0
+ 		return
+ 	fi
+ 	#what need to do before reload

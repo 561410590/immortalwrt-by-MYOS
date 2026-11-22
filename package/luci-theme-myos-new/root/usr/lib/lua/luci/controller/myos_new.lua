@@ -430,6 +430,46 @@ local function qmodem_dashboard_record(record,profile,uci)
     return m
 end
 
+local radio_fields={"rsrp","rsrq","sinr"}
+local missing_radio_value={rsrp=-1256,rsrq=-348,sinr=-188}
+
+-- C5800 ODU samples can omit just one measurement. Keep each real reading's
+-- original timestamp and never borrow it across modems, SIMs or serving cells.
+local function c5800_readings(id,m,stamp,remember)
+    local perf=require "luci.model.myos_liquid"
+    local now=os.time()
+    local fresh=stamp and stamp<=now and now-stamp<=30
+    local identity
+    if m.sim_id and m.sim_id~="" and m.cell and m.cell~="" and m.rat and m.rat~="" then
+        identity=table.concat({m.sim_id,m.rat,m.cell,m.pci or "",m.arfcn or ""},"/")
+    end
+    local name="radio-"..id
+    local saved=identity and perf.cached(name) or {}
+    if saved.identity~=identity then saved={identity=identity} end
+    local changed,notes=false,{}
+    for _,field in ipairs(radio_fields) do
+        local value=tonumber(m[field])
+        if value==255 or value==missing_radio_value[field] or (field=="rsrp" and value and value>=0) then value=nil end
+        local old=saved[field]
+        if value and fresh then
+            if remember and identity and (not old or stamp>old.at and (old.value~=value or stamp-old.at>=3)) then
+                saved[field]={at=stamp,value=value}
+                changed=true
+            end
+        elseif old and old.at<=now and now-old.at<=30 then
+            value=old.value
+            notes[#notes+1]=field:upper()
+        else value=nil end
+        m[field]=value
+    end
+    if changed then perf.save(name,saved) end
+    if #notes>0 then m.signal_note=table.concat(notes,"、").." 取自最近 30 秒内的同卡同小区采样" end
+    for _,carrier in ipairs(m.carriers or {}) do
+        if carrier.index==0 then carrier.rsrp,carrier.rsrq,carrier.sinr=m.rsrp,m.rsrq,m.sinr end
+    end
+    return m.rsrp~=nil or m.rsrq~=nil or m.sinr~=nil
+end
+
 local function native_dashboard_signal(s)
     if type(s)~="table" then return nil end
     local perf=require "luci.model.myos_liquid"
@@ -504,14 +544,13 @@ function collect_modem_refresh(signals_only)
                     qos=s.qos or require("luci.model.myos_liquid").qos(s,"infocd cache"),
                     rsrp=tonumber(s.rsrp),rsrq=tonumber(s.rsrq),sinr=tonumber(s.sinr)}
             end
-            local cache=json.parse(require("nixio.fs").readfile("/tmp/infocd/cache/cpestatus") or "") or {}
+            local fs=require "nixio.fs"
+            local path="/tmp/infocd/cache/cpestatus"
+            local cache=json.parse(fs.readfile(path) or "") or {}
+            local cache_stamp=fs.stat(path,"mtime")
             for _,entry in ipairs(cache.result or {}) do
                 if entry.status and entry.status.name=="cpe" then
                     result.signals.cpe=signal_record(entry.status)
-                    result.signals.cpe.rsrp,result.signals.cpe.rsrq,result.signals.cpe.sinr=nil,nil,nil
-                    for _,carrier in ipairs(result.signals.cpe.carriers or {}) do
-                        if carrier.index==0 then carrier.rsrp,carrier.rsrq,carrier.sinr=nil,nil,nil end
-                    end
                     break
                 end
             end
@@ -524,23 +563,37 @@ function collect_modem_refresh(signals_only)
             end
             local nr=fields[1]=="NR"
             local index=nr and 9 or 8
-            if (nr or fields[1]=="LTE") and tonumber(fields[index]) then
-                local current=result.signals.cpe or {}
-                current.rsrp,current.rsrq,current.sinr=tonumber(fields[index]),tonumber(fields[index+1]),nr and tonumber(fields[11]) or nil
-                for _,carrier in ipairs(current.carriers or {}) do
-                    if carrier.index==0 then carrier.rsrp,carrier.rsrq,carrier.sinr=current.rsrp,current.rsrq,current.sinr end
+            local current=result.signals.cpe or {}
+            local cell=fields[nr and 6 or 5]
+            local direct=(nr or fields[1]=="LTE") and cell and cell~=""
+            if direct then
+                if current.cell~=cell or not tostring(current.rat or ""):find(fields[1],1,true) then
+                    current.carriers,current.carrier_count,current.band_summary,current.band_detail=nil,nil,nil,nil
+                    current.band,current.carrier_aggregation,current.rat=nil,nil,fields[1]
                 end
-                result.signals.cpe=current
+                current.cell,current.arfcn,current.pci=cell,fields[4],tonumber(fields[nr and 7 or 6] or "",16)
+                current.rsrp,current.rsrq,current.sinr=fields[index],fields[index+1],nr and fields[11] or nil
+            end
+            if c5800_readings("cpe",current,direct and os.time() or cache_stamp,true) then
                 result.refreshed[#result.refreshed+1]="cpe"
+                if not direct then current.signal_note="本次未收到服务小区应答，显示最近 30 秒内的采样" end
             else
                 result.errors.cpe="内置5G未返回有效信号"
             end
+            result.signals.cpe=current
             if has_secondary and type(secondary.request)=="function" and
                 uci:get("network","cpe1","disabled")=="0" and uci:get("network","cpe1","mode")=="odu" then
                 local reply,err=secondary.request("signal",{})
-                if reply and type(reply.result)=="table" then
-                    result.signals.cpe1=signal_record(reply.result)
-                    result.refreshed[#result.refreshed+1]="cpe1"
+                local raw,stamp=reply and reply.result,os.time()
+                local direct_peer=type(raw)=="table"
+                if not direct_peer then raw,stamp=secondary.cached_signal() end
+                if type(raw)=="table" then
+                    local peer=signal_record(raw)
+                    result.signals.cpe1=peer
+                    if c5800_readings("cpe1",peer,stamp,true) then
+                        result.refreshed[#result.refreshed+1]="cpe1"
+                        if not direct_peer then peer.signal_note="副设备本次未应答，显示最近 30 秒内的采样" end
+                    else result.errors.cpe1=err or "副设备未返回有效信号" end
                 else result.errors.cpe1=err or "副设备信号暂不可用" end
             end
         elseif profile=="c2000max" or profile=="c2000ultra" then
@@ -1379,7 +1432,7 @@ function snapshot()
             rx=tonumber(rd(base.."/statistics/rx_bytes")),tx=tonumber(rd(base.."/statistics/tx_bytes"))}
     end
     local main_routes = {}
-    if profile == "c5800688" and next(uplinks) then
+    if next(uplinks) then
         local exec = require("luci.sys").exec
         for family, flag in pairs({ipv4="-4", ipv6="-6"}) do
             local routes = json.parse(exec("/sbin/ip " .. flag .. " -j route show table main default") or "")
@@ -1544,7 +1597,7 @@ function snapshot()
             local cloud=path and cached(path) or {}
             if cloud.iccid==tostring(s.iccid) and cloud.name then sim_name=cloud.name end
             local radio = carriers and carriers(s)
-            append(result.modems,{id=s.name,label=s.name=="cpe1" and "副 5G" or "内置蜂窝",
+            local modem={id=s.name,label=s.name=="cpe1" and "副 5G" or "内置蜂窝",
                 qos=s.qos or perf.qos(s,"infocd cache"),model=s.model,firmware=s.revision,operator=operators[s.isp] or s.isp_company or s.isp,
                 rat=s.mode,band=s.band,band_detail=radio and radio.detail or s.band_detail,
                 carrier_aggregation=radio and (radio.count > 1 and (radio.count .. "CC · " .. radio.bands) or "未聚合") or s.carrier_aggregation,
@@ -1553,7 +1606,11 @@ function snapshot()
                 pci=s.pci,cell=s.cell or s.cellid,arfcn=s.earfcn,temperature=tonumber(s.model_temp),
                 sim=s.simno,sim_label=s.sim_label,sim_name=sim_name,sim_type=s.simtype,sim_id=path and tostring(s.iccid),
                 sim_name_status=cloud.error or (path and "未读取云端名称" or nil),pin=s.CPIN,apn=s.apn,
-                device=s.device or uci:get("network",s.name,"device"),age=signal_stamp and math.max(0,os.time()-signal_stamp)})
+                device=s.device or uci:get("network",s.name,"device"),age=signal_stamp and math.max(0,os.time()-signal_stamp)}
+            if profile=="c5800688" and (s.name=="cpe" or s.name=="cpe1") then
+                c5800_readings(s.name,modem,signal_stamp,true)
+            end
+            append(result.modems,modem)
         end
     end
     -- QModem boards publish caches themselves. Reading the files does not request AT commands.

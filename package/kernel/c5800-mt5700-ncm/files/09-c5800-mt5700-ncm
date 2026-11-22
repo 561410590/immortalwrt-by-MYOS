@@ -1,0 +1,32 @@
+#!/bin/sh
+# The generic cdc_ncm can register before the C5800 driver on a running system.
+case "$ACTION:$DEVTYPE:$MODALIAS" in
+	add:usb_interface:usb:v3466p3301d*ic02isc0Dip00in00) ;;
+	*) return 0 ;;
+esac
+case "$DEVPATH" in
+	*/11200000.usb/usb*/*-1/*-1:*.0) ;;
+	*) return 0 ;;
+esac
+
+iface="/sys$DEVPATH"
+id=${DEVPATH##*/}
+drivers=/sys/bus/usb/drivers
+[ -d "$drivers/wt_cdc_ncm" ] || modprobe wt_ncm_lab || return 0
+
+# An add uevent can arrive just before the USB core has finished its first probe.
+if [ ! -L "$iface/driver" ]; then
+	printf '%s\n' "$id" > "$drivers/wt_cdc_ncm/bind" 2>/dev/null && return 0
+fi
+case "$(readlink "$iface/driver")" in
+	*/cdc_ncm) ;;
+	*) return 0 ;;
+esac
+printf '%s\n' "$id" > "$drivers/cdc_ncm/unbind" || return 1
+if ! printf '%s\n' "$id" > "$drivers/wt_cdc_ncm/bind"; then
+	logger -t c5800-ncm "Private driver failed to bind $id"
+	if [ -d "$iface" ] && [ ! -L "$iface/driver" ]; then
+		printf '%s\n' "$id" > "$drivers/cdc_ncm/bind"
+	fi
+	return 1
+fi

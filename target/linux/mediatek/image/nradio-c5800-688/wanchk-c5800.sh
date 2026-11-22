@@ -484,9 +484,8 @@ check_vsim(){
 }
 init_base_config(){
 	gNet="${gIface%%_*}"
-	# An Ethernet ODU supplies its own cellular connection. Observe its uplink
-	# without restarting netifd or cycling PoE on missing cellular metadata.
-	if [ "$(uci -q get network.$gNet.mode)" = "odu" ]; then
+	# The internal modem and Ethernet ODU manage their own connection.
+	if [ "$gNet" = "cpe" ] || [ "$(uci -q get network.$gNet.mode)" = "odu" ]; then
 		gRconn=0
 		gRconnDefault=0
 	fi
@@ -510,6 +509,7 @@ init_base_config(){
 		g6Net=$gNet
 		gIPCheck=$(uci -q get "network.$gNet.ipcheck")
 		[ -z "$gIPCheck" ] && gIPCheck="1"
+		[ "$gNet" = "cpe" ] && gIPCheck=0
 
 		nettype=$(uci -q get "network.$gNet.nettype")
 		vsim_support=$(uci -q get network.$gNet.vsim)
@@ -685,7 +685,7 @@ check_main(){
 	if [ "$_Nstatus" != "$_Ostatus" ]; then
 		log_info "link $_ifaces_label -> $_Nstatus"
 		set_net_status "$_ifaces_label" "$_Nstatus"
-		if [ "$_Nstatus" = "down" -a $_ip_diff_check -eq 0 -a -n "$_info"  ];then
+		if [ "$_nets" != "cpe" ] && [ "$_Nstatus" = "down" -a $_ip_diff_check -eq 0 -a -n "$_info" ];then
 			log_info "$_info dhcp renew $_ifaces right now as for down	"
 			ubus call network.interface notify_proto "{'interface':'$_ifaces','action':2,'signal':15}"
 		fi

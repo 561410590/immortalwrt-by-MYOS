@@ -3004,6 +3004,37 @@ int mtk_464xlat_post_process(struct sk_buff *skb, const struct net_device *out)
 	return 0;
 }
 
+static const struct net_device *c5800_wired_lan_port(struct sk_buff *skb,
+						    const struct net_device *bridge)
+{
+	struct net_device_path_stack stack;
+	struct neighbour *neigh;
+	u8 addr[ETH_ALEN];
+
+	if (!skb_dst(skb))
+		return NULL;
+
+	neigh = dst_neigh_lookup_skb(skb_dst(skb), skb);
+	if (!neigh)
+		return NULL;
+
+	neigh_ha_snapshot(addr, neigh, bridge);
+	neigh_release(neigh);
+	if (!is_valid_ether_addr(addr) || dev_fill_forward_path(bridge, addr, &stack))
+		return NULL;
+
+	/* A plain bridged LAN path must retain the DSA slave for the switch tag. */
+	if (stack.num_paths != 3 ||
+	    stack.path[0].type != DEV_PATH_BRIDGE ||
+	    stack.path[0].bridge.vlan_mode != DEV_PATH_BR_VLAN_KEEP ||
+	    stack.path[1].type != DEV_PATH_DSA ||
+	    stack.path[2].type != DEV_PATH_ETHERNET ||
+	    !IS_LAN_GRP(stack.path[1].dev))
+		return NULL;
+
+	return stack.path[1].dev;
+}
+
 static unsigned int mtk_hnat_nf_post_routing(
 	struct sk_buff *skb, const struct net_device *out,
 	unsigned int (*fn)(struct sk_buff *, const struct net_device *,
@@ -3032,7 +3063,16 @@ static unsigned int mtk_hnat_nf_post_routing(
 	if (unlikely(skb->mark == HNAT_EXCEPTION_TAG))
 		return 0;
 
-	if (out->netdev_ops->ndo_flow_offload_check) {
+	if (hnat_c5800_dsa && netif_is_bridge_master(out)) {
+		const struct net_device *port;
+
+		if (skb_hnat_reason(skb) == HIT_UNBIND_RATE_REACH ||
+		    skb_hnat_reason(skb) == HIT_BIND_KEEPALIVE_DUP_OLD_HDR) {
+			port = c5800_wired_lan_port(skb, out);
+			if (port)
+				out = port;
+		}
+	} else if (!IS_C5800_WAN(out) && out->netdev_ops->ndo_flow_offload_check) {
 		out->netdev_ops->ndo_flow_offload_check(&hw_path);
 		out = (IS_GMAC1_MODE) ? hw_path.virt_dev : hw_path.dev;
 	}

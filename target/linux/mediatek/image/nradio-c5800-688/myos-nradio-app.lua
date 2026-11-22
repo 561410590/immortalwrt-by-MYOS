@@ -1,4 +1,4 @@
-module("luci.controller.nradio.app", package.seeall)
+module((...) or "luci.controller.nradio.app", package.seeall)
 
 local uci = require "luci.model.uci".cursor()
 local util = require "luci.util"
@@ -1382,7 +1382,7 @@ local function dhcp_clients()
 	return clients, count
 end
 
-local function info_result()
+function info_result()
 	local m = summary()
 	local clients, count = dhcp_clients()
 	local app_api_version = shared.app_software_version()

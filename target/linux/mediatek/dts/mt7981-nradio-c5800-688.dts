@@ -4,6 +4,11 @@
 
 #include "mt7981-nradio-c5800-688-emmc.dtsi"
 
+/* Keep the MWRT GMAC2 path and inherit the board's USB2/USB3 PHY list. */
+&gmac1 {
+	status = "okay";
+};
+
 / {
 	model = "NRadio-C5800-688";
 

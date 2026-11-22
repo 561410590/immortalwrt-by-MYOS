@@ -1,0 +1,149 @@
+--- a/www/luci-static/resources/view/myos-new/home.js
++++ b/www/luci-static/resources/view/myos-new/home.js
+@@ -442,7 +442,7 @@
+   this.samplingState.textContent=state==='error'?'等待重试':state==='resuming'?'恢复采样':this.intervals().fast/1000+' 秒刷新';
+   const resumed=!this.routerTrafficHistory&&Date.now()<(this.samplingPauseUntil||0);
+   this.samplingNote.hidden=!resumed;
+-  this.samplingNote.textContent=resumed?'已恢复采样，空白处为离开页面期间未采集的数据。':'';
++  this.samplingNote.textContent=resumed?'已恢复页面采样。':'';
+  },
+  showError:function(message){
+   this.setSamplingState('error');
+@@ -522,8 +522,8 @@
+   while(this.history[0]?.time<d.sample-trafficWindow)this.history.shift();
+   if(trafficHistory){
+    const latest=this.history.at(-1);
+-   this.lastRates=latest||null;
+-   down=latest?.down;up=latest?.up;
++   this.lastRates=latest&&d.sample-latest.time<=3?latest:null;
++   down=this.lastRates?.down;up=this.lastRates?.up;
+   }
+   if(dt!==0)this.portRates={};
+   if(dt>0&&dt<=90)list(d.ports).forEach(p=>{
+@@ -1212,23 +1212,26 @@
+   this.qualityLoss.draw(samples,start,end,100,selected);
+   this.qualityAxis.hidden=!last;
+   qualityFields.forEach(([field])=>{
+-   const value=stale&&!selected?null:sample?.[field];
++   const value=!selected&&(stale||entry?.requestFailed)?null:sample?.[field];
+    const reading=Number.isFinite(value)?value.toFixed(field==='loss'&&value%1===0?0:1):'—';
+    if(this.qualityValues[field].textContent!==reading)this.qualityValues[field].textContent=reading;
+   });
+   const target=this.pingSettings?.target||last?.target;
+-  const state=!this.qualityLinks.length?'暂无 WAN 出口':!selected&&entry?.requestFailed?'采样请求失败':
+-   !selected&&stale?'采样暂缺':!sample?'等待采样':sample.error==='no_route'?'该出口暂无路由':
+-   sample.error?'探测失败':sample.received===0?'探测超时':'';
+-  const status=target?'Ping '+target+' · 丢包率取最近 3 次探测':'';
++  const timedOut=sample?.sent>0&&sample.received===0;
++  const state=!this.qualityLinks.length?'暂无 WAN 出口':!selected&&entry?.requestFailed?'未能读取最新采样':
++   !selected&&stale?'等待新采样':!sample?'等待首次采样':sample.error==='no_route'?'该出口暂无探测路由':
++   sample.error?'本次 Ping 无有效结果':timedOut?'本次 Ping 未收到回复':'';
++  const context=selected?'所选采样 '+new Date(selected.ts*1000).toLocaleTimeString('zh-CN',{hour12:false}):'';
++  const status=[context,target?'Ping '+target:'','丢包率按最近有效探测计算（最多 3 次）'].filter(Boolean).join(' · ');
+   if(this.qualityStatus.textContent!==status)this.qualityStatus.textContent=status;
+   if(this.qualityState.textContent!==state)this.qualityState.textContent=state;
+   this.qualityState.hidden=!state;
+-  this.qualityState.classList.toggle('is-timeout',state==='探测超时');
++  this.qualityState.classList.toggle('is-timeout',state==='本次 Ping 未收到回复');
+  },
+  initTraffic:function(){
+   this.samplingState=E('span',{'class':'m-sampling-state','role':'status'});
+-  this.samplingNote=E('p',{'class':'m-sampling-note',hidden:''});
++  this.samplingNote=E('p',{'class':'m-sampling-note',hidden:''});
++  this.trafficGapNote=E('p',{class:'m-sampling-note',hidden:''});
+   this.setSamplingState('live');
+   let controls=this.samplingState;
+   if(this.compactHome){
+@@ -1286,7 +1289,7 @@
+    ]),
+    node('div','m-chart-frame',[
+     this.chartScale,node('div','m-chart',[this.chart,this.chartEmpty]),this.chartScaleLabel,this.chartTime
+-   ]),this.samplingNote,forwarding
++   ]),this.trafficGapNote,this.samplingNote,forwarding
+   ]),controls));
+   this.parts.traffic.firstElementChild.classList.add('m-traffic');
+  },
+@@ -1324,8 +1327,10 @@
+   if(!this.parts.traffic.hidden&&this.chartInView!==false){
+    const ns=this.chart.namespaceURI,svg=(tag,attrs)=>{const el=document.createElementNS(ns,tag);Object.entries(attrs).forEach(([k,v])=>el.setAttribute(k,v));return el;};
+    if(!this.chartPaths){
+-    const frag=document.createDocumentFragment();
+-    [trafficChartTop,trafficChartMiddle,trafficChartBottom].forEach(y=>{
++    const frag=document.createDocumentFragment();
++    this.chartGapBand=svg('path',{fill:'currentColor',opacity:0.09,'aria-hidden':'true','pointer-events':'none'});
++    frag.append(this.chartGapBand);
++    [trafficChartTop,trafficChartMiddle,trafficChartBottom].forEach(y=>{
+      const gridline=svg('line',{x1:0,y1:y,x2:600,y2:y,class:'m-chart-gridline'});
+      if(y===trafficChartMiddle)this.chartMiddleLine=gridline;
+      frag.append(gridline);
+@@ -1352,7 +1357,21 @@
+     return middle-(middle-top)*(rate-detail)/(limit-detail);
+    };
+    const end=Math.max(d.sample||0,valid.at(-1)?.time||0),start=end-trafficWindow;
+-   this.chartTimeStart.textContent=secondsAgo(trafficWindow);
++   const bands=[];
++   const addBand=(from,to)=>{
++    const x1=4+592*Math.max(0,(from-start)/trafficWindow),x2=4+592*Math.min(1,(to-start)/trafficWindow);
++    if(x2>x1)bands.push('M'+x1.toFixed(1)+' '+top+'H'+x2.toFixed(1)+'V'+bottom+'H'+x1.toFixed(1)+'Z');
++   };
++   for(let i=1;i<valid.length;i++){
++    if(valid[i].gap)addBand(valid[i-1].time,valid[i].time);
++   }
++   const newest=valid.at(-1);
++   if(newest&&end-newest.time>(this.routerTrafficHistory?3:maxSampleGap(this.intervals().fast)))addBand(newest.time,end);
++   this.chartGapBand.setAttribute('d',bands.join(' '));
++   this.trafficGapNote.hidden=!bands.length;
++   const gapText=bands.length?'浅色带标出 '+bands.length+' 段采样缺口':'';
++   if(this.trafficGapNote.textContent!==gapText)this.trafficGapNote.textContent=gapText;
++   this.chartTimeStart.textContent=secondsAgo(trafficWindow);
+    this.chartTimeMiddle.textContent=secondsAgo(trafficWindow/2);
+    this.chartTime.hidden=!valid.length;
+    ['down','up'].forEach((key,index)=>{
+--- a/www/luci-static/myos-new/notices.js
++++ b/www/luci-static/myos-new/notices.js
+@@ -84,14 +84,17 @@
+   const previous=state.ports||{},next={};
+   data.ports.forEach(p=>{
+    next[p.name]=p;const old=previous[p.name];
+-   if(!fresh||!old)return;
+-   if(p.carrier===old.carrier&&!(p.carrier===1&&Number.isFinite(p.count)&&Number.isFinite(old.count)&&p.count>old.count))return;
+-   const connected=p.carrier===1;
+-   const speed=p.speed>0?'，协商速率 '+(p.speed>=1000?p.speed/1000+' Gbps':p.speed+' Mbps'):'';
++   if(!fresh||!old||![0,1].includes(p.carrier)||![0,1].includes(old.carrier))return;
++   const connected=p.carrier===1;
++   const rises=Number.isFinite(p.count)&&Number.isFinite(old.count)?p.count-old.count:0;
++   const reconnected=connected&&old.carrier===1&&rises>0;
++   if(p.carrier===old.carrier&&!reconnected)return;
++   const speed=connected&&p.speed>0?'，协商速率 '+(p.speed>=1000?p.speed/1000+' Gbps':p.speed+' Mbps'):'';
++   const message=reconnected?'两次检查间链路重新建立 '+rises+' 次':connected?'检测到网口已连接':'检测到网口已断开';
+    events=events.filter(n=>n.port!==p.name);
+    events.push({id:'link-'+p.name+'-'+now,port:p.name,expires:now+ttl,closable:true,level:'info',
+-    icon:connected?'eth':'eth-off',title:(p.label||p.name)+(connected?(old.carrier===1?' 重新连接':' 已连接'):' 已断开'),
+-    text:(connected?'网口链路已建立'+speed+'。':'网口链路已断开，请检查网线或对端设备。')+' '+new Date(now).toLocaleTimeString()});
++    icon:connected?'eth':'eth-off',title:(p.label||p.name)+(reconnected?' 重新连接':connected?' 已连接':' 已断开'),
++    text:message+speed+'。检测时间 '+new Date(now).toLocaleTimeString('zh-CN',{hour12:false})});
+   });
+   state.ports=next;state.time=now;state.boot=data.boot;
+  }
+--- a/usr/share/ucode/luci/template/header.ut
++++ b/usr/share/ucode/luci/template/header.ut
+@@ -14,7 +14,7 @@
+ 	include(`themes/${theme}/header`);
+ -%}
+ 
+-<script src="{{ resource }}/luci.js?v={# PKG_VERSION #}-{{ pkgs_update_time }}-{{ theme == 'myos-new' ? '20261114-c8-feedback1-overview-link2-wan-quality2' : '20261112-theme-polish1' }}{{ myos_board.model == 'NRadio-C5800-688' ? (join('/', ctx.path ?? []) == 'admin/myos' ? '-c5800-wan1-c5800-density2-outlet3-home3' : '-c5800-wan1') : (theme == 'myos-new' && join('/', ctx.path ?? []) == 'admin/myos' ? (myos_compact ? '-home-density1-outlet1' : '-home-density1') : '') }}{{ myos_board.model == 'NRadio-C5800-688' && join('/', ctx.path ?? []) == 'admin/network/wireless' ? '-stations2' : '' }}{{ myos_compact && (join('/', ctx.path ?? []) in ['admin/status/realtime/bandwidth', 'admin/status/logs/syslog', 'admin/network/network', 'admin/network/diagnostics']) ? '-submenu1' : '' }}{{ theme == 'myos-new' && !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-views20261120' : '' }}"></script>
++<script src="{{ resource }}/luci.js?v={# PKG_VERSION #}-{{ pkgs_update_time }}-{{ theme == 'myos-new' ? '20261114-c8-feedback1-overview-link2-wan-quality2' : '20261112-theme-polish1' }}{{ myos_board.model == 'NRadio-C5800-688' ? (join('/', ctx.path ?? []) == 'admin/myos' ? '-c5800-wan1-c5800-density2-outlet3-home3-samples1' : '-c5800-wan1') : (theme == 'myos-new' && join('/', ctx.path ?? []) == 'admin/myos' ? (myos_compact ? '-home-density1-outlet1' : '-home-density1') : '') }}{{ myos_board.model == 'NRadio-C5800-688' && join('/', ctx.path ?? []) == 'admin/network/wireless' ? '-stations2' : '' }}{{ myos_compact && (join('/', ctx.path ?? []) in ['admin/status/realtime/bandwidth', 'admin/status/logs/syslog', 'admin/network/network', 'admin/network/diagnostics']) ? '-submenu1' : '' }}{{ theme == 'myos-new' && !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-views20261120' : '' }}"></script>
+ <script>
+ 	L = new LuCI({{ replace(`${ {
+ 		media          : media,
+--- a/usr/share/ucode/luci/template/themes/myos-new/footer.ut
++++ b/usr/share/ucode/luci/template/themes/myos-new/footer.ut
+@@ -12,7 +12,7 @@
+ </div>
+ <script src="{{ media }}/shell.js?v=20261114-theme-r8{{ compact && !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-submenu1' : '' }}{{ !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-views20261120-nav3b' : '' }}"></script>
+ <script src="{{ media }}/unlock.js?v=20261114-c8-feedback1"></script>
+-<script src="{{ media }}/notices.js?v=20261112-theme-polish2"></script>
++<script src="{{ media }}/notices.js?v=20261120-c5800-link-samples1"></script>
+ <script src="{{ media }}/layout.js?v=20261114-c8-feedback1{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-tablet1' : '' }}"></script>
+ {% endif %}
+ <script src="{{ media }}/background.js?v=20261114-c8-feedback1"></script>

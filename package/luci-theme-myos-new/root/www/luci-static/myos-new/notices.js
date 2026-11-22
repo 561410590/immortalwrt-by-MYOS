@@ -84,14 +84,17 @@
   const previous=state.ports||{},next={};
   data.ports.forEach(p=>{
    next[p.name]=p;const old=previous[p.name];
-   if(!fresh||!old)return;
-   if(p.carrier===old.carrier&&!(p.carrier===1&&Number.isFinite(p.count)&&Number.isFinite(old.count)&&p.count>old.count))return;
+   if(!fresh||!old||![0,1].includes(p.carrier)||![0,1].includes(old.carrier))return;
    const connected=p.carrier===1;
-   const speed=p.speed>0?'，协商速率 '+(p.speed>=1000?p.speed/1000+' Gbps':p.speed+' Mbps'):'';
+   const rises=Number.isFinite(p.count)&&Number.isFinite(old.count)?p.count-old.count:0;
+   const reconnected=connected&&old.carrier===1&&rises>0;
+   if(p.carrier===old.carrier&&!reconnected)return;
+   const speed=connected&&p.speed>0?'，协商速率 '+(p.speed>=1000?p.speed/1000+' Gbps':p.speed+' Mbps'):'';
+   const message=reconnected?'两次检查间链路重新建立 '+rises+' 次':connected?'检测到网口已连接':'检测到网口已断开';
    events=events.filter(n=>n.port!==p.name);
    events.push({id:'link-'+p.name+'-'+now,port:p.name,expires:now+ttl,closable:true,level:'info',
-    icon:connected?'eth':'eth-off',title:(p.label||p.name)+(connected?(old.carrier===1?' 重新连接':' 已连接'):' 已断开'),
-    text:(connected?'网口链路已建立'+speed+'。':'网口链路已断开，请检查网线或对端设备。')+' '+new Date(now).toLocaleTimeString()});
+    icon:connected?'eth':'eth-off',title:(p.label||p.name)+(reconnected?' 重新连接':connected?' 已连接':' 已断开'),
+    text:message+speed+'。检测时间 '+new Date(now).toLocaleTimeString('zh-CN',{hour12:false})});
   });
   state.ports=next;state.time=now;state.boot=data.boot;
  }

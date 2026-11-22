@@ -48,6 +48,9 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) $(filter-out %/pdul.lua %/smstrun-title.conf,$(wildcard ./root/usr/bin/*)) $(1)/usr/bin/
 	$(INSTALL_DATA) ./root/usr/bin/pdul.lua ./root/usr/bin/smstrun-title.conf $(1)/usr/bin/
 	$(INSTALL_BIN) ./root/usr/sbin/c5800-route-mode $(1)/usr/sbin/
+	$(INSTALL_DIR) $(1)/usr/libexec
+	$(INSTALL_BIN) ./root/usr/libexec/myos-c5800-cell-cache $(1)/usr/libexec/
+	$(INSTALL_BIN) ./root/etc/init.d/myos-c5800-cell-cache $(1)/etc/init.d/
 	$(INSTALL_DATA) ./root/usr/lib/libbdinfo.so* $(1)/usr/lib/
 	$(INSTALL_BIN) $(filter-out %/Quectel %/RM500X,$(wildcard ./root/usr/share/modem/*)) $(1)/usr/share/modem/
 	$(INSTALL_DATA) ./root/usr/share/modem/Quectel ./root/usr/share/modem/RM500X $(1)/usr/share/modem/

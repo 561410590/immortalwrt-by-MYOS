@@ -29,6 +29,7 @@
 
 struct mtk_hnat *hnat_priv;
 bool hnat_nbcpe_dsa;
+bool hnat_c5800_dsa;
 static struct socket *_hnat_roam_sock;
 static struct work_struct _hnat_roam_work;
 static DEFINE_MUTEX(hnat_hook_lock);
@@ -484,7 +485,7 @@ static int hnat_start(u32 ppe_id)
 		return -EINVAL;
 
 	/* mapp the FOE table */
-	for (etry_num_cfg = DEF_ETRY_NUM_CFG ; etry_num_cfg >= 0 ;
+	for (etry_num_cfg = hnat_priv->etry_num_cfg; etry_num_cfg >= 0;
 	     etry_num_cfg--, hnat_priv->foe_etry_num /= 2) {
 		foe_table_sz = hnat_priv->foe_etry_num * sizeof(struct foe_entry);
 		hnat_priv->foe_table_cpu[ppe_id] = dma_alloc_coherent(
@@ -797,6 +798,7 @@ static int hnat_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	hnat_priv->foe_etry_num = DEF_ETRY_NUM;
+	hnat_priv->etry_num_cfg = DEF_ETRY_NUM_CFG;
 
 	match = of_match_device(of_hnat_match, &pdev->dev);
 	if (unlikely(!match))
@@ -808,10 +810,20 @@ static int hnat_probe(struct platform_device *pdev)
 	np = hnat_priv->dev->of_node;
 	hnat_nbcpe_dsa = of_machine_is_compatible("HCMT7981-emmc-NB68") ||
 			 of_machine_is_compatible("nradio,nbcpe-688") || c8_phy;
+	hnat_c5800_dsa = of_machine_is_compatible("HCMT7981-emmc");
+	if (hnat_c5800_dsa) {
+		/* The MT7981 RXD4 carries a 14-bit FOE index. */
+		hnat_priv->foe_etry_num = BIT(14);
+		hnat_priv->etry_num_cfg = TABLE_16K;
+	}
 
 	err = of_property_read_string(np, "mtketh-wan", &name);
 	if (err < 0)
 		return -EINVAL;
+
+	/* The C5800 PoE uplink is already handled separately as a DSA WAN. */
+	if (hnat_c5800_dsa && !strcmp(name, "port5"))
+		name = "eth1";
 
 	strncpy(hnat_priv->wan, (char *)name, IFNAMSIZ - 1);
 	dev_info(&pdev->dev, "wan = %s\n", hnat_priv->wan);
@@ -855,8 +867,9 @@ static int hnat_probe(struct platform_device *pdev)
 	err = of_property_read_u32_index(np, "mtkdsa-wan-port", 0, &val);
 
 	if (err < 0) {
-		/* Existing NBCPE firmware predates the DSA WAN property. */
-		hnat_priv->wan_dsa_port = hnat_nbcpe_dsa ? 5 : NONE_DSA_PORT;
+		/* Existing NRadio firmware predates the DSA WAN property. */
+		hnat_priv->wan_dsa_port =
+			(hnat_nbcpe_dsa || hnat_c5800_dsa) ? 5 : NONE_DSA_PORT;
 	} else {
 		hnat_priv->wan_dsa_port = val;
 		dev_info(&pdev->dev, "wan dsa port = %d\n", hnat_priv->wan_dsa_port);

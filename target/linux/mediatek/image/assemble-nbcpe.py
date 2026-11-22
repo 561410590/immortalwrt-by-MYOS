@@ -327,6 +327,7 @@ def main():
     required = {'kernel'} | {n for n in selected if n.startswith('kmod-')}
     presentation = runpy.run_path(str(source / 'target/linux/mediatek/image/myos-new-image.py'))
     required.update(presentation['add_vantage_packages'](source, available, read_ipk))
+    required.update(presentation['add_adguard_packages'](available, read_ipk))
     for path in presentation['kunpeng_packages']():
         name, record, fields, _ = read_ipk(path)
         available[name] = (path, record, fields)
@@ -624,7 +625,9 @@ def main():
                                          if name.startswith('luci-app-')})
     presentation['install'](work)
     presentation['configure_vantage'](work)
+    presentation['configure_adguard'](work)
     presentation['install_upgrade_preservation'](work)
+    presentation['install_nros_app'](work)
     # The stock strings alternative points at binutils-strings, which slimming
     # removes. Preinit 02_sysinfo must invoke the retained BusyBox applet.
     restore_package_alternatives(work, records)
@@ -675,6 +678,7 @@ def main():
         pseudo.write_text('dev/console c 0600 0 0 5 1\n')
         output = kdir / 'root-nbcpe-myos.squashfs'
         run('python3', source / 'scripts/install-myos-688-upgrade.py', source, work)
+        run('patch', '-d', work, '-p1', '-i', assets / 'nbcpe-flat-sysupgrade.patch')
         run(host / 'mksquashfs4', work, output, '-nopad', '-noappend', '-root-owned',
             '-comp', 'xz', '-Xpreset', '9', '-Xe', '-Xlc', '0', '-Xlp', '2', '-Xpb', '2',
             '-b', '256k', '-no-xattrs', '-pf', pseudo, '-processors', '6')

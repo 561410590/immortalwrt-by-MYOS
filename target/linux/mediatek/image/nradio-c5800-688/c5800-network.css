@@ -1,0 +1,94 @@
+.m-c5800-home .m-slot-clients .m-card {
+  container: c5800-clients / inline-size;
+}
+@container c5800-clients (max-width: 35rem) {
+  .myos-new .m-dashboard .m-slot-clients .m-table-scroll { overflow: visible }
+  .myos-new .m-slot-clients :is(.m-table, .m-table tbody) { display: block }
+  .myos-new .m-slot-clients thead {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
+  }
+  .myos-new .m-slot-clients .m-client-row {
+    display: grid; grid-template-columns: repeat(2,minmax(0,1fr));
+    grid-template-areas: "name access" "ip actions"; gap: 3px 8px; align-items: center;
+    padding-block: 6px; border-bottom: 1px solid var(--m-line);
+  }
+  .myos-new .m-dashboard.m-home-refined .m-slot-clients .m-client-row > td {
+    display: block; min-width: 0; max-width: none; border: 0; padding: 0;
+    white-space: normal; overflow-wrap: anywhere;
+  }
+  .m-client-row .m-client-id { grid-area: name }
+  .m-client-row .m-client-ip { grid-area: ip }
+  .m-client-row .m-client-link { grid-area: access; text-align: end }
+  .m-client-row .m-client-actions { grid-area: actions; justify-self: end }
+  .m-client-row .m-client-mac { display: none }
+}
+.myos-new #maincontent #cbi-network-interface .ifacebox-head { padding: 5px 10px }
+.myos-new #maincontent #cbi-network-interface .ifacebox-body { position: relative; padding: 6px 10px }
+.myos-new #maincontent #cbi-network-interface .ifacebox-body .cbi-tooltip-container { position: static }
+.myos-new #maincontent #cbi-network-interface .ifacebox-body .cbi-tooltip.ifacebadge {
+  display: grid; grid-template-columns: auto minmax(0,1fr); gap: 8px; align-items: start;
+  left: 0; top: calc(100% + 2px); width: max-content;
+  min-width: min(16rem,65vw); max-width: min(22rem,70vw); box-sizing: border-box;
+  padding: 8px 10px; background: var(--m-surface); white-space: normal; overflow-wrap: break-word;
+}
+.myos-new #cbi-network-interface .m-interface-details dl {
+  display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,16rem),1fr));
+  margin: 4px 0; padding: 6px 10px; gap: 4px 16px; max-width: 48rem;
+  background: var(--m-inset); border-inline-start: 2px solid var(--m-line);
+}
+.myos-new .m-interface-details dl > div {
+  display: grid; grid-template-columns: max-content minmax(0,1fr); align-items: baseline; gap: 8px;
+}
+.myos-new .m-interface-details dt { color: var(--m-muted) }
+.myos-new .m-interface-details dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums }
+.myos-new .m-forward-map { display: grid; gap: 3px; white-space: normal; overflow-wrap: anywhere }
+.myos-new .m-forward-map small { color: var(--m-muted) }
+.myos-new .m-forward-map summary { width: fit-content; cursor: pointer; color: var(--m-blue) }
+.myos-new #status_leases tr:has(.m-selected-lease) > td { background: var(--m-blue-soft) }
+.myos-new #status_leases tr:has(.m-selected-lease) > td:first-child { box-shadow: inset 3px 0 var(--m-blue) }
+.myos-new #wifi_assoclist_table { scroll-margin-block-start: 5rem }
+
+.m-home-interfaces > details + details { border-block-start: 1px solid var(--m-line) }
+.m-home-interface > summary {
+  display: grid; grid-template-columns: minmax(5em,.9fr) minmax(0,1.4fr) auto .55rem;
+  gap: 4px 8px; align-items: center; padding-block: 8px; min-height: 36px;
+  list-style: none; cursor: pointer;
+}
+.m-home-interface > summary::-webkit-details-marker { display: none }
+.m-home-interface > summary::after {
+  content: ''; width: .42rem; height: .42rem; border: solid var(--m-muted);
+  border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg);
+}
+.m-home-interface[open] > summary::after { transform: rotate(45deg) }
+.m-home-interface > summary:focus-visible { outline: 2px solid var(--m-blue); outline-offset: -2px }
+.m-home-interface > summary > strong, .m-home-interface .m-interface-primary { min-width: 0; overflow-wrap: anywhere }
+.m-home-interface .m-interface-primary { color: var(--m-muted); font-variant-numeric: tabular-nums }
+.m-home-interface > .m-kv {
+  margin: 0 0 8px; padding: 4px 10px; border-inline-start: 2px solid var(--m-line); background: var(--m-inset);
+}
+.m-earlier-events > .m-event-list { margin-block: 6px 0 }
+
+.myos-new #m-menu [hidden] { display: none }
+.myos-new #m-menu details:has([aria-current]) > summary { color: var(--m-blue) }
+.myos-new #m-menu .m-menu-children { margin-inline-start: 10px; padding-inline-start: 6px; border-inline-start: 1px solid var(--m-line) }
+.myos-new #m-menu .m-menu-empty { margin: 6px 10px; color: var(--m-muted); font-size: 13px }
+.myos-new.m-submenu-compact #maincontent .cbi-map .cbi-section:not(.cbi-section-node) { padding: clamp(12px,1.2vw,18px); margin-block-end: 12px }
+.myos-new.m-submenu-compact #maincontent .cbi-section > h3 { margin-block-end: 10px }
+.myos-new.m-submenu-compact #maincontent .cbi-map .cbi-value { padding-block: 8px; column-gap: 16px }
+.myos-new.m-submenu-compact #maincontent .cbi-value-description { max-inline-size: 72ch; overflow-wrap: anywhere }
+.myos-new #c5800-modem-status .cms-heading, .myos-new #c5800-modem-status .cms-card-head { margin-block-end: 12px }
+.myos-new #c5800-modem-status .cms-modules { gap: 12px }
+.myos-new #c5800-modem-status .cms-card { padding: clamp(12px,1.4vw,20px) }
+@media (max-width:760px), (max-width:1499px) and (any-pointer:coarse) {
+  .myos-new.m-submenu-compact :is(#tabmenu > .tabs,ul.cbi-tabmenu) {
+    display: flex; flex-wrap: nowrap; max-width: 100%; overflow-x: auto;
+    gap: 4px; padding: 4px; scroll-padding-inline: 4px; scrollbar-width: thin;
+  }
+  .myos-new.m-submenu-compact :is(#tabmenu > .tabs,ul.cbi-tabmenu) > li { flex: none; white-space: nowrap }
+  .myos-new.m-submenu-compact :is(#tabmenu > .tabs,ul.cbi-tabmenu) > li > a { display: flex; align-items: center; min-height: 44px }
+}
+@media (pointer: coarse) {
+  .m-home-interface > summary, .myos-new #c5800-modem-status .cms-radio-tabs button { min-height: 44px }
+  .myos-new :is(.m-interface-details,.m-forward-map details) > summary { min-height: 44px; align-content: center }
+  .myos-new .m-c5800-home .m-client-actions button { min-width: 44px; min-height: 44px }
+}

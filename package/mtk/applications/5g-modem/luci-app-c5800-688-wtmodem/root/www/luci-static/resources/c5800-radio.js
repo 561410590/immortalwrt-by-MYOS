@@ -199,7 +199,7 @@
         }
         function refresh() {
             if (busy) return;
-            pending(true); message.textContent = '正在在线读取驻留、邻区和锁定状态…';
+            pending(true); message.textContent = '正在读取小区缓存和锁定状态…';
             request(root.getAttribute('data-snapshot') + '?iface=' + iface + '&_=' + Date.now(), null, function (err, data) {
                 var errors = [];
                 if (err) errors.push('小区：' + err.message);
@@ -207,7 +207,9 @@
                 readLocks(function (error) {
                     if (error) errors.push('锁定状态：' + error.message);
                     pending(false);
-                    message.textContent = errors.length ? errors.join('；') : '更新于 ' + new Date(data.updated * 1000).toLocaleTimeString() + ' · 所有数值来自此模组';
+                    message.textContent = errors.length ? errors.join('；') :
+                        '小区采集于 ' + new Date(data.updated * 1000).toLocaleTimeString() +
+                        (data.stale ? ' · 缓存已过期' : '');
                     loaded = !err && !error;
                 });
             });

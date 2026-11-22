@@ -461,6 +461,20 @@ parse_adapt_apn_common(){
 proto_wwan_setup() {
 	local pin_check
 	json_get_vars defaultroute
+	# Both the GMAC and the first USB NCM obtain their addresses through DHCP.
+	if [ "$1" = cpe ] && [ -d /sys/bus/platform/devices/15100000.ethernet/net/eth1 ]; then
+		local link_result
+		ifname=$(uci -q get network.cpe.device)
+		ifname=${ifname:-eth1}
+		vendor=tdtech_mt5700
+		uci_set_state network "$1" vendor "$vendor"
+		uci_set_state network "$1" driver cloud
+		proto_cloud_setup "$1" ethernet
+		link_result=$?
+		cpetools.sh -i "$1" -c preinit || logger -t wwan "MT5700 autodial configuration unavailable on $1"
+		cpetools.sh -i "$1" -u || logger -t wwan "MT5700 radio settings unavailable on $1"
+		return "$link_result"
+	fi
 	version=$(uci -q get cellular_init.$interface.version)
 	work_mode=$(uci -q get "network.$interface.mode")
 	odu_model=$(uci -q get "network.$interface.odu_model")

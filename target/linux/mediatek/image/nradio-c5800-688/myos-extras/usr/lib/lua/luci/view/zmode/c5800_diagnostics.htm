@@ -1,0 +1,26 @@
+<%+header%>
+<% local esc = luci.util.pcdata
+   local function value(v) return esc(tostring(v ~= nil and v ~= "" and v or "—")) end %>
+<% if calls then %>
+<h2>来电与未接记录</h2>
+<p id="c5800-call-status"><%=calls.available and "MT5700 正在监听来电" or "MT5700 来电状态暂不可读"%></p>
+<p id="c5800-call-ims"><%=calls.ims == 0 and "IMS 开关已关闭" or calls.registered == 0 and "IMS 尚未注册" or ""%></p>
+<h3>未接来电</h3>
+<table class="table"><thead><tr class="tr"><th class="th">来电时间</th><th class="th">来电号码</th></tr></thead>
+<tbody id="c5800-missed"><% for _, row in ipairs(calls.history or {}) do %>
+<tr class="tr"><td class="td"><%=value(os.date("%Y-%m-%d %H:%M:%S", row.time))%></td><td class="td"><%=value(row.number ~= "" and row.number or "未知号码")%></td></tr>
+<% end %></tbody></table>
+<p id="c5800-no-missed"<% if #(calls.history or {}) > 0 then %> hidden<% end %>>暂无未接来电记录</p>
+<% elseif odu then %>
+<h2>AK68 副模组诊断</h2>
+<table class="table"><% for _, f in ipairs({
+    {"PoE 接口", odu.device}, {"物理链路", odu.carrier and "已连接" or "已断开"},
+    {"管理地址", odu.host}, {"诊断状态", odu.present and "已读取副模组" or odu.error or "尚未读取到副模组"},
+    {"室外单元", odu.name}, {"管理协议", odu.transport}, {"模组厂商", odu.vendor},
+    {"模组型号", odu.model}, {"硬件 ID", odu.hwid}, {"模组固件", odu.fw}, {"IMEI", odu.imei},
+    {"网络制式", odu.mode}, {"RSRP（dBm）", odu.rsrp}, {"SINR（dB）", odu.sinr}
+}) do %>
+<tr class="tr"><th class="th"><%=value(f[1])%></th><td class="td"><%=value(f[2])%></td></tr><% end %></table>
+<a class="btn cbi-button" href="<%=url('admin/modem/ak68_diagnostics')%>">重新读取</a>
+<% end %>
+<%+footer%>

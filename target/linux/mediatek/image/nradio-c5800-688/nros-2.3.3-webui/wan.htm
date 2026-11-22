@@ -1,0 +1,1222 @@
+<%#
+ Copyright 2019 Allen Wu <allen@nradiowifi.com>
+ Licensed to the public under the Apache License 2.0.
+-%>
+
+<%
+	local util = require "luci.util"
+	local lng  = require "luci.i18n"
+	local fs = require "nixio.fs"
+	local uci = require "luci.model.uci".cursor()
+	nr = require "luci.nradio"
+	local g_data = util.serialize_json(nr.get_wans_data(),nil)
+	local port_data_string = util.serialize_json(nr.get_nrswitch_info(),nil)
+	local wan_data_string = util.serialize_json(uci:get_all("network", "wan") or {proto="dhcp"},nil)
+	local mwan3_exist = false
+	if fs.access("/usr/sbin/mwan3") then
+		mwan3_exist = true
+	end
+%>
+<%+header%>
+<div class="cbi-map main-box">
+	<h2 name="content"><%:WAN Setting%></h2>
+	<form method="post" name="cbi" >
+		<input type="hidden" value="" class="modify_class" data-optional="true" name="net_kind" id="net_kind">
+		<fieldset class="cbi-section">	
+		<div class="cbi-section-node wans_box">
+			<div class='row'>
+				<div class='col-sm-12 col-xs-12 text-left '>
+					<%:StatusInterTitle%><span class="nbcpe_help hide" style="display:inline-block"><i class="far fa-nradio-note fa-fw icon_disable stand_label_icon"></i></span>
+				</div>
+				<div class='col-sm-12 col-xs-12 each_top text-left wans_box_info'>
+				</div>
+			</div>
+		</div>
+		
+		<div class="cbi-section-node each_top">
+			<div class="row" >
+				<div class='col-sm-12 col-xs-12 text-left '>
+					<%:PortModesTitle%>
+				</div>
+				<div class="col-xs-12 col-sm-12 each_top">
+					<ul class="list-inline  switch_box default_background">
+					</ul>
+				</div>					
+			</div>
+		</div>
+
+		<div class="cbi-section-node wan_detail hide">
+			<div class="row" >
+				<div class='detail_box'>
+					<div class="cbi-value" >
+						<label class="cbi-value-title" for="proto"><i class="far fa-nradio-note fa-fw icon_disable visible-xs-block stand_label_icon" onclick="show_icon_help(this)"></i><%:WiredType%></label>
+						<div class="cbi-value-field">							
+							<select class="modify_class cbi-input-select valid" id="proto" name="proto" onclick="change_proto(this.value)">
+								<option value="pppoe" ><%:PPPoE%></option>
+								<option value="dhcp" selected="selected"><%:DHCP Client%></option>
+								<option value="static" ><%:Static IP%></option>
+							</select>
+							<div class="cbi-value-description description_help hidden-xs">
+								<%:QSetupDHCPNote%>
+							</div>
+						</div>
+					</div>
+					<div class="cbi-value proto_class pppoe_proto hide">
+						<label class="cbi-value-title" for="username"><%:Username%></label>
+						<div class="cbi-value-field">
+							<input type="text" id="username" name="username" data-depends="[{'proto':'pppoe'}]" placeholder="<%:PPPoeUsernamePlaceHolder%>" class="modify_class cbi-input-text" value="" data-max="32" maxlength="32" data-type="maxlength" onblur="valid_check(this)">
+						</div>
+					</div>
+					<div class="cbi-value proto_class pppoe_proto hide">
+						<label class="cbi-value-title" for="password"><%:Password%></label>
+						<div class="cbi-value-field">
+							<div class="input-group">
+							<input data-update="change" id="password" name="password" data-depends="[{'proto':'pppoe'}]" placeholder="<%:PPPoePasswordPlaceHolder%>" type="password" class="modify_class cbi-input-password" value="'+password+'" data-max="32" maxlength="32" data-type="maxlength">
+							<span class="input-group-addon input-group-addon-pwd-toggle" onclick="var e = document.getElementById('password');if(e.type!='password'){$(this).html('<i class=\'far fa-nradio-eye-close\'></i>')}else{$(this).html('<i class=\'far fa-nradio-eye-open\'></i>')}e.type = (e.type=='password') ? 'text' : 'password';"><i class="far fa-nradio-eye-close"></i></span>
+							</div>
+						</div>
+					</div>
+
+					<div class="cbi-value proto_class static_proto hide" >
+						<label class="cbi-value-title" for="ipaddr"><%:IPv4 Address%></label>
+						<div class="cbi-value-field">
+							<input type="text" id="ipaddr"  name="ipaddr" class="modify_class cbi-input-text" value="" data-type="ip4addr" data-depends="[{'proto':'static'}]" onblur="valid_check(this)">
+						</div>
+					</div>
+					<div class="cbi-value proto_class static_proto hide" >
+						<label class="cbi-value-title" for="netmask"><%:IPv4 Netmask%></label>
+						<div class="cbi-value-field">
+							<input type="text" id="netmask" name="netmask" placeholder="255.255.255.0" class="modify_class cbi-input-text" data-depends="[{'proto':'static'}]" value="255.255.255.0" data-type="netmask" onblur="valid_check(this)">
+						</div>
+					</div>
+					<div class="cbi-value proto_class static_proto hide" >
+						<label class="cbi-value-title" for="gateway"><%:IPv4 Gateway%></label>
+						<div class="cbi-value-field">
+							<input type="text" id="gateway"  name="gateway" class="modify_class cbi-input-text" value="" data-type="ip4addr" data-depends="[{'proto':'static'}]" onblur="valid_check(this)">
+						</div>
+					</div>
+					<div class="cbi-value" >
+						<label class="cbi-value-title" for="mtu"><%:MTU Size%></label>
+						<div class="cbi-value-field">
+							<input type="text" id="mtu"  name="mtu" placeholder="1500" class="modify_class cbi-input-text" value=""data-min="576" data-optional="true" data-max="1500"  data-type="range" onblur="valid_check(this)">
+						</div>
+					</div>
+					<div class="cbi-value" >
+						<label class="cbi-value-title" for="macaddr"><%:MAC Clone%></label>
+						<div class="cbi-value-field">
+							<input type="text" id="macaddr"  name="macaddr" placeholder="00:11:22:33:44:55" class="modify_class cbi-input-text" value="" data-optional="true" data-type="macaddr" onblur="valid_check(this)">
+						</div>
+					</div>
+					<div class="cbi-value proto_class dhcp_proto pppoe_proto">
+						<label class="cbi-value-title" ><%:Use Default DNS%></label>
+						<div class="cbi-value-field">
+							<div class="checkbox" style="width: auto;">
+								<input class="modify_class cbi-input-checkbox" data-depends="[{'proto':'pppoe'}]" data-update="click change" id="peerdns" checked="checked" name="peerdns" type="checkbox" value="1" onclick="enabled_peerdns(this);"/>
+								<label for="peerdns" class="switch"></label>
+							</div>
+						</div>
+					</div>
+					<input type="hidden" value="" class="modify_class" name="dns" id="dns" data-optional="true">
+					<div id="dns_list_div" class="hide">
+					</div>
+
+				</div>			
+			</div>
+		</div>
+		<div class="cbi-section-node each_top mode_container" style="margin-top:0px">			
+			<div class="row" >
+				<div class='col-sm-12 col-xs-12 text-left '>
+					<%:NetworkMode%>
+				</div>
+				<div class="col-xs-12 col-sm-12 each_top">
+					<ul class="list-inline  mode_box">
+					</ul>
+				</div>					
+			</div>
+		</div>
+		<div class="cbi-section-node mode_detail hide" style="margin-top:0px">
+			<div class="row" >
+					<div class="detail_box mode_detail_box ">
+
+					</div>			
+			</div>
+		</div>
+		</fieldset>
+		<fieldset class="cbi-section">
+			<div class="cbi-section-node">
+				<div class="cbi-value" data-index="9" >
+					<div class="cbi-value-field cbi-page-actions left_btn click_pointer">
+						<input type="button" class="cbi-button cbi-button-apply" id="btn-save"  value="<%:Save & Apply%>" />
+					</div>
+				</div>
+			</div>
+		</fieldset>
+	</form>
+</div>
+<style>
+	.each_top{
+		padding-top:5px;
+	}
+	.wan_item{
+		text-align: center;
+		padding-left: 0px;
+    	padding-right: 0px;
+	}
+	.wan_item:first-child{
+		text-align: left;
+	}
+	.wan_item:last-child{
+		text-align: right;
+	}
+	.mode_detail_box{
+		margin-top: 10px;
+	}
+	@media (min-width: 992px) {	
+		.wan_item:nth-child(odd){
+			text-align: left;
+		}
+		.wan_item:nth-child(even){
+			text-align: right;
+		}
+		.wan_item:nth-child(4n+3){
+			text-align: center;
+		}	
+		.wan_item:nth-child(4n+2){
+			text-align: center;
+		}		
+		.wan_item:nth-child(4n){
+			text-align: right;
+		}
+		.wan_item.specail_box:nth-child(3){
+			text-align: right;
+		}
+		.wan_item.specail_box:nth-child(2){
+			text-align: center;
+		}
+		.wan_item.specail_box2:nth-child(1){
+			text-align: left;
+		}
+		.wan_item.specail_box2:nth-child(2){
+			text-align: right;
+		}
+	}
+	@media (max-width: 991px) {	
+		.wan_item:nth-child(odd){
+			text-align: left;
+		}
+		.wan_item:nth-child(even){
+			text-align: right;
+		}
+		.wan_item.specail_box:nth-child(3){
+			text-align: right;
+		}
+		.wan_item.specail_box:nth-child(2){
+			text-align: center;
+		}
+	}
+	.wan_item_box{
+		border-radius: 5px;
+		width: 90%;
+		display: inline-block;
+		padding: 8px 5px 1px 5px;
+	}
+
+	.wan_info{
+		float:left;
+		line-height:18px;
+	}
+	.wan_info_right{
+		float:right;
+	}
+	.switch_box{
+		border-radius: 5px;
+		margin-left: 0px;
+	}
+	.list-group{
+		margin-bottom:0px;
+	}
+	.link_icon{
+		height: auto;
+	}
+	.list-group-item{
+		padding:2px 5px;
+	}
+	@media (min-width: 10px) and (max-width: 767px) {
+		div.checkbox .switch2 {
+			position: relative;
+			top: 0;
+			right: 0px;
+		}
+	}
+	.detail_box{
+		border-radius: 5px;
+	}
+	.select-picker-options-list{
+		width:100%;
+	}
+
+	.select-picker-search-checked span{
+		color:unset
+	}
+	.mode_item{
+		padding: 10px 15px 10px 15px;
+		border-radius: 5px;
+		cursor: pointer;
+	}
+
+	.list-inline.mode_box{
+		margin-left: 0px;
+	}
+	.mode_box>li:first-child{
+		padding-left:0px;
+	}
+	.mode_box>li:last-child{
+		padding-right:0px;
+	}
+
+	.text-right{
+		text-align: right;
+	}
+	.each_item{
+		cursor: pointer;
+	}
+	.transform_up{
+		transform: translateY(-8px);
+		cursor: pointer;
+		width: 10px;
+		height: 8px;
+	}
+
+	.transform_down{
+		transform: translateY(-14px);
+		cursor: pointer;
+		width: 10px;
+		height: 8px;
+	}
+	.weight_info{
+		float: right;
+	}
+
+	.duihao{
+		display:none;
+	}
+	fieldset .mode_detail_box>div.cbi-value:last-child{
+		margin-bottom: 0px;
+	}
+	fieldset div.right_btn, fieldset div.cbi-value-field.right_btn{
+		width:16px;
+	}
+</style>
+<script language="javascript">
+	var g_data = <%=g_data%>;
+	var wans_data = g_data.wans;
+	var cpe_count = <%=nr.count_cpe()%>	;
+	var wan_data = <%=wan_data_string%>	;
+	var link_info = <%=port_data_string%>;
+	var count_info = get_wans_count(wans_data);
+	var loading_htm = '<div  id="scan_loading"><img alt="loading" src="<%=media%>/images/loading.gif" ></div>';
+
+	function get_wans_count(wans_data){
+		var count = 1;
+		var wired_index = 0;
+		var cellular_nr_index = 0;
+		var cellular_lte_index = 0;
+		var cellular_index = 0;
+		var nbcpe_index = 0;
+		for(var i=0;i<wans_data.length;i++){
+			if(wans_data[i].disabled != "1"){
+				count++;
+				if(wans_data[i].type == "wired"){
+					wired_index++;
+				}
+				else {
+					if (wans_data[i].odu != 1){
+						if(wans_data[i].nrcap == "1")
+							cellular_nr_index++;
+						else
+							cellular_lte_index++;
+						cellular_index++
+					}
+					else{
+						nbcpe_index++;
+					}
+				}
+			}
+		}
+		return {"wired":wired_index,"cellular_nr":cellular_nr_index,"cellular_lte":cellular_lte_index,"nbcpe":nbcpe_index};
+	}
+
+	function format_wans_box(wans_data,cpe_count){
+		var html="";
+		var wired_index = 0;
+		var cellular_nr_index = 0;
+		var cellular_lte_index = 0;		
+		var nbcpe_index = 0;				
+		var width_info = 0;
+		var width_s_info = 0;
+		var least_class = "";
+		if(wans_data.length<4){
+			width_info = 12/wans_data.length;
+			width_s_info = 12/wans_data.length;
+			if(wans_data.length==3)
+				least_class = "specail_box";
+			else if(wans_data.length==2)
+				least_class = "specail_box2";
+			else if(wans_data.length==1){
+				width_s_info = 3;
+				width_info = 3;
+			}
+		}
+		else if(wans_data.length == 4 ){
+			width_info = Math.floor(12/wans_data.length);
+			width_s_info = 6;
+		}
+		else{
+			width_info = 3;
+			width_s_info = 6;
+		}
+		wans_data.sort(function(a, b) {
+			return ( a.index - b.index );
+		});		
+		for(var i=0;i<wans_data.length;i++){
+			var data = wans_data[i].name;
+			var active_class = "icon_color";
+			var odu_help_info = "";
+			var enabled_value = "checked=checked";
+			var icon_class = "fa-nradio-cellular-signal";
+			var type_class = "";
+			var box_active = "active";
+			if(wans_data[i].disabled == "1"){
+				active_class = "icon_disable";
+				enabled_value = "";
+				box_active="";
+			}
+			if(wans_data[i].type == "wired"){
+				wired_index++;
+				type_class = "switch_wired";
+				pre_label_info = get_wans_prefix_name(wans_data[i],count_info.wired,wired_index);
+				icon_class = "fa-nradio-internet";
+				$(".wan_detail .modify_class").data("module",wans_data[i].name);
+			}
+			else if(wans_data[i].type == "cellular"){
+				if(wans_data[i].odu == 1){
+					nbcpe_index++;
+					type_class = "switch_nbcpe";
+					pre_label_info = get_wans_prefix_name(wans_data[i],count_info.nbcpe,nbcpe_index);
+					icon_class = "fa-nradio-antenna";
+					$(".nbcpe_help").removeClass("hide");
+				}				
+				else{
+					type_class = "switch_cellular";
+					if(wans_data[i].nrcap == "1"){
+						cellular_nr_index++;
+						pre_label_info = get_wans_prefix_name(wans_data[i],count_info.cellular_nr,cellular_nr_index);
+					}
+					else{
+						cellular_lte_index++;
+						pre_label_info = get_wans_prefix_name(wans_data[i],count_info.cellular_lte,cellular_lte_index);				
+					}				
+				}				
+			}
+			
+			html +='\
+			<div class="wan_item '+least_class+' col-sm-'+width_s_info+' col-xs-'+width_s_info+' col-md-'+width_info+'">\
+				<div class="wan_item_box default_background '+box_active+'">\
+					<div class="wan_info">\
+						<span class="icon_item '+active_class+'"><i class="far '+icon_class+'"></i></span>\
+						<span class="sub_label_color">'+pre_label_info+'</span>\
+					</div>\
+					<div class="wan_info_right">\
+						<div class="checkbox">\
+							<input class="cbi-input-checkbox '+type_class+'" data-update="click change" '+enabled_value+' data-name="'+wans_data[i].name+'" id="config_enabled'+wans_data[i].name+'" name="config_enabled'+wans_data[i].name+'" type="checkbox" onclick="enabled_ctl(this);" value="1">\
+							<label for="config_enabled'+wans_data[i].name+'" class="switch switch2"></label>\
+						</div>\
+					</div>\
+				</div>\
+			</div>';
+		};
+		
+		if(nbcpe_index && (cellular_nr_index || cellular_lte_index)){
+			$(".nbcpe_help").removeClass("hide");
+		}
+		else{
+			$(".nbcpe_help").addClass("hide");
+		}
+		$(".wans_box_info").append(html);
+		wans_data.sort(function(a, b) {
+			return ( a.pos - b.pos );
+		});		
+	}
+
+	function enabled_ctl(obj){
+		var name = $(obj).data("name");
+		var checked = $(obj).prop("checked");
+		var icon_obj = $(obj).parent().parent().parent().find(".icon_item");
+		var top_obj = $(obj).parent().parent().parent();
+		var disabled_count = 0;
+		var port_count = link_info.count;
+		
+		if(port_count == 1 && ($(obj).hasClass("switch_wired") || $(obj).hasClass("switch_nbcpe"))){
+			if(checked){
+				if($(obj).hasClass("switch_wired")){
+					$(".switch_nbcpe").prop("checked",false);
+					$(".switch_nbcpe").each(function(){
+						var target_name = $(this).data("name");
+						var wan_item = get_wans_item(target_name,wans_data);
+						if(wan_item){
+							wan_item.disabled = "1";
+						}
+					});
+				}
+				else if($(obj).hasClass("switch_nbcpe")){
+					$(".switch_wired").prop("checked",false);
+					$(".switch_wired").each(function(){
+						var target_name = $(this).data("name");
+						var wan_item = get_wans_item(target_name,wans_data);
+						if(wan_item){
+							wan_item.disabled = "1";
+						}
+					});
+				}
+			}
+		}
+
+		for(var i=0;i<wans_data.length;i++){
+			if(wans_data[i].disabled == "1"){
+				disabled_count++;				
+			}				
+		}
+
+		for(var i=0;i<wans_data.length;i++){
+			if(name == wans_data[i].name){
+				if(checked){
+					wans_data[i].disabled = "0";
+					$(icon_obj).removeClass("icon_disable").addClass("icon_color");
+					$(top_obj).addClass("active");
+				}					
+				else{
+					$(top_obj).removeClass("active");
+					var cur_mode = $("#net_kind").val();
+					var least_link = 1;
+					if((wans_data.length - disabled_count) <= least_link)
+					{
+						var error_info = "<%:SwitchLineError%>"+least_link+"<%:SwitchLineError2%>";
+						BootstrapDialog.show({
+							type: BootstrapDialog.TYPE_DEFAULT,
+							closeByBackdrop: true,
+							title: '',
+							message: '<i class="far fa-nradio-note fa-fw icon_disable" ></i>'+error_info,
+						});
+						 $(obj).prop("checked","true");
+						 return ;
+					}
+					else if((wans_data.length - disabled_count - 1) == least_link)
+					{
+						$("#net_kind").val("");
+					}
+
+
+					wans_data[i].disabled = "1";
+					$(icon_obj).removeClass("icon_color").addClass("icon_disable");
+				}					
+			}				
+		}
+		count_info = get_wans_count(wans_data);
+		show_port_link();
+		show_mode_box(g_data.net_kind,1);
+	}
+	function show_port_link(){
+		var htm="";
+		
+		var data = link_info.port;
+		for(sort in data)
+		{
+			var data_obj = data[sort];
+			var status = "";
+			var eth_label="LAN";
+			var switch_label = "&nbsp;";
+			var len = data;
+
+			if(data_obj["type"] == "m"){
+				if(count_info.wired){
+					eth_label = "WAN"
+					status="icon_color";
+				}
+			}
+			else if(data_obj["type"] == "M" || data_obj["type"] == "W"){
+				if(count_info.nbcpe && (link_info.last_wan_port == data_obj["port"])){
+					eth_label = "5G";
+					status="icon_color";
+					nbcpe_flag = 1;
+				}
+			}		
+	
+			switch_label=data_obj["label"];
+			var width_info = 100/link_info.count+"%";
+			htm+='<li style="width:'+width_info+'">';
+			htm+='	<ul class="list-group" >';
+			htm+='		<li class="list-group-item text-center">'+switch_label+'</li>';
+			htm+='		<li class="list-group-item text-center link_icon"><i class="far fa-nradio-ethernet fa-3x fa-fw"></i></li>';
+			htm+='		<li class="list-group-item text-center '+status+'">'+eth_label+'</li>';
+			htm+='	</ul>';
+			htm+='</li>';
+		}
+		$(".switch_box").empty().append(htm);
+		if(count_info.wired){
+			$(".wan_detail").removeClass("hide");
+		}
+		else{
+			$(".wan_detail").addClass("hide");
+		}
+	}
+
+	function sort_priority(obj){
+		var name = $(obj).data("module");
+		var pos = $(obj).data("pos");
+		var first_item = $(obj).parents(".cbi-value").prev().find(".each_item ");
+		var firt_name =  $(first_item).data("module");
+		var firt_pos =  $(first_item).data("pos");
+		var cur_wan = get_wans_item(name,wans_data);
+		var first_wan = get_wans_item(firt_name,wans_data);
+		first_wan.pos = pos;
+		cur_wan.pos = firt_pos;
+		wans_data.sort(function(a, b) {
+			return ( a.pos - b.pos );
+		});
+		prioritylink_module();
+	}
+	function increase_weight(obj,up){
+		var weight_box = $(obj).parent().parent().find(".weight_info");
+		var name = $(obj).parent().parent().data("module");
+		var weight = $($(weight_box)).html();
+		if (weight && weight.length)
+			weight = parseInt(weight);
+		else
+			weight=0;
+
+		if(up){
+			weight++;
+			$(weight_box).html(weight);
+		}
+			
+		else{
+			weight--;
+			if(weight < 1 )
+				weight=1;
+			$(weight_box).html(weight);
+		}
+		var cur_wan = get_wans_item(name,wans_data);
+		if(cur_wan){
+			cur_wan.weight = weight;
+		}
+	}
+	function overlaplink_module(){
+		var html="";
+		var wired_index = 0;
+		var cellular_nr_index = 0;
+		var cellular_lte_index = 0;		
+		var nbcpe_index = 0;				
+
+		var text_data = "";
+		var val_data = "";
+		var index = 0;
+		var active_count = 0;
+		for(var i=0;i<wans_data.length;i++){
+			if(wans_data[i].disabled != "1")
+				active_count++;
+		}
+		for(var i=0;i<wans_data.length;i++){
+			var data = wans_data[i].name;
+			var icon_class = "fa-nradio-cellular-signal";
+			var label_info = "";
+			var top_label = "";
+			var help_info = "";
+			if(wans_data[i].disabled == "1"){
+				continue;
+			}
+			if(wans_data[i].type == "wired"){
+				wired_index++;
+				pre_label_info = get_wans_prefix_name(wans_data[i],count_info.wired,wired_index);
+				icon_class = "fa-nradio-internet";
+			}
+			else if(wans_data[i].type == "cellular"){
+				if(wans_data[i].odu == 1){
+					nbcpe_index++;
+					pre_label_info = get_wans_prefix_name(wans_data[i],count_info.nbcpe,nbcpe_index);
+					icon_class = "fa-nradio-antenna";
+				}				
+				else{
+					if(wans_data[i].nrcap == "1"){
+						cellular_nr_index++;
+						pre_label_info = get_wans_prefix_name(wans_data[i],count_info.cellular_nr,cellular_nr_index);
+					}
+					else{
+						cellular_lte_index++;
+						pre_label_info = get_wans_prefix_name(wans_data[i],count_info.cellular_lte,cellular_lte_index);				
+					}				
+				}				
+			}
+			if(text_data.length){
+				text_data += ":"+'<i class="far icon_color '+icon_class+'"></i>'+pre_label_info;
+			}				
+			else{
+				text_data += '<i class="far icon_color '+icon_class+'"></i>'+pre_label_info;
+			}
+			if(val_data.length){
+				val_data += ":"+wans_data[i].name;
+			}				
+			else{
+				val_data += wans_data[i].name;
+			}
+			if(!index){
+				top_label = "<%:OverlapPercent%>";
+			}
+			if((index+1) == active_count)
+				help_info='<div class="cbi-value-description description_help hidden-xs"><%:OverlapLineHelp%></div>';
+			html +='\
+				<div class="cbi-value" >\
+					<label class="cbi-value-title" for="overlap_balance">'+top_label+'</label>\
+					<div class="cbi-value-field">\
+						<div class="select-priority">\
+							<div class="row" >\
+								<div class="col-sm-6 col-xs-6 text-left priority_label">\
+									<i class="far icon_color '+icon_class+'"></i>   '+pre_label_info+'\
+								</div>\
+								<div class="col-xs-6 col-sm-6 text-right" data-module="'+wans_data[i].name+'">\
+									<div class="right_btn">\
+										<i class="far icon_disable fa-nradio-tipup transform_up" onclick="increase_weight(this,1)"></i>\
+										<i class="far icon_disable fa-nradio-tipdown transform_down" onclick="increase_weight(this)"></i>\
+									</div>\
+									<span class="weight_info">'+wans_data[i].weight+'</span>\
+								</div>\
+							</div>\
+						</div>\
+						'+help_info+'\
+					</div>\
+				</div>';
+			index++;
+		};
+
+		$(".mode_detail").removeClass("hide");
+		$(".mode_detail_box").html(html);
+	}
+	function prioritylink_module(){
+		var html="";
+		var wired_index = 0;
+		var cellular_nr_index = 0;
+		var cellular_lte_index = 0;		
+		var nbcpe_index = 0;				
+
+		var text_data = "";
+		var val_data = "";
+		var index = 0;
+		var active_count = 0;
+		for(var i=0;i<wans_data.length;i++){
+			if(wans_data[i].disabled != "1")
+				active_count++;
+		}
+		for(var i=0;i<wans_data.length;i++){
+			var data = wans_data[i].name;
+			var icon_class = "fa-nradio-cellular-signal";
+			var help_info = "";
+			var label_info = "";
+			var arrow_info = "";
+			var onclick_htm = "";
+
+			if(wans_data[i].disabled == "1"){
+				continue;
+			}
+			if(wans_data[i].type == "wired"){
+				wired_index++;
+				pre_label_info = get_wans_prefix_name(wans_data[i],count_info.wired,wired_index);
+				icon_class = "fa-nradio-internet";
+			}
+			else if(wans_data[i].type == "cellular"){
+				if(wans_data[i].odu == 1){
+					nbcpe_index++;
+					pre_label_info = get_wans_prefix_name(wans_data[i],count_info.nbcpe,nbcpe_index);
+					icon_class = "fa-nradio-antenna";
+				}				
+				else{
+					if(wans_data[i].nrcap == "1"){
+						cellular_nr_index++;
+						pre_label_info = get_wans_prefix_name(wans_data[i],count_info.cellular_nr,cellular_nr_index);
+					}
+					else{
+						cellular_lte_index++;
+						pre_label_info = get_wans_prefix_name(wans_data[i],count_info.cellular_lte,cellular_lte_index);				
+					}				
+				}				
+			}
+			if(text_data.length){
+				text_data += ":"+'<i class="far icon_color '+icon_class+'"></i>'+pre_label_info;
+			}				
+			else{
+				text_data += '<i class="far icon_color '+icon_class+'"></i>'+pre_label_info;
+			}
+			if(val_data.length){
+				val_data += ":"+wans_data[i].name;
+			}				
+			else{
+				val_data += wans_data[i].name;
+			}
+			if(!index){
+				label_info="<%:PriorityMainLine%>";
+			}
+			else{
+				label_info="<%:PriorityPin%>";
+				arrow_info='<i class="far icon_color fa-nradio-arrow-up"></i>';
+				onclick_htm='onclick="sort_priority(this)"';
+			}
+			if((index+1) == active_count)
+				help_info='<div class="cbi-value-description description_help hidden-xs"><%=lng.translate("PriorityLineHelp")%></div>';
+			html +='\
+				<div class="cbi-value" >\
+					<label class="cbi-value-title" ><%:PriorityLabel%>'+(index+1)+'</label>\
+					<div class="cbi-value-field">\
+						<div class="select-priority">\
+							<div class="row" >\
+								<div class="col-sm-6 col-xs-6 text-left priority_label">\
+									<i class="far icon_color '+icon_class+'"></i>   '+pre_label_info+'\
+								</div>\
+								<div class="col-xs-6 col-sm-6 text-right each_item normol_color" data-pos="'+(index+1)+'" data-module="'+wans_data[i].name+'" '+onclick_htm+'>\
+									'+arrow_info+label_info+'\
+								</div>\
+							</div>\
+						</div>\
+						'+help_info+'\
+					</div>\
+				</div>';
+			index++;
+			wans_data[i].pos = index;
+		};
+
+		$(".mode_detail").removeClass("hide");
+		$(".mode_detail_box").html(html);
+	}
+
+	function dividinglink_module(){
+		var html="";
+		var wired_index = 0;
+		var cellular_nr_index = 0;
+		var cellular_lte_index = 0;		
+		var nbcpe_index = 0;
+		var dividing = g_data.dividing;
+		var cur_dividing = $("#dividing").val();
+		var current_default = $("#dividing_default").val() || g_data.dividing_default;
+
+		if(cur_dividing && cur_dividing.length){
+			dividing = cur_dividing;
+		}
+		
+		html +='\
+			<div class="cbi-value" >\
+				<label class="cbi-value-title" for="proto"><%:DefaultLine%></label>\
+				<div class="cbi-value-field">\
+					<div id="multi_dividing_default" class="cbi-input-select hd-input selectPickerWrapper">\
+						<input id="dividing_default" class="modify_class" name="dividing_default" type="hidden" value="'+current_default+'">';
+		var text_data = "";
+		var val_data = "";
+		for(var i=0;i<wans_data.length;i++){
+			var data = wans_data[i].name;
+			var icon_class = "fa-nradio-cellular-signal";
+			if(wans_data[i].disabled == "1"){
+				continue;
+			}
+			if(wans_data[i].type == "wired"){
+				wired_index++;
+				pre_label_info = get_wans_prefix_name(wans_data[i],count_info.wired,wired_index);
+				icon_class = "fa-nradio-internet";
+			}
+			else if(wans_data[i].type == "cellular"){
+				if(wans_data[i].odu == 1){
+					nbcpe_index++;
+					pre_label_info = get_wans_prefix_name(wans_data[i],count_info.nbcpe,nbcpe_index);
+					icon_class = "fa-nradio-antenna";
+				}				
+				else{
+					if(wans_data[i].nrcap == "1"){
+						cellular_nr_index++;
+						pre_label_info = get_wans_prefix_name(wans_data[i],count_info.cellular_nr,cellular_nr_index);
+					}
+					else{
+						cellular_lte_index++;
+						pre_label_info = get_wans_prefix_name(wans_data[i],count_info.cellular_lte,cellular_lte_index);				
+					}				
+				}				
+			}
+			if(text_data.length){
+				text_data += ":"+'<i class="far icon_color '+icon_class+'"></i> '+pre_label_info;
+			}				
+			else{
+				text_data += '<i class="far icon_color '+icon_class+'"></i> '+pre_label_info;
+			}
+			if(val_data.length){
+				val_data += ":"+wans_data[i].name;
+			}				
+			else{
+				val_data += wans_data[i].name;
+			}
+			//html +='<option value="'+wans_data[i].name+'" >'+pre_label_info+'</option>';
+		};
+
+		var text_list_select_wan=text_data.split(",");
+		var val_list_select_wan=val_data.split(",");
+		var data_list_select_wan=[];
+		if (current_default && val_data.split(":").indexOf(current_default) !== -1){
+			data_list_select_wan.push(val_data+"-"+current_default);
+		}
+		
+		var dividing_help = "<%=lng.translate("DividingHelp")%>";
+		var dividing_list = [{"val":"client","text":"<%:ClientDividing%>"},{"val":"protocol","text":"<%:ProtocolDividing%>"}];
+		html +='\
+					<select></select></div>\
+				</div>\
+			</div>';
+		html +='\
+			<div class="cbi-value">\
+				<label class="cbi-value-title" for="dividing"><i class="far fa-nradio-note fa-fw icon_disable visible-xs-block stand_label_icon" onclick="show_icon_help(this)"></i><%:DividingMode%></label>\
+				<div class="cbi-value-field">\
+					<select class="modify_class cbi-input-select valid" id="dividing" name="dividing">\
+						<option value="client" ><%:ClientDividing%></option>\
+						<option value="protocol"><%:ProtocolDividing%></option>\
+					</select>\
+					<div class="cbi-value-description description_help hidden-xs">\
+						'+dividing_help+'\
+					</div>\
+				</div>\
+			</div>';
+		$(".mode_detail").removeClass("hide");
+		$(".mode_detail_box").html(html);
+		if(dividing && dividing.length)
+			$("#dividing").val(dividing);
+		$("#multi_dividing_default").SelfSelectMulti({text_list:text_list_select_wan,value_list:val_list_select_wan,data_list:data_list_select_wan,targetObj:$("#dividing_default")});
+	}
+
+	function change_mode_box(name){
+		if (name == "Priority"){
+			prioritylink_module();
+		}
+		<%if mwan3_exist then%>
+		else if (name == "Dividing"){
+			dividinglink_module();
+		}
+		else if (name == "Overlap"){
+			overlaplink_module();
+		}
+		<%end %>
+	}
+	function change_mode(obj){
+		var name = $(obj).data("mode");
+		if($(obj).hasClass("active"))
+			return;
+		$(".mode_item").removeClass("active");
+		$(obj).addClass("active");
+		$("#net_kind").val(name);
+		change_mode_box(name);
+	}
+	function show_mode_box(mode,reload){
+		var htm="";
+		var match_item = null;
+		var cur_mode = mode;
+		var mode_list = [
+			{"name":"Priority","label":"<%:PriorityLine%>"},
+			<%if mwan3_exist then%>
+			{"name":"Dividing","label":"<%:DividingLine%>"},
+			{"name":"Overlap","label":"<%:OverlapLine%>"},
+			<%end%>
+		];
+		if(reload){
+			cur_mode = $("#net_kind").val();
+		}
+		var width_info = 100/mode_list.length+"%";
+		var disabled_count = 0;
+		for(var i=0;i<wans_data.length;i++){
+			if(wans_data[i].disabled == "1"){
+				disabled_count++;				
+			}				
+		}
+		if((wans_data.length - disabled_count ) > 1 ){
+			$(".mode_container").removeClass("hide");
+			for(var i = 0;i<mode_list.length;i++)
+			{
+				var active_class = "";				
+				if(((!cur_mode || !cur_mode.length) && !i) || (cur_mode == mode_list[i].name)){
+					match_item = mode_list[i];
+					active_class = "active";
+					if(cur_mode.length)
+						$("#net_kind").val(cur_mode);
+					else
+						$("#net_kind").val(mode_list[i].name);
+				}
+										
+				htm+='<li class="mode_class "  style="width:'+width_info+'" >';
+				htm+='	<ul class="mode_item default_background list-group '+active_class+'" data-mode="'+mode_list[i].name+'" onclick="change_mode(this)">';
+				htm+='		<li class="list-group-item text-center">'+mode_list[i].label+'</li>';
+				//htm+='		<li class="list-group-item text-center '+status+'">'+mode_list[i].note+'</li>';
+				htm+='	</ul>';
+				htm+='</li>';
+			}
+			if(match_item){
+				change_mode_box(match_item.name);
+			}
+			$(".mode_box").empty().append(htm);
+		}
+		else{
+			$(".mode_detail").addClass("hide");
+			$(".mode_container").addClass("hide");
+			if(wans_data.length == 1)		
+				$(".wans_box").addClass("hide");
+			
+			$(".mode_detail_box").html("");
+		}
+	}
+	function change_proto(val){
+		$(".proto_class ").addClass("hide");
+		$("."+val+"_proto").removeClass("hide");
+		if(val == "pppoe"){
+			enabled_peerdns($("#peerdns"));
+			$("#proto").next("div").html("<%:QSetupPPPoeNote%>");
+		}
+		else if(val == "static"){
+			$("#dns_list_div").removeClass("hide");
+			$("#proto").next("div").html("<%:QSetupStaticNote%>");
+		}
+		else{
+			enabled_peerdns($("#peerdns"));
+			$("#proto").next("div").html("<%:QSetupDHCPNote%>");
+		}
+	}
+	function trim(str)
+	{
+		return str?(str.toString().replace(/(^\s+)|(\s+$)/g, '')):"";
+	}
+	function Dec(x) {
+		return (/^-?\d+(?:\.\d+)?$/.test(x) ? +x : NaN);
+	}
+	function getRealLen( str ) {  
+		return str.replace(/[^\x00-\xff]/g, '___').length;
+	}
+
+	function valid_check_result(obj)
+	{
+		var type = $(obj).data("type");
+		var optional = $(obj).data("optional");
+		var depends = $(obj).data("depends");	
+		var val_data = $(obj).val();
+		if(optional == true && !val_data.length){
+			return true;
+		}
+		if(depends){
+			depends=depends.replace(/'/g, "\"");
+			var depends_arr = $.parseJSON(depends);
+			for(var i=0;i<depends_arr.length;i++){
+				var item = depends_arr[i];
+				for (let key in item) {
+					//console.log(key);
+					//console.log(item[key]);
+					//console.log($("#"+key).val());
+					if($("#"+key).val() != item[key]){
+						$(obj).val("");
+						return true;
+					}
+				}
+			}
+		}
+		if(!val_data.length)
+			return false;
+		if (type == "ip4addr"){
+			if (val_data.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(\/(\S+))?$/))
+			{
+				return (RegExp.$1 >= 0) && (RegExp.$1 <= 255) &&
+					(RegExp.$2 >= 0) && (RegExp.$2 <= 255) &&
+					(RegExp.$3 >= 0) && (RegExp.$3 <= 255) &&
+					(RegExp.$4 >= 0) && (RegExp.$4 <= 255) &&
+					((RegExp.$6.indexOf('.') < 0)
+						? ((RegExp.$6 >= 0) && (RegExp.$6 <= 32))
+						: (cbi_validators.ip4addr.apply(RegExp.$6)))
+				;
+			}
+		}
+		else if (type == "netmask"){
+			return (val_data.match(/^(((128|192|224|240|248|252|254)\.0\.0\.0)|(255\.(0|128|192|224|240|248|252|254)\.0\.0)|(255\.255\.(0|128|192|224|240|248|252|254)\.0)|(255\.255\.255\.(0|128|192|224|240|248|252|254)))$/) != null);
+
+		}
+		else if (type == "range"){
+			var min = $(obj).data("min");
+			var max = $(obj).data("max");
+			var val = Dec(val_data);
+			return (val >= +min && val <= +max);
+		}
+		else if (type == "macaddr"){
+			return (val_data.match(/^([a-fA-F0-9]{2}:){5}[a-fA-F0-9]{2}$/) != null);
+		}
+		else if (type == "maxlength"){
+			var max = $(obj).data("max");
+			return (getRealLen(''+val_data) <= +max);
+		}
+		return true;
+	}
+	function valid_check(obj){
+		if(!valid_check_result(obj)){
+			console.log("err");
+			$(obj).addClass("cbi-input-invalid");
+		}
+		else{
+			$(obj).removeClass("cbi-input-invalid");
+		}
+	}
+	function operate_dns_module(value_list)
+	{
+		var note_html = "";		
+		var ipaddrOption = {
+			father_id:"dns_list_div",
+			max_count:2,
+			blurfn:valid_check,
+			label_name:"<%:DNS Server%>",
+			forminput_name:"dns_multi",
+			notehtml:note_html,
+			value_list : value_list?value_list:[]
+		}
+		$('#dns_list_div').MultiInputInit(ipaddrOption);
+	}
+	function enabled_peerdns(obj){
+		var enabled_prop = $(obj).prop("checked");
+		if(enabled_prop){
+			$("#dns_list_div").addClass("hide");
+		}
+		else{
+			$("#dns_list_div").removeClass("hide");
+		}
+	}
+	function load_wan_data(data){
+		if(!data)
+			return ;
+		var show_dns = false;
+		$("#proto").val(data.proto);
+		$("#username").val(data.username);
+		$("#password").val(data.password);
+		$("#mtu").val(data.mtu);
+		$("#macaddr").val(data.macaddr);
+		$("#ipaddr").val(data.ipaddr);
+		$("#netmask").val(data.netmask);
+		$("#gateway").val(data.gateway);
+		if($("#proto").val() == "static"){
+			show_dns = true;
+		}
+
+		if(data.peerdns == "0"){
+			$("#peerdns").prop("checked",false);			
+			$("#dns_list_div").removeClass("hide");
+		}			
+		else{
+			$("#peerdns").prop("checked",true);
+			if(!show_dns)
+				$("#dns_list_div").addClass("hide");
+		}
+			
+		if(data.dns && data.dns.length)
+			operate_dns_module(Array.isArray(data.dns) ? data.dns : data.dns.split(' '));
+		else
+			operate_dns_module();
+		change_proto(data.proto);
+	}
+	$(document).ready(function(){
+		format_wans_box(wans_data);
+		show_port_link();
+		show_mode_box(g_data.net_kind);
+		load_wan_data(wan_data);
+
+		$(".nbcpe_help").click(function(event){
+			var htm = "<%=lng.translate("NBCPEHelpCtl")%>";		
+			var _this = $(this);
+			_this.justToolsTip({
+				events:event,
+				animation:"moveInBottom",
+				width:"250px",
+				contents:htm,
+				gravity:'bottom'
+			});
+		});
+	});
+	$('#btn-save').click(function(){
+		var save = $(this);
+		var data={};
+		var valid = 0;
+		data['token']='<%=token%>';
+		var dnslist = trim($('#dns_list_div').showValue("dns_multi").join(" "));
+		$("#dns").val(dnslist);
+		$(".modify_class").each(function(){
+			if ($(this).closest('.wan_detail.hide').length) return;
+			var type = $(this).prop("type");
+			var key = $(this).prop("name");
+			var module = $(this).data("module");
+			//console.log("module:"+module);
+			var val =  "";
+			if(type == "checkbox"){
+				if($(this).prop("checked")){
+					val = "1";
+				}
+				else{
+					val = "0";
+				}
+			}
+			else{
+				val = $(this).val();
+			}
+			if(!valid_check_result($(this))){
+				console.log("err1");
+				$(this).addClass("cbi-input-invalid");
+				valid = 1;
+			}
+			else{
+				$(this).removeClass("cbi-input-invalid");
+			}
+			if(module && module.length)
+				data["wired_"+module+"_"+key] = val;
+			else
+				data[key] = val
+		});
+		
+		var cur_mode = $("#net_kind").val();
+		for(var i=0;i<wans_data.length;i++){
+			var item = wans_data[i];
+			var prefix = "wired";
+			if(item.type == "cellular")
+				prefix = "cellular";
+			data[prefix+"_"+item["name"]+"_disabled"] = item["disabled"];
+			if(cur_mode == "Priority" ){				
+				data[prefix+"_"+item["name"]+"_metric"] = item["pos"];
+			}
+			else if( cur_mode == "Overlap"){
+				data[prefix+"_"+item["name"]+"_weight"] = item["weight"];
+			}
+				
+		}		
+		if(!valid){
+			save.prop('disabled', true);
+	        var submit_dialog = BootstrapDialog.show({
+				type: BootstrapDialog.TYPE_DEFAULT,
+				cssClass: 'mobile_note',
+				closeByBackdrop: false,
+				title: '',
+				message: loading_htm
+			});
+			$.ajax({url:'<%=url("nradio", "basic", "wan", "save")%>', type:'POST', data:data, dataType:'json'})
+				.done(function(state){
+					if (state && state.mode) location.reload();
+					else show_save_error('保存后未收到有效的线路状态');
+				})
+				.fail(function(xhr){
+					show_save_error(xhr.responseJSON && xhr.responseJSON.error || '上网设置未能应用（HTTP '+xhr.status+'）');
+				})
+				.always(function(){ submit_dialog.close(); save.prop('disabled', false); });
+		}
+
+	});
+
+	function show_save_error(message) {
+		BootstrapDialog.show({type:BootstrapDialog.TYPE_DEFAULT, title:'', message:$('<div>').text(message)});
+	}
+</script>
+<%+footer%>

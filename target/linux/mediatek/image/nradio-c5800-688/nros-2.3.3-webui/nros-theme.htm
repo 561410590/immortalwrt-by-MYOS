@@ -1,0 +1,26 @@
+<%+header%>
+<h2>主题切换</h2>
+<div class="cbi-section">
+    <label for="c5800-theme">界面主题</label>
+    <select id="c5800-theme" class="form-control">
+        <option value="myos">MYOS</option>
+        <option value="nros" selected>NROS 原厂</option>
+    </select>
+    <button type="button" id="c5800-theme-apply" class="btn btn-primary">切换</button>
+</div>
+<script>
+document.getElementById('c5800-theme-apply').onclick = function() {
+    var theme = document.getElementById('c5800-theme').value;
+    if (theme === 'nros') {
+        location.assign('/cgi-bin/luci/nradio/system/overview');
+        return;
+    }
+    var url = new URL(location.href);
+    url.port = '';
+    url.pathname = '/cgi-bin/luci/admin/myos';
+    url.search = '';
+    url.hash = '';
+    location.assign(url.href);
+};
+</script>
+<%+footer%>

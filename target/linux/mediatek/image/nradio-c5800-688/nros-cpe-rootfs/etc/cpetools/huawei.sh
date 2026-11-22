@@ -1,5 +1,16 @@
 #!/bin/ash
 
+# The C5800 discovery cache can still label its internal USB NCM as Ethernet.
+_huawei_data_version() {
+	if [ "$gNet" = cpe ]; then
+		local dev=$(uci -q get network.cpe.device)
+		if [ "$dev" = eth2 ] || [ -d /sys/class/net/eth1/cdc_ncm ]; then
+			return 0
+		fi
+	fi
+	echo "$1" | jsonfilter -e '$["dver"]'
+}
+
 _command_huawei_mode_convert() {
 	local _mode _res
 	_mode="$1"
@@ -1031,7 +1042,7 @@ command_huawei_basic() {
 	local qci=""
 	local nr5g_ambr_dl=""
 	local nr5g_ambr_ul=""
-	local dver=$(echo "$_info"|jsonfilter -e '$["dver"]')
+	local dver=$(_huawei_data_version "$_info")
 
 	local apn="$(command_huawei_apn "$_ctl" "$_info"|jsonfilter -e "\$['APN']")"
 	_cmd="${AT_PRIVATE_PREFIX}MONSC|${AT_PRIVATE_PREFIX}HFREQINFO?|${AT_PRIVATE_PREFIX}HCSQ?|${AT_PRIVATE_PREFIX}ICCID?"
@@ -1086,6 +1097,17 @@ command_huawei_basic() {
 
 	if [ "$_alias" == "redcap" -o "$_alias" == "mt5700" ];then
 		_res=$(_command_private_exec "$1" "DSAMBR" "=$cid")
+		if [ -z "$_res" ] && [ "$gNet" = cpe ] && [ "$_alias" = mt5700 ]; then
+			# Discovery may describe a different transport from the active data session.
+			local active_cid
+			active_cid=$(_command_generic_exec "$1" "CGACT" "?" | awk -F '[:,]' '
+				/^\+CGACT:/ && $3+0 == 1 { cid=$2+0; count++ }
+				END { if (count == 1) print cid }')
+			if [ -n "$active_cid" ] && [ "$active_cid" != "$cid" ]; then
+				cid="$active_cid"
+				_res=$(_command_private_exec "$1" "DSAMBR" "=$cid")
+			fi
+		fi
 		if [ -n "$_res" ];then
 			nr5g_ambr_dl=$(echo "$_res"|awk -F',' '{print $2}'|xargs -r printf|sed -e 's/ //g')
 			nr5g_ambr_ul=$(echo "$_res"|awk -F',' '{print $3}'|xargs -r printf|sed -e 's/ //g')
@@ -1817,6 +1839,48 @@ command_huawei_check_nrrc(){
 }
 
 
+_huawei_gmac_autodial() {
+	local ctl="$1" section="${gNet}sim$2" preset custom dial wanted
+	local pdptype apn username password auth
+	dial=$(_command_exec_raw "$ctl" 'AT^SETAUTODIAL?' | tr -d '\r' | sed -n 's/^\^SETAUTODIAL: *//p')
+	case "$dial" in
+		1,[012]|1,[012],*) wanted="1,2${dial#1,?}" ;;
+		0) wanted='1,2,"IPV4V6"' ;;
+		*) return 1 ;;
+	esac
+
+	config_load cpecfg
+	config_get preset "$section" apn_cfg
+	if [ -n "$preset" ]; then
+		config_load apn
+		section="$preset"
+	fi
+	config_get custom "$section" custom_apn 0
+	if [ "$custom" = 1 ]; then
+		config_get pdptype "$section" pdptype ipv4v6
+		config_get apn "$section" apn
+		config_get username "$section" username
+		config_get password "$section" password
+		config_get auth "$section" auth 0
+		case "$auth" in none) auth=0 ;; pap) auth=1 ;; chap) auth=2 ;; esac
+		pdptype=$(printf '%s' "$pdptype" | tr 'a-z' 'A-Z')
+		wanted="1,2,\"$pdptype\",\"$apn\",\"$username\",\"$password\",$auth"
+	fi
+
+	[ "$dial" != "$wanted" ] || return 0
+	if [ "$dial" != 0 ]; then
+		# The module rejects switching an enabled autodial from USB to Ethernet.
+		_command_exec_raw "$ctl" 'AT^SETAUTODIAL=0' | tr -d '\r' | grep -qx OK || return 1
+	fi
+	if _command_exec_raw "$ctl" "AT^SETAUTODIAL=$wanted" | tr -d '\r' | grep -qx OK; then
+		return 0
+	fi
+	if [ "$dial" != 0 ]; then
+		_command_exec_raw "$ctl" "AT^SETAUTODIAL=$dial" >/dev/null
+	fi
+	return 1
+}
+
 command_huawei_preinit(){
 	local model_autorestart=0
 	local res
@@ -1833,7 +1897,41 @@ command_huawei_preinit(){
 	_info=$(cat "/tmp/infocd/cache/${gNet}_dev" |jsonfilter -e '$["parameter"]')
 	_alias=$(echo "$_info"|jsonfilter -e '$["alias"]')
 	_driver=$(echo "$_info"|jsonfilter -e '$["driver"]')
-	local dver=$(echo "$_info"|jsonfilter -e '$["dver"]')
+	local dver=$(_huawei_data_version "$_info")
+
+	if [ "$gNet" = "cpe" ] && [ "$_alias" = "mt5700" ]; then
+		local data_device=$(uci -q get network.cpe.device)
+		if [ "$data_device" != eth2 ] && [ -d /sys/bus/platform/devices/15100000.ethernet/net/eth1 ]; then
+			local mode want_mode=1
+			[ "$ippass" != 1 ] || want_mode=3
+			mode=$(_command_exec_raw "$1" 'AT^TDCFG?' | awk '/^Mode:/ {print $2; exit}' | tr -d '\r')
+			if [ -n "$mode" ] && [ "$mode" != "$want_mode" ]; then
+				if _command_exec_raw "$1" "AT^TDCFG=\"infcfg\",\"mode\",$want_mode" | tr -d '\r' | grep -qx OK; then
+					logger -t cpetools "MT5700 interface mode $want_mode will take effect on the next modem start"
+				else
+					logger -t cpetools "MT5700 did not accept interface mode $want_mode"
+				fi
+			fi
+			_huawei_gmac_autodial "$1" "$simIndex"
+			return $?
+		fi
+		if [ "$data_device" = eth2 ] || [ -d /sys/class/net/eth1/cdc_ncm ]; then
+			local mode dial
+			mode=$(_command_exec_raw "$1" "AT^TDCFG?" | awk '/Mode:/ {print $2; exit}' | tr -d '\r')
+			case "$mode" in
+				2|3) _command_exec_raw "$1" 'AT^TDCFG="infcfg","mode",1' ;;
+			esac
+			dial=$(_command_exec_raw "$1" 'AT^SETAUTODIAL?' | sed -n 's/^\^SETAUTODIAL: *//p' | tr -d '\r')
+			case "$dial" in
+				1,2|1,2,*)
+					_command_exec_raw "$1" 'AT^SETAUTODIAL=0'
+					_command_exec_raw "$1" "AT^SETAUTODIAL=1,1${dial#1,2}"
+					;;
+				0) _command_exec_raw "$1" 'AT^NDISDUP=1,1' ;;
+			esac
+			return 0
+		fi
+	fi
 
 	local _force_ims="0"
 	if _check_simslot ;then
@@ -2025,7 +2123,7 @@ command_huawei_apn(){
 	local _info="$2"
 	local cid="2"
 	local apn=""
-	local dver=$(echo "$_info"|jsonfilter -e '$["dver"]')
+	local dver=$(_huawei_data_version "$_info")
 	_vendor=$(check_soc_vendor)
 	if [ "$_vendor" == "tdtech" ];then
 		cid="7"
@@ -2108,7 +2206,7 @@ command_huawei_dnn(){
 command_huawei_ips(){
 	local _ctl="$1"
 	local _info="$2"
-	local dver=$(echo "$_info"|jsonfilter -e '$["dver"]')
+	local dver=$(_huawei_data_version "$_info")
 	_vendor=$(check_soc_vendor)
 	if [ "$_vendor" == "tdtech" ];then
 		echo $(command_generic_ipaddr "$_ctl" "7")
@@ -2131,7 +2229,7 @@ command_huawei_ips(){
 command_huawei_pdp(){
 	local _ctl="$1"
 	local _info=$(cat "/tmp/infocd/cache/${gNet}_dev" |jsonfilter -e '$["parameter"]')
-	local dver=$(echo "$_info"|jsonfilter -e '$["dver"]')
+	local dver=$(_huawei_data_version "$_info")
 	#local cid="$3"
 	local pdptype="$4"
 	local apn="$5"
@@ -2714,7 +2812,7 @@ command_huawei_analysis(){
 	local _ctl="$1"
 	local _info="$2"
 	_alias=$(echo "$_info"|jsonfilter -e '$["alias"]')
-	local dver=$(echo "$_info"|jsonfilter -e '$["dver"]')
+	local dver=$(_huawei_data_version "$_info")
 
 	echo $(command_huawei_basic "$_ctl" "$_info")
 	_vendor=$(check_soc_vendor)
@@ -3029,7 +3127,7 @@ command_huawei_connstat(){
 	local _ctl="$1"
 	local _info="$2"
 	local _cid="2"
-	local dver=$(echo "$_info"|jsonfilter -e '$["dver"]')
+	local dver=$(_huawei_data_version "$_info")
 	local _vendor=$(check_soc_vendor)
 	if [ "$_vendor" == "tdtech" ];then
 		_cid="7"
@@ -3088,7 +3186,7 @@ command_huawei_dnsv6(){
 	local _ctl="$1"
 	local _info="$2"
 	local cid=""
-	local dver=$(echo "$_info"|jsonfilter -e '$["dver"]')
+	local dver=$(_huawei_data_version "$_info")
 	_vendor=$(check_soc_vendor)
 	if [ "$_vendor" == "tdtech" ];then
 		cid="7"

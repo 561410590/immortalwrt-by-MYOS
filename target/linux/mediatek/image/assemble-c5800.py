@@ -170,13 +170,14 @@ required.update(vantage_packages)
 required |= {'luci-theme-myos-new', 'luci-app-myos-system', 'default-settings',
              'qiyougamebooster', 'luci-app-qiyougamebooster', 'luci-i18n-qiyougamebooster-zh-cn',
              'openvpn-openssl', 'kmod-tun', 'dnsmasq-full',
-             'luci-app-c5800-hnat',
+             'luci-app-c5800-hnat', 'wireguard-tools', 'luci-proto-wireguard',
              'luci-app-store', 'taskd', 'luci-lib-taskd', 'luci-lib-xterm',
              'mt5700-web-go', 'luci-app-mt5700-web',
              'luci-app-upnp', 'luci-i18n-upnp-zh-cn',
              'mtwifi-cfg', 'luci-app-mtwifi-cfg',
              'mkf2fs', 'f2fsck', 'blkid', 'lsblk', 'rpcd', 'rpcd-mod-luci',
-             'iwinfo', 'libiwinfo20230701', 'rpcd-mod-iwinfo'}
+             'iwinfo', 'libiwinfo20230701', 'rpcd-mod-iwinfo', 'tcpdump', 'ip-bridge',
+             'curl', 'libuci-lua', 'luci-lib-jsonc', 'luci-lib-nixio'}
 # Installer dependencies use the runtime package names (including library ABI suffixes).
 required |= {'libip4tc2', 'libip6tc2', 'iptables-mod-extra',
              'ca-certificates', 'libseccomp', 'tini', 'btrfs-progs',
@@ -203,6 +204,8 @@ for directory in (source / 'bin/targets/mediatek/filogic/packages', source / 'bi
 packaged_apps = [assets / 'vantage/packages' / f'{name}_{vantage_version}_all.ipk'
                  for name in vantage_packages]
 presentation = runpy.run_path(str(source / 'target/linux/mediatek/image/myos-new-image.py'))
+required.update(presentation['add_adguard_packages'](
+    available, lambda path: package(path, include_data=False)))
 kunpeng_packages = presentation['kunpeng_packages']()
 packaged_apps.extend(kunpeng_packages)
 for path in packaged_apps:
@@ -309,6 +312,8 @@ for relative, target in (
     ('bin/base64', 'usr/libexec/base64-coreutils'),
     ('usr/bin/nohup', 'usr/libexec/nohup-coreutils'),
     ('usr/bin/timeout', 'usr/libexec/timeout-coreutils'),
+    ('usr/bin/wget', 'usr/libexec/wget-ssl'),
+    ('usr/bin/wget-ssl', 'usr/libexec/wget-ssl'),
 ):
     if not (work / target).is_file():
         raise RuntimeError('Missing dependency command: ' + target)
@@ -319,25 +324,19 @@ for name, data in native_calibration.items():
 # Only shared APP userspace dependencies are taken from the original NROS image.
 factory = source.parent / 'factory-openwrt/c2000max-analysis/C2000-788-WT9303_2.1.11.0h-rootfs'
 run('sh', assets / 'MYOS-nros-app-patch.sh', work, factory)
+presentation['install_nros_app'](work)
 
 # Install the same theme-switching compatibility changes as the 2.1.32 donor.
 copy(source / 'feeds/luci/modules/luci-base/htdocs/luci-static/resources/network.js',
      work / 'www/luci-static/resources/network.js')
 write('www/luci-static/resources/ui.js',
       (source / 'feeds/luci/modules/luci-base/htdocs/luci-static/resources/ui.js').read_text())
-copy(source / 'feeds/luci/modules/luci-mod-network/htdocs/luci-static/resources/view/network/wireless.js',
-     work / 'www/luci-static/resources/view/network/wireless.js')
-for relative in ('www/luci-static/resources/view/network/wireless.js',
-                 'usr/share/luci-app-mtwifi-cfg/wireless-mtk.js'):
-    run('patch', '--batch', '--no-backup-if-mismatch',
-        work / relative, assets / 'mtwifi-status.patch')
-run('patch', '--batch', '--no-backup-if-mismatch',
-    work / 'www/luci-static/resources/view/network/wireless.js', assets / 'wireless-stations.patch')
-stations = work / 'www/luci-static/resources/view/network/c5800-wireless-stations.js'
-copy(assets / 'c5800-wireless-stations.js', stations)
-stations.chmod(0o644)
-copy(source / 'feeds/luci/modules/luci-mod-network/htdocs/luci-static/resources/view/network/interfaces.js',
-     work / 'www/luci-static/resources/view/network/interfaces.js')
+network_views = Path('luci-static/resources/view/network')
+for filename in ('wireless.js', 'interfaces.js', 'myos-wireless-stations.js'):
+    relative = network_views / filename
+    copy(source / 'feeds/luci/modules/luci-mod-network/htdocs' / relative, work / 'www' / relative)
+vendor_wireless = Path('usr/share/luci-app-mtwifi-cfg/wireless-mtk.js')
+copy(source / 'package/mtk/applications/luci-app-mtwifi-cfg/root' / vendor_wireless, work / vendor_wireless)
 # Keep the verified UPnP first-render fix scoped to C5800.
 copy(assets / 'upnp.js', work / 'www/luci-static/resources/view/upnp/upnp.js')
 (work / 'www/luci-static/resources/view/upnp/upnp.js').chmod(0o644)
@@ -351,6 +350,24 @@ for asset, relative, mode in (
 for relative in ('dispatcher.uc', 'template/header.ut'):
     copy(source / 'feeds/luci/modules/luci-base/ucode' / relative,
          work / 'usr/share/ucode/luci' / relative)
+theme_root = source / 'package/luci-theme-myos-new/root'
+for relative in ('www/luci-static/resources/view/myos-new/home.js',
+                 'www/luci-static/myos-new/shell.js',
+                 'www/luci-static/myos-new/notices.js',
+                 'www/luci-static/myos-new/refine.css',
+                 'usr/lib/lua/luci/controller/myos_new.lua',
+                 'usr/share/ucode/luci/template/themes/myos-new/header.ut',
+                 'usr/share/ucode/luci/template/themes/myos-new/footer.ut'):
+    copy(theme_root / relative, work / relative)
+for asset in ('iface-bandwidth.js', 'iface-monitor.js', 'iface-samples.js', 'iface-trend.js',
+              'iface-monitor.css', 'uplot-1.6.32.js'):
+    relative = Path('www/luci-static/myos-new') / asset
+    copy(theme_root / relative, work / relative)
+    (work / relative).chmod(0o644)
+for feed, view in (('applications/luci-app-firewall', 'firewall/forwards.js'),
+                   ('modules/luci-mod-status', 'status/include/40_dhcp.js')):
+    relative = 'luci-static/resources/view/' + view
+    copy(source / 'feeds/luci' / feed / 'htdocs' / relative, work / 'www' / relative)
 # The copied template bypasses LuCI's package-time version substitution.
 # Fixed squashfs timestamps otherwise reuse the previous firmware's JS cache.
 header = work / 'usr/share/ucode/luci/template/header.ut'
@@ -424,9 +441,12 @@ write('usr/lib/opkg/status', '\n\n'.join(records.values()) + '\n\n')
 
 # The fixed NROS base is not rebuilt from package/root, so overlay the CBI fix.
 # ODU identity and SIM geometry come from native discovery, never the donor unit.
-copy(assets / 'nros-cpe-rootfs/etc/uci-defaults/90-c5800-nros-wt9126-network',
-     work / 'etc/uci-defaults/90-c5800-nros-wt9126-network')
-(work / 'etc/uci-defaults/90-c5800-nros-wt9126-network').chmod(0o755)
+# Let the C5800 network defaults own bridge creation, including on kept-config upgrades.
+run('patch', '-d', work, '-p1', '-i', assets / 'c5800-board-defaults.patch')
+for name in ('90-c5800-nros-wt9126-network', '91-c5800-cpe1-port5-migrate'):
+    relative = Path('etc/uci-defaults') / name
+    copy(assets / 'nros-cpe-rootfs' / relative, work / relative)
+    (work / relative).chmod(0o755)
 status_view = 'luci-static/resources/view/status/include/10_system.js'
 copy(assets / 'sysupgrade-c5800', work / 'sbin/sysupgrade')
 (work / 'sbin/sysupgrade').chmod(0o755)
@@ -442,6 +462,8 @@ modem_files = (
     'usr/lib/lua/c5800_rm520n.lua',
     'usr/lib/lua/luci/view/zmode/secondary_control.htm',
     'usr/lib/lua/c5800_radio.lua',
+    'usr/libexec/myos-c5800-cell-cache',
+    'etc/init.d/myos-c5800-cell-cache',
     'usr/lib/lua/c5800_radio_lock.lua',
     'usr/lib/lua/luci/model/cbi/modem.lua',
     'usr/lib/lua/luci/controller/modem.lua',
@@ -466,16 +488,22 @@ modem_files = (
 )
 modem_manifest = work / 'usr/lib/opkg/info/luci-app-c5800-688_wtmodem.list'
 modem_paths = modem_manifest.read_text().splitlines()
+modem_exec = {
+    'usr/sbin/c5800-route-mode', 'usr/libexec/myos-c5800-cell-cache',
+    'etc/init.d/myos-c5800-cell-cache',
+}
 for relative in modem_files:
     copy(modem_root / relative, work / relative)
-    (work / relative).chmod(0o755 if relative == 'usr/sbin/c5800-route-mode' else 0o644)
+    (work / relative).chmod(0o755 if relative in modem_exec else 0o644)
     if '/' + relative not in modem_paths:
         modem_paths.append('/' + relative)
 modem_manifest.write_text('\n'.join(modem_paths) + '\n')
 (work / 'usr/sbin/c5800-route-mode').chmod(0o755)
+link('etc/rc.d/S98myos-c5800-cell-cache', '../init.d/myos-c5800-cell-cache')
+link('etc/rc.d/K10myos-c5800-cell-cache', '../init.d/myos-c5800-cell-cache')
 copy(assets / 'dhcp-c5800.script', work / 'lib/netifd/dhcp.script')
 (work / 'lib/netifd/dhcp.script').chmod(0o755)
-for relative in ('lib/netifd/proto/wwan.sh', 'lib/netifd/proto/cloud.sh',
+for relative in ('lib/netifd/proto/wwan.sh', 'lib/netifd/proto/cloud.sh', 'etc/cpetools/huawei.sh',
                  'usr/bin/ledctrl.sh', 'etc/init.d/cellular_power'):
     copy(assets / 'nros-cpe-rootfs' / relative, work / relative)
     (work / relative).chmod(0o755)
@@ -529,7 +557,7 @@ for config in ('passwall_server', 'passwall2_server'):
 set_proxy_defaults('openclash', 'openclash', {
     'enable': '0',
     'enable_redirect_dns': '0',
-    'interface_name': 'eth1',
+    'interface_name': '0',
     'core_type': 'Smart',
     'smart_enable': '1',
     'enable_geoip_dat': '1',
@@ -567,7 +595,8 @@ for asset, relative in (
     copy(assets / asset, work / relative)
     (work / relative).chmod(0o755)
 copy(assets / 'adguardhome.keep', work / 'lib/upgrade/keep.d/luci-app-adguardhome')
-write('lib/upgrade/keep.d/myos-plugin-data', '/etc/openclash/config/\n')
+write('lib/upgrade/keep.d/myos-plugin-data', '/etc/openclash/config/\n/etc/AdGuardHome.yaml\n'
+      '/usr/bin/AdGuardHome/AdGuardHome\n')
 # The legacy plugin flag is plain text. Keep its readers and writer outside UCI.
 for relative in (
     'usr/lib/lua/myos_plugins.lua',
@@ -617,23 +646,49 @@ for relative, target in (
     link(relative, target)
 
 presentation['install'](work)
+presentation['configure_adguard'](work)
 
 run('python3', source / 'target/linux/mediatek/image/install-myos-support.py', work, assets)
+
+# Install C5800's NROS UI after the common presentation cleanup of old theme menus.
+nros_assets = assets / 'nros-2.3.3-webui'
+nros_ui = work / 'usr/lib/nros-2.3.3-webui'
+shutil.copytree(nros_assets / 'root', nros_ui, symlinks=True, dirs_exist_ok=True)
+for asset, relative, mode in (
+    ('nros-webui.init', 'etc/init.d/nros-webui', 0o755),
+    ('myos-theme-menu.json', 'usr/share/luci/menu.d/myos-theme.json', 0o644),
+    ('myos-theme.js', 'www/luci-static/resources/view/myos-nros/theme.js', 0o644),
+):
+    copy(nros_assets / asset, work / relative)
+    (work / relative).chmod(mode)
+link('etc/rc.d/S99nros-webui', '../init.d/nros-webui')
 
 for relative, mode in (
     ('usr/libexec/myos-c5800-portprobe', 0o755),
     ('usr/libexec/myos-c5800-sms', 0o755),
     ('usr/lib/lua/myos_c5800_pdu.lua', 0o644),
+    ('usr/lib/lua/myos_c5800_ak68_sms.lua', 0o644),
     ('etc/init.d/myos-c5800-sms', 0o755),
     ('usr/lib/lua/luci/controller/myos_c5800_sms.lua', 0o644),
     ('usr/lib/lua/luci/model/cbi/myos_c5800_sms.lua', 0o644),
     ('etc/config/myos_c5800_sms', 0o600),
     ('lib/upgrade/keep.d/myos-c5800-sms', 0o644),
+    ('usr/lib/lua/c5800_calls.lua', 0o644),
+    ('usr/libexec/myos-c5800-calls', 0o755),
+    ('etc/init.d/myos-c5800-calls', 0o755),
+    ('lib/upgrade/keep.d/myos-c5800-calls', 0o644),
+    ('usr/lib/lua/luci/controller/c5800_diagnostics.lua', 0o644),
+    ('usr/lib/lua/luci/view/zmode/c5800_diagnostics.htm', 0o644),
+    ('www/luci-static/resources/c5800-calls.js', 0o644),
+    ('usr/share/luci/menu.d/c5800-wireguard.json', 0o644),
+    ('www/luci-static/resources/view/c5800-wireguard.js', 0o644),
 ):
     copy(assets / 'myos-extras' / relative, work / relative)
     (work / relative).chmod(mode)
 link('etc/rc.d/S98myos-c5800-sms', '../init.d/myos-c5800-sms')
 link('etc/rc.d/K10myos-c5800-sms', '../init.d/myos-c5800-sms')
+link('etc/rc.d/S98myos-c5800-calls', '../init.d/myos-c5800-calls')
+link('etc/rc.d/K10myos-c5800-calls', '../init.d/myos-c5800-calls')
 
 module_root = work / 'lib/modules' / kernel_version
 for filename in ('modules.builtin', 'modules.builtin.modinfo', 'modules.order'):
@@ -658,6 +713,9 @@ for parent, dirs, files in os.walk(work):
         path.chmod(0o755 if executable else 0o644)
 (work / 'etc/shadow').chmod(0o600)
 (work / 'usr/share/myos-nros/id_rsa.db').chmod(0o400)
+(nros_ui / 'config').chmod(0o700)
+(nros_ui / 'uci').chmod(0o700)
+(nros_ui / 'config/luci').chmod(0o600)
 for relative in ('etc/config/myos_usage', 'etc/config/myos_nros', 'etc/config/mosquitto',
                  'etc/config/myos_c5800_sms'):
     path = work / relative
@@ -671,6 +729,7 @@ pseudo.write_text('dev/console c 0600 0 0 5 1\n')
 if output.exists():
     output.unlink()
 run('python3', source / 'scripts/install-myos-688-upgrade.py', source, work)
+run('patch', '-d', work, '-p1', '-i', assets / 'c5800-flat-sysupgrade.patch')
 run(host / 'mksquashfs4', work, output, '-nopad', '-noappend', '-root-owned',
     '-comp', 'xz', '-Xpreset', '9', '-Xe', '-Xlc', '0', '-Xlp', '2', '-Xpb', '2',
     '-b', '256k', '-no-xattrs', '-pf', pseudo, '-processors', '6')

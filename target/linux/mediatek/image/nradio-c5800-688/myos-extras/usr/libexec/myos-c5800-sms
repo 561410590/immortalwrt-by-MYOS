@@ -60,6 +60,8 @@ local function odu_messages()
     local result = reply and reply.result
     if type(result) ~= "table" or tonumber(result.ready) == 0 or
         (result.code ~= nil and tonumber(result.code) ~= 0) or type(result.smslist) ~= "table" then
+        local peer = secondary.sms_peer()
+        if peer then return require("myos_c5800_ak68_sms").read(peer) end
         return nil, detail or "副模组短信列表暂不可读"
     end
     local messages = {}
@@ -138,7 +140,7 @@ if arg[1] == "--inbox" then
         messages, error_message = main_messages()
         storage = main_storage()
     elseif source == "cpe1" then
-        messages, error_message = odu_messages()
+        messages, error_message, storage = odu_messages()
     else
         error_message = "无效的短信来源"
     end

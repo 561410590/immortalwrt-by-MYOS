@@ -136,38 +136,8 @@ define Build/c5800-688-rootfs-system
 endef
 
 define Build/c5800-688-sysupgrade-tar
-	rm -rf $@.sysupgrade
-	mkdir -p $@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))
-	echo "BOARD=$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))" > \
-		$@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))/CONTROL
-	dd if=$(IMAGE_ROOTFS) \
-		of=$@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))/root \
-		bs=1024 conv=sync
-	cp $(IMAGE_KERNEL) \
-		$@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))/kernel
-	chmod 755 $@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))
-	chmod 644 $@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))/CONTROL \
-		$@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))/kernel \
-		$@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))/root
-	(cd $@.sysupgrade; tar --sort=name --owner=0 --group=0 --numeric-owner \
-		--mtime=@1772464398 -cf sysupgrade.tar \
-		sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME)))
-	mkdir -p $@.sysupgrade/sysupgrade-HCMT7981-emmc
-	cp $@.sysupgrade/sysupgrade-$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME))/CONTROL \
-		$@.sysupgrade/sysupgrade-HCMT7981-emmc/CONTROL
-	(cd $@.sysupgrade; tar --owner=0 --group=0 --numeric-owner \
-		--mtime=@1772464398 -rf sysupgrade.tar \
-		sysupgrade-HCMT7981-emmc/CONTROL)
-	cp $@.sysupgrade/sysupgrade.tar $@
-	rm -rf $@.sysupgrade
-endef
-
-define Build/c5800-688-append-metadata
-	printf '%s\n' \
-		'{ "metadata_version": "1.1", "compat_version": "1.0", "supported_devices":["nradio,c5800-688","HCMT7981-emmc"], "version": { "dist": "MYOS", "version": "$(VERSION_NUMBER)", "revision": "r33578-c88458e977", "target": "mediatek/filogic", "board": "nradio_c5800-688" } }' \
-		> $@.metadata
-	fwtool -I $@.metadata $@
-	rm -f $@.metadata
+	python3 $(TOPDIR)/target/linux/mediatek/image/build-c5800.py --source "$(TOPDIR)" \
+		--kernel "$(IMAGE_KERNEL)" --rootfs "$(IMAGE_ROOTFS)" --output "$@"
 endef
 
 define Build/cetron-header
@@ -2524,6 +2494,7 @@ define Device/nradio_c5800-688
 	luci-lib-docker ttyd \
 	kmod-mediatek_hnat luci-app-c5800-hnat \
 	mtk-smp luci-app-c5800-688-wtmodem mt5700-web-go luci-app-mt5700-web openvpn-openssl kmod-tun \
+	wireguard-tools luci-proto-wireguard \
 	kmod-mt_wifi kmod-conninfra kmod-warp mtwifi-cfg luci-app-mtwifi-cfg \
 	kmod-wwan kmod-mhi-bus kmod-mhi-net kmod-mhi-pci-generic \
 	kmod-mhi-wwan-ctrl kmod-mhi-wwan-mbim \
@@ -2548,7 +2519,7 @@ define Device/nradio_c5800-688
 	libyaml libudns resolveip libev \
 	libsodium kmod-netlink-diag ip-full libuci-lua \
 	libbpf libelf iptables-mod-tproxy kmod-ipt-tproxy \
-	libpcap miniupnpd-nftables luci-app-upnp luci-i18n-upnp-zh-cn kmod-ipt-ipset ipset \
+	libpcap tcpdump ip-bridge miniupnpd-nftables luci-app-upnp luci-i18n-upnp-zh-cn kmod-ipt-ipset ipset \
 	libipset tc-full kmod-netem conntrack \
 	conntrackd kmod-sched kmod-sched-core libnetfilter-cthelper \
 	libnetfilter-cttimeout libnetfilter-queue libltdl liblua5.3
@@ -2556,7 +2527,7 @@ define Device/nradio_c5800-688
   KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb | pad-to 64k
   KERNEL_INITRAMFS := kernel-bin | lzma | \
 	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
-  IMAGE/sysupgrade.bin := c5800-688-rootfs-system | c5800-688-sysupgrade-tar | c5800-688-append-metadata
+  IMAGE/sysupgrade.bin := c5800-688-rootfs-system | c5800-688-sysupgrade-tar
 endef
 TARGET_DEVICES += nradio_c5800-688
 

@@ -1,0 +1,58 @@
+#!/usr/bin/lua
+local fs = require "nixio.fs"
+local nixio = require "nixio"
+local json = require "luci.jsonc"
+local util = require "luci.util"
+local monitor = require "c5800_calls"
+local statefile = "/tmp/myos-c5800-calls.json"
+local historyfile = "/etc/myos-c5800-missed.json"
+local history = json.parse(fs.readfile(historyfile) or "") or {}
+local tracked, last, heartbeat, probe, ims, registered = {}, "", 0, 0
+
+local function save(path, data)
+    local file = assert(nixio.open(path .. ".new", "w", "600"))
+    assert(file:writeall(data))
+    assert(file:close())
+    assert(fs.rename(path .. ".new", path))
+end
+
+local function at(command)
+    local ok, reply = pcall(util.ubus, "atsdcpe", "at_cmd", {cmd=command, wait=2, block=1})
+    if ok and type(reply) == "table" and tonumber(reply.code) == 0 then return reply.respone end
+end
+
+local function id()
+    return (assert(fs.readfile("/proc/sys/kernel/random/uuid")):gsub("%s+", ""))
+end
+
+while true do
+    local now = os.time()
+    local sample = monitor.parse(at("AT+CLCC"))
+    if sample then
+        local ended = monitor.update(tracked, sample, now, id)
+        if #ended > 0 then
+            for _, call in ipairs(ended) do table.insert(history, 1, call) end
+            while #history > 100 do table.remove(history) end
+            save(historyfile, json.stringify(history))
+        end
+    end
+    if now >= probe or now < probe - 60 then
+        ims = tonumber((at("AT^IMSSWITCH?") or ""):match("%^IMSSWITCH:%s*(%d+)"))
+        registered = tonumber((at("AT+CIREG?") or ""):match("%+CIREG:%s*%d+,%s*(%d+)"))
+        probe = now + 60
+    end
+    local ringing = {}
+    for _, call in pairs(tracked) do
+        if not call.answered and call.absent == 0 then
+            ringing[#ringing+1] = {id=call.id, number=call.number, time=call.time}
+        end
+    end
+    local state = {available=sample ~= nil, ims=ims, registered=registered, ringing=ringing}
+    local encoded = json.stringify(state)
+    if encoded ~= last or now >= heartbeat or now < heartbeat - 15 then
+        state.updated = now
+        save(statefile, json.stringify(state))
+        last, heartbeat = encoded, now + 15
+    end
+    nixio.nanosleep(next(tracked) and 1 or 2)
+end

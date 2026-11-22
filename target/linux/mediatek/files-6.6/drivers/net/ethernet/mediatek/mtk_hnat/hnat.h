@@ -1118,7 +1118,8 @@ enum FoeIpAct {
 
 #if defined(CONFIG_MEDIATEK_NETSYS_V2) || defined(CONFIG_MEDIATEK_NETSYS_V3)
 #define skb_hnat_is_hashed(skb)                                                 \
-	(skb_hnat_entry(skb) != 0x7fff && skb_hnat_entry(skb) < hnat_priv->foe_etry_num)
+	(skb_hnat_entry(skb) != (hnat_c5800_dsa ? 0x3fff : 0x7fff) && \
+	 skb_hnat_entry(skb) < hnat_priv->foe_etry_num)
 #else
 #define skb_hnat_is_hashed(skb)                                                 \
 	(skb_hnat_entry(skb) != 0x3fff && skb_hnat_entry(skb) < hnat_priv->foe_etry_num)
@@ -1173,14 +1174,16 @@ enum FoeIpAct {
 #define LAN_DEV_NAME hnat_priv->lan
 #define LAN2_DEV_NAME hnat_priv->lan2
 extern bool hnat_nbcpe_dsa;
+extern bool hnat_c5800_dsa;
 /* NBCPE stock DSA names differ from the vendor lan/wan convention. */
 #define IS_NBCPE_WAN(dev) (hnat_nbcpe_dsa && !strcmp((dev)->name, "port5"))
+#define IS_C5800_WAN(dev) (hnat_c5800_dsa && !strcmp((dev)->name, "port5"))
 #define IS_NBCPE_LAN(dev) (hnat_nbcpe_dsa && \
 	(!strcmp((dev)->name, "port1") || !strcmp((dev)->name, "port2") || \
 	 !strcmp((dev)->name, "port3")))
 #define IS_WAN(dev)                                                            \
 	((!strncmp((dev)->name, hnat_priv->wan, strlen(hnat_priv->wan))) ||		\
-	 IS_BOND(dev) || IS_NBCPE_WAN(dev))
+	 IS_BOND(dev) || IS_NBCPE_WAN(dev) || IS_C5800_WAN(dev))
 #define IS_LAN_GRP(dev) (IS_LAN(dev) | IS_LAN2(dev))
 #define IS_LAN(dev)								\
 	(!strncmp(dev->name, LAN_DEV_NAME, strlen(LAN_DEV_NAME)) ||		\
@@ -1245,7 +1248,8 @@ extern bool hnat_nbcpe_dsa;
 #define IS_DSA_LAN(dev) (!strncmp(dev->name, "lan", 3) || IS_NBCPE_LAN(dev))
 #define IS_DSA_1G_LAN(dev) ((!strncmp(dev->name, "lan", 3) &&		       \
 			     strcmp(dev->name, "lan5")) || IS_NBCPE_LAN(dev))
-#define IS_DSA_WAN(dev) (!strncmp(dev->name, "wan", 3) || IS_NBCPE_WAN(dev))
+#define IS_DSA_WAN(dev) (!strncmp(dev->name, "wan", 3) || \
+			IS_NBCPE_WAN(dev) || IS_C5800_WAN(dev))
 #define NONE_DSA_PORT 0xff
 #define MAX_CRSN_NUM 32
 #define IPV6_HDR_LEN 40

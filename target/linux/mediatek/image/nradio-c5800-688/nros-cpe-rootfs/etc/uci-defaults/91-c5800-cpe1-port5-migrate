@@ -13,19 +13,6 @@ uci -q set network.port5='device'
 uci -q set network.port5.name='port5'
 uci -q set network.port5.ipv6='1'
 
-idx=0
-while uci -q get "network.@device[$idx]" >/dev/null 2>&1; do
-	name="$(uci -q get "network.@device[$idx].name" 2>/dev/null)"
-if [ "$name" = "br-lan" ]; then
-		uci -q del_list "network.@device[$idx].ports=BLUE4"
-		uci -q del_list "network.@device[$idx].ports=port5"
-		uci -q add_list "network.@device[$idx].ports=lan1"
-		uci -q add_list "network.@device[$idx].ports=lan2"
-		uci -q add_list "network.@device[$idx].ports=lan3"
-	fi
-	idx=$((idx + 1))
-done
-
 uci -q set network.globals.nbcpe='1'
 uci -q set network.nrswitch='nrswitch'
 uci -q set network.nrswitch.nvlan='NLLLNWCE'

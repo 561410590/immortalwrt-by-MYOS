@@ -127,7 +127,7 @@ function action_status()
 	uci:load("mosquitto")
 
 	local enabled = cloud_enabled()
-	local mosquitto = process_running("/usr/sbin/mosquitto")
+	local mosquitto = require("luci.sys").call("pidof mosquitto >/dev/null 2>&1") == 0
 	local command_agent = process_running("/usr/sbin/myos-nros-app-agent", "command")
 	local status_agent = process_running("/usr/sbin/myos-nros-app-agent", "status")
 	local rweb_active, rweb_port = rweb_status()

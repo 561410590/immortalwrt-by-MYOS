@@ -5,6 +5,14 @@ local fs = require "nixio.fs"
 local nixio = require "nixio"
 local json = require "luci.jsonc"
 local sys = require "luci.sys"
+local util = require "luci.util"
+local cursor = require("luci.model.uci").cursor
+local secondary = require "c5800_secondary"
+local interval = 60
+
+local function cache_path(iface)
+    return "/tmp/c5800-radio-" .. iface .. ".json"
+end
 
 local function fields(line)
     local result = {}
@@ -15,8 +23,8 @@ local function fields(line)
 end
 
 local function query(iface, command)
-    return sys.exec("cpetools.sh -i " .. iface .. " -t 0 -c " ..
-        require("luci.util").shellquote(command) .. " 2>/dev/null")
+    return sys.exec("timeout 6 cpetools.sh -i " .. iface .. " -t 0 -c " ..
+        util.shellquote(command) .. " 2>/dev/null") or ""
 end
 
 local function signal(value, invalid)
@@ -65,7 +73,7 @@ local function collect(iface)
         end
     end
     data.neighbours_available = neighbours:find("%^MONNC:") ~= nil
-    local uci = require("luci.model.uci").cursor()
+    local uci = cursor()
     local sim = uci:get("cpesel", iface == "cpe" and "sim" or "sim1", "cur") or "1"
     local section = iface .. "sim" .. sim
     data.mode = uci:get("cpecfg", section, "mode") or "auto"
@@ -73,12 +81,15 @@ local function collect(iface)
     return data
 end
 
-function M.snapshot(iface)
-    if iface ~= "cpe" and iface ~= "cpe1" then return { error = "模组参数无效" } end
-    if iface == "cpe1" and require("c5800_secondary").is_family() then
-        local state = require("c5800_secondary").status()
-        local s = state.signal
-        local data = {iface=iface,native=true,updated=os.time(),neighbours={},
+local function sample(iface)
+    if iface ~= "cpe1" then return collect(iface) end
+    if fs.readfile("/sys/class/net/port5/carrier") ~= "1\n" then
+        return {iface=iface, error="PoE 扩展口未连接"}
+    end
+    if cursor():get("network", "cpe1", "mode") == "odu" then
+        local s, stamp = secondary.cached_signal()
+        if not s then return {iface=iface, error="原厂副模组尚未上报诊断数据"} end
+        local data = {iface=iface,native=true,updated=stamp or os.time(),neighbours={},
             raw=json.stringify(s),message="原厂副设备状态；原厂接口未提供邻区列表"}
         if s.cell or s.cellid or s.pci or s.earfcn then
             data.serving = {rat=s.mode or "",band=s.band,cell_id=s.cell or s.cellid,
@@ -87,24 +98,35 @@ function M.snapshot(iface)
         end
         return data
     end
-    if iface == "cpe1" and fs.readfile("/sys/class/net/port5/carrier") ~= "1\n" then
-        return { iface = iface, error = "PoE 扩展口未连接" }
-    end
-    local path = "/tmp/c5800-radio-" .. iface
-    local cached = json.parse(fs.readfile(path .. ".json") or "")
-    if cached and cached.updated and os.time() - cached.updated < 20 then return cached end
-    -- Process-owned locks are released even when an HTTP worker is interrupted.
-    local mutex = nixio.open(path .. ".lck", "w", "600")
-    if not mutex then return { iface = iface, error = "无法打开模组读取锁" } end
-    if not mutex:lock("tlock") then
-        mutex:close()
-        return { iface = iface, error = "正在读取此模组，请稍后刷新" }
-    end
-    local ok, data = pcall(collect, iface)
-    mutex:close()
-    if not ok then return { iface = iface, error = "小区读取失败" } end
-    if data.serving then fs.writefile(path .. ".json", json.stringify(data)) end
+    return collect(iface)
+end
+
+function M.snapshot(iface)
+    if iface ~= "cpe" and iface ~= "cpe1" then return {error="模组参数无效"} end
+    local data = json.parse(fs.readfile(cache_path(iface)) or "")
+    if type(data) ~= "table" then return {iface=iface, error="正在采集小区数据，请稍后刷新"} end
+    if data.updated and os.time() - data.updated > interval * 2 then data.stale = true end
     return data
+end
+
+function M.run()
+    while true do
+        for _, iface in ipairs({"cpe", "cpe1"}) do
+            local ok, data = pcall(sample, iface)
+            if not ok then data = {iface=iface, error="小区诊断采集失败"} end
+            local path = cache_path(iface)
+            local file = nixio.open(path .. ".new", "w", "600")
+            if file then
+                local contents = json.stringify(data)
+                local size = file:writeall(contents)
+                file:close()
+                if size ~= #contents or not fs.rename(path .. ".new", path) then
+                    fs.unlink(path .. ".new")
+                end
+            end
+        end
+        nixio.nanosleep(interval)
+    end
 end
 
 return M

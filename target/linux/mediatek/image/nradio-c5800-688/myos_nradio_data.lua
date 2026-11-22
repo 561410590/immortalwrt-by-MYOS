@@ -1995,8 +1995,20 @@ local function sms_direct_snapshot(section, maximum_age)
 	local age = tonumber(maximum_age) or 5
 	local source = age > 0 and cache_read(name, age, false) or nil
 	if not source then
-		source = json_decode(sms_popen(SMS_SENDAT ..
-			" 1 at+cmgl=4 20 2>/dev/null | " .. SMS_DECODER .. " --json 2>/dev/null"))
+		if M.is_native_c5800() then
+			local reply = safe_ubus("atsdcpe", "at_cmd", {cmd = "AT+CMGL=4", wait = 8, block = 1})
+			local raw = reply.respone
+			if tonumber(reply.code) ~= 0 or type(raw) ~= "string" or not raw:match("\nOK%s*$") then return nil end
+			local messages = require("myos_c5800_pdu").decode(raw)
+			if not messages then return nil end
+			for _, item in ipairs(messages) do
+				item.dt, item.stat = item.time, item.unread and 0 or 1
+			end
+			source = {ok = true, messages = messages}
+		else
+			source = json_decode(sms_popen(SMS_SENDAT ..
+				" 1 at+cmgl=4 20 2>/dev/null | timeout -k 1 22 " .. SMS_DECODER .. " --json 2>/dev/null"))
+		end
 		if type(source) ~= "table" or source.ok ~= true or
 		   type(source.messages) ~= "table" then return nil end
 		local used, total = sms_at("AT+CPMS?", 5):match('%+CPMS:%s*"[^"]*",(%d+),(%d+)')

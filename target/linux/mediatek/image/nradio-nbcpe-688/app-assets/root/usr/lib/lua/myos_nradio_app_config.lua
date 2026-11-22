@@ -30,10 +30,11 @@ local function context(uci, req)
 			native[#native + 1] = s[".name"]
 		end
 	end)
+	table.sort(native)
 	if native[index] then
 		local iface = native[index]
-		local selector = iface == "cpe" and "sim" or "sim" .. (index - 1)
-		local current = tonumber(uci:get("cpesel", selector, "cur")) or 1
+		local selector = iface == "cpe" and "sim" or "sim" .. (iface:match("(%d+)$") or (index - 1))
+		local current = tonumber((uci:get("cpesel", selector, "cur"))) or 1
 		local slot = tonumber(req.sim or current)
 		if not slot or slot < 1 or slot % 1 ~= 0 then return end
 		return { index=index, iface=iface, slot=slot, current=current, package="cpecfg", section=iface.."sim"..slot }
