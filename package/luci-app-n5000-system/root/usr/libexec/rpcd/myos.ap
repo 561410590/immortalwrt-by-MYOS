@@ -1,0 +1,372 @@
+#!/usr/bin/lua
+
+local json = require("luci.jsonc")
+local nixio = require("nixio")
+local fs = require("nixio.fs")
+local uci = require("uci")
+local transport = require("myos_ap_transport")
+
+local state = "/etc/myos-ap/"
+local backup = state .. "router.json"
+local tokenfile = state .. "token"
+local generationfile = state .. "generation"
+local prefix = "myos-ap-"
+local configs = { "network", "dhcp" }
+local wired_wan = {
+	["nradio,n5000"] = "eth1",
+	["nradio,c2000-ultra"] = "eth0",
+	["hcmt7981-688-emmc"] = "port5",
+	["hcmt7981-emmc"] = "port5",
+	["hcmt7981-emmc-nb68"] = "port5",
+}
+local encryption = { none = true, owe = true, psk2 = true, sae = true,
+	psk = true, ["psk-mixed"] = true, ["sae-mixed"] = true }
+
+local function read(path)
+	return fs.readfile(path)
+end
+
+local function sysinfo(name)
+	return (read("/tmp/sysinfo/" .. name) or ""):match("^([^\r\n]+)")
+end
+
+local function board()
+	return sysinfo("board_name") or "myos"
+end
+
+local function fail(message)
+	return { error = message }
+end
+
+local function data(path)
+	local content = read(path)
+	return content and json.parse(content)
+end
+
+local function bridge_name(cursor)
+	return cursor:get("network", "lan", "device") or "br-lan"
+end
+
+local function mac(cursor)
+	local device = bridge_name(cursor)
+	if not device:match("^[%w_.%-]+$") then return end
+	local address = read("/sys/class/net/" .. device .. "/address")
+	return address and address:match("^([%x:]+)")
+end
+
+local function is_ap(cursor)
+	local hostname = cursor:get("network", "lan", "hostname") or ""
+	return cursor:get("network", "lan", "proto") == "dhcp"
+		and (hostname:match("^myos%-ap%-%x+$") or hostname:match("^myos%-n5000%-ap%-%x+$")) ~= nil
+end
+
+local function save(path, contents, mode)
+	local tmp = path .. ".new"
+	if fs.writefile(tmp, contents) ~= #contents or not fs.chmod(tmp, mode) or not fs.rename(tmp, path) then
+		fs.unlink(tmp)
+		return false
+	end
+	return true
+end
+
+local function local_status(cursor)
+	local saved = data(backup)
+	return {
+		mode = is_ap(cursor) and "ap" or "router",
+		mac = mac(cursor),
+		wired_wan = wired_wan[board():lower()],
+		router_ip = saved and saved.ip or cursor:get("network", "lan", "ipaddr"),
+		pairing = fs.stat(tokenfile, "type") == "reg",
+	}
+end
+
+local function reload_mode()
+	os.execute("(umask 022; sleep 2; /sbin/reload_config; /etc/init.d/myos-ap restart) </dev/null >/dev/null 2>&1 &")
+end
+
+local function restore(saved)
+	local ok = true
+	for _, config in ipairs(configs) do
+		local entry = saved[config]
+		if not save("/etc/config/" .. config, entry.contents, entry.mode) then ok = false end
+	end
+	return ok
+end
+
+local function set_mode(cursor, request)
+	local saved = data(backup)
+	if request.mode == "router" then
+		if not saved then
+			return is_ap(cursor) and fail("缺少原路由配置备份") or local_status(cursor)
+		end
+		if not restore(saved) then return fail("恢复配置失败，原备份已保留") end
+		fs.unlink(tokenfile)
+		reload_mode()
+		if not fs.unlink(backup) then return fail("路由配置已写回，无法清理备份") end
+		return { mode = "router", router_ip = saved.ip }
+	end
+	if request.mode ~= "ap" then return fail("未知的工作模式") end
+	if is_ap(cursor) then return local_status(cursor) end
+	if saved then return fail("已有原路由配置备份，请先恢复路由模式") end
+
+	local address = mac(cursor)
+	local lan_device = bridge_name(cursor)
+	local bridge
+	cursor:foreach("network", "device", function(section)
+		if section.name == lan_device then bridge = section end
+	end)
+	local legacy = not bridge and cursor:get("network", "lan", "type") == "bridge"
+	if not address then
+		return fail("找不到当前 LAN 设备，无法切换")
+	end
+	local uplink = request.uplink
+	if not uplink or uplink == "" then uplink = wired_wan[board():lower()] end
+	if uplink == "lan" then uplink = nil end
+	if uplink and uplink ~= wired_wan[board():lower()] then return fail("请选择本机的有线网口") end
+
+	saved = { ip = cursor:get("network", "lan", "ipaddr") }
+	for _, config in ipairs(configs) do
+		local path = "/etc/config/" .. config
+		local contents, mode = read(path), fs.stat(path, "modestr")
+		if not contents or not mode then return fail("无法读取原 " .. config .. " 配置") end
+		saved[config] = { contents = contents, mode = mode }
+	end
+	fs.mkdir(state, "700")
+	if not save(backup, json.stringify(saved), "600") then return fail("无法保存原路由配置") end
+
+	local ports = (legacy and cursor:get("network", "lan", "ifname"))
+		or (bridge and bridge.type == "bridge" and bridge.ports) or {}
+	if type(ports) == "string" then
+		local list = {}
+		for port in ports:gmatch("%S+") do list[#list + 1] = port end
+		ports = list
+	end
+	if uplink then
+		local present = false
+		for _, port in ipairs(ports) do if port == uplink then present = true end end
+		if not present then ports[#ports + 1] = uplink end
+	end
+	if legacy then
+		cursor:set("network", "lan", "ifname", table.concat(ports, " "))
+		cursor:set("network", "lan", "macaddr", address)
+	elseif bridge and bridge.type == "bridge" then
+		cursor:set("network", bridge[".name"], "ports", ports)
+		cursor:set("network", bridge[".name"], "macaddr", address)
+	else
+		table.insert(ports, 1, lan_device)
+		cursor:set("network", "myos_ap_bridge", "device")
+		cursor:set("network", "myos_ap_bridge", "name", "br-myos-ap")
+		cursor:set("network", "myos_ap_bridge", "type", "bridge")
+		cursor:set("network", "myos_ap_bridge", "ports", ports)
+		cursor:set("network", "myos_ap_bridge", "macaddr", address)
+		cursor:set("network", "lan", "device", "br-myos-ap")
+	end
+
+	local lan = "lan"
+	for _, option in ipairs({ "ipaddr", "netmask", "gateway", "dns", "ip6assign", "ip6addr", "ip6gw",
+		"ip6hint", "ip6class", "clientid", "reqopts", "sendopts", "metric", "peerdns", "defaultroute",
+		"disabled", "auto" }) do
+		cursor:delete("network", lan, option)
+	end
+	cursor:set("network", lan, "proto", "dhcp")
+	cursor:set("network", lan, "hostname", prefix .. address:gsub(":", ""))
+	cursor:set("network", lan, "delegate", "0")
+
+	local wan = { wan = true, wan6 = true, wwan = true, usb_network = true }
+	cursor:foreach("firewall", "zone", function(section)
+		if section.name ~= "wan" then return end
+		local networks = section.network or {}
+		if type(networks) == "table" then networks = table.concat(networks, " ") end
+		for name in networks:gmatch("%S+") do if name ~= lan then wan[name] = true end end
+	end)
+	cursor:foreach("network", "interface", function(section)
+		local device = section.device or section.phyifname or section.ifname
+		if section[".name"] ~= lan and (wan[section[".name"]] or (uplink and device == uplink)) then
+			cursor:set("network", section[".name"], "auto", "0")
+			cursor:set("network", section[".name"], "disabled", "1")
+		end
+	end)
+
+	cursor:foreach("dhcp", "dhcp", function(section)
+		if section.interface ~= lan then return end
+		local name = section[".name"]
+		cursor:set("dhcp", name, "ignore", "1")
+		for _, option in ipairs({ "dhcpv4", "dhcpv6", "ra", "ndp" }) do
+			cursor:set("dhcp", name, option, "disabled")
+		end
+	end)
+
+	if not cursor:commit("dhcp") or not cursor:commit("network") then
+		if restore(saved) then fs.unlink(backup) end
+		return fail("切换配置写入失败，请在本机查看工作模式")
+	end
+	reload_mode()
+	return { mode = "ap", mac = address, router_ip = saved.ip }
+end
+
+local function issue_code(cursor)
+	if not is_ap(cursor) then return fail("请先切换为有线 AP") end
+	local address = mac(cursor)
+	local bytes = transport.random(32)
+	if not address or not bytes then return fail("无法生成配对码") end
+	fs.mkdir(state, "700")
+	local token = nixio.bin.hexlify(bytes)
+	if not save(tokenfile, token, "600") then return fail("无法保存配对凭据") end
+	return { code = table.concat({ "MYOSAP2", address:gsub(":", ""), token }, ".") }
+end
+
+local function wifi_profiles(cursor)
+	local profiles = {}
+	local bus = require("ubus").connect()
+	local wireless = bus and bus:call("network.wireless", "status", {}) or {}
+	cursor:foreach("wireless", "wifi-iface", function(section)
+		if section.mode ~= "ap" then return end
+		local networks = section.network or ""
+		if type(networks) == "table" then networks = table.concat(networks, " ") end
+		if not (" " .. networks .. " "):find(" lan ", 1, true) then return end
+		local radio = section.device and cursor:get_all("wireless", section.device)
+		if not radio then return end
+		local info_device = radio.phy
+		local live = wireless[section.device] or {}
+		for _, interface in ipairs(live.interfaces or {}) do
+			if interface.section == section[".name"] and interface.ifname then
+				info_device = interface.ifname
+				break
+			end
+		end
+		local channels, seen = { "auto" }, { auto = true }
+		local info = bus and info_device and bus:call("iwinfo", "freqlist", { device = info_device })
+		for _, freq in ipairs(info and info.results or {}) do
+			local channel = tostring(freq.channel)
+			if freq.channel and not freq.restricted and not seen[channel] then
+				channels[#channels + 1], seen[channel] = channel, true
+			end
+		end
+		local current = radio.channel or "auto"
+		if not seen[current] then channels[#channels + 1] = current end
+		profiles[#profiles + 1] = {
+			id = section[".name"], band = radio.band or radio.hwmode, ssid = section.ssid or "",
+			encryption = section.encryption or "none", channel = current, channels = channels,
+			txpower = radio.type == "mtwifi" and (tonumber(radio.txpower) or 100) or nil,
+			hidden = section.hidden == "1",
+			enabled = section.disabled ~= "1" and radio.disabled ~= "1",
+		}
+	end)
+	if bus then bus:close() end
+	return profiles
+end
+
+local function configure(cursor, request, profiles)
+	local profile
+	for _, candidate in ipairs(profiles) do
+		if candidate.id == request.id then profile = candidate break end
+	end
+	if not profile then return fail("找不到此 LAN 无线网络") end
+	if type(request.ssid) ~= "string" or #request.ssid < 1 or #request.ssid > 32
+		or request.ssid:find("%c") then
+		return fail("SSID 必须为 1–32 字节，且不能包含控制字符")
+	end
+	if type(request.encryption) ~= "string" or
+		(not encryption[request.encryption] and request.encryption ~= profile.encryption) then
+		return fail("不支持所选加密方式")
+	end
+	local channel = false
+	for _, available in ipairs(profile.channels) do
+		if available == request.channel then channel = true break end
+	end
+	if not channel then return fail("此频段不支持所选信道") end
+	local power = request.txpower
+	if profile.txpower and (type(power) ~= "number" or power % 1 ~= 0 or power < 1 or power > 100) then
+		return fail("发射功率必须为 1–100")
+	end
+	if type(request.enabled) ~= "boolean" or type(request.hidden) ~= "boolean" then
+		return fail("无线开关参数无效")
+	end
+	local key, id = request.key, profile.id
+	if type(key) ~= "string" then return fail("无线密码格式无效") end
+	if key ~= "" and (#key < 8 or #key > 63 or key:find("%c")) then
+		return fail("无线密码必须为 8–63 字节，且不能包含控制字符")
+	end
+	local open = request.encryption == "none" or request.encryption == "owe"
+	if open then
+		cursor:delete("wireless", id, "key")
+	elseif key ~= "" then
+		cursor:set("wireless", id, "key", key)
+	elseif request.encryption ~= profile.encryption or not cursor:get("wireless", id, "key") then
+		return fail("请填写该加密方式的无线密码")
+	end
+
+	local radio = cursor:get("wireless", id, "device")
+	cursor:set("wireless", id, "ssid", request.ssid)
+	cursor:set("wireless", id, "encryption", request.encryption)
+	cursor:set("wireless", id, "hidden", request.hidden and "1" or "0")
+	cursor:set("wireless", id, "disabled", request.enabled and "0" or "1")
+	if request.enabled then cursor:delete("wireless", radio, "disabled") end
+	cursor:set("wireless", radio, "channel", request.channel)
+	if profile.txpower then cursor:set("wireless", radio, "txpower", tostring(power)) end
+	if not cursor:commit("wireless") then return fail("无法保存无线配置") end
+	if os.execute("umask 022; /sbin/wifi reload >/dev/null 2>&1") ~= 0 then
+		return fail("配置已保存，无线重载失败")
+	end
+	return { ok = true, board = board(), model = sysinfo("model"), mac = mac(cursor), radios = wifi_profiles(uci.cursor()) }
+end
+
+local function peer_operation(cursor, request)
+	local generation = read(generationfile) or "0"
+	local profiles = wifi_profiles(cursor)
+	if request.action == "status" then
+		return { ok = true, board = board(), model = sysinfo("model"), mac = mac(cursor),
+			radios = profiles, generation = generation }
+	end
+	if request.action == "configure" then
+		-- Consume the configuration revision before changing UCI to prevent request replay.
+		if request.generation ~= generation then return fail("无线配置已更新，请重新下发") end
+		local next_generation = transport.random(16)
+		if not next_generation or not save(generationfile, nixio.bin.hexlify(next_generation), "600") then
+			return fail("无法记录无线配置操作")
+		end
+		return configure(cursor, request, profiles)
+	end
+	return fail("未知的管理操作")
+end
+
+local function peer(cursor, packet)
+	local token = read(tokenfile)
+	local request = is_ap(cursor) and token and transport.open(token, "request", packet)
+	if not request then return fail("配对凭据无效") end
+	return transport.seal(token, "reply:" .. packet.nonce, peer_operation(cursor, request))
+		or fail("无法返回管理结果")
+end
+
+local function locked(handler, request)
+	local lock = nixio.open("/var/lock/myos-ap", "w", "600")
+	if not lock or not lock:lock("lock") then return fail("无法取得 AP 配置锁") end
+	local result = handler(uci.cursor(), request)
+	lock:close()
+	return result
+end
+
+nixio.umask("077")
+if arg[1] == "list" then
+	print('{"status":{},"set_mode":{"mode":"","uplink":""},"pair":{},"revoke":{}}')
+elseif arg[1] == "call" then
+	local request = json.parse(io.read("*a")) or {}
+	local handlers = {
+		status = local_status, set_mode = set_mode, pair = issue_code,
+		revoke = function()
+			if fs.stat(tokenfile, "size") and not fs.unlink(tokenfile) then return fail("无法撤销配对") end
+			return { ok = true }
+		end,
+	}
+	local handler = handlers[arg[2]]
+	print(json.stringify(handler and locked(handler, request) or fail("未知的管理操作")))
+else
+	local size = tonumber(os.getenv("CONTENT_LENGTH")) or 0
+	local result = fail("无效请求")
+	if os.getenv("REQUEST_METHOD") == "POST" and size > 0 and size <= 4096 then
+		local body = io.read(size)
+		local request = body and json.parse(body)
+		if type(request) == "table" then result = locked(peer, request) end
+	end
+	io.write("Content-Type: application/json\r\nCache-Control: no-store\r\n\r\n", json.stringify(result))
+end

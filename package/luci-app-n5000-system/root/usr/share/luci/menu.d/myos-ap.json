@@ -1,0 +1,12 @@
+{
+  "admin/network/myos-ap": {
+    "title": "AC / AP 组网",
+    "order": 16,
+    "action": { "type": "view", "path": "myos/ac-ap" },
+    "depends": { "acl": [ "luci-mod-network-config" ] }
+  },
+  "admin/network/myos-ap-api": {
+    "action": { "type": "function", "module": "luci.controller.myos_ac_ap", "function": "run", "post": true },
+    "depends": { "acl": [ "luci-mod-network-config" ] }
+  }
+}

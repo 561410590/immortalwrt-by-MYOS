@@ -211,22 +211,24 @@ return view.extend({
 			};
 		}
 
-		o = s.option(form.DummyValue, '_match', _('Match'));
+		o = s.option(form.DummyValue, '_match', '转发映射');
 		o.modalonly = false;
 		o.textvalue = function(s) {
-			return E('small', [
-				rule_proto_txt(s, ctHelpers), E('br'),
-				rule_src_txt(s, hosts), E('br'),
-				rule_dest_txt(s), E('br'),
-				rule_limit_txt(s)
-			]);
-		};
-
-		o = s.option(form.ListValue, '_dest', _('Action'));
-		o.modalonly = false;
-		o.textvalue = function(s) {
-			return E('small', [
-				rule_target_txt(s)
+			const rule = uci.get('firewall', s);
+			const protocols = L.toArray(rule.proto || 'tcp udp');
+			const protocol = protocols.some(p => ['all', 'any', '*'].includes(p))
+				? '全协议' : protocols.map(p => p.toUpperCase()).join(' / ');
+			const endpoint = (ip, port) => port
+				? (ip.includes(':') ? '[' + ip + ']' : ip) + ':' + port
+				: ip;
+			const external = endpoint(rule.src_dip || '任意外部地址', rule.src_dport);
+			const internal = endpoint(rule.dest_ip || '本机', rule.dest_port || rule.src_dport);
+			return E('div', { class: 'm-forward-map' }, [
+				E('strong', external + ' → ' + internal), E('small', protocol),
+				E('details', [E('summary', '匹配详情'), E('div', [
+					rule_proto_txt(s, ctHelpers), E('br'), rule_src_txt(s, hosts), E('br'),
+					rule_dest_txt(s), E('br'), rule_target_txt(s), E('br'), rule_limit_txt(s)
+				])])
 			]);
 		};
 

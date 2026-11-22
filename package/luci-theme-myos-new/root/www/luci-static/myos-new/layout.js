@@ -1,4 +1,4 @@
-/* Browser-local layout. Dragging moves a preview label until drop.
+/* Dragging moves a preview label until drop.
  * The default layout redistributes cards when column heights change. */
 (()=>{
  'use strict';
@@ -73,10 +73,17 @@
   function scheduleBalance(){
    if(!balanceFrame&&!editing&&!state.manual&&root.isConnected)balanceFrame=requestAnimationFrame(balanceColumns);
   }
-  function save(){try{localStorage.setItem(key,JSON.stringify(state));}catch(_){announce('当前浏览器不能保存，布局仅本次有效。');}}
-  function load(){
+  let writes=Promise.resolve(),changed=false;
+  function save(){
+   changed=true;
+   const saved=JSON.stringify(state);
+   try{localStorage.setItem(key,saved);}catch(_){}
+   writes=writes.catch(()=>{}).then(()=>window.MYOSAppearance.save('home_layout',saved));
+   writes.then(()=>announce('布局已保存到路由器。'),()=>announce('路由器未保存布局。'));
+  }
+  function load(preference){
    state={zones:defaultZones(model),hidden:[]};
-   try{const data=JSON.parse(localStorage.getItem(key));if(data?.zones){
+   try{const data=preference??JSON.parse(localStorage.getItem(key));if(data?.zones){
     const seen=new Set();Object.keys(zones).forEach(z=>{state.zones[z]=(Array.isArray(data.zones[z])?data.zones[z]:[]).filter(n=>Object.hasOwn(parts,n)&&!seen.has(n)&&seen.add(n));});
     const oldDefault=model==='n5000'?legacyN5000:legacyDefaults;
     const defaultOrder=[oldDefault,legacyDefaults,previousDefaults,overviewDefaults,defaults].some(layout=>
@@ -155,11 +162,18 @@
    grab.addEventListener('pointerdown',e=>begin(e,n));grab.addEventListener('pointermove',move);grab.addEventListener('pointerup',()=>end(false));grab.addEventListener('pointercancel',()=>end(true));grab.addEventListener('keydown',e=>{if(e.key==='Escape'){end(true);return;}if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();if(e.key==='ArrowUp'||e.key==='ArrowDown')adjacent(n,e.key==='ArrowUp'?-1:1);else cross(n);}});
    handle.append(grab);[['↑','上移',()=>adjacent(n,-1)],['↓','下移',()=>adjacent(n,1)],['⇄','移到另一栏',()=>cross(n)]].forEach(([text,label,fn])=>{const b=document.createElement('button');b.type='button';b.textContent=text;b.title=label;b.setAttribute('aria-label',labels[n]+label);b.addEventListener('click',fn);handle.append(b);});part.prepend(handle);
   });
-  function toggleEdit(){editing=!editing;root.classList.toggle('m-layout-editing',editing);app.editButton.textContent=editing?'完成布局':'编辑布局';app.editButton.setAttribute('aria-pressed',String(editing));if(!editing){end(true);if(state.manual)scheduleBalance();else apply();}announce(editing?'拖动手柄调整卡片；自动保存。':'布局已保存。');window.dispatchEvent(new Event('myos:layout'));}
-  function reset(){end(true);state={zones:defaultZones(model),hidden:[]};try{localStorage.removeItem(key);}catch(_){}apply();announce('已恢复默认布局。');}
+  function toggleEdit(){editing=!editing;root.classList.toggle('m-layout-editing',editing);app.editButton.textContent=editing?'完成布局':'编辑布局';app.editButton.setAttribute('aria-pressed',String(editing));if(!editing){end(true);if(state.manual)scheduleBalance();else apply();}if(editing)announce('拖动手柄调整卡片，变更会自动保存。');window.dispatchEvent(new Event('myos:layout'));}
+  function reset(){end(true);state={zones:defaultZones(model),hidden:[]};apply();save();}
   function picker(){dialog?.remove();dialog=document.createElement('dialog');dialog.className='m-client-dialog m-layout-dialog';const h=document.createElement('h2');h.textContent='添加 / 隐藏卡片';dialog.append(h);const text=document.createElement('p');text.textContent='仅列出本机适用的卡片。勾选后立即显示，不增加服务或修改网络。';dialog.append(text);
    Object.keys(parts).filter(n=>available(n)&&n!=='controls').forEach(n=>{const label=document.createElement('label');label.className='m-card-choice';const check=document.createElement('input');check.type='checkbox';check.checked=!state.hidden.includes(n);check.addEventListener('change',()=>{state.hidden=state.hidden.filter(v=>v!==n);if(!check.checked)state.hidden.push(n);reconcile();save();});label.append(check,document.createTextNode(labels[n]));dialog.append(label);});
    const done=document.createElement('button');done.type='button';done.className='m-pill-button';done.textContent='完成';const current=dialog;done.addEventListener('click',()=>current.close());current.append(done);current.addEventListener('close',()=>current.remove());document.body.append(current);current.showModal();}
-  load();apply();return {toggleEdit,reset,picker,reconcile,moveTo,adjacent,get state(){return state;},destroy(){end(true);dialog?.remove();resize?.disconnect();narrow.removeEventListener('change',scheduleBalance);phone.removeEventListener('change',resizeLayout);tablet.removeEventListener('change',resizeTablet);root.removeEventListener('focusout',scheduleBalance);observing=false;cancelAnimationFrame(balanceFrame);balanceFrame=0;}};
+  load();apply();
+  window.MYOSAppearance?.load.then(settings=>{
+   if(!changed&&root.isConnected&&settings.layout){
+    load(settings.layout);
+    apply();
+   }
+  }).catch(()=>{});
+  return {toggleEdit,reset,picker,reconcile,moveTo,adjacent,get state(){return state;},destroy(){end(true);dialog?.remove();resize?.disconnect();narrow.removeEventListener('change',scheduleBalance);phone.removeEventListener('change',resizeLayout);tablet.removeEventListener('change',resizeTablet);root.removeEventListener('focusout',scheduleBalance);observing=false;cancelAnimationFrame(balanceFrame);balanceFrame=0;}};
  };
 })();

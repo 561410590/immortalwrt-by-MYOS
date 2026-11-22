@@ -3529,6 +3529,8 @@ define Device/nradio_c2000-ultra
 endef
 TARGET_DEVICES += nradio_c2000-ultra
 
+N5000_NROS_WEBUI := $(TOPDIR)/target/linux/mediatek/image/nradio-n5000/nros-2.3.9-webui
+
 define Build/prepare-n5000-app-rootfs
 	rm -rf $(KDIR)/root-n5000-$(1)-app \
 		$(KDIR)/root-n5000-$(1)-app.squashfs \
@@ -3587,6 +3589,18 @@ define Build/prepare-n5000-app-rootfs
 		$(KDIR)/root-n5000-$(1)-app $(TOPDIR)/target/linux/mediatek/image/nradio-n5000
 	python3 $(TOPDIR)/../immortalwrt-mt798x-6.6/target/linux/mediatek/image/install-kunpeng-ai.py \
 		$(KDIR)/root-n5000-$(1)-app $(STAGING_DIR_HOST)/bin/opkg --myos-runtime
+	$(INSTALL_DIR) $(KDIR)/root-n5000-$(1)-app/usr/lib/nros-n5000-2.3.9-webui \
+		$(KDIR)/root-n5000-$(1)-app/www/luci-static/resources/view/myos-nros \
+		$(KDIR)/root-n5000-$(1)-app/usr/share/luci/menu.d
+	$(CP) $(N5000_NROS_WEBUI)/root/. \
+		$(KDIR)/root-n5000-$(1)-app/usr/lib/nros-n5000-2.3.9-webui/
+	$(INSTALL_BIN) $(N5000_NROS_WEBUI)/nros-n5000-webui.init \
+		$(KDIR)/root-n5000-$(1)-app/etc/init.d/nros-n5000-webui
+	$(INSTALL_DATA) $(N5000_NROS_WEBUI)/myos-theme-menu.json \
+		$(KDIR)/root-n5000-$(1)-app/usr/share/luci/menu.d/myos-theme.json
+	$(INSTALL_DATA) $(N5000_NROS_WEBUI)/myos-theme.js \
+		$(KDIR)/root-n5000-$(1)-app/www/luci-static/resources/view/myos-nros/theme.js
+	ln -sf ../init.d/nros-n5000-webui $(KDIR)/root-n5000-$(1)-app/etc/rc.d/S99nros-n5000-webui
 	$(STAGING_DIR_HOST)/bin/mksquashfs4 \
 		$(KDIR)/root-n5000-$(1)-app \
 		$(KDIR)/root-n5000-$(1)-app.squashfs \

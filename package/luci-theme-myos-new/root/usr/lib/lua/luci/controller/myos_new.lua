@@ -9,6 +9,8 @@ function index()
     entry({"admin", "myos", "link_quality"}, call("link_quality")).leaf = true
     entry({"admin", "myos", "ping_target"}, post("save_ping_target")).leaf = true
     entry({"admin", "myos", "login_video"}, post("save_login_video")).leaf = true
+    entry({"admin", "myos", "appearance"}, call("appearance_settings")).leaf = true
+    entry({"admin", "myos", "appearance_save"}, post("save_appearance_settings")).leaf = true
     local leds = entry({"admin", "system", "myos_panel_led"}, view("myos-new/panel-led"), _("面板指示灯"), 59)
     leds.acl_depends = {"luci-mod-system-config"}
     entry({"admin", "system", "myos_panel_led", "status"}, call("panel_led_status")).leaf = true
@@ -467,37 +469,72 @@ end
 local log_months = {Jan=1, Feb=2, Mar=3, Apr=4, May=5, Jun=6,
     Jul=7, Aug=8, Sep=9, Oct=10, Nov=11, Dec=12}
 
-local function read_connection_events()
-    local log = io.popen("/sbin/logread -e 'netifd: Network device\\|AP-STA-' 2>/dev/null; printf '\\nmyos-log-status:%s\\n' \"$?\"")
-    if not log then return {available=false} end
-    local content = log:read("*a")
-    log:close()
-    if not content or not content:match("myos%-log%-status:0%s*$") then
-        return {available=false}
+local function connection_event(line)
+    local device, state = line:match("netifd: Network device '([^']+)' link is (%a+)")
+    local kind, mac = "port", nil
+    if not device then
+        device, state, mac = line:match("hostapd: ([%w_.:@%-]+): AP%-STA%-(%u+) ([%x:]+)")
+        kind = "wifi"
     end
-    local events = {}
-    for line in content:gmatch("[^\n]+") do
-        local device, state = line:match("netifd: Network device '([^']+)' link is (%a+)")
-        local kind, mac = "port", nil
-        if not device then
-            device, state, mac = line:match("hostapd: ([%w_.:@%-]+): AP%-STA%-(%u+) ([%x:]+)")
-            kind = "wifi"
+    if not device then
+        device, mac = line:match("dnsmasq%-dhcp[^:]*: DHCPACK%(([^)]+)%) %S+ ([%x:]+)")
+        if device then kind, state = "dhcp", "ACK" end
+    end
+    if not device or (state ~= "up" and state ~= "down" and state ~= "CONNECTED" and
+       state ~= "DISCONNECTED" and state ~= "ACK") then return end
+    local month, day, hour, min, sec, year = line:match("^%a+%s+(%a+)%s+(%d+)%s+(%d+):(%d+):(%d+)%s+(%d+)")
+    if not log_months[month] then return end
+    local stamp = os.time({year=tonumber(year), month=log_months[month], day=tonumber(day),
+        hour=tonumber(hour), min=tonumber(min), sec=tonumber(sec)})
+    return {time=stamp, kind=kind, device=device, up=state=="up" or state=="CONNECTED" or state=="ACK",
+        mac=mac and mac:lower()}
+end
+
+local function append_connection_event(events, event)
+    if not event then return end
+    for _, prior in ipairs(events) do
+        if prior.time==event.time and prior.kind==event.kind and prior.device==event.device and
+           prior.up==event.up and prior.mac==event.mac then return end
+    end
+    events[#events+1] = event
+    table.sort(events, function(a,b) return a.time < b.time end)
+    if #events > 40 then table.remove(events, 1) end
+end
+
+function follow_connection_events()
+    local perf = require("luci.model.myos_liquid")
+    local events = perf.cached("connections").events or {}
+    local log = io.popen("/sbin/logread -f 2>/dev/null")
+    if not log then return end
+    for line in log:lines() do
+        local event = connection_event(line)
+        if event then
+            append_connection_event(events, event)
+            perf.save("connections", {events=events})
         end
-        if device and (state == "up" or state == "down" or state == "CONNECTED" or state == "DISCONNECTED") then
-            local month, day, hour, min, sec, year = line:match("^%a+%s+(%a+)%s+(%d+)%s+(%d+):(%d+):(%d+)%s+(%d+)")
-            if log_months[month] then
-                local stamp = os.time({year=tonumber(year), month=log_months[month], day=tonumber(day),
-                    hour=tonumber(hour), min=tonumber(min), sec=tonumber(sec)})
-                events[#events + 1] = {time=stamp, kind=kind, device=device,
-                    up=state == "up" or state == "CONNECTED", mac=mac and mac:lower()}
+    end
+    log:close()
+end
+
+local function read_connection_events()
+    local events = require("luci.model.myos_liquid").cached("connections").events or {}
+    local log = io.popen("/sbin/logread 2>/dev/null; printf '\\nmyos-log-status:%s\\n' \"$?\"")
+    local available = false
+    if log then
+        for line in log:lines() do
+            if line == "myos-log-status:0" then
+                available = true
+            else
+                append_connection_event(events, connection_event(line))
             end
         end
+        log:close()
     end
     local recent = {}
-    for i = #events, math.max(1, #events - 39), -1 do
+    for i = #events, 1, -1 do
         recent[#recent + 1] = events[i]
     end
-    return {available=true, events=recent}
+    return {available=available, events=recent}
 end
 
 local function panel_led_backend(cursor, fs)
@@ -518,7 +555,7 @@ local function panel_led_backend(cursor, fs)
     end
 end
 
-local function panel_led_can_write()
+local function can_write_system_config()
     local access = require("luci.util").ubus("session", "access", {
         ubus_rpc_session=luci.dispatcher.context.authsession, scope="access-group",
         object="luci-mod-system-config", ["function"]="write"
@@ -592,12 +629,12 @@ end
 function panel_led_status()
     local cursor, fs = require("uci").cursor(), require "nixio.fs"
     local backend = panel_led_backend(cursor, fs)
-    output({supported=backend ~= nil, writable=panel_led_can_write(),
+    output({supported=backend ~= nil, writable=can_write_system_config(),
         enabled=panel_led_state(cursor, fs, backend)})
 end
 
 function save_panel_led()
-    if not panel_led_can_write() then
+    if not can_write_system_config() then
         luci.http.status(403, "Forbidden")
         return output({error="当前账号没有指示灯设置权限。"})
     end
@@ -740,6 +777,64 @@ end
 local function link_sample_time()
     local seconds, micros = require("nixio").gettimeofday()
     return seconds + micros / 1000000
+end
+
+local function appearance_color(value)
+    return type(value) == "string" and (value == "" or value:match("^#%x%x%x%x%x%x$"))
+end
+
+local function appearance_json(raw, limit)
+    if type(raw) ~= "string" or #raw > limit then return nil end
+    local value = require("luci.jsonc").parse(raw)
+    return type(value) == "table" and value or nil
+end
+
+function appearance_settings()
+    local cursor = require("uci").cursor()
+    output({
+        layout = appearance_json(cursor:get("myos_appearance", "main", "home_layout"), 2048),
+        shortcuts = appearance_json(cursor:get("myos_appearance", "main", "shortcuts"), 2048) or {},
+        shortcuts_open = cursor:get("myos_appearance", "main", "shortcuts_open") == "1"
+    })
+end
+
+function save_appearance_settings()
+    if not can_write_system_config() then
+        luci.http.status(403, "Permission denied")
+        return output({error="当前账号没有保存权限"})
+    end
+    local option = luci.http.formvalue("setting")
+    local raw = luci.http.formvalue("value")
+    local valid = option == "background_color" and appearance_color(raw)
+    if option == "home_layout" then
+        local layout = appearance_json(raw, 2048)
+        valid = layout and type(layout.zones) == "table" and type(layout.hidden) == "table"
+    elseif option == "shortcuts_open" then
+        valid = raw == "0" or raw == "1"
+    elseif option == "shortcuts" then
+        local shortcuts = appearance_json(raw, 2048)
+        valid = shortcuts ~= nil and #shortcuts <= 4
+        for key, shortcut in pairs(shortcuts or {}) do
+            if type(key) ~= "number" or key < 1 or key > #shortcuts or type(shortcut) ~= "table" or
+               type(shortcut.path) ~= "string" or #shortcut.path > 128 or
+               not shortcut.path:match("^admin/[%w_%-][%w_/%-]*$") or
+               type(shortcut.title) ~= "string" or #shortcut.title > 96 or not shortcut.title:find("%S") or
+               type(shortcut.icon) ~= "string" or #shortcut.icon > 16 or not shortcut.icon:match("^[a-z]+$") then
+                valid = false
+                break
+            end
+        end
+    end
+    if not valid then
+        luci.http.status(400, "Invalid appearance setting")
+        return output({error="外观设置无效"})
+    end
+    local cursor = require("uci").cursor()
+    if not cursor:set("myos_appearance", "main", option, raw) or not cursor:commit("myos_appearance") then
+        luci.http.status(500, "Appearance save failed")
+        return output({error="路由器未保存设置"})
+    end
+    output({saved=true})
 end
 
 function save_login_video()
@@ -1055,7 +1150,27 @@ function snapshot()
             mac=d.macaddr,mtu=d.mtu,networks=util.clone(bydev[name] or {},true),
             rx=tonumber(rd(base.."/statistics/rx_bytes")),tx=tonumber(rd(base.."/statistics/tx_bytes"))}
     end
-    for name in pairs(uplinks) do append(result.uplinks,devinfo(name)) end
+    local main_routes = {}
+    if next(uplinks) then
+        local exec = require("luci.sys").exec
+        for family, flag in pairs({ipv4="-4", ipv6="-6"}) do
+            local routes = json.parse(exec("/sbin/ip " .. flag .. " -j route show table main default") or "")
+            for _, route in ipairs(type(routes) == "table" and routes or {}) do
+                if uplinks[route.dev] and (route.type == nil or route.type == "unicast") then
+                    local entry = main_routes[route.dev] or {ipv4={}, ipv6={}}
+                    append(entry[family], {
+                        metric=route.metric or (family == "ipv4" and 0 or nil), source=route.from
+                    })
+                    main_routes[route.dev] = entry
+                end
+            end
+        end
+    end
+    for name in pairs(uplinks) do
+        local line = devinfo(name)
+        line.main_routes = main_routes[name]
+        append(result.uplinks,line)
+    end
     table.sort(result.uplinks,function(a,b) return a.name<b.name end)
     local portnames = physical_ports(profile,devices)
     local lanmembers={}

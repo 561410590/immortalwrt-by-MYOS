@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-n5000-system
 PKG_VERSION:=1.0
-PKG_RELEASE:=6
+PKG_RELEASE:=7
 PKGARCH:=all
 PKG_LICENSE:=Apache-2.0
 
@@ -21,7 +21,7 @@ define Package/luci-app-n5000-system
   CATEGORY:=LuCI
   SUBMENU:=Applications
   TITLE:=N5000 wireless defaults, update, fan, notifications and USB networking
-  DEPENDS:=+luci-base +luci-mod-network +luci-compat +luci-lib-jsonc +rpcd-mod-luci +rpcd-mod-ucode +ucode-mod-fs +ucode-mod-ubus +ucode-mod-uci +uclient-fetch +ca-bundle +curl +jsonfilter +jq +jshn +bc +fancontrol
+  DEPENDS:=+luci-base +luci-mod-network +luci-compat +luci-lib-jsonc +rpcd-mod-luci +rpcd-mod-ucode +ucode-mod-fs +ucode-mod-ubus +ucode-mod-uci +uclient-fetch +ca-bundle +curl +jsonfilter +jq +jshn +bc +fancontrol +libuci-lua +luci-lib-nixio +libubus-lua +uhttpd +libustream-openssl +openssl-util
 endef
 
 define Package/luci-app-n5000-system/conffiles

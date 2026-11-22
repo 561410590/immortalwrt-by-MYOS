@@ -1,0 +1,7 @@
+{
+  "luci-app-myos-ap": {
+    "description": "Manage the N5000 operating mode and AC pairing",
+    "read": { "ubus": { "myos.ap": [ "status" ] } },
+    "write": { "ubus": { "myos.ap": [ "set_mode", "pair", "revoke" ] } }
+  }
+}

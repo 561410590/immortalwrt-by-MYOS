@@ -11,6 +11,7 @@
 'require firewall';
 'require tools.widgets as widgets';
 'require tools.myos-wifi as simplewifi';
+'require view.network.myos-wireless-stations as wirelessStations';
 
 const isReadonlyView = !L.hasViewPermission();
 
@@ -108,18 +109,21 @@ function render_radio_status(radioDev, wifiNets) {
 	if (name == 'Generic unknown' && /^MT7992(?:_|$)/i.test(radioDev.getName()))
 		name = 'MediaTek MT7992 802.11be';
 	const node = E('div', [ E('big', {}, E('strong', {}, name)), E('div') ]);
-	let channel, frequency, bitrate;
+	let channel, frequency, bitrate, htmode;
 
 	wifiNets.forEach(wifiNet => {
 		channel   = channel   ?? wifiNet.getChannel();
 		frequency = frequency ?? wifiNet.getFrequency();
 		bitrate   = bitrate   ?? wifiNet.getBitRate();
+		htmode = htmode ?? wifiNet.ubus('net', 'iwinfo', 'htmode');
 	});
 
 	if (radioDev.isUp())
 		L.itemlist(node.lastElementChild, [
 			_('Channel'), `${channel || '?'} (${frequency || '?'} ${_('GHz')})`,
-			_('Bitrate'), `${bitrate || '?'} ${_('Mbit/s')}`
+			_('Bitrate'), `${bitrate || '?'} ${_('Mbit/s')}`,
+			...(uci.get('wireless', radioDev.getName(), 'type') === 'mtwifi' ? ['实际带宽',
+				htmode?.match(/^(?:HT|VHT|HE|EHT)(\d+(?:\+80)?)$/)?.[1] ? htmode.replace(/^[A-Z]+/, '') + ' MHz' : '未知'] : [])
 		], ' | ');
 	else
 		node.lastElementChild.appendChild(E('em', _('Device is not active')));
@@ -694,95 +698,7 @@ return view.extend({
 			btns[2].disabled = isReadonlyView || busy;
 		});
 
-		const table = document.querySelector('#wifi_assoclist_table');
-		const hosts = data[0];
-		let trows = [];
-		const radios = data[3];
-		const zones = data[4];
-
-		radios.forEach(zone => {
-			const bss = zone;
-			const name = hosts.getHostnameByMACAddr(bss.mac);
-			const ipv4 = hosts.getIPAddrByMACAddr(bss.mac);
-			const ipv6 = hosts.getIP6AddrByMACAddr(bss.mac);
-
-			let hint;
-
-			if (name && ipv4 && ipv6)
-				hint = `${'%h'.format(name)} <span class="hide-xs">(${ipv4}, ${ipv6})</span>`;
-			else if (name && (ipv4 ?? ipv6))
-				hint = `${'%h'.format(name)} <span class="hide-xs">(${ipv4 || ipv6})</span>`;
-			else
-				hint = name || ipv4 || ipv6 || '?';
-
-			let row = [
-				E('span', {
-					'class': 'ifacebadge',
-					'data-ifname': bss.network.getIfname(),
-					'data-ssid': bss.network.getSSID()
-				}, [
-					E('img', {
-						'src': L.resource('icons/wifi%s.svg').format(bss.network.isUp() ? '' : '_disabled'),
-						'title': bss.radio.getI18n()
-					}),
-					E('span', [
-						` ${bss.network.getShortName()} `,
-						E('small', `(${bss.network.getIfname()})`)
-					])
-				]),
-				bss.mac,
-				hint,
-				render_signal_badge(Math.min((bss.signal + 110) / 70 * 100, 100), bss.signal, bss.noise),
-				E('span', {}, [
-					E('span', format_wifirate(bss.rx)),
-					E('br'),
-					E('span', format_wifirate(bss.tx))
-				])
-			];
-
-			if (bss.vlan) {
-				const desc = bss.vlan.getI18n();
-				const vlan_network = bss.vlan.getNetwork();
-				let vlan_zone;
-
-				if (vlan_network && zones)
-					for (let zone of zones)
-						if (zone.getNetworks().includes(vlan_network))
-							vlan_zone = zone;
-
-				row[0].insertBefore(
-					E('div', {
-						'class' : 'zonebadge',
-						'title' : desc,
-						'style' : firewall.getZoneColorStyle(vlan_zone)
-					}, [ desc ]), row[0].firstChild);
-			}
-
-			if (bss.network.isClientDisconnectSupported()) {
-				if (table.firstElementChild.childNodes.length < 6)
-					table.firstElementChild.appendChild(E('th', { 'class': 'th cbi-section-actions'}));
-
-				row.push(E('button', {
-					'class': 'cbi-button cbi-button-remove',
-					'click': L.bind(function(net, mac, ev) {
-						dom.parent(ev.currentTarget, '.tr').style.opacity = 0.5;
-						ev.currentTarget.classList.add('spinning');
-						ev.currentTarget.disabled = true;
-						ev.currentTarget.blur();
-
-						net.disconnectClient(mac, true, 5, 60000);
-					}, this, bss.network, bss.mac),
-					'disabled': isReadonlyView || null
-				}, [ _('Disconnect') ]));
-			}
-			else {
-				row.push('-');
-			}
-
-			trows.push(row);
-		});
-
-		cbi_update_table(table, trows, E('em', _('No information available')));
+		this.stations.update(data[0], data[2], data[3], data[4], isReadonlyView);
 
 		const status = document.querySelector('.cbi-modal [data-name="_wifistat_modal"] .ifacebadge.large');
 
@@ -816,7 +732,20 @@ return view.extend({
 			this.handleSave = null;
 			this.handleSaveApply = null;
 			this.handleReset = null;
-			return simplewifi.render();
+			return Promise.resolve(simplewifi.render()).then(nodes => {
+				this.stations = wirelessStations.create(format_wifirate);
+				poll.add(async () => {
+					const [hosts, wifiNetworks] = await Promise.all([
+						network.getHostHints(), network.getWifiNetworks()
+					]);
+					const associated = await Promise.all(wifiNetworks.map(async wifi =>
+						(await wifi.getAssocList()).map(station => Object.assign({ network: wifi }, station))
+					));
+					this.stations.update(hosts, wifiNetworks, associated.flat(), data[3], isReadonlyView);
+					return network.flushCache();
+				}, 5);
+				return E([ nodes, this.stations.element ]);
+			});
 		}
 
 		if (this.checkAnonymousSections())
@@ -2423,19 +2352,8 @@ return view.extend({
 					.then(L.bind(this.poll_status, this, nodes));
 			}, this), 5);
 
-			const table = E('table', { 'class': 'table assoclist', 'id': 'wifi_assoclist_table' }, [
-				E('tr', { 'class': 'tr table-titles' }, [
-					E('th', { 'class': 'th nowrap' }, _('Network')),
-					E('th', { 'class': 'th hide-xs' }, _('MAC address')),
-					E('th', { 'class': 'th' }, _('Host')),
-					E('th', { 'class': 'th' }, _('Signal / Noise')),
-					E('th', { 'class': 'th' }, _('RX Rate / TX Rate'))
-				])
-			]);
-
-			cbi_update_table(table, [], E('em', { 'class': 'spinning' }, _('Collecting data...')));
-
-			return E([ nodes, E('h3', _('Associated Stations')), table ]);
+			this.stations = wirelessStations.create(format_wifirate);
+			return E([ nodes, this.stations.element ]);
 		}, this, m));
 	},
 
