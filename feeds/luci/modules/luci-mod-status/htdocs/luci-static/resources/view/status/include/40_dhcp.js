@@ -92,6 +92,8 @@ return baseclass.extend({
 			])
 		]);
 
+		const selected = (new URLSearchParams(location.search).get('lease') || '').toUpperCase();
+		let match = null;
 		cbi_update_table(table, leases.map(L.bind(function(lease) {
 			var exp, rows;
 
@@ -110,10 +112,15 @@ return baseclass.extend({
 			else if (lease.hostname)
 				host = lease.hostname;
 
+			let macCell = lease.macaddr;
+			if (selected && selected === macCell?.toUpperCase()) {
+				match = E('span', { class: 'm-selected-lease' }, macCell);
+				macCell = match;
+			}
 			rows = [
 				host || '-',
 				lease.ipaddr,
-				lease.macaddr,
+				macCell,
 				exp
 			];
 
@@ -178,8 +185,17 @@ return baseclass.extend({
 			return rows;
 		}, this)), E('em', _('There are no active leases')));
 
+		if (selected && this.revealedLease !== selected) {
+			requestAnimationFrame(() => {
+				if (table.isConnected) {
+					(match?.closest('tr') || table).scrollIntoView({ block: 'center' });
+					this.revealedLease = selected;
+				}
+			});
+		}
 		return E([
 			E('h3', _('Active DHCP Leases')),
+			selected && !match ? E('p', { role: 'status' }, '当前 IPv4 租约中已无此设备。') : E([]),
 			table,
 			E('h3', _('Active DHCPv6 Leases')),
 			table6

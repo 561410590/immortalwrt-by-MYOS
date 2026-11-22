@@ -1,0 +1,24 @@
+<%+header%>
+<div class="cbi-map main-box">
+    <h2>主题切换</h2>
+    <div class="cbi-section">
+        <label for="interface-theme">界面主题</label>
+        <select id="interface-theme" class="cbi-input-select">
+            <option value="nros">NROS 原厂</option>
+            <option value="myos">MYOS</option>
+        </select>
+        <button type="button" class="cbi-button cbi-button-apply" id="btn-theme">切换</button>
+    </div>
+</div>
+<script>
+document.getElementById('btn-theme').onclick = function () {
+    if (document.getElementById('interface-theme').value === 'myos') {
+        var url = new URL('/cgi-bin/luci/', location.href);
+        url.port = '';
+        location.assign(url.href);
+    } else {
+        location.assign('<%=url("nradio", "system", "overview")%>');
+    }
+};
+</script>
+<%+footer%>

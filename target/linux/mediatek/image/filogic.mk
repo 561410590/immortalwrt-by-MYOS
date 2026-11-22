@@ -839,6 +839,14 @@ define Build/prepare-c2000max-rootfs
 	for path in usr/sbin/fdisk sbin/partprobe usr/sbin/blkid usr/sbin/mkfs.ext4 usr/sbin/resize2fs usr/libexec/myos-max-gpt bin/mknod sbin/block etc/config/fstab; do \
 		[ -e $(C2000MAX_MYOS_ROOTFS_DIR)/$${path} ] || { echo "C2000MAX extroot missing runtime file: $${path}"; exit 1; }; \
 	done
+	install -m 0644 -D $(TOPDIR)/feeds/luci/modules/luci-mod-network/htdocs/luci-static/resources/view/network/interfaces.js \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/www/luci-static/resources/view/network/interfaces.js
+	install -m 0644 -D $(TOPDIR)/feeds/luci/modules/luci-mod-network/htdocs/luci-static/resources/view/network/myos-wireless-stations.js \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/www/luci-static/resources/view/network/myos-wireless-stations.js
+	install -m 0644 -D $(TOPDIR)/feeds/luci/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/40_dhcp.js \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/www/luci-static/resources/view/status/include/40_dhcp.js
+	install -m 0644 -D $(TOPDIR)/feeds/luci/applications/luci-app-firewall/htdocs/luci-static/resources/view/firewall/forwards.js \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/www/luci-static/resources/view/firewall/forwards.js
 	install -m 0644 -D $(TOPDIR)/package/mtk/applications/luci-app-mtwifi-cfg/root/usr/share/luci-app-mtwifi-cfg/wireless-mtk.js \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/luci-app-mtwifi-cfg/wireless-mtk.js
 	install -m 0644 -D $(TOPDIR)/package/mtk/applications/luci-app-mtwifi-cfg/root/usr/share/luci-app-mtwifi-cfg/wireless-mtk.js \
@@ -1080,6 +1088,21 @@ define Build/prepare-c2000max-rootfs
 		$(C2000MAX_MYOS_ROOTFS_DIR) $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max
 	python3 $(TOPDIR)/../immortalwrt-mt798x-6.6/target/linux/mediatek/image/install-kunpeng-ai.py \
 		$(C2000MAX_MYOS_ROOTFS_DIR) $(STAGING_DIR_HOST)/bin/opkg --myos-runtime
+	# Add the C2000MAX factory WebUI and theme switch after the shared package overlays.
+	$(INSTALL_DIR) $(C2000MAX_MYOS_ROOTFS_DIR)/usr/lib/nros-2.3.9-webui \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/www/luci-static/resources/view/myos-nros \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/luci/menu.d
+	$(CP) $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/nros-2.3.9-webui/root/. \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/usr/lib/nros-2.3.9-webui/
+	$(INSTALL_BIN) $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/nros-2.3.9-webui/nros-max-webui.init \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/init.d/nros-max-webui
+	$(INSTALL_DATA) $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/nros-2.3.9-webui/myos-theme-menu.json \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/usr/share/luci/menu.d/myos-theme.json
+	$(INSTALL_DATA) $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/nros-2.3.9-webui/myos-theme.js \
+		$(C2000MAX_MYOS_ROOTFS_DIR)/www/luci-static/resources/view/myos-nros/theme.js
+	chmod 0700 $(C2000MAX_MYOS_ROOTFS_DIR)/usr/lib/nros-2.3.9-webui/config $(C2000MAX_MYOS_ROOTFS_DIR)/usr/lib/nros-2.3.9-webui/uci
+	chmod 0600 $(C2000MAX_MYOS_ROOTFS_DIR)/usr/lib/nros-2.3.9-webui/config/luci
+	ln -sf ../init.d/nros-max-webui $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S99nros-max-webui
 	$(STAGING_DIR_HOST)/bin/mksquashfs4 $(C2000MAX_MYOS_ROOTFS_DIR) $(C2000MAX_MYOS_ROOTFS) \
 		-nopad -noappend -root-owned -comp xz -Xpreset 9 -Xe -Xlc 0 -Xlp 2 -Xpb 2 \
 		-b 1048576 -no-xattrs \

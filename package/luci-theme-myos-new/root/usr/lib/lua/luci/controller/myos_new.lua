@@ -1163,7 +1163,27 @@ function snapshot()
             mac=d.macaddr,mtu=d.mtu,networks=util.clone(bydev[name] or {},true),
             rx=tonumber(rd(base.."/statistics/rx_bytes")),tx=tonumber(rd(base.."/statistics/tx_bytes"))}
     end
-    for name in pairs(uplinks) do append(result.uplinks,devinfo(name)) end
+    local main_routes = {}
+    if next(uplinks) then
+        local exec = require("luci.sys").exec
+        for family, flag in pairs({ipv4="-4", ipv6="-6"}) do
+            local routes = json.parse(exec("/sbin/ip " .. flag .. " -j route show table main default") or "")
+            for _, route in ipairs(type(routes) == "table" and routes or {}) do
+                if uplinks[route.dev] and (route.type == nil or route.type == "unicast") then
+                    local entry = main_routes[route.dev] or {ipv4={}, ipv6={}}
+                    append(entry[family], {
+                        metric=route.metric or (family == "ipv4" and 0 or nil), source=route.from
+                    })
+                    main_routes[route.dev] = entry
+                end
+            end
+        end
+    end
+    for name in pairs(uplinks) do
+        local line = devinfo(name)
+        line.main_routes = main_routes[name]
+        append(result.uplinks,line)
+    end
     table.sort(result.uplinks,function(a,b) return a.name<b.name end)
     local portnames = physical_ports(profile,devices)
     local lanmembers={}

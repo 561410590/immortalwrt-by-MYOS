@@ -1,0 +1,257 @@
+.myos-new details.ifmon-container {
+    container: iface-monitor / inline-size;
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    margin: 0 0 12px;
+    padding: 0;
+    box-sizing: border-box;
+    border: 1px solid var(--m-line);
+    border-radius: 12px;
+    background: var(--m-surface);
+}
+.myos-new .ifmon-container > summary {
+    display: list-item;
+    padding: 12px 16px;
+    font-size: 15px;
+    font-weight: 650;
+    cursor: pointer;
+    color: var(--m-text);
+}
+.ifmon-panel { padding: 0 16px 16px; min-width: 0; }
+.ifmon-panel [hidden] { display: none !important; }
+.ifmon-load-message { margin: 0 16px 12px; color: var(--m-muted); }
+.ifmon-panel h2, .ifmon-panel h3, .ifmon-panel p, .ifmon-panel dl {
+    margin: 0;
+}
+.ifmon-section-head, .ifmon-detail-head, .ifmon-net-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    column-gap: 14px;
+    row-gap: 6px;
+}
+.ifmon-tools, .ifmon-navigation, .ifmon-inline, .ifmon-list-footer {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.ifmon-panel :is(select, input[type="search"]) {
+    width: auto;
+    min-width: 0;
+    max-width: 100%;
+    margin: 0;
+    font: inherit;
+}
+.ifmon-tools input[type="search"] { flex: 0 1 280px; }
+.ifmon-tools { margin-bottom: 12px; }
+.ifmon-navigation { margin-bottom: 12px; }
+.ifmon-note, .ifmon-row-count, .ifmon-net-title small, .ifmon-chart-stamp {
+    color: var(--m-muted);
+    font-size: 12px;
+}
+.ifmon-row-count { margin-inline-start: auto; }
+.ifmon-list-footer { margin-block-start: 8px; }
+.ifmon-table-scroll {
+    overflow-x: auto;
+    max-width: 100%;
+}
+.ifmon-panel table {
+    width: 100%;
+    margin: 0;
+    border-spacing: 0;
+    border-collapse: collapse;
+    text-align: start;
+    font-size: 13px;
+}
+.ifmon-panel :is(.ifmon-table,.ifmon-counters) :is(td,th) {
+    padding: 9px 8px;
+    border: 0;
+    border-bottom: 1px solid var(--m-line);
+    color: var(--m-text);
+    text-align: start;
+    vertical-align: middle;
+}
+.ifmon-panel :is(.ifmon-table,.ifmon-counters) thead th {
+    background: var(--m-inset);
+    color: var(--m-muted);
+    font-weight: 600;
+    white-space: nowrap;
+}
+.ifmon-table td small {
+    display: block;
+    color: var(--m-muted);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+}
+.ifmon-column, .ifmon-device {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    text-align: start;
+    padding: 4px 0;
+}
+.ifmon-panel :is(.ifmon-column,.ifmon-device):focus-visible {
+    outline: 2px solid var(--m-blue);
+    outline-offset: 2px;
+}
+.ifmon-device, .ifmon-net-link { color: var(--m-blue); }
+.ifmon-device { font-weight: 650; overflow-wrap: anywhere; }
+.ifmon-column::after { display: inline-block; margin-inline-start: 3px; }
+th[aria-sort="ascending"] .ifmon-column::after { content: "↑"; }
+th[aria-sort="descending"] .ifmon-column::after { content: "↓"; }
+.ifmon-state[data-link="up"] { color: var(--m-green); }
+.ifmon-address { max-width: 27ch; overflow-wrap: anywhere; }
+.ifmon-table td:nth-child(n+4), .ifmon-counters td {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+.ifmon-detail {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+.ifmon-detail-head, .ifmon-trend, .ifmon-section:last-child {
+    grid-column: 1 / -1;
+}
+.ifmon-detail-head {
+    align-items: baseline;
+    justify-content: start;
+    flex-wrap: wrap;
+}
+.ifmon-detail-head h3 { overflow-wrap: anywhere; }
+.ifmon-detail h3 { font-size: 15px; font-weight: 650; }
+.ifmon-trend, .ifmon-section {
+    min-width: 0;
+    border-block-start: 1px solid var(--m-line);
+    padding-block-start: 12px;
+}
+.ifmon-section-head { flex-wrap: wrap; }
+.ifmon-chart-readings {
+    display: flex;
+    gap: 6px 16px;
+    flex-wrap: wrap;
+    align-items: baseline;
+    padding: 10px 0 0;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+.ifmon-rx { color: var(--m-chart-rx); }
+.ifmon-tx { color: var(--m-chart-tx); }
+.ifmon-chart-holder {
+    height: clamp(165px, 24dvh, 245px);
+    width: 100%;
+    direction: ltr;
+}
+.ifmon-chart-holder:focus-visible { outline: 2px solid var(--m-blue); }
+.ifmon-trend .ifmon-note { padding-block: 10px; }
+.ifmon-section > :is(dl,div), .ifmon-net > dl { margin-top: 8px; }
+.ifmon-fields {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+}
+.ifmon-field {
+    display: grid;
+    grid-template-columns: minmax(75px, 0.32fr) minmax(0, 1fr);
+    align-items: baseline;
+    gap: 8px;
+    font-size: 13px;
+}
+.ifmon-field dt { color: var(--m-muted); font-weight: normal; }
+.ifmon-field dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
+}
+.ifmon-nets {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+    gap: 12px 22px;
+}
+.ifmon-net { min-width: 0; }
+.ifmon-net-title { justify-content: start; flex-wrap: wrap; }
+.ifmon-net-link { font-weight: 650; overflow-wrap: anywhere; }
+.ifmon-counters td { text-align: end; }
+
+/* Position the canvas and overlay inside this dialog only. */
+.ifmon-chart-holder .uplot { position: relative; }
+.ifmon-chart-holder .u-wrap { position: relative; user-select: none; }
+.ifmon-chart-holder :is(.u-over,.u-under,.u-axis,.u-cursor-x,.u-cursor-pt) { position: absolute; }
+.ifmon-chart-holder .u-under { overflow: hidden; }
+.ifmon-chart-holder canvas { display: block; width: 100%; height: 100%; }
+.ifmon-chart-holder .u-cursor-x {
+    left: 0; top: 0; height: 100%;
+    border-inline-end: 1px dashed var(--m-muted);
+    pointer-events: none;
+}
+.ifmon-chart-holder .u-cursor-pt { top: 0; left: 0; border-radius: 50%; pointer-events: none; }
+.ifmon-chart-holder :is(.u-off,.u-select,.u-cursor-y,.u-legend) { display: none; }
+@container iface-monitor (max-width: 850px) {
+    .ifmon-detail { grid-template-columns: minmax(0,1fr); gap: 12px; }
+    .ifmon-tools input[type="search"] { flex: 1 1 135px; }
+    .ifmon-row-count { margin-inline-start: 0; }
+    .ifmon-table, .ifmon-table tbody { display: block; }
+    .ifmon-table thead { display: table; width: 100%; margin-bottom: 2px; }
+    .ifmon-table thead th:not(:has(button)) { display: none; }
+    .ifmon-panel .ifmon-table thead th { padding: 4px; font-size: 11px; }
+    .ifmon-table tbody tr {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        border-bottom: 1px solid var(--m-line);
+        padding: 6px 0;
+        text-align: start;
+    }
+    .ifmon-panel .ifmon-table tbody td {
+        display: block;
+        padding: 3px 4px;
+        border: 0;
+        font-size: 12px;
+    }
+    .ifmon-table tbody td[data-label]::before {
+        content: attr(data-label);
+        display: block;
+        color: var(--m-muted);
+        font-size: 11px;
+    }
+    .ifmon-table tbody .ifmon-address { grid-column: 1 / -1; max-width: none; }
+}
+
+.myos-new .ifmon-panel button:is(.ifmon-device,.ifmon-column,.ifmon-address-more) {
+    min-width: 0;
+    min-height: 0;
+    margin: 0;
+    padding: 3px 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    color: var(--m-blue);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+}
+.myos-new .ifmon-panel button.ifmon-column { color: var(--m-muted); white-space: nowrap; }
+.myos-new .ifmon-panel button.ifmon-device { white-space: nowrap; font-weight: 650; }
+.ifmon-panel .ifmon-address-first {
+    display: block;
+    max-width: 26ch;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.myos-new .ifmon-panel button.ifmon-address-more { display: block; font-size: 12px; }
+.ifmon-address-lines { display: grid; gap: 2px; }
+.ifmon-address-lines > span { overflow-wrap: anywhere; }
+.ifmon-table td:first-child { min-width: 80px; }
+@container iface-monitor (max-width: 520px) {
+    .ifmon-panel { padding: 0 10px 12px; }
+    .ifmon-table thead tr { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+    .ifmon-table .ifmon-address-first { max-width: 100%; }
+    .ifmon-section-head .ifmon-inline { flex-wrap: wrap; }
+}

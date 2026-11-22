@@ -2,6 +2,7 @@
  const board = ubus.call('system', 'board') ?? {};
  const model = replace(lc(board.model ?? ''), /[^a-z0-9]/g, '');
  const device = replace(lc(board.board_name ?? ''), /[^a-z0-9]/g, '');
+ const submenu = !blank_page && !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']);
  const color = uci.get('myos_appearance', 'main', 'background_color') ?? '';
  let login_video = '';
  if (model in ['c2000ultra', 'nradioc2000ultra'] || device == 'nradioc2000ultra')
@@ -34,13 +35,13 @@ document.querySelector('meta[name="theme-color"]').content = document.documentEl
 </script>
 <link rel="stylesheet" href="{{ media }}/style.css?v=20261111-allmodels1">
 <link rel="stylesheet" href="{{ media }}/liquid.css?v=20261105-black-frost">
-<link rel="stylesheet" href="{{ media }}/refine.css?v=20261114-c8-feedback2-wan-quality2{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-home-density1-tablet1-outlet1' : '' }}">
+<link rel="stylesheet" href="{{ media }}/refine.css?v=20261114-c8-feedback2-wan-quality2{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-home-density1-tablet1-outlet1-readout1' : '' }}{{ !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-views20261120-nav3' : '' }}{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-iface-links1' : '' }}-page-polish2{{ submenu ? '-status-system1' : '' }}">
 {% if (node?.css): %}<link rel="stylesheet" href="{{ resource }}/{{ node.css }}">{% endif %}
 {% if (css): %}<style>{{ css }}</style>{% endif %}
 <script src="{{ dispatcher.build_url('admin/translations', dispatcher.lang) }}"></script>
 <script src="{{ resource }}/cbi.js"></script>
 </head>
-<body class="myos-new{% if (blank_page): %} m-auth{% endif %}" data-home="{{ dispatcher.build_url('admin/myos') }}" data-device-model="{{ entityencode(board.model ?? '', true) }}" data-device-board="{{ entityencode(board.board_name ?? '', true) }}" data-background-color="{{ entityencode(color, true) }}"{% if (login_video): %} data-login-video="{{ login_video }}" data-login-video-enabled="{{ uci.get('myos_appearance', 'main', 'login_video') == '1' ? '1' : '0' }}"{% endif %}>
+<body class="myos-new{% if (submenu): %} m-submenu-compact{% endif %}{% if (blank_page): %} m-auth{% endif %}" data-home="{{ dispatcher.build_url('admin/myos') }}" data-device-model="{{ entityencode(board.model ?? '', true) }}" data-device-board="{{ entityencode(board.board_name ?? '', true) }}" data-background-color="{{ entityencode(color, true) }}"{% if (login_video): %} data-login-video="{{ login_video }}" data-login-video-enabled="{{ uci.get('myos_appearance', 'main', 'login_video') == '1' ? '1' : '0' }}"{% endif %}>
 {% if (!blank_page): %}
 <a class="m-skip" href="#maincontent">跳至内容</a>
 <aside class="m-sidebar" id="m-sidebar" aria-label="主导航">
@@ -55,5 +56,14 @@ document.querySelector('meta[name="theme-color"]').content = document.documentEl
 <div class="m-workspace">
  <header class="m-toolbar"><div><button id="m-menu-toggle" class="m-icon-button m-mobile-toggle" aria-controls="m-sidebar" aria-expanded="false" aria-label="打开导航">☰</button><span id="m-page-title">设备控制台</span></div><div class="m-toolbar-actions"><span class="m-hostname">{{ entityencode(board.hostname ?? 'OpenWrt') }}</span><span id="indicators"></span><button id="m-background" class="m-icon-button" aria-label="自定义背景" title="自定义背景"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-6 5 7"/></svg></button><button id="m-appearance" class="m-icon-button" aria-label="切换深浅外观" title="切换深浅外观">◐</button><a class="m-icon-button" href="{{ dispatcher.build_url('admin/logout') }}" aria-label="退出登录" title="退出登录">↗</a></div></header>
  <main id="maincontent"><div id="tabmenu" hidden></div>
+{% if (join('/', ctx.path ?? []) == 'admin/status/realtime/bandwidth'): %}
+ <link rel="stylesheet" href="{{ media }}/iface-monitor.css?v=3">
+ <details id="interface-monitor" class="ifmon-container" data-status-url="{{ dispatcher.build_url('admin/myos/data') }}" data-fast-url="{{ dispatcher.build_url('admin/myos/fast') }}" data-network-url="{{ dispatcher.build_url('admin/network/network') }}">
+  <summary>接口监控</summary>
+  <p class="ifmon-load-message" role="status" hidden></p>
+  <div class="ifmon-content"></div>
+ </details>
+ <script type="module" src="{{ media }}/iface-bandwidth.js?v=3"></script>
+{% endif %}
  <noscript><div class="alert-message warning">请启用 JavaScript 以使用 LuCI 管理界面。</div></noscript>
 {% endif %}
