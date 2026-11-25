@@ -1,0 +1,67 @@
+<%+header%>
+<%
+	local _fs = require("nixio.fs")
+	local _dsp = require("luci.dispatcher")
+	local _res = (resource or "/luci-static/resources") .. "/mwpbr/"
+	local _dir = "/www/luci-static/resources/mwpbr/"
+
+	-- 当前页取自 URL 最后一段(overview|rules|wans|diag), 认不出来就当总览
+	local _page = (luci.http.getenv("PATH_INFO") or ""):match("([^/]+)/*$") or ""
+	if _page ~= "overview" and _page ~= "rules" and _page ~= "wans" and _page ~= "diag" then _page = "overview" end
+
+	-- 版本戳 size.mtime: data-v 给整体(pr.css), 每个脚本再带自己的, 改一个文件只让它自己的缓存失效
+	local _stamps, _total, _mtime = {}, 0, 0
+	for _, _f in ipairs({ "core.js", "pr.css", "page-overview.js", "page-rules.js", "page-editor.js", "page-wans.js", "page-diag.js" }) do
+		local _st = _fs.stat(_dir .. _f) or {}
+		_stamps[_f] = tostring(_st.size or 0) .. "." .. tostring(_st.mtime or 0)
+		_total = _total + (_st.size or 0)
+		if (_st.mtime or 0) > _mtime then _mtime = _st.mtime end
+	end
+
+	local _scripts = { "core.js", "page-" .. _page .. ".js" }
+	if _page == "rules" then _scripts[#_scripts + 1] = "page-editor.js" end
+	local _list = {}
+	for _, _f in ipairs(_scripts) do _list[#_list + 1] = _f .. "?v=" .. _stamps[_f] end
+
+	local _ctx = _dsp.context
+	local _token = (_ctx and _ctx.authtoken) or ""
+%>
+<style>
+#mwrt-pbr-root { margin: 0 0 8px; min-height: 640px; }
+#mwrt-pbr-root > .pr-boot { padding: 60px 0; text-align: center; color: #8a94a8; }
+</style>
+<div id="mwrt-pbr-root"
+	data-page="<%=_page%>"
+	data-api="<%=pcdata(_dsp.build_url("admin", "services", "mwpbr"))%>"
+	data-menu="<%=pcdata(_dsp.build_url("admin", "mwpbr"))%>"
+	data-token="<%=pcdata(_token)%>"
+	data-res="<%=pcdata(_res)%>"
+	data-v="<%=_total%>.<%=_mtime%>"><div class="pr-boot">策略路由加载中…</div></div>
+<script>//<![CDATA[
+(function() {
+	var root = document.getElementById('mwrt-pbr-root');
+	// 模板没取到 token 时, 退回 LuCI 页面自带的那份
+	if (!root.getAttribute('data-token') && window.L && L.env && L.env.token)
+		root.setAttribute('data-token', L.env.token);
+	var base = root.getAttribute('data-res');
+	var list = <%=require("luci.jsonc").stringify(_list)%>;
+	function boom() {
+		root.innerHTML = '<div class="pr-boot">页面脚本加载失败，请刷新重试</div>';
+	}
+	// 动态插入的脚本默认乱序执行, 这里串行加载, 保证 core.js 先于页面脚本
+	function next(i) {
+		if (i >= list.length) {
+			if (window.MwrtPbr && typeof window.MwrtPbr.mount === 'function') window.MwrtPbr.mount(root);
+			else boom();
+			return;
+		}
+		var s = document.createElement('script');
+		s.src = base + list[i];
+		s.onload = function() { next(i + 1); };
+		s.onerror = boom;
+		document.head.appendChild(s);
+	}
+	next(0);
+})();
+//]]></script>
+<%+footer%>

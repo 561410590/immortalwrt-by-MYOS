@@ -137,7 +137,6 @@
 
         function submitAppFilterAdv() {
             const lanIfname = document.getElementById('lan_ifname').value;
-            const disableHnatSwitch = document.getElementById('disableHnatSwitch').checked;
             const autoLoadEngineSwitch = document.getElementById('autoLoadEngineSwitch').checked;
 
             if (!validateLanIfname(lanIfname)) {
@@ -149,7 +148,6 @@
 
             new XHR().post('<%=url('admin/network/set_app_filter_adv')%>', {
                 lan_ifname: lanIfname,
-                disable_hnat: disableHnatSwitch ? 1 : 0,
                 auto_load_engine: autoLoadEngineSwitch ? 1 : 0,
             },
             function (x, data) {
@@ -175,11 +173,6 @@
             new XHR().get('<%=url('admin/network/get_app_filter_adv')%>', null,
                 function (x, data) {
                     document.getElementById('lan_ifname').value = data.data.lan_ifname;
-                    if (data.data.disable_hnat == 1) {
-                        document.getElementById('disableHnatSwitch').checked = true;
-                    } else {
-                        document.getElementById('disableHnatSwitch').checked = false;
-                    }
                     if (data.data.auto_load_engine == 1) {
                         document.getElementById('autoLoadEngineSwitch').checked = true;
                     } else {
@@ -208,18 +201,6 @@
 <div class="cbi-section cbi-tblsection">
     <div style="max-width: 1000px; margin-left: 10px;padding: 5px;">
 
-
-        <div style="margin-top: 10px; display: flex; align-items: center;">
-            <label for="disableHnatSwitch" style="margin-right: 5px;width:150px">关闭软/硬件加速</label>
-            <label class="switch">
-                <input type="checkbox" id="disableHnatSwitch" name="disableHnatSwitch" />
-                <span class="slider"></span>
-            </label>
-        </div>
-
-        <div class="desc">
-            <span>如果采用lede或者闭源驱动固件，会包含软硬件加速模块，这些模块会影响过滤功能，如果测试发现没有效果可以关闭后再测试，在防火墙或者网络加速菜单中可查看关闭状态，开启加速后需要重启设备生效。</span>
-        </div>
 
 
 

@@ -1,15 +1,17 @@
 # ImmortalWrt by MYOS
 
-MYOS 是基于 ImmortalWrt 的 OpenWrt 固件。先确认路由器的完整型号，再选对应的源码分支或固件。六款机型的成品都在 [Nightly 发布页](https://github.com/561410590/immortalwrt-by-MYOS/releases/tag/nightly)。
+MYOS 是基于 ImmortalWrt 的 OpenWrt 固件。先确认路由器的完整型号，再选对应的源码组或固件。六款机型的成品都在 [Nightly 发布页](https://github.com/561410590/immortalwrt-by-MYOS/releases/tag/nightly)。
 
-| 路由器型号 | 源码分支 | OpenWrt 设备配置 |
+| 路由器型号 | 源码组（`BRANCH`） | OpenWrt 设备配置 |
 | --- | --- | --- |
 | C8-688 | [main](https://github.com/561410590/immortalwrt-by-MYOS/tree/main) | `nradio_c8-688` |
 | C5800-688 | [main](https://github.com/561410590/immortalwrt-by-MYOS/tree/main) | `nradio_c5800-688` |
 | NBCPE-688 | [main](https://github.com/561410590/immortalwrt-by-MYOS/tree/main) | `nradio_nbcpe-688` |
-| C2000MAX | [C2000MAX](https://github.com/561410590/immortalwrt-by-MYOS/tree/C2000MAX) | `nradio_c2000-max` |
-| C2000-Ultra | [C2000-Ultra](https://github.com/561410590/immortalwrt-by-MYOS/tree/C2000-Ultra) | `nradio_c2000-ultra` |
-| N5000 | [N5000](https://github.com/561410590/immortalwrt-by-MYOS/tree/N5000) | `nradio_n5000` |
+| C2000MAX | `C2000MAX` | `nradio_c2000-max` |
+| C2000-Ultra | `C2000-Ultra` | `nradio_c2000-ultra` |
+| N5000 | `N5000` | `nradio_n5000` |
+
+四套编译源码由 `main` 统一指定。前三款使用 `main` 本身，另外三款使用 [inputs.json](.github/ci/inputs.json) 里各自的源码提交。
 
 ## 在 GitHub 上编译
 
@@ -42,7 +44,7 @@ sudo apt-get install -y --no-install-recommends \
 
 ### 2. 下载源码和机型构建输入
 
-下面以 C8-688 为例。换机型时，把 `MODEL` 和 `BRANCH` 改成上表同一行里的型号和源码分支。每款机型单独使用一个新的工作目录。
+下面以 C8-688 为例。换机型时，把 `MODEL` 和 `BRANCH` 改成上表同一行里的型号和源码组。每款机型单独使用一个新的工作目录。
 
 ```bash
 export MODEL=C8-688
@@ -53,10 +55,17 @@ mkdir "$HOME/myos-build-$MODEL"
 cd "$HOME/myos-build-$MODEL"
 git clone --depth 1 --single-branch --branch main --filter=blob:none --sparse "$repo" automation
 git -C automation sparse-checkout set .github/ci
-git clone --depth 1 --single-branch --branch "$BRANCH" "$repo" source
+if [ "$BRANCH" = main ]; then
+  source_ref=$(git -C automation rev-parse HEAD)
+else
+  source_ref=$(jq -r --arg group "$BRANCH" '.source_snapshots[$group]' automation/.github/ci/inputs.json)
+fi
+git init source
+git -C source fetch --depth 1 "$repo" "$source_ref"
+git -C source checkout --detach FETCH_HEAD
 ```
 
-公开仓库提供源码和机型配置。部分机型还需要板级二进制、参考镜像或装配文件，见对应分支的 `BINARY_INPUTS.json`。这些文件由维护者的私有构建仓库提供。没有访问权限时，可以查看公开源码和 Actions 日志，或直接使用 Nightly 发布页的成品。
+公开仓库提供源码和机型配置。部分机型还需要板级二进制、参考镜像或装配文件，见对应源码的 `BINARY_INPUTS.json`。这些文件由维护者的私有构建仓库提供。没有访问权限时，可以查看公开源码和 Actions 日志，或直接使用 Nightly 发布页的成品。
 
 有私有仓库读取权限的维护者可用已配置的 GitHub SSH 身份取出脚本指定的输入版本。
 

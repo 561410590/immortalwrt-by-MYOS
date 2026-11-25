@@ -1,0 +1,77 @@
+--- a/oaf/src/app_filter.c
++++ b/oaf/src/app_filter.c
+@@ -25,3 +25,5 @@
+ #include <linux/ip.h>
+ #include <linux/netfilter_ipv4.h>
++#include <linux/proc_fs.h>
++#include <linux/seq_file.h>
+ #include "app_filter.h"
+@@ -1250,9 +1252,38 @@
+ 	u16 app_id;
+ 	u8 packets;
+ 	u8 client_hello;
++	u8 family;
++	u8 protocol;
++	__be16 port;
++	union nf_inet_addr destination;
+ };
+ 
+ static struct af_gateway_flow af_gateway_flows[AF_GATEWAY_FLOWS];
+ static DEFINE_SPINLOCK(af_gateway_lock);
++static struct proc_dir_entry *af_pbr_apps;
++
++static int af_pbr_apps_show(struct seq_file *seq, void *data)
++{
++	unsigned int i;
++
++	for (i = 0; i < ARRAY_SIZE(af_gateway_flows); i++) {
++		struct af_gateway_flow flow;
++
++		spin_lock_bh(&af_gateway_lock);
++		flow = af_gateway_flows[i];
++		spin_unlock_bh(&af_gateway_lock);
++		if (!flow.app_id || time_after(jiffies, flow.seen + AF_GATEWAY_TIMEOUT))
++			continue;
++		if (flow.protocol != IPPROTO_TCP && flow.protocol != IPPROTO_UDP)
++			continue;
++		if (flow.family == 4)
++			seq_printf(seq, "%u 4 %u %pI4 %u\n", flow.app_id,
++				   flow.protocol, &flow.destination.ip, ntohs(flow.port));
++		else if (flow.family == 6)
++			seq_printf(seq, "%u 6 %u %pI6c %u\n", flow.app_id,
++				   flow.protocol, &flow.destination.in6, ntohs(flow.port));
++	}
++	return 0;
++}
+ 
+ /* Never store application IDs or verdicts in the routing/conntrack marks. */
+@@ -1329,7 +1360,15 @@
+ 		spin_lock_bh(&af_gateway_lock);
+ 		if (entry->ct == ct && entry->id == id) {
+ 			entry->client_hello = flow.client_hello;
+-			if (app_id)
++			if (app_id) {
++				const struct nf_conntrack_tuple *tuple =
++					&ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple;
++
+ 				entry->app_id = app_id;
++				entry->family = tuple->src.l3num == AF_INET ? 4 : 6;
++				entry->protocol = tuple->dst.protonum;
++				entry->port = tuple->dst.u.all;
++				entry->destination = tuple->dst.u3;
++			}
+ 		}
+ 		spin_unlock_bh(&af_gateway_lock);
+@@ -1587,4 +1626,6 @@
+ 	}
+ 	init_oaf_timer();
++	af_pbr_apps = proc_create_single("af_pbr_apps", 0400, init_net.proc_net,
++					 af_pbr_apps_show);
+ 	AF_INFO("init app filter ........ok\n");
+ 	return 0;
+@@ -1606,4 +1647,5 @@
+ static void app_filter_fini(void)
+ {
+ 	AF_INFO("app filter module exit\n");
++	proc_remove(af_pbr_apps);
+ 	fini_oaf_timer();

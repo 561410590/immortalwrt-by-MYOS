@@ -196,6 +196,7 @@ def main():
         'losetup', 'kmod-loop', 'kmod-ifb', 'kmod-fs-ext4', 'e2fsprogs',
         'mkf2fs', 'f2fsck', 'usbutils', 'usb-modeswitch',
         'luci-theme-myos-new', 'luci-app-myos-system', 'at-webserver',
+        'luci-app-mwpbr', 'luci-i18n-appfilter-zh-cn',
         'ppp', 'ppp-mod-pppoe', 'luci-proto-ppp', 'wireguard-tools', 'luci-proto-wireguard',
         'lua-cjson', 'lua-md5', 'lua-mosquitto', 'libmosquitto-nossl',
         'mosquitto-nossl', 'libcares', 'luci-lua-runtime', 'libpcre2',
@@ -378,7 +379,7 @@ def main():
         'done', 'sysntpd', 'mtk_smp', 'urandom_seed',
         'myos-nros-app', 'myos-nros-mqtt', 'myos-connections', 'myos-history',
         'myos-c8-identity', 'myos-c8-cellular', 'myos-c8-led', 'myos-c8-fan', 'myos-c8-factory-wifi',
-        'myos-c8-sms', 'zeroclaw',
+        'myos-c8-sms', 'zeroclaw', 'appfilter', 'mwrt-pbr',
         'myos-c8-calibration', 'myos-c8-wan-phy', 'atsd', 'infocd', 'smsd', 'at-webserver',
     }
     rc = work / 'etc/rc.d'

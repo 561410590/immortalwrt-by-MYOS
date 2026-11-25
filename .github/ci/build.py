@@ -18,7 +18,7 @@ IMAGE = SOURCE / 'target/linux/mediatek/image'
 KDIR = SOURCE / 'build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic'
 KUNPENG_IMAGE = WORK / 'immortalwrt-mt798x-6.6/target/linux/mediatek/image'
 KUNPENG_PACKAGES = KUNPENG_IMAGE / 'nradio-c5800-688/kunpeng-ai/packages/native'
-CONFIG_VERSION = re.search(r'^CONFIG_VERSION_NUMBER="[Vv]?(\d+\.\d+\.\d+)', (SOURCE / '.config').read_text(), re.M)[1]
+CONFIG_VERSION = json.loads(Path(__file__).with_name('inputs.json').read_text())['firmware_version']
 VERSION = CONFIG_VERSION + '-' + os.environ['BUILD_STAMP']
 KERNEL = json.loads((LOGS / 'upstream.json').read_text())['kernel']
 BRANCH = os.environ['BRANCH']
@@ -89,11 +89,15 @@ def prepare():
         required += ['lua-md5', 'lua-mosquitto', 'libcares', 'libmosquitto-nossl', 'mosquitto-nossl',
                      'luci-app-qiyougamebooster', 'luci-i18n-qiyougamebooster-zh-cn', 'qiyougamebooster']
     if MODEL == 'C8-688':
-        required += ['luci-app-ttyd', 'luci-app-package-manager', 'luci-i18n-ttyd-zh-cn',
+        required += ['luci-app-ttyd', 'luci-i18n-ttyd-zh-cn',
                      'luci-i18n-package-manager-zh-cn', 'ppp', 'ppp-mod-pppoe', 'luci-proto-ppp',
                      'wireguard-tools', 'luci-proto-wireguard']
         text = re.sub(r'(?m)^(?:# )?CONFIG_MTK_WPA3_SUPPORT(?:=.*| is not set)\n', '', text)
         text += '\nCONFIG_MTK_WPA3_SUPPORT=y\n'
+    elif MODEL == 'C5800-688':
+        required += ['tcpdump', 'ip-bridge', 'wireguard-tools', 'luci-proto-wireguard']
+    if MODEL in ('C8-688', 'C5800-688'):
+        required += ['luci-app-mwpbr', 'luci-app-package-manager']
     for package in required:
         symbol = 'CONFIG_PACKAGE_' + package
         text = re.sub(rf'(?m)^(?:# )?{re.escape(symbol)}(?:=.*| is not set)\n', '', text)

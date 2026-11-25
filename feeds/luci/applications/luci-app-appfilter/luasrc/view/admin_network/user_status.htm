@@ -123,7 +123,7 @@
                          user_list[i].applist = [] 
 					var app_list_str = user_list[i].applist.map(app => {
 						// Assuming app.name corresponds to the app's icon filename
-						return `<img src="<%=resource%>/app_icons/${app.id}.png" alt="${app.name}" title="${app.name}" style="width: 20px; height: 20px; border-radius: 5px; margin-right: 8px;">`;
+						return `<img src="<%=resource%>/app_icons/mwrt1166/${app.id}.webp" onerror="this.onerror=null;this.src='<%=resource%>/app_icons/default.png'" alt="${app.name}" title="${app.name}" style="width: 20px; height: 20px; border-radius: 5px; margin-right: 8px;">`;
 					}).join("") || "--";
 					tr.insertCell(-1).innerHTML = app_list_str;
 					tr.insertCell(-1).innerHTML = user_list[i].online == 1 
@@ -159,7 +159,7 @@
 					// Add app icon before app name with fixed height for alignment
 					tr.insertCell(-1).innerHTML = `
 						<div style="height: 24px; display: flex; align-items: center;">
-							<img src="<%=resource%>/app_icons/${visit_list[i].id}.png" alt="${visit_list[i].name}" title="${visit_list[i].name}" style="width: 20px; height: 20px; border-radius: 5px; margin-right: 8px;">
+							<img src="<%=resource%>/app_icons/mwrt1166/${visit_list[i].id}.webp" onerror="this.onerror=null;this.src='<%=resource%>/app_icons/default.png'" alt="${visit_list[i].name}" title="${visit_list[i].name}" style="width: 20px; height: 20px; border-radius: 5px; margin-right: 8px;">
 							<span>${visit_list[i].name}</span>
 						</div>
 					`;

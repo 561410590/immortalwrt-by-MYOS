@@ -1,3 +1,4 @@
+<% local app_section = require("nixio.fs").access("/usr/libexec/mwrt-pbr") and "mwpbr" or "services" %>
 <style>
     body {
         font-family: Arial, sans-serif;
@@ -310,7 +311,11 @@
                     const withIcon = appDetails[2] === '1';
 
                     const icon = document.createElement('img');
-                    icon.src = withIcon ? `<%=resource%>/app_icons/${appId}.png` : `<%=resource%>/app_icons/default.png`; 
+                    icon.onerror = function() {
+                        icon.onerror = null;
+                        icon.src = withIcon ? `<%=resource%>/app_icons/${appId}.png` : `<%=resource%>/app_icons/default.png`;
+                    };
+                    icon.src = `<%=resource%>/app_icons/mwrt1166/${appId}.webp`;
                     icon.alt = `Icon for ${appName}`;
                     icon.style.width = '20px'; 
                     icon.style.height = '20px'; 
@@ -358,20 +363,12 @@
 
         function submitAppFilterBase() {
             const filterSwitch = document.getElementById('filterSwitch').checked;
-            const workMode = parseInt(document.getElementById('workMode').value, 10);
             const recordSwitch = document.getElementById('recordSwitch').checked;
-            const data = {
-                data: {
-                    enable: filterSwitch ? 1 : 0,
-                    work_mode: workMode,
-                    record_enable: recordSwitch ? 1 : 0
-                }
-            };
             console.log("submitAppFilterBase");
             new XHR().post('<%=url('admin/network/set_app_filter_base')%>', {
 
                 enable: filterSwitch ? 1 : 0,
-                work_mode: workMode,
+                work_mode: 0,
                 record_enable: recordSwitch ? 1 : 0
 
             },
@@ -413,16 +410,15 @@
                     } else {
                         document.getElementById('recordSwitch').checked = false;
                     }
-                    document.getElementById('workMode').value = data.data.work_mode;
                 }
             );
         }
 
         function redirectToUserConfig() {
-            window.location.href = '<%=url('admin/services/appfilter/user')%>';
+            window.location.href = '<%=url('admin', app_section, 'appfilter', 'user')%>';
         }
         function redirectToTimeConfig() {
-            window.location.href = '<%=url('admin/services/appfilter/time')%>';
+            window.location.href = '<%=url('admin', app_section, 'appfilter', 'time')%>';
         }
 
    
@@ -500,15 +496,6 @@
                 <span class="slider"></span>
             </label>
         </div>
-
-        <div style="margin-top: 10px;">
-            <label for="workMode">工作模式:</label>
-            <select id="workMode" name="workMode">
-                <option value="0">网关模式</option>
-                <option value="1">旁路模式</option>
-            </select>
-        </div>
- 
 
         <div style="margin-top: 10px;">
             <span>应用选择:</span>

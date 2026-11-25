@@ -677,6 +677,9 @@ def main():
         pseudo = kdir / 'nbcpe-myos-console.pseudo'
         pseudo.write_text('dev/console c 0600 0 0 5 1\n')
         output = kdir / 'root-nbcpe-myos.squashfs'
+        # Reuse the assembled root without applying the flat upgrade patch twice.
+        run(host / 'unsquashfs4', '-force', '-no-progress', '-no-xattrs', '-d', work,
+            assets / 'root.squashfs', 'lib/upgrade/emmc.sh')
         run('python3', source / 'scripts/install-myos-688-upgrade.py', source, work)
         run('patch', '-d', work, '-p1', '-i', assets / 'nbcpe-flat-sysupgrade.patch')
         run(host / 'mksquashfs4', work, output, '-nopad', '-noappend', '-root-owned',

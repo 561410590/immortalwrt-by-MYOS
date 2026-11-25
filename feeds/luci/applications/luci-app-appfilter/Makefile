@@ -8,7 +8,7 @@ LUCI_TITLE:=Open App Filter Module
 LUCI_DEPENDS:=+appfilter +luci-compat
 
 PKG_VERSION:=6.1.1
-PKG_RELEASE:=1
+PKG_RELEASE:=4
 
 include ../../luci.mk
 

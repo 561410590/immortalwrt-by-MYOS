@@ -22,6 +22,8 @@ LOCAL_CONFLICTS = (
 )
 KEEP_LOCAL = {
     'feeds/packages': ('net/cgi-io/Makefile',),
+    # The local store reloads rpcd after package changes to refresh LuCI ACLs.
+    'feeds/istore': ('luci/luci-app-store/root/bin/is-opkg',),
 }
 TAKE_UPSTREAM = {
     'feeds/packages': ('net/v2ray-geodata/Makefile',),

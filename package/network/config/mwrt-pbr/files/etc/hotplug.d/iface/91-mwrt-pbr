@@ -1,0 +1,15 @@
+#!/bin/sh
+# 接口上下线后让策略路由引擎去抖对账。ifdown 事件不带设备名,没法增量处理,所以一律交给引擎全量对账;
+# kick 在后台跑,不拖慢 hotplug 链
+case "$ACTION" in
+ifup|ifdown|ifupdate) ;;
+*) exit 0 ;;
+esac
+[ -x /usr/libexec/mwrt-pbr ] || exit 0
+# 服务被 stop 后不再自动对账
+[ -e /var/run/mwrt-pbr/stopped ] && exit 0
+case "$(uci -q get mwrt_pbr.global.enabled)" in
+0|false|off|no|"") exit 0 ;;
+esac
+/usr/libexec/mwrt-pbr kick >/dev/null 2>&1 &
+exit 0
