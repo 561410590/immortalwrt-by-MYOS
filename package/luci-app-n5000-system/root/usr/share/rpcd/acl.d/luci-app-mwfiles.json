@@ -1,0 +1,36 @@
+{
+	"luci-app-mwfiles": {
+		"description": "文件管理: 浏览、上传下载、改动授权目录内的文件",
+		"read": {
+			"uci": [
+				"mwfiles"
+			]
+		},
+		"write": {
+			"uci": [
+				"mwfiles"
+			]
+		}
+	},
+	"luci-app-mwfiles-net": {
+		"description": "文件管理: 网络位置(挂载 SMB 共享)与共享本机文件夹",
+		"read": {
+			"uci": [
+				"mwfiles"
+			]
+		},
+		"write": {
+			"uci": [
+				"mwfiles"
+			]
+		}
+	},
+	"luci-app-mwfiles-disk": {
+		"description": "文件管理: 格式化外接存储设备(需 root 密码确认; 系统盘不可格式化)",
+		"read": {
+			"uci": [
+				"mwfiles"
+			]
+		}
+	}
+}

@@ -1,0 +1,759 @@
+#!/usr/bin/lua
+-- =============================================================================
+-- mwrt-clients  ——  全站统一的“在线设备”口径(只算一份, 输出 JSON)
+--
+-- 调用方: router3d-data 的 clients 数 / fancontrol.lua devpop_clients / modem.lua topo_data。
+-- 用法:   mwrt-clients            读 <=3 秒的内存盘缓存, 过期则重算
+--         mwrt-clients --nocache  强制重算(测试用)
+--         作为模块: local run = loadfile("/usr/libexec/mwrt-clients")({lib = true}); local json = run(nocache)
+--                   (modem.lua 的 topo_data 这样进程内复用, 不再 popen)
+-- 只读 /proc /sys /etc/config /tmp; 无线与桥端口走 nixio.fs + ubus Lua 绑定(iwinfo.info / iwinfo.assoclist),
+-- 冷路径 0 次 fork。nixio / ubus 缺失(或测试里设了 MWRT_IWINFO)时退回一次 sh + 每个 AP 两次 iwinfo。
+-- 绝不碰串口 / AT。
+--
+-- 口径(契约原文的落地):
+--  无线: 本机所有 AP 接口(ra* / rai* / rax* / wlan* / phy*-ap*, 含访客 SSID, 不含 apcli 上联口)
+--        iwinfo assoclist 里关联在册的站点都算, 不要求有 IP / ARP。
+--        ESSID 为空或 unknown 且没有站点的 AP 口(没配好的空壳)不进 aps。
+--  有线: 必须【同时】满足
+--    1) MAC 在 LAN 桥(network.lan.device, 默认 br-lan)转发表(sysfs brforward)里是非本机(is_local=0)条目,
+--       学到它的桥端口是有线物理口(eth* / lan* / en*), 该口 carrier=1,
+--       且不是 WiFi 口 / apcli / hnat 等虚拟口 / WAN 口 / 当前上网出口口;
+--       老条目过滤: 转发表条目的 ageing 必须 <= 180 秒(MWRT_WIRED_AGE), 设备拔线后条目不再被刷新, 超过即当作残留;
+--       例外: 已有网关凭据的设备(有效租约, 或已确认过网关且 IP 未变)放宽到 280 秒(MWRT_WIRED_AGE_TRUST,
+--       内核桥 ageing_time 默认 300 秒), 避免“租约有效但几分钟不发包”的静默设备掉线。
+--       注意: sysfs brforward 区分不出静态(永久)条目, 内核对静态条目不填 ageing, 年龄恒为 0,
+--       所以年龄过滤【挡不住】静态非本机条目(它们反而永远通过年龄检查); 普通固件里这类条目极少, 已知局限。
+--    2) /proc/net/arp 里存在以该 MAC 为对端、挂在 LAN 桥上的【完成态(flags 含 0x2, 不含 0x4 永久)】邻居条目,
+--       其 IP 落在 LAN 桥的网段内(网段取自 /proc/net/route 里 LAN 桥上的直连路由)。
+--       FAILED / INCOMPLETE 的 flags 为 0x0, 被挡掉。
+--    3) 网关走本机, 满足任一即可:
+--       a. 该 MAC+IP 在 dnsmasq 租约文件里有未过期租约(本机 DHCP 分配; 若 dhcp.lan 通过 dhcp_option 3 把网关改指别处则此条不成立);
+--       b. 沿用之前的确认(粘滞): 之前通过 a / c 确认过网关, 只要该设备持续满足 1)、2) 且 IP 未变就一直保持,
+--          不设时间上限(静态 IP、只访问路由器管理页的内网设备也不会闪烁)。
+--          carrier 变 0、FDB 条目过期、ARP 失败或 IP 变化时,该设备掉出候选,状态随之清除;
+--       c. conntrack 里有以该 IP 为【源】、且目的地址在 LAN 网段之外的流(即流量确实被本机路由转发了;
+--          只访问本机自己(路由器管理页/ssh/DNS)的流不算, 因为这证明不了它的默认网关是本机)。
+--          只在还有未确认候选时才扫; 扫完仍有人未命中,同一批待确认集合 20 秒内不再整表重扫(负缓存)。
+--          已知误报: 旁路由 / 透明网关场景下, 设备网关指向同网段旁路由, 旁路由转发出来的流在 conntrack 里
+--          仍是 src=设备 dst=外网, 会被当成“网关走本机”; 不抓包无法区分。
+--  去重: 同一 MAC 有线+无线都出现时只算一次, 以无线为准。
+--  文本清理: 主机名截断 63 字节、SSID 截断 32 字节, 非法 UTF-8 字节一律换成 U+FFFD, 保证严格 JSON 解析器能收。
+-- 输出: 单行 JSON {"ok":true,"v":1,"now":..,"clients":[..],"counts":{"wired":N,"wifi":N,"total":N},"aps":[..],..}
+--
+-- 沙盒测试: 设 MWRT_CLIENTS_ROOT=<目录> 则所有 /sys /proc /etc /tmp 路径都挂到该目录下,
+--           MWRT_IWINFO=<假 iwinfo 脚本>(设了就强制走 sh 路径), MWRT_NOW=<假的当前 epoch>。
+-- =============================================================================
+
+local ROOT = os.getenv("MWRT_CLIENTS_ROOT") or ""
+if ROOT ~= "" and not ROOT:match("^[%w%._/%-]+$") then ROOT = "" end
+local SYS, PROC, TMP, ETC = ROOT .. "/sys", ROOT .. "/proc", ROOT .. "/tmp", ROOT .. "/etc"
+local IWINFO = os.getenv("MWRT_IWINFO") or "iwinfo"
+local FORCE_SH = os.getenv("MWRT_IWINFO") ~= nil
+local WIRED_AGE = tonumber(os.getenv("MWRT_WIRED_AGE") or "") or 180            -- 秒
+local WIRED_AGE_TRUST = tonumber(os.getenv("MWRT_WIRED_AGE_TRUST") or "") or 280 -- 秒, 有网关凭据的设备
+if WIRED_AGE_TRUST < WIRED_AGE then WIRED_AGE_TRUST = WIRED_AGE end
+local SCAN_NEG_TTL = tonumber(os.getenv("MWRT_SCAN_NEG_TTL") or "") or 20        -- 秒
+local CACHE_TTL = 3
+local CACHE = TMP .. "/.mwrt-clients.json"
+local STATE = TMP .. "/.mwrt-clients.state"
+
+local function rd(p, mode)
+    local f = io.open(p, mode or "r")
+    if not f then return nil end
+    local s = f:read("*a")
+    f:close()
+    return s
+end
+
+-- 临时文件名带本进程号, 避免并发写互相覆盖(/proc/self 不走沙盒前缀)
+local PID = (rd("/proc/self/stat") or ""):match("^(%d+)") or tostring(os.time() % 100000)
+
+local function uptime()
+    local s = rd(PROC .. "/uptime")
+    return tonumber(s and s:match("^([%d%.]+)")) or 0
+end
+
+local function now_epoch()
+    return tonumber(os.getenv("MWRT_NOW") or "") or os.time()
+end
+
+-- ---------------------------------------------------------------- 文本清理 + JSON 输出
+-- 校验 UTF-8, 非法字节(含截断序列 / 过长编码 / 代理对 / 超出 U+10FFFF)换成 U+FFFD; maxb 非空时按字节截断(不切断字符)
+local function u8clean(s, maxb)
+    s = tostring(s)
+    if not s:find("[\128-\255]") then
+        if maxb and #s > maxb then return s:sub(1, maxb) end
+        return s
+    end
+    local out, i, n, nb = {}, 1, #s, 0
+    while i <= n do
+        local c = s:byte(i)
+        local len = nil
+        if c < 0x80 then len = 1
+        elseif c >= 0xC2 and c <= 0xDF then len = 2
+        elseif c >= 0xE0 and c <= 0xEF then len = 3
+        elseif c >= 0xF0 and c <= 0xF4 then len = 4 end
+        local ok = len ~= nil
+        if ok and len > 1 then
+            if i + len - 1 > n then
+                ok = false
+            else
+                for k = 1, len - 1 do
+                    local d = s:byte(i + k)
+                    if d < 0x80 or d > 0xBF then ok = false; break end
+                end
+                if ok then
+                    local c2 = s:byte(i + 1)
+                    if (c == 0xE0 and c2 < 0xA0) or (c == 0xED and c2 > 0x9F)
+                       or (c == 0xF0 and c2 < 0x90) or (c == 0xF4 and c2 > 0x8F) then ok = false end
+                end
+            end
+        end
+        local piece
+        if ok then piece = s:sub(i, i + len - 1); i = i + len
+        else piece = "\239\191\189"; i = i + 1 end
+        if maxb and nb + #piece > maxb then break end
+        out[#out + 1] = piece
+        nb = nb + #piece
+    end
+    return table.concat(out)
+end
+
+local function jstr(s)
+    s = u8clean(s)
+    s = s:gsub('[%c"\\]', function(c)
+        if c == '"' then return '\\"' elseif c == "\\" then return "\\\\"
+        elseif c == "\n" then return "\\n" elseif c == "\r" then return "\\r" elseif c == "\t" then return "\\t" end
+        return string.format("\\u%04x", c:byte())
+    end)
+    return '"' .. s .. '"'
+end
+local function jval(v)
+    local t = type(v)
+    if v == nil then return "null"
+    elseif t == "boolean" then return v and "true" or "false"
+    elseif t == "number" then
+        if v ~= v or v == math.huge or v == -math.huge then return "null" end
+        if v == math.floor(v) then return string.format("%d", v) end
+        return string.format("%.1f", v)
+    else return jstr(v) end
+end
+local function jobj(keys, o)
+    local parts = {}
+    for _, k in ipairs(keys) do
+        parts[#parts + 1] = jstr(k) .. ":" .. jval(o[k])
+    end
+    return "{" .. table.concat(parts, ",") .. "}"
+end
+
+local CLIENT_KEYS = { "mac", "ip", "name", "type", "port", "band", "rssi", "tx_rate", "rx_rate", "online_s", "vendor", "guest" }
+local AP_KEYS = { "ifname", "band", "ssid", "bssid", "channel", "htmode", "guest", "sta" }
+
+-- ---------------------------------------------------------------- 配置文件(UCI 文本)的极简解析
+-- 返回 { {type=, name=, opt={k=v}, list={k={v..}}}.. }
+local function parse_uci(path)
+    local txt = rd(path)
+    local secs, cur = {}, nil
+    if not txt then return secs end
+    for line in txt:gmatch("[^\r\n]+") do
+        local ty, rest = line:match("^%s*config%s+(%S+)%s*(.*)$")
+        if ty then
+            local nm = rest:match("^'([^']*)'") or rest:match('^"([^"]*)"') or rest:match("^(%S+)")
+            cur = { type = ty, name = nm, opt = {}, list = {} }
+            secs[#secs + 1] = cur
+        elseif cur then
+            local k, v = line:match("^%s*option%s+(%S+)%s+(.-)%s*$")
+            local islist = false
+            if not k then k, v = line:match("^%s*list%s+(%S+)%s+(.-)%s*$"); islist = k ~= nil end
+            if k then
+                v = v:match("^'(.*)'$") or v:match('^"(.*)"$') or v
+                if islist then
+                    cur.list[k] = cur.list[k] or {}
+                    cur.list[k][#cur.list[k] + 1] = v
+                else
+                    cur.opt[k] = v
+                end
+            end
+        end
+    end
+    return secs
+end
+
+local function find_sec(secs, ty, name)
+    for _, s in ipairs(secs) do
+        if s.type == ty and s.name == name then return s end
+    end
+end
+
+local function ip2n(ip)
+    local a, b, c, d = ip:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+    if not a then return nil end
+    a, b, c, d = tonumber(a), tonumber(b), tonumber(c), tonumber(d)
+    if a > 255 or b > 255 or c > 255 or d > 255 then return nil end
+    return ((a * 256 + b) * 256 + c) * 256 + d
+end
+
+-- /proc/net/route: Iface Destination Gateway Flags RefCnt Use Metric Mask ...
+-- 十六进制按本机字节序打印; 先按小端翻字节, 掩码不连续就按大端。
+local function hex2host(h, le)
+    if #h ~= 8 then return nil end
+    -- 逐字节换算(有的 Lua 5.1 构建里 tonumber(大整数, 16) 会饱和, 不能整串转)
+    local b = {}
+    for i = 1, 8, 2 do b[#b + 1] = tonumber(h:sub(i, i + 1), 16) end
+    if le then b = { b[4], b[3], b[2], b[1] } end
+    return ((b[1] * 256 + b[2]) * 256 + b[3]) * 256 + b[4]
+end
+local function contiguous(m)
+    if m == 0 then return true end
+    local inv = 4294967296 - m          -- 0xFFFFFFFF - m + 1 = 块大小
+    local p = 1
+    while p < inv do p = p * 2 end
+    return p == inv
+end
+
+local function band_by_freq(ghz)
+    if not ghz then return nil end
+    if ghz < 3 then return "2.4G" elseif ghz < 5.9 then return "5G" else return "6G" end
+end
+
+local function is_wired_name(n)
+    if n:match("^eth%d+$") or n:match("^lan%d*$") or n:match("^en[%w]+$") then return true end
+    return false
+end
+
+local AP_NAME = { "^ra%d+$", "^rai%d+$", "^rax%d+$", "^wlan%d+$", "^phy%d+%-ap%d+$" }
+local function is_ap_name(n)
+    for _, p in ipairs(AP_NAME) do if n:match(p) then return true end end
+    return false
+end
+
+-- ---------------------------------------------------------------- 发现: 桥端口 + AP 与站点
+-- 统一输出: brports[port_no] = {name=, carrier=};  aps = { {ifname=, mode=, ssid=, bssid=, chan=, ghz=, ht=, sta={ {mac,rssi,rx_rate,tx_rate} }} }
+
+-- 原生路径: nixio.fs 读 sysfs + ubus Lua 绑定调 iwinfo, 0 fork
+local function discover_native(LAN)
+    if FORCE_SH then return nil end
+    local okf, nfs = pcall(require, "nixio.fs")
+    local oku, ubus = pcall(require, "ubus")
+    if not (okf and oku and type(nfs) == "table" and nfs.dir and type(ubus) == "table" and ubus.connect) then return nil end
+    local conn = ubus.connect()
+    if not conn then return nil end
+    local brports, aps = {}, {}
+    local d = nfs.dir(SYS .. "/class/net/" .. LAN .. "/brif")
+    if d then
+        for n in d do
+            local pn = (rd(SYS .. "/class/net/" .. LAN .. "/brif/" .. n .. "/port_no") or ""):match("^0x(%x+)")
+            local car = (rd(SYS .. "/class/net/" .. n .. "/carrier") or ""):match("^%s*(%S*)") or ""
+            if pn then brports[tonumber(pn, 16)] = { name = n, carrier = car } end
+        end
+    end
+    local names = {}
+    local dn = nfs.dir(SYS .. "/class/net")
+    if dn then for n in dn do if is_ap_name(n) then names[#names + 1] = n end end end
+    table.sort(names)
+    for _, n in ipairs(names) do
+        local fl = tonumber((rd(SYS .. "/class/net/" .. n .. "/flags") or ""):match("0x(%x+)") or "0", 16) or 0
+        if fl % 2 == 1 then
+            local okc, info = pcall(conn.call, conn, "iwinfo", "info", { device = n })
+            local oka, al = pcall(conn.call, conn, "iwinfo", "assoclist", { device = n })
+            local ap = { ifname = n, sta = {} }
+            if okc and type(info) == "table" then
+                ap.mode = info.mode
+                ap.ssid = type(info.ssid) == "string" and info.ssid or ""
+                ap.bssid = type(info.bssid) == "string" and info.bssid or nil
+                ap.chan = tonumber(info.channel)
+                local fr = tonumber(info.frequency)
+                ap.ghz = fr and fr / 1000 or nil
+                ap.ht = type(info.htmode) == "string" and info.htmode or nil
+            end
+            if oka and type(al) == "table" and type(al.results) == "table" then
+                for _, e in ipairs(al.results) do
+                    if type(e) == "table" and type(e.mac) == "string" then
+                        local rx = type(e.rx) == "table" and tonumber(e.rx.rate) or nil
+                        local tx = type(e.tx) == "table" and tonumber(e.tx.rate) or nil
+                        ap.sta[#ap.sta + 1] = { mac = e.mac:lower(), rssi = tonumber(e.signal),
+                            rx_rate = rx and math.floor(rx / 1000 + 0.5) or nil,
+                            tx_rate = tx and math.floor(tx / 1000 + 0.5) or nil }
+                    end
+                end
+            end
+            aps[#aps + 1] = ap
+        end
+    end
+    pcall(conn.close, conn)
+    return brports, aps
+end
+
+-- 退路: 一次 sh(桥端口 + 无线口 + iwinfo 文本)
+local SH = [[
+R="$MWRT_R"; LAN="$MWRT_LAN"
+for p in "$R/sys/class/net/$LAN/brif"/*; do
+  [ -e "$p" ] || continue
+  n=${p##*/}; pn=""; car=""
+  read pn < "$p/port_no" 2>/dev/null
+  read car < "$R/sys/class/net/$n/carrier" 2>/dev/null
+  echo "P $n $pn $car"
+done
+for p in "$R/sys/class/net"/*; do
+  n=${p##*/}
+  case "$n" in
+    ra[0-9]*|rai[0-9]*|rax[0-9]*|wlan[0-9]*|phy[0-9]*-ap[0-9]*)
+      fl=""; read fl < "$p/flags" 2>/dev/null
+      [ -n "$fl" ] || fl=0
+      if [ $(( fl & 1 )) -eq 1 ]; then
+        echo "A $n"
+        $MWRT_IW "$n" info 2>/dev/null
+        echo "--"
+        $MWRT_IW "$n" assoclist 2>/dev/null
+        echo "E"
+      fi
+      ;;
+  esac
+done
+]]
+
+local function discover_sh(LAN)
+    local cmd = string.format("MWRT_R='%s' MWRT_LAN='%s' MWRT_IW='%s' sh -c '%s' 2>/dev/null", ROOT, LAN, IWINFO, SH:gsub("'", "'\\''"))
+    local p = io.popen(cmd)
+    local disc = ""
+    if p then disc = p:read("*a") or ""; p:close() end
+    if os.getenv("MWRT_DEBUG") then io.stderr:write(disc) end
+    local brports, raw = {}, {}
+    local cur, part, last_sta = nil, "info", nil
+    for line in disc:gmatch("[^\r\n]*") do
+        if line:sub(1, 2) == "P " then
+            local a, b, c = line:match("^P (%S+)%s*(%S*)%s*(%S*)$")
+            local no = b and b:match("^0x(%x+)$")
+            if a and no then brports[tonumber(no, 16)] = { name = a, carrier = c } end
+        elseif line:sub(1, 2) == "A " then
+            cur = { ifname = line:sub(3), info = {}, sta = {} }
+            part = "info"; last_sta = nil
+        elseif line == "E" then
+            if cur then raw[#raw + 1] = cur end
+            cur = nil
+        elseif cur then
+            if line == "--" then
+                part = "assoc"
+            elseif part == "info" then
+                cur.info[#cur.info + 1] = line
+            else
+                local mac, sig = line:match("^(%x%x:%x%x:%x%x:%x%x:%x%x:%x%x)%s+(%-?%d+) dBm")
+                if mac then
+                    last_sta = { mac = mac:lower(), rssi = tonumber(sig) }
+                    cur.sta[#cur.sta + 1] = last_sta
+                elseif last_sta then
+                    local r = line:match("^%s*RX:%s*([%d%.]+) MBit/s")
+                    local t = line:match("^%s*TX:%s*([%d%.]+) MBit/s")
+                    if r then last_sta.rx_rate = math.floor(tonumber(r) + 0.5) end
+                    if t then last_sta.tx_rate = math.floor(tonumber(t) + 0.5) end
+                end
+            end
+        end
+    end
+    local aps = {}
+    for _, ap in ipairs(raw) do
+        local txt = table.concat(ap.info, "\n")
+        local chan, ghz = txt:match("Channel:%s*(%d+)%s*%(([%d%.]+) GHz%)")
+        aps[#aps + 1] = {
+            ifname = ap.ifname, sta = ap.sta, mode = txt:match("Mode:%s*(%a+)"),
+            -- ESSID 里可能有双引号: 取到该行最后一个引号
+            ssid = txt:match('ESSID:%s*"([^\n]*)"') or "",
+            bssid = txt:match("Access Point:%s*(%x%x:%x%x:%x%x:%x%x:%x%x:%x%x)"),
+            chan = tonumber(chan), ghz = tonumber(ghz), ht = txt:match("HT Mode:%s*(%S+)"),
+        }
+    end
+    return brports, aps
+end
+
+-- ================================================================ 主体
+local function run(nocache)
+    -- ------------------------------------------------------------ 缓存
+    if not nocache then
+        local c = rd(CACHE)
+        if c then
+            local up, body = c:match("^up=([%d%.]+)\n(.*)$")
+            up = tonumber(up)
+            local d = up and (uptime() - up)
+            if d and d >= 0 and d < CACHE_TTL and body and #body > 2 then return body end
+        end
+    end
+
+    -- ------------------------------------------------------------ 基本网络环境
+    local netcfg = parse_uci(ETC .. "/config/network")
+    local lan_sec = find_sec(netcfg, "interface", "lan")
+    local wan_sec = find_sec(netcfg, "interface", "wan")
+    local LAN = (lan_sec and (lan_sec.opt.device or lan_sec.opt.ifname)) or "br-lan"
+    if not LAN:match("^[%w%._%-]+$") then LAN = "br-lan" end
+    local WANDEV = wan_sec and (wan_sec.opt.device or wan_sec.opt.ifname) or ""
+    local LANIP = ""
+    if lan_sec then
+        local ia = lan_sec.opt.ipaddr or (lan_sec.list.ipaddr and lan_sec.list.ipaddr[1]) or ""
+        LANIP = ia:match("^(%d+%.%d+%.%d+%.%d+)") or ""
+    end
+
+    local subnets, egress_dev = {}, ""
+    do
+        local best = nil
+        local txt = rd(PROC .. "/net/route") or ""
+        for line in txt:gmatch("[^\r\n]+") do
+            local ifn, dst, gw, flags, _, _, metric, mask = line:match("^(%S+)%s+(%x+)%s+(%x+)%s+(%x+)%s+(%S+)%s+(%S+)%s+(%d+)%s+(%x+)")
+            if ifn and ifn ~= "Iface" then
+                local m = hex2host(mask, true)
+                local le = true
+                if m and not contiguous(m) then m = hex2host(mask, false); le = false end
+                local d = hex2host(dst, le)
+                if m == 0 and d == 0 then
+                    -- 默认路由: 取 metric 最小的那条的出口
+                    local mt = tonumber(metric) or 0
+                    if not best or mt < best then best = mt; egress_dev = ifn end
+                elseif ifn == LAN and m and d and m > 0 then
+                    subnets[#subnets + 1] = { net = d, block = 4294967296 - m }
+                end
+            end
+        end
+    end
+    local function in_lan(ip)
+        local n = ip2n(ip)
+        if not n then return false end
+        for _, s in ipairs(subnets) do
+            if math.floor(n / s.block) == math.floor(s.net / s.block) then return true end
+        end
+        return false
+    end
+
+    -- ------------------------------------------------------------ 无线: 频段映射(后备) 与 访客判定(uci)
+    local prefix_band = {}
+    local ifnet = {}            -- AP 口名 -> uci wifi-iface 的 network(推得出才有)
+    do
+        local wcfg = parse_uci(ETC .. "/config/wireless")
+        local devinfo = {}      -- wifi-device 段名 -> {pre=, start=, n=}
+        for _, s in ipairs(wcfg) do
+            if s.type == "wifi-device" and s.opt.phy then
+                local pre, st = s.opt.phy:match("^(%a+)(%d+)$")
+                if pre then
+                    if s.opt.band then
+                        local b = s.opt.band:lower()
+                        prefix_band[pre] = (b:match("^2") and "2.4G") or (b:match("^5") and "5G") or (b:match("^6") and "6G") or nil
+                    end
+                    devinfo[s.name] = { pre = pre, start = tonumber(st) or 0, n = 0 }
+                end
+            end
+        end
+        -- wifi-iface 按所属 device 内的出现顺序对应 ra0, ra1 ...(显式写了 ifname 的用 ifname)
+        for _, s in ipairs(wcfg) do
+            if s.type == "wifi-iface" and (s.opt.mode == nil or s.opt.mode == "ap") then
+                local di = s.opt.device and devinfo[s.opt.device]
+                local ifn = s.opt.ifname
+                if not ifn and di then ifn = di.pre .. (di.start + di.n) end
+                if di then di.n = di.n + 1 end
+                if ifn and s.opt.network then ifnet[ifn] = s.opt.network end
+            end
+        end
+    end
+    local function band_by_name(ifn)
+        local pre = ifn:match("^(ra[ix]?)%d+$")
+        if pre then
+            if prefix_band[pre] then return prefix_band[pre] end
+            return (pre == "ra" and "2.4G") or (pre == "rai" and "5G") or "6G"
+        end
+        return nil
+    end
+
+    local brports, raw_aps = discover_native(LAN)
+    if not brports then brports, raw_aps = discover_sh(LAN) end
+
+    -- 解析成 AP 描述; Mode 为 Client 的(上联口)丢弃
+    local ap_list, wifi_by_mac = {}, {}
+    for _, ap in ipairs(raw_aps) do
+        if ap.mode ~= "Client" and ap.mode ~= "Monitor" then
+            local ssid = u8clean(ap.ssid or "", 32)
+            if ssid == "unknown" then ssid = "" end
+            -- 没配好的空壳 AP(ESSID 空 / unknown 且没有站点)不进列表
+            if ssid ~= "" or #ap.sta > 0 then
+                local band = band_by_freq(ap.ghz) or band_by_name(ap.ifname) or "2.4G"
+                local idx = tonumber(ap.ifname:match("(%d+)$")) or 0
+                -- 访客: uci 里推得出所属 network 就看它是否不等于 lan, 推不出才退回“序号大于 0”
+                local net = ifnet[ap.ifname]
+                local guest
+                if net then guest = (net ~= "lan") else guest = idx > 0 end
+                local rec = { ifname = ap.ifname, band = band, ssid = ssid, bssid = ap.bssid and ap.bssid:lower() or nil,
+                              channel = ap.chan, htmode = ap.ht, guest = guest, sta = #ap.sta }
+                ap_list[#ap_list + 1] = rec
+                for _, st in ipairs(ap.sta) do
+                    if not wifi_by_mac[st.mac] then
+                        wifi_by_mac[st.mac] = { ap = rec, st = st }
+                    end
+                end
+            end
+        end
+    end
+
+    -- ------------------------------------------------------------ 邻居表(ARP)
+    local arp_by_mac = {}      -- mac -> { {ip=, dev=}, .. }  仅完成态
+    do
+        local txt = rd(PROC .. "/net/arp") or ""
+        for line in txt:gmatch("[^\r\n]+") do
+            local ip, flags, mac, dev = line:match("^(%d+%.%d+%.%d+%.%d+)%s+%S+%s+0x(%x+)%s+(%x%x:%x%x:%x%x:%x%x:%x%x:%x%x)%s+%S+%s+(%S+)")
+            if ip then
+                local fl = tonumber(flags, 16) or 0
+                if fl % 4 >= 2 and math.floor(fl / 4) % 2 == 0 and mac ~= "00:00:00:00:00:00" then
+                    mac = mac:lower()
+                    local t = arp_by_mac[mac] or {}
+                    arp_by_mac[mac] = t
+                    t[#t + 1] = { ip = ip, dev = dev }
+                end
+            end
+        end
+    end
+
+    -- ------------------------------------------------------------ 租约 / 名字
+    local now = now_epoch()
+    local lease_by_mac = {}     -- mac -> { ip=, valid= }
+    local names = {}
+    do
+        local lf = rd(TMP .. "/dhcp.leases") or ""
+        for line in lf:gmatch("[^\r\n]+") do
+            local exp, mac, ip, host = line:match("^(%d+)%s+(%x%x:%x%x:%x%x:%x%x:%x%x:%x%x)%s+(%d+%.%d+%.%d+%.%d+)%s+(%S+)")
+            if exp then
+                mac = mac:lower()
+                local e = tonumber(exp) or 0
+                local valid = (e == 0) or (e > now)
+                lease_by_mac[mac] = { ip = ip, valid = valid }
+                if host ~= "*" then names[mac] = u8clean(host, 63) end
+            end
+        end
+    end
+    local gw_other = false      -- dhcp.lan 把网关(option 3)指向了别处, 或关掉了网关下发
+    do
+        local dh = parse_uci(ETC .. "/config/dhcp")
+        for _, s in ipairs(dh) do
+            if s.type == "host" and s.opt.name and s.opt.name ~= "" and s.opt.mac then
+                for m in s.opt.mac:gmatch("%x%x:%x%x:%x%x:%x%x:%x%x:%x%x") do
+                    m = m:lower()
+                    if not names[m] then names[m] = u8clean(s.opt.name, 63) end
+                end
+            elseif s.type == "dhcp" and s.name == "lan" then
+                for _, o in ipairs(s.list.dhcp_option or {}) do
+                    local g = o:match("^3,(%S+)$") or o:match("^option:router,(%S+)$")
+                    if g and g ~= LANIP then gw_other = true end
+                    -- “3” / “3,” 表示不下发网关
+                    if o:match("^3,?$") or o:match("^option:router,?$") then gw_other = true end
+                end
+            end
+        end
+    end
+
+    -- ------------------------------------------------------------ 有线: 桥转发表
+    local wired_cand = {}       -- mac -> { port=, age=, ip= }
+    do
+        local data = rd(SYS .. "/class/net/" .. LAN .. "/brforward", "rb") or ""
+        for i = 1, #data - 15, 16 do
+            local b1, b2, b3, b4, b5, b6, pno, is_local = data:byte(i, i + 7)
+            if is_local == 0 then
+                local a1, a2, a3, a4 = data:byte(i + 8, i + 11)
+                local age = (a1 + a2 * 256 + a3 * 65536 + a4 * 16777216) / 100
+                local port = brports[data:byte(i + 12) * 256 + pno]
+                if port and is_wired_name(port.name) and port.carrier == "1"
+                   and port.name ~= WANDEV and port.name ~= egress_dev and age <= WIRED_AGE_TRUST then
+                    local mac = string.format("%02x:%02x:%02x:%02x:%02x:%02x", b1, b2, b3, b4, b5, b6)
+                    if not wired_cand[mac] or wired_cand[mac].age > age then
+                        wired_cand[mac] = { port = port.name, age = age }
+                    end
+                end
+            end
+        end
+    end
+
+    -- 绑定 IP(落在 LAN 网段、ARP 完成态)
+    for mac, c in pairs(wired_cand) do
+        local best
+        for _, e in ipairs(arp_by_mac[mac] or {}) do
+            if e.dev == LAN and in_lan(e.ip) then
+                local ls = lease_by_mac[mac]
+                if not best or (ls and ls.ip == e.ip) then best = e.ip end
+            end
+        end
+        if best then c.ip = best else wired_cand[mac] = nil end
+    end
+
+    -- ------------------------------------------------------------ 状态文件(首次出现时间 + 网关确认 + conntrack 负缓存)
+    local up_now = uptime()
+    local state = {}
+    local scan_neg = nil        -- { key=待确认集合, ts=上次整表扫描时的 uptime }
+    do
+        local txt = rd(STATE) or ""
+        for line in txt:gmatch("[^\r\n]+") do
+            local mac, first, last, gw, ip = line:match("^S (%x%x:%x%x:%x%x:%x%x:%x%x:%x%x) ([%d%.]+) ([%d%.]+) ([%d%.]+) (%S+)$")
+            if mac then
+                first, last, gw = tonumber(first), tonumber(last), tonumber(gw)
+                -- 重启后 uptime 回零, 旧记录作废; 确认过网关的留 24 小时(久无人调用后设备不应重新“待确认”), 其余留 1 小时
+                local keep = (gw > 0) and 86400 or 3600
+                if last <= up_now and up_now - last < keep then state[mac] = { first = first, last = last, gw = gw, ip = ip } end
+            else
+                local key, ts = line:match("^C (%S+) ([%d%.]+)$")
+                if key and tonumber(ts) and tonumber(ts) <= up_now then scan_neg = { key = key, ts = tonumber(ts) } end
+            end
+        end
+    end
+
+    -- 网关凭据: 有效租约(MAC、IP 都对得上且 dhcp_option 3 没指别处), 或之前确认过网关且 IP 没变
+    local function lease_ok(mac, c)
+        local ls = lease_by_mac[mac]
+        return ls and ls.valid and ls.ip == c.ip and not gw_other
+    end
+    local function sticky_ok(mac, c)
+        local st = state[mac]
+        return st and st.gw > 0 and st.ip == c.ip
+    end
+
+    -- FDB 老条目过滤: 默认 180 秒; 有网关凭据的静默设备放宽到 280 秒
+    for mac, c in pairs(wired_cand) do
+        if c.age > WIRED_AGE and not (lease_ok(mac, c) or sticky_ok(mac, c)) then wired_cand[mac] = nil end
+    end
+
+    local gw_ok = {}
+    for mac, c in pairs(wired_cand) do
+        if lease_ok(mac, c) then gw_ok[mac] = "lease"
+        elseif sticky_ok(mac, c) then gw_ok[mac] = "sticky" end
+    end
+
+    -- 判据 conntrack(只在还有未确认的有线候选时才扫)
+    local scan_rec = nil
+    do
+        local ip2mac, n, keys = {}, 0, {}
+        for mac, c in pairs(wired_cand) do
+            if not gw_ok[mac] then ip2mac[c.ip] = mac; n = n + 1; keys[#keys + 1] = mac .. "@" .. c.ip end
+        end
+        if n > 0 then
+            table.sort(keys)
+            local key = table.concat(keys, ",")
+            -- 负缓存: 同一批待确认集合刚扫过且没命中, ttl 内不再整表重扫(大表 6 万行一次约 1.3 秒 CPU)
+            if scan_neg and scan_neg.key == key and up_now - scan_neg.ts < SCAN_NEG_TTL then
+                scan_rec = scan_neg
+            else
+                local f = io.open(PROC .. "/net/nf_conntrack", "r")
+                if f then
+                    for line in f:lines() do
+                        local s = line:match("src=(%d+%.%d+%.%d+%.%d+) ")
+                        local mac = s and ip2mac[s]
+                        if mac then
+                            local d = line:match("src=%S+ dst=(%d+%.%d+%.%d+%.%d+)")
+                            if d and not in_lan(d) then
+                                gw_ok[mac] = "ct"
+                                ip2mac[s] = nil; n = n - 1
+                                if n == 0 then break end
+                            end
+                        end
+                    end
+                    f:close()
+                end
+                if n > 0 then
+                    -- 记剩余未命中的集合(本轮命中的下一轮已是 sticky, 不在待确认集合里, 键要对得上)
+                    local rest = {}
+                    for ip, mac in pairs(ip2mac) do rest[#rest + 1] = mac .. "@" .. ip end
+                    table.sort(rest)
+                    scan_rec = { key = table.concat(rest, ","), ts = up_now }
+                end
+            end
+        end
+    end
+
+    -- ------------------------------------------------------------ 汇总
+    local function ipn(ip) return ip2n(ip) or 0 end
+
+    local clients = {}
+    local function online_of(mac, ip, is_gw)
+        local st = state[mac]
+        if not st then st = { first = up_now, last = up_now, gw = 0, ip = ip or "-" }; state[mac] = st end
+        st.last = up_now
+        if ip and ip ~= "" then st.ip = ip end
+        if is_gw then st.gw = up_now end
+        return math.floor(up_now - st.first)
+    end
+
+    local seen_now = {}
+    for mac, w in pairs(wifi_by_mac) do
+        local best
+        local ls = lease_by_mac[mac]
+        for _, e in ipairs(arp_by_mac[mac] or {}) do
+            if not best or e.dev == LAN then best = e.ip end
+        end
+        local ip = best or (ls and ls.valid and ls.ip) or ""
+        clients[#clients + 1] = {
+            mac = mac, ip = ip, name = names[mac] or "", type = "wifi", port = w.ap.ifname, band = w.ap.band,
+            rssi = w.st.rssi, tx_rate = w.st.tx_rate, rx_rate = w.st.rx_rate, online_s = online_of(mac, nil, false),
+            guest = w.ap.guest,
+        }
+        seen_now[mac] = true
+    end
+    for mac, c in pairs(wired_cand) do
+        if not wifi_by_mac[mac] and gw_ok[mac] then
+            clients[#clients + 1] = {
+                mac = mac, ip = c.ip, name = names[mac] or "", type = "wired", port = c.port, band = "wired",
+                online_s = online_of(mac, c.ip, gw_ok[mac] ~= "sticky"), guest = false,
+            }
+            seen_now[mac] = true
+        end
+    end
+
+    -- 厂商(OUI)简称: 只收录把握很大的几家; 随机(本地管理位)MAC 不查
+    local OUI = {
+        ["00:0c:29"] = "VMware", ["00:50:56"] = "VMware", ["00:11:32"] = "Synology",
+        ["b8:27:eb"] = "Raspberry Pi", ["dc:a6:32"] = "Raspberry Pi", ["e4:5f:01"] = "Raspberry Pi",
+        ["24:0a:c4"] = "Espressif", ["30:ae:a4"] = "Espressif", ["a4:cf:12"] = "Espressif", ["84:f3:eb"] = "Espressif",
+        ["24:6f:28"] = "Espressif", ["a4:83:e7"] = "Apple", ["3c:22:fb"] = "Apple", ["f0:18:98"] = "Apple",
+        ["50:ec:50"] = "Xiaomi", ["64:09:80"] = "Xiaomi", ["28:6c:07"] = "Xiaomi", ["c8:3a:35"] = "Tenda",
+        ["50:c7:bf"] = "TP-Link", ["f4:ec:38"] = "TP-Link",
+    }
+    for _, c in ipairs(clients) do
+        local first = tonumber(c.mac:sub(2, 2), 16) or 0
+        if first % 4 < 2 then c.vendor = OUI[c.mac:sub(1, 8)] or "" else c.vendor = "" end
+    end
+
+    table.sort(clients, function(a, b)
+        if a.type ~= b.type then return a.type == "wired" end
+        local x, y = ipn(a.ip), ipn(b.ip)
+        if x ~= y then return x < y end
+        return a.mac < b.mac
+    end)
+
+    local nw, nf = 0, 0
+    for _, c in ipairs(clients) do if c.type == "wired" then nw = nw + 1 else nf = nf + 1 end end
+
+    -- ------------------------------------------------------------ 写状态与输出
+    -- 只保留本轮仍在候选里的设备: 掉出(拔线 / FDB 过期 / ARP 失败 / IP 变化)即清除其网关确认
+    do
+        local lines = {}
+        for mac, st in pairs(state) do
+            if seen_now[mac] then
+                lines[#lines + 1] = string.format("S %s %.1f %.1f %.1f %s", mac, st.first, st.last, st.gw, st.ip or "-")
+            end
+        end
+        if scan_rec then lines[#lines + 1] = string.format("C %s %.1f", scan_rec.key, scan_rec.ts) end
+        local tmp = STATE .. ".tmp" .. PID
+        local f = io.open(tmp, "w")
+        if f then f:write(table.concat(lines, "\n"), "\n"); f:close(); os.rename(tmp, STATE) end
+    end
+
+    local cs = {}
+    for _, c in ipairs(clients) do cs[#cs + 1] = jobj(CLIENT_KEYS, c) end
+    local as = {}
+    for _, a in ipairs(ap_list) do as[#as + 1] = jobj(AP_KEYS, a) end
+    local body = string.format('{"ok":true,"v":1,"now":%d,"lan_dev":%s,"lan_ip":%s,"clients":[%s],"counts":{"wired":%d,"wifi":%d,"total":%d},"aps":[%s]}\n',
+        now, jstr(LAN), jstr(LANIP), table.concat(cs, ","), nw, nf, nw + nf, table.concat(as, ","))
+
+    local tmp = CACHE .. ".tmp" .. PID
+    local f = io.open(tmp, "w")
+    if f then
+        f:write(string.format("up=%.2f\n", up_now), body)
+        f:close()
+        os.rename(tmp, CACHE)
+    end
+    return body
+end
+
+-- 作为模块被 loadfile(...)({lib=true}) 调用时只返回 run; 命令行直接执行时输出 JSON
+local libarg = ...
+if type(libarg) == "table" then return run end
+io.write(run(arg and arg[1] == "--nocache"))

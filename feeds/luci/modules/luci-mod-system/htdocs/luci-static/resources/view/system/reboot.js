@@ -37,26 +37,32 @@ return view.extend({
 	},
 
 	handleReboot: function(ev) {
+		var waitTimer;
+		var progress = function(message, delayed) {
+			ui.showModal(_('Rebooting…'), [
+				E('p', { 'role': 'status', 'class': delayed ? 'alert-message warning' : '' }, message),
+				E('progress', { 'aria-label': _('Waiting for device...') })
+			]);
+		};
+		progress(_('正在发送重启命令…'));
 		return callReboot().then(function(res) {
 			if (res != 0) {
-				L.ui.addNotification(null, E('p', _('The reboot command failed with code %d').format(res)));
-				L.raise('Error', 'Reboot failed');
+				throw new Error(_('The reboot command failed with code %d').format(res));
 			}
 
-			L.ui.showModal(_('Rebooting…'), [
-				E('p', { 'class': 'spinning' }, _('Waiting for device...'))
-			]);
+			progress(_('设备已接受重启命令，正在等待管理页面重新上线。'));
 
-			window.setTimeout(function() {
-				L.ui.showModal(_('Rebooting…'), [
-					E('p', { 'class': 'spinning alert-message warning' },
-						_('Device unreachable! Still waiting for device...'))
-				]);
+			waitTimer = window.setTimeout(function() {
+				progress(_('Device unreachable! Still waiting for device...'), true);
 			}, 150000);
 
-			L.ui.awaitReconnect();
+			return ui.awaitReconnect();
 		})
-		.catch(function(e) { L.ui.addNotification(null, E('p', e.message)) });
+		.catch(function(e) {
+			window.clearTimeout(waitTimer);
+			ui.hideModal();
+			ui.addNotification(null, E('p', e.message));
+		});
 	},
 
 	handleSaveApply: null,

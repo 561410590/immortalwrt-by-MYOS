@@ -1,0 +1,291 @@
+#!/bin/sh
+# Mwrt 文件管理 · 后台任务执行器(删除 / 复制 / 移动 / 压缩 / 解压)
+# 用法: mwfiles-job <任务ID> <操作> 参数...   (由 luci.mwfiles.core 以 setsid + argv 方式启动, 不经 shell 拼接)
+# 路径参数都是已经在授权目录内校验过的绝对路径; 这里再做一次基本检查(绝对路径、无 ..、不是浅层系统目录)。
+# 状态写到 /tmp/mwfiles/jobs/<ID>.st (key=value), 前端轮询; 进度只报真实可得的数字(项数 / 目标文件已写入字节)。
+
+ID="$1"; OP="$2"; shift 2 2>/dev/null
+case "$ID" in ''|*[!0-9a-f]*) exit 2 ;; esac
+DIR=/tmp/mwfiles/jobs
+mkdir -p "$DIR"
+J="$DIR/$ID"
+
+STATE=running; STARTED=$(date +%s); ITEMS=0; DONE=0; FAILS=0; CODE=""; MSG=""; DEST=""; CUR=""; TOTAL=""
+FIRST_CODE=""; FIRST_MSG=""; TMPF=""; OUTD=""
+
+oneline() { printf '%s' "$1" | tr -d '\n\r' | cut -c1-200; }
+
+flush() {
+	printf 'op=%s\nstate=%s\npid=%s\nstarted=%s\nitems=%s\ndone=%s\nfails=%s\ncode=%s\nmsg=%s\ndest=%s\ncur=%s\ntotal=%s\n' \
+		"$OP" "$STATE" "$$" "$STARTED" "$ITEMS" "$DONE" "$FAILS" "$CODE" "$(oneline "$MSG")" "$(oneline "$DEST")" "$(oneline "$CUR")" "$TOTAL" \
+		> "$J.st.tmp" 2>/dev/null && mv -f "$J.st.tmp" "$J.st"
+}
+
+cleanup() {
+	[ -n "$TMPF" ] && rm -f -- "$TMPF"
+	[ -n "$OUTD" ] && rm -rf -- "$OUTD"
+	rm -f "$J.err" "$J.lst" "$J.lnk" "$J.bad"
+}
+
+finish() { # state code msg
+	STATE="$1"; CODE="$2"; MSG="$3"; CUR=""; flush
+	rm -f "$J.err" "$J.lst" "$J.lnk" "$J.bad"
+	exit 0
+}
+
+trap 'cleanup; STATE=cancelled; CODE=cancel; MSG="已取消"; CUR=""; flush; exit 143' TERM INT HUP
+
+# 把工具的错误输出翻成人话(只认关键字, 不回显原文)
+reason() {
+	case "$1" in
+		*"No space"*|*"quota"*|*"Disk full"*) RC=nospace; RM="存储空间不足" ;;
+		*"Permission denied"*|*"Operation not permitted"*) RC=denied; RM="没有权限" ;;
+		*"Read-only"*) RC=readonly; RM="存储卷是只读的" ;;
+		*"No such file"*) RC=gone; RM="文件已不存在" ;;
+		*"Transport endpoint"*|*"Host is down"*|*"Stale"*|*"Input/output"*|*"not connected"*|*"Software caused"*) RC=shdown; RM="存储或网络共享已断开" ;;
+		*"File name too long"*) RC=toolong; RM="文件名过长" ;;
+		*"Invalid argument"*|*"Illegal byte"*) RC=badname; RM="目标存储不支持该文件名" ;;
+		*) RC=failed; RM="操作失败" ;;
+	esac
+}
+
+fail_item() {
+	FAILS=$((FAILS + 1))
+	[ -n "$FIRST_MSG" ] && return
+	reason "$(cat "$J.err" 2>/dev/null)"
+	FIRST_CODE="$RC"; FIRST_MSG="$RM"
+}
+
+bad_path_item() {
+	FAILS=$((FAILS + 1))
+	[ -z "$FIRST_MSG" ] && { FIRST_CODE=bad_path; FIRST_MSG="路径不合法"; }
+}
+
+safe_abs() {
+	case "$1" in /*) ;; *) return 1 ;; esac
+	case "$1" in */../*|*/..|*/./*|*/.) return 1 ;; esac
+	[ "$(printf '%s' "$1" | tr -cd / | wc -c)" -ge 2 ] || return 1
+	return 0
+}
+
+# 把「N 项失败」汇总成最终状态
+summarize() {
+	if [ "$FAILS" -eq 0 ]; then
+		finish done "" ""
+	elif [ "$DONE" -le 0 ]; then
+		finish failed "$FIRST_CODE" "$FIRST_MSG"
+	else
+		finish done partial "$FAILS 项失败: $FIRST_MSG"
+	fi
+}
+
+fsize() { stat -c %s -- "$1" 2>/dev/null; }
+
+# ---------------------------------------------------------------- 删除
+op_rm() {
+	ITEMS=$#; flush
+	for p in "$@"; do
+		if ! safe_abs "$p"; then bad_path_item; continue; fi
+		: > "$J.err"
+		rm -rf -- "$p" 2>"$J.err"
+		if [ -e "$p" ] || [ -L "$p" ]; then fail_item; else DONE=$((DONE + 1)); fi
+		flush
+	done
+	summarize
+}
+
+# ---------------------------------------------------------------- 复制 / 移动   参数: src dst f|d o|n  (四个一组)
+op_xfer() {
+	MODE="$1"; shift
+	ITEMS=$(( $# / 4 )); flush
+	while [ $# -ge 4 ]; do
+		src="$1"; dst="$2"; ty="$3"; ow="$4"; shift 4
+		if ! safe_abs "$src" || ! safe_abs "$dst"; then bad_path_item; continue; fi
+		: > "$J.err"
+		rc=0
+		if [ "$ty" = f ]; then
+			TOTAL="$(fsize "$src")"
+			# 覆盖时目标若是符号链接, 先删掉链接本身, 避免顺着链接写到授权目录之外
+			if [ "$ow" = o ] && [ -L "$dst" ]; then rm -f -- "$dst"; fi
+			if [ "$MODE" = cp ]; then
+				# 先写临时文件再原子改名: 失败/取消不会留下半截文件, 覆盖也不会写坏原文件
+				# -P: 不跟随符号链接(链接本身被复制, 不会把授权目录之外的内容读进来)
+				TMPF="${dst%/*}/.mwf-$ID.cp"; CUR="$TMPF"; flush
+				if cp -P -- "$src" "$TMPF" 2>"$J.err"; then
+					mv -f -- "$TMPF" "$dst" 2>"$J.err" || rc=1
+				else
+					rc=1
+				fi
+				[ $rc -ne 0 ] && rm -f -- "$TMPF"
+				TMPF=""
+			else
+				CUR="$dst"; flush
+				mv -f -- "$src" "$dst" 2>"$J.err" || rc=1
+			fi
+		else
+			CUR=""; TOTAL=""; flush
+			if [ "$MODE" = cp ]; then cp -RP -- "$src" "$dst" 2>"$J.err" || rc=1
+			else mv -- "$src" "$dst" 2>"$J.err" || rc=1; fi
+		fi
+		if [ $rc -ne 0 ]; then fail_item; else DONE=$((DONE + 1)); fi
+		CUR=""; TOTAL=""; flush
+	done
+	summarize
+}
+
+# ---------------------------------------------------------------- 压缩   参数: fmt(tgz|zip) dest parent 名称...
+op_pack() {
+	FMT="$1"; PDEST="$2"; PARENT="$3"; shift 3
+	DEST="${PDEST##*/}"
+	safe_abs "$PDEST" && safe_abs "$PARENT" || finish failed bad_path "路径不合法"
+	[ -e "$PDEST" ] && finish failed exists "同名压缩包已存在"
+	ITEMS=$#
+	TMPF="${PDEST%/*}/.mwf-$ID.$FMT"
+	CUR="$TMPF"; flush
+	cd "$PARENT" || finish failed gone "源目录已不存在"
+	n=$#; i=0
+	while [ $i -lt $n ]; do a="$1"; shift; set -- "$@" "./$a"; i=$((i + 1)); done
+	: > "$J.err"
+	if [ "$FMT" = zip ]; then
+		zip -r -q -y "$TMPF" "$@" 2>"$J.err" || { reason "$(cat "$J.err")"; finish failed "$RC" "$RM"; }
+	else
+		tar -czf "$TMPF" -- "$@" 2>"$J.err"
+		rc=$?
+		# GNU tar: 1 = 打包期间文件有变化(仍然生成了有效归档)
+		[ $rc -gt 1 ] && { reason "$(cat "$J.err")"; finish failed "$RC" "$RM"; }
+	fi
+	mv -- "$TMPF" "$PDEST" 2>"$J.err" || { reason "$(cat "$J.err")"; finish failed "$RC" "$RM"; }
+	TMPF=""; DONE=$ITEMS
+	finish done "" ""
+}
+
+# ---------------------------------------------------------------- 解压   参数: kind src outdir
+BADNAME_AWK='/^\// {b=1} /(^|\/)\.\.(\/|$)/ {b=1} END{exit b}'
+
+unpack_fail() { # code msg  (清理半截输出再报错)
+	rm -rf -- "$OUTD"; OUTD=""
+	finish failed "$1" "$2"
+}
+
+op_unpack() {
+	KIND="$1"; SRC="$2"; OUT="$3"
+	safe_abs "$SRC" && safe_abs "$OUT" || finish failed bad_path "路径不合法"
+	[ -f "$SRC" ] || finish failed gone "压缩包已不存在"
+	[ -e "$OUT" ] && finish failed exists "目标文件夹已存在"
+	ITEMS=1; DEST="${OUT##*/}"
+	: > "$J.err"
+	mkdir -- "$OUT" 2>"$J.err" || { reason "$(cat "$J.err")"; finish failed "$RC" "$RM"; }
+	OUTD="$OUT"; CUR="$OUT"; flush
+
+	free=$(df -Pk "$OUT" 2>/dev/null | awk 'NR==2{print $4*1024}')
+	[ -z "$free" ] && free=0
+	NOOWN=""; tar --help 2>&1 | grep -q -- '--no-same-owner' && NOOWN="--no-same-owner"
+	NOPERM=""; tar --help 2>&1 | grep -q -- '--no-same-permissions' && NOPERM="--no-same-permissions"
+
+	case "$KIND" in
+	gz)
+		base="${SRC##*/}"; base="${base%.[gG][zZ]}"
+		[ -n "$base" ] || base="out"
+		TOTAL=""
+		gzip -dc -- "$SRC" > "$OUT/$base" 2>"$J.err" || { reason "$(cat "$J.err")"; unpack_fail "$RC" "$RM"; }
+		;;
+	zip)
+		command -v unzip >/dev/null 2>&1 || unpack_fail no_dep "固件未安装 unzip"
+		unzip -Z1 -- "$SRC" > "$J.lst" 2>"$J.err" || unpack_fail bad_archive "压缩包已损坏或格式不受支持"
+		awk "$BADNAME_AWK" "$J.lst" || unpack_fail unsafe "压缩包含有试图写出目标文件夹的路径(含 .. 或绝对路径), 已拒绝解压"
+		tot=$(unzip -Zt -- "$SRC" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="bytes"){print $(i-1); exit}}')
+		[ -n "$tot" ] && [ "$tot" -gt "$free" ] 2>/dev/null && unpack_fail nospace "存储空间不足(解压后约 $((tot / 1048576)) MB)"
+		TOTAL="$tot"; flush
+		unzip -q -n -d "$OUT" -- "$SRC" 2>"$J.err"
+		rc=$?
+		[ $rc -gt 1 ] && { reason "$(cat "$J.err")"; unpack_fail "$RC" "$RM"; }
+		;;
+	*)
+		case "$KIND" in tgz) Z=z ;; tbz) Z=j ;; txz) Z=J ;; *) Z="" ;; esac
+		tar -t${Z}f "$SRC" > "$J.lst" 2>"$J.err" || unpack_fail bad_archive "压缩包已损坏或格式不受支持"
+		awk "$BADNAME_AWK" "$J.lst" || unpack_fail unsafe "压缩包含有试图写出目标文件夹的路径(含 .. 或绝对路径), 已拒绝解压"
+		tar -tv${Z}f "$SRC" > "$J.lnk" 2>/dev/null
+		awk '$1 ~ /^[bcp]/ {bad=1}
+		     $1 ~ /^l/ { i=index($0," -> "); t=substr($0,i+4); if (t ~ /^\// || t ~ /(^|\/)\.\.(\/|$)/) bad=1 }
+		     $1 ~ /^h/ { i=index($0," link to "); t=substr($0,i+9); if (t ~ /^\// || t ~ /(^|\/)\.\.(\/|$)/) bad=1 }
+		     END{exit bad}' "$J.lnk" || unpack_fail unsafe "压缩包含有设备文件或指向目标文件夹之外的链接, 已拒绝解压"
+		tot=$(awk '$1 !~ /^[dlhbcp]/ {s+=$3} END{print s+0}' "$J.lnk")
+		[ "$tot" -gt "$free" ] 2>/dev/null && unpack_fail nospace "存储空间不足(解压后约 $((tot / 1048576)) MB)"
+		TOTAL="$tot"; flush
+		tar -x${Z}f "$SRC" -C "$OUT" $NOOWN $NOPERM 2>"$J.err" || { reason "$(cat "$J.err")"; unpack_fail "$RC" "$RM"; }
+		;;
+	esac
+
+	# 解压后复核: 不允许留下指向 OUT 之外的符号链接
+	realout="$(readlink -f -- "$OUT")"
+	find "$OUT" -type l 2>/dev/null | while IFS= read -r l; do
+		t="$(readlink -f -- "$l" 2>/dev/null)"
+		case "$t" in "$realout"|"$realout"/*) ;; *) rm -f -- "$l"; echo x > "$J.bad" ;; esac
+	done
+	if [ -e "$J.bad" ]; then unpack_fail unsafe "压缩包内的链接指向目标文件夹之外, 已拒绝解压"; fi
+	chmod -R ug-s "$OUT" 2>/dev/null
+	OUTD=""; DONE=1
+	finish done "" ""
+}
+
+# ---------------------------------------------------------------- 格式化   参数: fs(ext4|f2fs|vfat|exfat|ntfs) 设备 卷标 内核文件系统名
+# 设备路径在 core 里已对照磁盘清单校验(系统盘不会出现); 这里再收紧一次, 只认常见存储设备名。
+op_mkfs() {
+	FS="$1"; DEV="$2"; LABEL="$3"; KFS="$4"
+	case "$DEV" in
+		/dev/sd[a-z]|/dev/sd[a-z][0-9]*|/dev/mmcblk[0-9]|/dev/mmcblk[0-9]p[0-9]*|/dev/nvme[0-9]n[0-9]|/dev/nvme[0-9]n[0-9]p[0-9]*|/dev/vd[a-z]|/dev/vd[a-z][0-9]*) ;;
+		*) finish failed bad_path "设备路径不合法" ;;
+	esac
+	[ -b "$DEV" ] || finish failed gone "设备不存在(可能已被拔出)"
+	grep -q "^$DEV " /proc/mounts 2>/dev/null && finish failed busy "设备仍处于挂载状态"
+	ITEMS=1; CUR=""; TOTAL=""; flush
+	: > "$J.err"
+	rc=0
+	case "$FS" in
+	ext4)
+		if command -v mkfs.ext4 >/dev/null 2>&1; then T="mkfs.ext4"; else T="mke2fs -t ext4"; fi
+		if [ -n "$LABEL" ]; then $T -F -q -L "$LABEL" "$DEV" 2>"$J.err" || rc=1; else $T -F -q "$DEV" 2>"$J.err" || rc=1; fi ;;
+	f2fs)
+		if [ -n "$LABEL" ]; then mkfs.f2fs -f -l "$LABEL" "$DEV" >"$J.err" 2>&1 || rc=1; else mkfs.f2fs -f "$DEV" >"$J.err" 2>&1 || rc=1; fi ;;
+	vfat)
+		if command -v mkfs.vfat >/dev/null 2>&1; then T="mkfs.vfat"; else T="mkfs.fat"; fi
+		if [ -n "$LABEL" ]; then $T -n "$LABEL" "$DEV" >"$J.err" 2>&1 || rc=1; else $T "$DEV" >"$J.err" 2>&1 || rc=1; fi ;;
+	exfat)
+		if command -v mkfs.exfat >/dev/null 2>&1; then
+			if [ -n "$LABEL" ]; then mkfs.exfat -L "$LABEL" "$DEV" >"$J.err" 2>&1 || rc=1; else mkfs.exfat "$DEV" >"$J.err" 2>&1 || rc=1; fi
+		else
+			if [ -n "$LABEL" ]; then mkexfatfs -n "$LABEL" "$DEV" >"$J.err" 2>&1 || rc=1; else mkexfatfs "$DEV" >"$J.err" 2>&1 || rc=1; fi
+		fi ;;
+	ntfs)
+		if [ -n "$LABEL" ]; then mkntfs -f -Q -L "$LABEL" "$DEV" >"$J.err" 2>&1 || rc=1; else mkntfs -f -Q "$DEV" >"$J.err" 2>&1 || rc=1; fi ;;
+	*) finish failed bad_op "不支持的文件系统" ;;
+	esac
+	if [ $rc -ne 0 ]; then
+		# 工具自己的报错(只取最后两行、去掉控制字符)能直接说明原因, 如「容量太小」「命令不存在」
+		E=$(tail -n 2 "$J.err" 2>/dev/null | tr -d '\r' | tr '\n' ' ' | tr -d '\000-\010\013\014\016-\037' | cut -c1-120)
+		case "$E" in *"not found"*) E="固件里没有对应的格式化工具" ;; esac
+		[ -n "$E" ] || E="未知错误"
+		finish failed mkfs_failed "格式化失败: $E"
+	fi
+	sync
+	# 尝试挂回 /mnt/<设备名>, 让文件管理马上能看到; 挂不上也如实说明(格式化本身已经成功)
+	MP="/mnt/${DEV##*/}"
+	mkdir -p "$MP" 2>/dev/null
+	if mount -t "$KFS" "$DEV" "$MP" 2>"$J.err"; then
+		DEST="$MP"; DONE=1
+		finish done "" ""
+	fi
+	rmdir "$MP" 2>/dev/null
+	DONE=1
+	finish done nomount "已格式化, 但没能自动挂载; 请拔出重新插入, 或在系统挂载点里手动挂载"
+}
+
+case "$OP" in
+	rm) op_rm "$@" ;;
+	cp) op_xfer cp "$@" ;;
+	mv) op_xfer mv "$@" ;;
+	pack) op_pack "$@" ;;
+	unpack) op_unpack "$@" ;;
+	mkfs) op_mkfs "$@" ;;
+	*) finish failed bad_op "未知操作" ;;
+esac

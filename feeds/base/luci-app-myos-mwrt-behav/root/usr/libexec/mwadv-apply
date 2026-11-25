@@ -1,0 +1,182 @@
+#!/usr/bin/lua
+-- mwadv-apply: 行为管理「高级策略」的下发器。
+-- 读 /etc/config/mwrt_adv, 编译成 table inet mwrt_adv(forward 钩子)+ 自定义域名识别特征, 先 nft -c 校验再整表原子替换。
+-- 任何一步失败都保留上一份有效的运行状态(旧表不动), 并把原因写进 /tmp/mwbehav/adv_status.json 与系统日志。
+-- 调用方: mwbehav-apply(每分钟 cron, 翻转时间窗口/刷新接口)、控制器(改完配置)、接口热插拔。
+-- 用法: mwadv-apply            下发
+--       mwadv-apply --check    只做编译与 nft -c 校验, 不改运行状态(输出 JSON)
+local uci = require "uci"
+local nixio = require "nixio"
+local fs = require "nixio.fs"
+local jsonc = require "luci.jsonc"
+local adv = require "mwadv"
+
+local check_only = (arg and arg[1] == "--check")
+os.execute("mkdir -p " .. adv.RUN .. " " .. adv.ETC)
+
+local lock
+if not check_only then
+	lock = nixio.open(adv.RUN .. "/adv.lock", "w")
+	if lock then lock:lock("lock") end         -- 阻塞等待, 进程退出自动释放
+end
+
+local function sh(cmd) return os.execute(cmd) == 0 end
+local function logger(msg)
+	local f = io.popen("logger -t mwadv -p daemon.notice 2>/dev/null", "w")
+	if f then f:write(msg, "\n"); f:close() end
+end
+local function slurp(p) local f = io.open(p, "r"); if not f then return nil end local s = f:read("*a"); f:close(); return s end
+local function put(p, s)
+	local f = io.open(p .. ".tmp", "w")
+	if not f then return false end
+	f:write(s); f:close()
+	return os.rename(p .. ".tmp", p)
+end
+local function reload_daemon()
+	local pid = adv.daemon_pid()
+	if pid then nixio.kill(pid, 1) end        -- SIGHUP: 守护进程重读识别库(含自定义域名特征)
+end
+
+local now = os.time()
+local c = uci.cursor()
+local bg = c:get_all("mwrt_behav", "global") or {}
+local m = adv.load(c)
+local env = adv.build_env(c, now)
+env.urlids = adv.load_urlids()
+local plan = adv.compile(m, env)
+local prev = adv.status_read()
+
+local master_off = (bg.enabled == "0") or not m.g.enabled
+local table_present = sh("nft list table inet mwrt_adv >/dev/null 2>&1")
+
+local st = {
+	ts = now, enabled = not master_off, default_action = m.g.default_action, default_log = m.g.default_log,
+	quic_block = m.g.quic_block, engine = env.url_engine, engine_ver = env.url_engine_ver,
+	dpi_running = adv.daemon_pid() ~= nil, clock_ok = env.clock_ok,
+	rules = plan.rules, errors = plan.errors, warnings = plan.warnings, nrules = plan.nrules or 0,
+	idle = plan.idle or false, applied_ts = prev.applied_ts, last_error = prev.last_error, last_error_ts = prev.last_error_ts,
+	ok = true, nurl = 0,
+}
+for _ in pairs(plan.urls or {}) do st.nurl = st.nurl + 1 end
+if master_off then st.off_reason = (bg.enabled == "0") and "行为管理总开关已关闭" or "高级策略已停用" end
+
+local function fail(msg)
+	st.ok = false
+	st.error = msg
+	if prev.last_error ~= msg then
+		logger("高级策略未能生效，保留上一份有效配置：" .. msg)
+		st.last_error_ts = now
+	end
+	st.last_error = msg
+end
+
+local function write_status()
+	if st.ok then st.last_error = nil; st.last_error_ts = nil end    -- 本轮成功: 旧错误已经解决, 不再挂着
+	put(adv.STATUS, jsonc.stringify(st))
+end
+
+local function nft_err(f)
+	local s = slurp(f) or ""
+	s = s:gsub("%s+$", "")
+	if #s > 300 then s = s:sub(1, 300) .. "…" end
+	return s
+end
+
+if master_off then
+	if check_only then io.write(jsonc.stringify(st)); os.exit(0) end
+	if table_present then sh("nft delete table inet mwrt_adv >/dev/null 2>&1"); os.remove(adv.CUR_NFT); logger("高级策略已停用，规则已撤下") end
+	write_status()
+	os.exit(0)
+end
+
+if #plan.errors > 0 then
+	-- 有错误的策略: 整份不下发, 旧的继续跑; 不让半份配置悄悄生效
+	local e = plan.errors[1]
+	fail("策略「" .. e.name .. "」有问题：" .. tostring(e.msg) .. (#plan.errors > 1 and ("（另有 " .. (#plan.errors - 1) .. " 条）") or ""))
+	if check_only then io.write(jsonc.stringify(st)); os.exit(0) end
+	write_status()
+	os.exit(1)
+end
+
+local want = plan.nft
+local cur = slurp(adv.CUR_NFT)
+local changed = false
+
+if want then
+	-- 先校验语法, 通过才碰运行中的表
+	local nf = adv.RUN .. "/adv.nft.new"
+	put(nf, want)
+	os.remove(adv.RUN .. "/adv.nft.err")
+	if not sh("nft -c -f " .. nf .. " 2>" .. adv.RUN .. "/adv.nft.err") then
+		fail("规则语法校验未通过：" .. nft_err(adv.RUN .. "/adv.nft.err"))
+		os.remove(nf)
+		if check_only then io.write(jsonc.stringify(st)); os.exit(0) end
+		write_status()
+		os.exit(1)
+	end
+	if check_only then os.remove(nf); io.write(jsonc.stringify(st)); os.exit(0) end
+	if want ~= cur or not table_present then
+		-- 自定义域名特征先到位, 规则上线时识别已经就绪
+		local ftxt, utxt = adv.features_text(plan), adv.urlids_text(plan)
+		local fold = adv.hits_load()
+		adv.hits_sync(now, true)
+		if sh("nft -f " .. nf .. " 2>" .. adv.RUN .. "/adv.nft.err") then
+			put(adv.CUR_NFT, want)
+			changed = true
+			st.applied_ts = now
+			st.last_error = nil; st.last_error_ts = nil
+			logger("高级策略已更新：" .. st.nrules .. " 条规则，默认" .. (m.g.default_action == "deny" and "禁止" or "放行"))
+		else
+			adv.hits_save(fold)            -- 旧表还在(nft -f 是事务), 累计计数恢复到折叠前
+			fail("规则下发失败：" .. nft_err(adv.RUN .. "/adv.nft.err"))
+		end
+		os.remove(nf)
+		put(adv.URL_ID_FILE, utxt)
+		local old = slurp(adv.FEAT_ADV) or ""
+		if ftxt ~= old then
+			if ftxt == "" then os.remove(adv.FEAT_ADV) else put(adv.FEAT_ADV, ftxt) end
+			reload_daemon()
+		end
+	else
+		os.remove(nf)
+	end
+else
+	-- 没有任何生效的策略且默认放行: 撤下转发钩子
+	if check_only then io.write(jsonc.stringify(st)); os.exit(0) end
+	if table_present then
+		adv.hits_sync(now, true)
+		sh("nft delete table inet mwrt_adv >/dev/null 2>&1")
+		os.remove(adv.CUR_NFT)
+		changed = true
+	end
+	local ftxt, utxt = adv.features_text(plan), adv.urlids_text(plan)
+	put(adv.URL_ID_FILE, utxt)
+	local old = slurp(adv.FEAT_ADV) or ""
+	if ftxt ~= old then
+		if ftxt == "" then os.remove(adv.FEAT_ADV) else put(adv.FEAT_ADV, ftxt) end
+		reload_daemon()
+	end
+end
+
+-- 每分钟把内核计数并入累计值并记录最近命中时间; 已删除的策略计数随之清掉
+local keep = { default = true, quic = true }
+for _, r in ipairs(m.rules) do keep[r.id] = true end
+if table_present or changed then adv.hits_sync(now, false, keep) end
+
+-- HNAT/硬件加速已经绑定的流不再经过 netfilter: 有"禁止"效果的规则变化后清空加速表, 让流量回到软件路径被规则管到
+if changed then
+	local deny = m.g.default_action == "deny" or m.g.quic_block
+	for _, r in ipairs(m.rules) do
+		local s = plan.rules[r.id]
+		if s and s.state == "active" and r.action == "deny" then deny = true end
+	end
+	if deny then
+		for _, cmd in ipairs({ "3 -1", "5 -1", "7 -1" }) do
+			local h = io.open("/sys/kernel/debug/hnat/hnat_entry", "w")
+			if h then h:write(cmd); h:close() end
+		end
+	end
+end
+
+write_status()
+os.exit(st.ok and 0 or 1)

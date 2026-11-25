@@ -60,6 +60,7 @@
     const symbol=el('span','m-notice-icon');symbol.append(icon(n.icon||(n.level==='info'?'info':'warn')));
     const body=el('div','m-notice-body');body.append(el('strong','m-notice-title'),el('p','m-notice-text'));
     if(n.link==='ota'){const a=el('a','','查看更新');a.href=L.url('admin/system/myos_update');body.append(a);}
+    if(n.link==='usb-network'){const a=el('a','','配置 USB 网络');a.href=L.url('admin','network','myos-usb-network');body.append(a);}
     card.append(symbol,body);
     if(n.closable){
      const close=el('button','m-notice-close','×');close.type='button';close.setAttribute('aria-label','关闭通知');
@@ -98,12 +99,30 @@
   });
   state.ports=next;state.time=now;state.boot=data.boot;
  }
+ function usbDevices(data,now){
+  if(!data.usb_devices||typeof data.usb_devices!=='object')return;
+  const previous=state.usbDevices;
+  const devices=Array.isArray(data.usb_devices)?data.usb_devices:[];
+  const next=Object.fromEntries(devices.map(device=>[device.name,device]));
+  if(previous&&state.usbBoot===data.boot){
+   const kinds={ethernet:'USB 网卡',rndis:'安卓 USB 共享',iphone:'iPhone USB 共享'};
+   for(const name of new Set([...Object.keys(previous),...Object.keys(next)])){
+    if(Boolean(previous[name])===Boolean(next[name]))continue;
+    const device=next[name]||previous[name],connected=Boolean(next[name]);
+    events=events.filter(event=>event.usb!==name);
+    events.push({id:'usb-'+name+'-'+now,usb:name,expires:now+ttl,closable:true,level:'info',
+     icon:connected?'usb':'usb-off',title:(kinds[device.kind]||'USB 网络设备')+(connected?' 已接入':' 已拔出'),
+     text:connected?name+'，可手动选择 LAN 或 WAN。':name,link:connected?'usb-network':undefined});
+   }
+  }
+  state.usbDevices=next;state.usbBoot=data.boot;
+ }
  async function tick(){
   if(busy||document.hidden||homePaused||mediaOpen||window.__MYOSDashboardBusy)return;busy=true;
   try{
    const response=await fetch(L.url('admin/myos/notices'),{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(8000)});
    if(!response.ok)throw new Error('HTTP '+response.status);
-   const data=await response.json(),now=Date.now();links(data,now);
+   const data=await response.json(),now=Date.now();links(data,now);usbDevices(data,now);
    events=events.filter(n=>n.expires>now);save();render([...(Array.isArray(data.notices)?data.notices:[]),...events]);
    expireLinks();
   }catch(_){/* A failed read is not a physical disconnect. Keep existing notices. */}

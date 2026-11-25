@@ -6,6 +6,13 @@ PKG_RELEASE:=2
 
 include $(INCLUDE_DIR)/package.mk
 
+QMODEM_ROOT:=./files/rootfs
+QMODEM_INIT:=etc/init.d/qmodem_init etc/init.d/qmodem_network etc/init.d/qmodem_reboot
+QMODEM_TOOLS:=$(addprefix usr/share/qmodem/,modem_scan.sh modem_hook.sh modem_ctrl.sh modem_dial.sh led_scripts/m60k63.sh)
+QMODEM_RPC:=usr/libexec/rpcd/modem_ctrl usr/libexec/rpcd/qmodem
+QMODEM_DATA:=etc/hotplug.d/iface/80-wwan-led etc/hotplug.d/net/20-modem-net etc/hotplug.d/usb/20-modem-usb \
+	usr/share/qmodem/generic.sh usr/share/qmodem/modem_util.sh
+
 define Build/Compile
 endef
 
@@ -29,10 +36,15 @@ define Package/qmodem
 endef
 
 define Package/qmodem/install
-	$(CP) ./files/rootfs/. $(1)/
-	rm -rf $(1)/lib/modules
-	rm -f $(1)/usr/bin/quectel-CM-M
-	rm -f $(1)/bin/is-opkg
+	$(foreach f,$(QMODEM_INIT) $(QMODEM_TOOLS) $(QMODEM_RPC),$(INSTALL_DIR) $(1)/$(dir $(f)); $(INSTALL_BIN) $(QMODEM_ROOT)/$(f) $(1)/$(f);)
+	$(foreach f,$(QMODEM_DATA),$(INSTALL_DIR) $(1)/$(dir $(f)); $(INSTALL_DATA) $(QMODEM_ROOT)/$(f) $(1)/$(f);)
+	$(INSTALL_DIR) $(1)/etc/config $(1)/etc/uci-defaults $(1)/usr/share/qmodem/vendor $(1)/usr/share/rpcd/acl.d
+	$(INSTALL_DATA) $(if $(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_n5000),./files/qmodem.n5000,$(QMODEM_ROOT)/etc/config/qmodem) $(1)/etc/config/qmodem
+	$(if $(CONFIG_TARGET_mediatek_filogic_DEVICE_nradio_n5000),:,$(INSTALL_BIN) $(QMODEM_ROOT)/etc/init.d/pcie_mhi $(1)/etc/init.d/pcie_mhi)
+	$(INSTALL_DATA) $(QMODEM_ROOT)/etc/uci-defaults/* $(1)/etc/uci-defaults/
+	$(INSTALL_DATA) $(QMODEM_ROOT)/usr/share/qmodem/*.json $(1)/usr/share/qmodem/
+	$(INSTALL_DATA) $(QMODEM_ROOT)/usr/share/qmodem/vendor/* $(1)/usr/share/qmodem/vendor/
+	$(INSTALL_DATA) $(QMODEM_ROOT)/usr/share/rpcd/acl.d/*.json $(1)/usr/share/rpcd/acl.d/
 endef
 
 define Package/tom_modem
@@ -59,7 +71,11 @@ define Package/sms-forwarder-next/conffiles
 endef
 
 define Package/sms-forwarder-next/install
-	$(CP) ./files/sms-forwarder-next/. $(1)/
+	$(INSTALL_DIR) $(1)/etc/init.d $(1)/etc/config $(1)/usr/bin $(1)/usr/share/sms_forwarder
+	$(INSTALL_BIN) ./files/sms-forwarder-next/etc/init.d/sms_forwarder $(1)/etc/init.d/
+	$(INSTALL_BIN) ./files/sms-forwarder-next/usr/bin/sms_forwarder_next $(1)/usr/bin/
+	$(INSTALL_BIN) ./files/sms-forwarder-next/usr/share/sms_forwarder/*.sh $(1)/usr/share/sms_forwarder/
+	$(INSTALL_DATA) ./files/sms-forwarder-next/etc/config/sms_forwarder $(1)/etc/config/
 endef
 
 define Package/luci-app-qmodem-next

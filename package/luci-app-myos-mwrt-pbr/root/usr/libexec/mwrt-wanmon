@@ -1,0 +1,617 @@
+#!/usr/bin/ucode
+'use strict';
+// mwrt-wanmon:多出口探测与发布守护进程(SPEC §6.1-6.2),由 /etc/init.d/mwrt-pbr 作为 procd 实例托管。
+// observe:只探测并发布 /tmp/mwrt-wan.json,不碰路由。
+// manage(Mwrt-Assurance.mode=multi 且已启用):另把主表 metric 0 的 IPv4 默认路由放到优先级最高的健康成员上,
+// 做法对照旧守护进程 mwrt_wan_failover.sh;不管理 IPv6,不动 netifd 其它 metric 的路由(热备)。
+
+import * as fs from 'fs';
+import * as uloop from 'uloop';
+import { sh_quote, run, log, read_json, write_json_atomic, now, uci_cursor, RUN_DIR } from 'mwrt.lib';
+import { snapshot } from 'mwrt.wans';
+
+const HEALTH_FILE = '/tmp/mwrt-wan.json';
+const DIRTY_FILE = RUN_DIR + '/dirty';
+const CLI = '/usr/libexec/mwrt-pbr';
+const REDISCOVER_SEC = 30;
+const RECONCILE_GAP = 5;
+const MAX_TARGETS = 3;
+const DEF_TARGET = '223.5.5.5';
+const EXTRA_TARGET = '119.29.29.29';
+// manage 模式下,默认路由被让给别的成员的口在主表里没有默认路由,ping -I 无路可走;
+// 这类成员探测时临时建独立路由表(default via 网关 dev 备口)加一条 oif 规则,ping -I 的本机包命中、转发包 oif 未定不受影响;
+// 不能放主表:/32 主机路由按最长前缀会劫持发往探测目标的转发流量。
+// 规则优先级 5900+i 落在 SPEC 保留区间(引擎占 5001-5899),表号 4800+i(引擎占 4001-4253),启动和退出时清理
+const TMP_PROTO = 99;
+const TMP_PREF = 5900;
+const TMP_TABLE = 4800;
+const TMP_MAX = 16;
+
+let cfg = { pbr_on: false, assur_on: true, manage: false, interval: 10, fail_th: 3, succ_th: 2, failback: true, targets: [ DEF_TARGET, EXTRA_TARGET ] };
+let members = [];
+let off_devs = [];
+let hs = {};
+let last_disc = 0;
+let last_start = 0;
+let period = 0;
+let force_disc = true;
+let dirty_tok = null;
+let rc_pending = false;
+let rc_last = 0;
+let warned = {};
+let stopping = false;
+let tmr = null;
+let sigs = [];
+
+function ms_now() {
+	let c = clock(true);
+	return c[0] * 1000 + int(c[1] / 1000000);
+}
+
+function read_pid() {
+	let p = fs.readlink('/proc/self');
+	if (p != null && match(p, /^[0-9]+$/) != null)
+		return int(p);
+	let s = fs.readfile('/proc/self/stat');
+	let m = (s != null) ? match(s, /^([0-9]+) /) : null;
+	return (m != null) ? int(m[1]) : 0;
+}
+
+const PID = read_pid();
+
+// 同一条消息不重复刷日志;消息变了或被 warn_clear 清过才再记
+function warn_once(key, msg) {
+	if (warned[key] == msg)
+		return;
+	warned[key] = msg;
+	log('warn', msg);
+}
+
+function warn_clear(key) {
+	warned[key] = null;
+}
+
+function flag(v, dflt) {
+	if (type(v) != 'string' || v == '')
+		return dflt;
+	return !(lc(v) in [ '0', 'no', 'false', 'off', 'disabled' ]);
+}
+
+function num_opt(v, dflt, lo) {
+	let s = (type(v) == 'string') ? trim(v) : '';
+	if (match(s, /^[0-9]{1,6}$/) == null)
+		return dflt;
+	let n = int(s);
+	return (n < lo) ? lo : n;
+}
+
+function is_ipv4(s) {
+	let m = (type(s) == 'string') ? match(s, /^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$/) : null;
+	if (m == null)
+		return false;
+	for (let i = 1; i <= 4; i++) {
+		if (int(m[i]) > 255)
+			return false;
+	}
+	return true;
+}
+
+function valid_dev(s) {
+	return type(s) == 'string' && match(s, /^[A-Za-z0-9_.@-]{1,31}$/) != null;
+}
+
+function words(v, out) {
+	if (type(v) == 'array') {
+		for (let x in v)
+			words(x, out);
+		return;
+	}
+	if (type(v) != 'string')
+		return;
+	for (let w in split(replace(v, ',', ' '), /[ ]+/)) {
+		let t = trim(w);
+		if (t != '')
+			push(out, t);
+	}
+}
+
+// 探测目标只收 IPv4 字面量:域名会引入解析,且让一路探测的耗时没有上限
+function pick_targets(a) {
+	let cand = [];
+	words(a.probe_targets, cand);
+	if (length(cand) == 0) {
+		words(a.ping_target, cand);
+		if (length(cand) == 0)
+			push(cand, DEF_TARGET);
+		push(cand, EXTRA_TARGET);
+	}
+	let res = [];
+	for (let t in cand) {
+		if (!is_ipv4(t)) {
+			warn_once('tgt:' + t, '探测目标 ' + t + ' 不是 IPv4 地址,已忽略');
+			continue;
+		}
+		if (!(t in res) && length(res) < MAX_TARGETS)
+			push(res, t);
+	}
+	return (length(res) > 0) ? res : [ DEF_TARGET, EXTRA_TARGET ];
+}
+
+function load_cfg() {
+	let c = uci_cursor();
+	let g = c.get_all('mwrt_pbr', 'global');
+	let a = c.get_all('Mwrt-Assurance', 'wan_failover');
+	if (type(g) != 'object')
+		g = {};
+	if (type(a) != 'object')
+		a = {};
+	let n = {};
+	n.pbr_on = flag(g.enabled, false);
+	n.assur_on = flag(a.enabled, true);
+	n.manage = (a.mode == 'multi' && n.assur_on);
+	n.interval = num_opt(a.check_interval, 10, 3);
+	n.fail_th = num_opt(a.fail_threshold, 3, 1);
+	n.succ_th = num_opt(a.success_threshold, 2, 1);
+	n.failback = flag(a.failback, true);
+	n.targets = pick_targets(a);
+	return n;
+}
+
+// 成员 = 快照里设备名已知且未被关闭的出口;顺序即快照给出的优先级顺序。状态按 wan_id 沿用,新成员从 unknown 起步
+function rediscover() {
+	try {
+		cfg = load_cfg();
+	}
+	catch (e) {
+		warn_once('cfg', '读取配置失败,沿用上一份:' + e.message);
+	}
+	let snap = null;
+	try {
+		snap = snapshot({ health: false });
+	}
+	catch (e) {
+		warn_once('snap', '出口发现失败,沿用上一份成员:' + e.message);
+	}
+	if (type(snap) != 'object' || type(snap.wans) != 'array')
+		return;
+	warn_clear('snap');
+	let t = now();
+	let list = [];
+	let nh = {};
+	let off = [];
+	for (let w in snap.wans) {
+		if (w.enabled == false && valid_dev(w.dev) && !(w.dev in off))
+			push(off, w.dev);
+		if (w.enabled == false || !valid_dev(w.dev))
+			continue;
+		push(list, w);
+		nh[w.wan_id] = hs[w.wan_id] ?? { health: 'unknown', fails: 0, succ: 0, rtt_ms: null, since: t, last_probe: 0, link: false };
+	}
+	members = list;
+	off_devs = off;
+	hs = nh;
+}
+
+// 主表 IPv4 默认路由:[{dev, via, metric}];ip 失败返回 null
+function read_kdefs() {
+	let r = run('ip -4 route show default');
+	if (r.rc != 0)
+		return null;
+	let res = [];
+	for (let raw in split(r.out, "\n")) {
+		let tk = split(trim(raw), /[ ]+/);
+		if (tk[0] != 'default')
+			continue;
+		let d = { dev: '', via: '', metric: 0 };
+		for (let i = 1; i < length(tk) - 1; i++) {
+			if (tk[i] == 'dev')
+				d.dev = tk[i + 1];
+			else if (tk[i] == 'via')
+				d.via = tk[i + 1];
+			else if (tk[i] == 'metric' && match(tk[i + 1], /^[0-9]+$/) != null)
+				d.metric = int(tk[i + 1]);
+		}
+		if (d.dev != '')
+			push(res, d);
+	}
+	return res;
+}
+
+function lowest(list) {
+	let best = null;
+	for (let k in list) {
+		if (best == null || k.metric < best.metric)
+			best = k;
+	}
+	return best;
+}
+
+function own_route(kd, dev) {
+	let best = null;
+	for (let k in kd) {
+		if (k.dev == dev && (best == null || k.metric < best.metric))
+			best = k;
+	}
+	return best;
+}
+
+function member_by_dev(dev) {
+	for (let m in members) {
+		if (m.dev == dev)
+			return m;
+	}
+	return null;
+}
+
+// 设备存在与链路每周期直接读 sysfs(不 fork);carrier 读不到(如接口被 down)时沿用快照的 up
+function dev_state(m) {
+	let base = '/sys/class/net/' + m.dev;
+	if (fs.stat(base) == null)
+		return { exists: false, link: false };
+	let c = fs.readfile(base + '/carrier');
+	return { exists: true, link: (c != null) ? (trim(c) == '1') : (m.up == true) };
+}
+
+// 一次 popen 并行探测:每个成员一路子 shell,依次试各目标至首个成功;最后 wait 并输出 D 作为完整性标记
+function build_probe(todo) {
+	let tl = join(' ', cfg.targets);
+	let sc = '';
+	for (let p in todo) {
+		let q = sh_quote(p.m.dev);
+		let id = sprintf('%d', p.i);
+		let pick = 'r=${o##*time=}; echo "P ' + id + ' ${r%% *}"; exit 0';
+		let body = '';
+		if (p.temp) {
+			let pref = sprintf('%d', TMP_PREF + p.i);
+			let tbl = sprintf('%d', TMP_TABLE + p.i);
+			let undo = 'ip rule del pref ' + pref + ' 2>/dev/null; ip route flush table ' + tbl + ' 2>/dev/null';
+			let spec = ((p.via != '') ? ' via ' + p.via : '') + ' dev ' + q + ' table ' + tbl;
+			body = undo + '; if ip route replace default' + spec + ' 2>/dev/null && ip rule add pref ' + pref + ' oif ' + q + ' lookup ' + tbl + ' 2>/dev/null; then '
+				+ 'for t in ' + tl + '; do o=$(ping -I ' + q + ' -c 1 -W 2 $t 2>&1) && { ' + undo + '; ' + pick + '; }; done; fi; '
+				+ undo + '; echo "P ' + id + ' -"';
+		}
+		else
+			body = 'for t in ' + tl + '; do o=$(ping -I ' + q + ' -c 1 -W 2 $t 2>&1) && { ' + pick + '; }; done; echo "P ' + id + ' -"';
+		sc += '( ' + body + ' ) &' + "\n";
+	}
+	return sc + "wait\necho D\n";
+}
+
+function rtt_of(v) {
+	let m = match(v, /^([0-9]+)(\.([0-9]+))?$/);
+	if (m == null)
+		return null;
+	let ms = int(m[1]);
+	if (m[3] != null && m[3] != '' && int(substr(m[3], 0, 1)) >= 5)
+		ms++;
+	return ms;
+}
+
+// 返回 { "<下标>": {ok, rtt} };缺完整性标记(被信号打断等)返回 null,这一轮不计入状态机
+function probe(todo) {
+	let res = {};
+	if (length(todo) == 0)
+		return res;
+	let r = run(build_probe(todo));
+	let done = false;
+	for (let raw in split(r.out, "\n")) {
+		let l = trim(raw);
+		if (l == 'D') {
+			done = true;
+			continue;
+		}
+		let m = match(l, /^P ([0-9]+) (.+)$/);
+		if (m == null)
+			continue;
+		let key = sprintf('%d', int(m[1]));
+		res[key] = (m[2] == '-') ? { ok: false, rtt: null } : { ok: true, rtt: rtt_of(m[2]) };
+	}
+	return done ? res : null;
+}
+
+// 迟滞状态机;health 变化时返回旧值,否则 null。hard=无链路/无路由/设备不存在,不等阈值
+function step(h, hard, ok, rtt, t) {
+	let old = h.health;
+	h.last_probe = t;
+	if (hard) {
+		h.fails = (h.fails < cfg.fail_th) ? cfg.fail_th : h.fails;
+		h.succ = 0;
+		h.rtt_ms = null;
+		h.health = 'down';
+	}
+	else if (ok) {
+		h.succ++;
+		h.fails = 0;
+		h.rtt_ms = rtt;
+		if (h.health != 'up' && h.succ >= cfg.succ_th)
+			h.health = 'up';
+	}
+	else {
+		h.fails++;
+		h.succ = 0;
+		h.rtt_ms = null;
+		if (h.health != 'down' && h.fails >= cfg.fail_th)
+			h.health = 'down';
+	}
+	if (h.health == old)
+		return null;
+	h.since = t;
+	return old;
+}
+
+// 把 metric 0 默认路由换到 want:ip route replace 不带 metric(即 0),会原地顶掉同 metric 的旧条目,
+// 再逐条删掉成员设备上残留的 metric 0 默认路由(最多 8 条)。metric > 0 的一律不动。
+// 网关取内核现有路由,其次取快照里 netifd 记的;取不到宁可不改,不编造
+function switch_to(want, kd) {
+	let own = own_route(kd, want.dev);
+	let gw = '';
+	let ptp = false;
+	if (own != null) {
+		gw = own.via;
+		ptp = (gw == '');
+	}
+	else if (is_ipv4(want.gw4))
+		gw = want.gw4;
+	else
+		ptp = (want.ptp == true);
+	if (gw == '' && !ptp) {
+		warn_once('nogw:' + want.wan_id, sprintf('出口 %s(%s)没有可用网关,不改默认路由', want.name, want.dev));
+		return kd;
+	}
+	let r = run('ip route replace default' + ((gw != '') ? ' via ' + sh_quote(gw) : '') + ' dev ' + sh_quote(want.dev));
+	if (r.rc != 0) {
+		warn_once('rep:' + want.wan_id, sprintf('设置默认路由失败(%s):%s', want.dev, trim(r.out)));
+		return kd;
+	}
+	warn_clear('nogw:' + want.wan_id);
+	warn_clear('rep:' + want.wan_id);
+	let nk = read_kdefs();
+	let landed = false;
+	for (let k in (nk ?? [])) {
+		if (k.dev == want.dev && k.metric == 0)
+			landed = true;
+	}
+	if (!landed) {
+		warn_once('verify:' + want.wan_id, sprintf('默认路由设置后校验未通过(%s),不再清理旧路由', want.dev));
+		return nk ?? kd;
+	}
+	warn_clear('verify:' + want.wan_id);
+	for (let n = 0; n < 8; n++) {
+		let victim = null;
+		for (let k in nk) {
+			if (k.metric == 0 && k.dev != want.dev && member_by_dev(k.dev) != null) {
+				victim = k;
+				break;
+			}
+		}
+		if (victim == null)
+			break;
+		if (run('ip route del default' + ((victim.via != '') ? ' via ' + sh_quote(victim.via) : '') + ' dev ' + sh_quote(victim.dev)).rc != 0)
+			break;
+		nk = read_kdefs() ?? nk;
+	}
+	log('notice', sprintf('默认路由已切到出口 %s(%s)%s', want.name, want.dev, (gw != '') ? ',网关 ' + gw : ''));
+	rc_pending = true;
+	return nk;
+}
+
+// 选择规则:按优先级找第一个 up 的成员;更高优先级的成员还是 unknown 时先等(避免刚启动时抢切)。
+// failback=0 时,当前在用的成员只要还是 up 就不回切
+function manage(kd) {
+	let cur = lowest(kd);
+	let curm = (cur != null) ? member_by_dev(cur.dev) : null;
+	if (cur != null && curm == null && cur.metric == 0) {
+		if (!(cur.dev in off_devs)) {
+			warn_once('foreign', sprintf('主表 metric 0 默认路由在非出口设备 %s 上,多出口接管不改路由', cur.dev));
+			return kd;
+		}
+		warn_once('off', sprintf('出口设备 %s 已被停用但仍持有主表 metric 0 默认路由,按优先级改切到启用的出口', cur.dev));
+	}
+	else
+		warn_clear('off');
+	warn_clear('foreign');
+	let want = null;
+	for (let m in members) {
+		let st = hs[m.wan_id].health;
+		if (st == 'up') {
+			want = m;
+			break;
+		}
+		if (st == 'unknown')
+			return kd;
+	}
+	if (want == null)
+		return kd;
+	if (!cfg.failback && curm != null && hs[curm.wan_id].health == 'up')
+		want = curm;
+	if (cur != null && cur.dev == want.dev)
+		return kd;
+	return switch_to(want, kd);
+}
+
+function publish(kd, t) {
+	let cur = lowest(kd);
+	let curm = (cur != null) ? member_by_dev(cur.dev) : null;
+	let arr = [];
+	for (let m in members) {
+		let h = hs[m.wan_id];
+		let own = own_route(kd, m.dev);
+		push(arr, {
+			wan_id: m.wan_id, dev: m.dev, iface: m.iface, kind: m.kind, prio: m.prio, link: h.link,
+			addr: (length(m.addr4) > 0) ? m.addr4[0] : '',
+			gw: (own != null && own.via != '') ? own.via : (m.gw4 ?? ''),
+			metric: (own != null) ? own.metric : null,
+			health: h.health, fails: h.fails, succ: h.succ, rtt_ms: h.rtt_ms, since: h.since, last_probe: h.last_probe
+		});
+	}
+	let doc = {
+		ver: 1, ts: t, pid: PID, mode: cfg.manage ? 'manage' : 'observe', enabled: cfg.assur_on,
+		interval: (period > cfg.interval) ? period : cfg.interval,
+		active: (curm != null) ? curm.wan_id : '', active_dev: (cur != null) ? cur.dev : '', active_gw: (cur != null) ? cur.via : '',
+		members: arr
+	};
+	if (!write_json_atomic(HEALTH_FILE, doc))
+		warn_once('pub', '无法写入 ' + HEALTH_FILE);
+	else
+		warn_clear('pub');
+}
+
+// 后台对账:每 RECONCILE_GAP 秒至多拉起一次,引擎自己持锁串行;总开关关着或引擎不在就不调
+function maybe_reconcile(t) {
+	if (!rc_pending)
+		return;
+	if (!cfg.pbr_on || fs.stat(CLI) == null) {
+		rc_pending = false;
+		return;
+	}
+	if (t >= rc_last && t - rc_last < RECONCILE_GAP)
+		return;
+	rc_pending = false;
+	rc_last = t;
+	let q = sh_quote(CLI) + ' reconcile --quiet >/dev/null 2>&1 </dev/null &';
+	system([ '/bin/sh', '-c', 'if command -v setsid >/dev/null 2>&1; then setsid ' + q + ' else ' + q + ' fi' ], 2000);
+}
+
+function cycle() {
+	let t = now();
+	// 板钟被校时会让间隔跳变,超过 2 分钟的不当真,免得发布出离谱的 interval 让陈旧文件被消费方当作新鲜
+	if (last_start > 0 && t > last_start && t - last_start <= 120)
+		period = t - last_start;
+	last_start = t;
+
+	let tok = fs.readfile(DIRTY_FILE);
+	if (tok != null && tok != dirty_tok) {
+		dirty_tok = tok;
+		force_disc = true;
+	}
+	if (force_disc || t < last_disc || t - last_disc >= REDISCOVER_SEC) {
+		force_disc = false;
+		rediscover();
+		last_disc = now();
+	}
+
+	let kd = read_kdefs();
+	if (kd == null) {
+		warn_once('ip', '读取主表默认路由失败(ip 命令不可用?),本轮跳过');
+		return;
+	}
+	warn_clear('ip');
+
+	let plan = [];
+	let todo = [];
+	for (let i = 0; i < length(members); i++) {
+		let m = members[i];
+		let ds = dev_state(m);
+		hs[m.wan_id].link = ds.link;
+		let p = { i: i, m: m, hard: '', via: '', temp: false };
+		if (!ds.exists)
+			p.hard = '设备不存在';
+		else if (!ds.link)
+			p.hard = '无链路';
+		else if (own_route(kd, m.dev) == null) {
+			if (cfg.manage && i < TMP_MAX && m.route4 == true && (is_ipv4(m.gw4) || (m.gw4 == '' && m.ptp == true))) {
+				p.temp = true;
+				p.via = is_ipv4(m.gw4) ? m.gw4 : '';
+			}
+			else
+				p.hard = '无默认路由';
+		}
+		push(plan, p);
+		if (p.hard == '')
+			push(todo, p);
+	}
+	let res = probe(todo);
+
+	let changed = false;
+	for (let p in plan) {
+		let h = hs[p.m.wan_id];
+		let old = null;
+		if (p.hard != '')
+			old = step(h, true, false, null, t);
+		else if (res != null) {
+			let r = res[sprintf('%d', p.i)];
+			old = step(h, false, r != null && r.ok, (r != null) ? r.rtt : null, t);
+		}
+		if (old == null)
+			continue;
+		changed = true;
+		let why = p.hard;
+		if (why == '')
+			why = (h.health == 'down') ? sprintf('连续 %d 次探测失败', cfg.fail_th) : sprintf('连续 %d 次探测成功', cfg.succ_th);
+		log('notice', sprintf('出口 %s [%s] 健康状态 %s → %s(%s)', p.m.name, p.m.wan_id, old, h.health, why));
+	}
+	if (changed)
+		rc_pending = true;
+
+	if (cfg.manage)
+		kd = manage(kd);
+	publish(kd, now());
+	maybe_reconcile(now());
+}
+
+function tick() {
+	let t0 = ms_now();
+	try {
+		cycle();
+	}
+	catch (e) {
+		warn_once('cycle', '探测周期异常:' + e.message);
+	}
+	if (stopping)
+		return;
+	let wait = cfg.interval * 1000 - (ms_now() - t0);
+	tmr.set((wait < 1000) ? 1000 : wait);
+}
+
+function other_running() {
+	let h = read_json(HEALTH_FILE, null);
+	let p = (type(h) == 'object' && type(h.pid) == 'int') ? h.pid : 0;
+	if (p <= 0 || p == PID)
+		return false;
+	let cl = fs.readfile(sprintf('/proc/%d/cmdline', p));
+	return (cl != null && index(cl, 'mwrt-wanmon') >= 0);
+}
+
+function clean_tmp() {
+	let sc = sprintf('ip -4 route flush table main proto %d 2>/dev/null; ', TMP_PROTO);
+	for (let i = 0; i < TMP_MAX; i++)
+		sc += sprintf('ip -4 rule del pref %d 2>/dev/null; ip -4 route flush table %d 2>/dev/null; ', TMP_PREF + i, TMP_TABLE + i);
+	run(sc + 'true');
+}
+
+// 退出(SIGTERM)时路由原样保留(SPEC §6.1),只清自己的临时探测规则与路由表,并撤下自己发布的健康文件
+function cleanup() {
+	clean_tmp();
+	let h = read_json(HEALTH_FILE, null);
+	if (type(h) == 'object' && h.pid == PID)
+		fs.unlink(HEALTH_FILE);
+}
+
+if (other_running()) {
+	log('info', 'mwrt-wanmon 已有实例在运行,本实例退出');
+	exit(0);
+}
+clean_tmp();
+log('info', sprintf('mwrt-wanmon 启动(pid %d)', PID));
+
+uloop.init();
+tmr = uloop.timer(0, tick);
+push(sigs, uloop.signal('SIGTERM', function() {
+	stopping = true;
+	uloop.end();
+}));
+push(sigs, uloop.signal('SIGINT', function() {
+	stopping = true;
+	uloop.end();
+}));
+// 总开关/模式变化后由服务脚本发 SIGUSR1:立刻重读配置并重新发现成员
+let on_reload = function() {
+	force_disc = true;
+	tmr.set(200);
+};
+push(sigs, uloop.signal('SIGUSR1', on_reload));
+push(sigs, uloop.signal('SIGHUP', on_reload));
+uloop.run();
+cleanup();
+log('info', 'mwrt-wanmon 已退出,路由保持不变');
+exit(0);

@@ -1,0 +1,117 @@
+#!/bin/sh /etc/rc.common
+# Mwrt 策略路由服务:托管 mwrt-wanmon、开机应用规则、维护每分钟对账的 cron。
+# 总开关关闭且没有启用多出口接管时,本服务不拉起任何进程、不改任何现有路由。
+START=97
+STOP=10
+USE_PROCD=1
+
+CLI=/usr/libexec/mwrt-pbr
+WANMON=/usr/libexec/mwrt-wanmon
+STATE=/var/run/mwrt-pbr/state.json
+CRONTAB=/etc/crontabs/root
+CRON_LINE='* * * * * /usr/libexec/mwrt-pbr reconcile --quiet >/dev/null 2>&1'
+
+# 布尔取值与引擎(validate.uc 的 to_bool)一致:空/0/false/off/no 为假;未设置取 $2
+uci_on() {
+	local v
+	v="$(uci -q get "$1" 2>/dev/null)" || v="$2"
+	case "$v" in
+	0|false|off|no|"") return 1 ;;
+	esac
+	return 0
+}
+
+pbr_on() {
+	uci_on mwrt_pbr.global.enabled 0
+}
+
+multi_on() {
+	[ "$(uci -q get Mwrt-Assurance.wan_failover.mode)" = "multi" ] || return 1
+	uci_on Mwrt-Assurance.wan_failover.enabled 1
+}
+
+wanmon_wanted() {
+	[ -x "$WANMON" ] || return 1
+	pbr_on || multi_on
+}
+
+# 不用 pidof(busybox 的会把本脚本自己算进去);实例没在跑时没有 pid 字段
+wanmon_pid() {
+	jsonfilter -s "$(ubus call service list '{"name":"mwrt-pbr"}' 2>/dev/null)" -e '@.*.instances.wanmon.pid' 2>/dev/null
+}
+
+# cron 行只在总开关打开时存在;没变化就不写文件。busybox crond 靠目录 mtime 发现改动,所以写完补一次 touch
+sync_cron() {
+	local has=0
+	grep -q 'mwrt-pbr reconcile' "$CRONTAB" 2>/dev/null && has=1
+	if pbr_on; then
+		[ "$has" = 1 ] && return 0
+		mkdir -p "$(dirname "$CRONTAB")"
+		echo "$CRON_LINE" >> "$CRONTAB"
+	else
+		[ "$has" = 1 ] || return 0
+		sed -i '/mwrt-pbr reconcile/d' "$CRONTAB"
+	fi
+	touch "$(dirname "$CRONTAB")" 2>/dev/null
+}
+
+register_service() {
+	wanmon_wanted || return 0
+	procd_open_instance wanmon
+	procd_set_param command "$WANMON"
+	procd_set_param respawn 3600 5 0
+	procd_set_param stderr 1
+	# 一轮探测最坏约 6 秒,留够时间让它收尾后再被强杀
+	procd_set_param term_timeout 10
+	procd_close_instance
+}
+
+start_service() {
+	rm -f /var/run/mwrt-pbr/stopped
+	register_service
+	sync_cron
+	if pbr_on && [ -x "$CLI" ]; then
+		( sleep 3; "$CLI" reconcile --quiet ) >/dev/null 2>&1 1000>&- &
+	fi
+}
+
+# 重新登记实例(启用条件变了就拉起/撤掉 wanmon,没变的实例 procd 原样保留),再应用配置。只 apply,不 flush
+reload_service() {
+	local before after
+	before="$(wanmon_pid)"
+	rc_procd register_service
+	after="$(wanmon_pid)"
+	# 新拉起的进程还没装好信号处理,此时发 USR1 会把它杀掉,所以只通知原来就在跑的那个
+	[ -n "$before" ] && [ "$before" = "$after" ] && kill -USR1 "$before" 2>/dev/null
+	sync_cron
+	[ -x "$CLI" ] || return 0
+	# 没启用且从未应用过:什么都不做;关闭已应用的配置由 apply 在读到 enabled=0 时清理
+	if pbr_on || [ -f "$STATE" ]; then
+		"$CLI" reconcile --quiet >/dev/null 2>&1
+	fi
+}
+
+# 先让 wanmon 退出再 flush,免得它在 flush 之后又触发对账把规则装回去
+stop_service() {
+	local p i=0
+	mkdir -p /var/run/mwrt-pbr
+	touch /var/run/mwrt-pbr/stopped
+	p="$(wanmon_pid)"
+	if [ -n "$p" ]; then
+		procd_kill mwrt-pbr wanmon >/dev/null 2>&1
+		while [ "$i" -lt 12 ] && kill -0 "$p" 2>/dev/null; do
+			sleep 1
+			i=$((i + 1))
+		done
+	fi
+	[ -x "$CLI" ] && "$CLI" flush >/dev/null 2>&1
+	if grep -q 'mwrt-pbr reconcile' "$CRONTAB" 2>/dev/null; then
+		sed -i '/mwrt-pbr reconcile/d' "$CRONTAB"
+		touch "$(dirname "$CRONTAB")" 2>/dev/null
+	fi
+}
+
+# Mwrt-Assurance 的 mode/enabled 决定 wanmon 是否接管默认路由;firewall/network 变化后区域与设备归属可能变了
+service_triggers() {
+	procd_add_reload_trigger mwrt_pbr Mwrt-Assurance firewall network
+}

@@ -1,0 +1,10 @@
+config main 'main'
+	option enabled '1'
+	option hidden '0'
+	# 单个文件上传上限(MB), 0 = 只受剩余空间限制
+	option max_upload_mb '0'
+	# 是否显示「内部存储」(系统根 /, 可浏览 /etc 等系统文件; 改动需 root 密码, /proc /sys /dev 不可访问); 0 = 不显示
+	option sysroot '1'
+
+# 授权目录(文件管理只能访问「内部存储」、这里列出的目录、/mnt 与 /media 下已挂载的存储卷、以及本插件挂载的 SMB 共享)
+list root '/mnt'

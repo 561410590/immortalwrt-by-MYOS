@@ -1,0 +1,1402 @@
+#!/usr/bin/lua
+-- /usr/libexec/mwrt-audio —— USB 声卡的音量 / 音乐播放 / 波形 / 麦克风监测后端 (Lua 5.1 + nixio)。
+--
+-- 同一个脚本两种身份:
+--   一次性子命令(各输出一行 JSON, 供 luci.controller.modem 调用):
+--     state                       声卡、音量、播放器、曲目、剩余空间(顺手刷新心跳并确保守护已起)
+--     wave [seq]                  seq 之后的新电平桶(顺手刷新心跳并确保守护已起)
+--     vol  play|cap <0-100>       设音量(无硬件音量控件的声卡改软件增益)
+--     mute play|cap <0|1>         静音 / 取消静音
+--     play <曲目id> [声卡号]       播放
+--     ctl  pause|resume|stop      暂停 / 恢复 / 停止
+--     mic  <0|1>                  麦克风电平监测开关(只算电平, 不保存任何音频)
+--     del  <曲目id>               删除上传目录里的曲目
+--     quota <字节数>               上传前预检(单文件上限 / 总量 / 剩余内存)
+--     ingest <数字>               把控制器流式落盘的 .up<数字>(+ .up<数字>.name 原名)校验后收入上传目录
+--     quit                        让守护退出(测试 / 维护用)
+--   后台守护: mwrt-audio daemon(按需由 state/wave/play/mic 拉起, 单实例):
+--     播放管线 ffmpeg(解码成 s16le) -> 守护(算电平 / 软件增益) -> aplay;
+--     麦克风 arecord -> 守护(只算电平)。
+--
+-- 运行目录 /tmp/mwrt-audio/: beat(心跳) cmd(控制命令, 守护每轮读取并清空) state.json
+--   out.lv / mic.lv(电平环形缓冲: 第 1 行 = 最后一个桶的序号, 第 2 行 = 逗号分隔的最近 200 个桶) daemon.pid daemon.lock
+-- 心跳 20 秒没刷新且不在播放 -> 守护退出; 麦克风监测心跳 8 秒没刷新 -> 自动关(隐私 + CPU);
+-- 播放中即使没人看页面也播到曲终 / 停止。
+--
+-- 环境变量(正式运行全部用默认值, 只给测试沙盒覆盖):
+--   MWRT_AUDIO_RUN 运行目录  MWRT_AUDIO_SYS /sys  MWRT_AUDIO_PROC /proc(只用于 asound 和 meminfo; 进程校验永远读真 /proc)
+--   MWRT_AUDIO_APLAY / ARECORD / AMIXER / FFMPEG 可执行文件  MWRT_AUDIO_MUSIC 上传目录  MWRT_AUDIO_SCAN 外部存储扫描根
+-- 所有外部程序都用 fork + exec 的参数数组启动, 不经过 shell, 用户字符串不会被解释。
+
+local nixio = require "nixio"
+local fs = nixio.fs
+
+local byte, char, floor, abs, max, min = string.byte, string.char, math.floor, math.abs, math.max, math.min
+local concat, unpack = table.concat, unpack
+
+local function env(k, d)
+	local v = nixio.getenv(k)
+	if v and v ~= "" then return v end
+	return d
+end
+
+local RUN    = env("MWRT_AUDIO_RUN", "/tmp/mwrt-audio")
+local SYS    = env("MWRT_AUDIO_SYS", "/sys")
+local PROC   = env("MWRT_AUDIO_PROC", "/proc")
+local APLAY  = env("MWRT_AUDIO_APLAY", "aplay")
+local ARECORD = env("MWRT_AUDIO_ARECORD", "arecord")
+local AMIXER = env("MWRT_AUDIO_AMIXER", "amixer")
+local FFMPEG = env("MWRT_AUDIO_FFMPEG", "ffmpeg")
+local MUSIC  = env("MWRT_AUDIO_MUSIC", "/tmp/mwrt-music")
+local SCAN   = env("MWRT_AUDIO_SCAN", "/mnt")
+
+local BEAT, CMD, STATEF, OUTLV, MICLV, PIDF, LOCKF, SOFTF =
+	RUN .. "/beat", RUN .. "/cmd", RUN .. "/state.json", RUN .. "/out.lv", RUN .. "/mic.lv",
+	RUN .. "/daemon.pid", RUN .. "/daemon.lock", RUN .. "/softvol"
+
+local FILE_MAX  = 31457280      -- 单个上传文件上限 30 MB
+local TOTAL_MAX = 83886080      -- 上传目录总量上限 80 MB
+local MEM_KEEP  = 41943040      -- 至少给系统留 40 MB 可用内存
+local SCAN_MAX  = 200           -- 外部存储最多收 200 首
+local SCAN_DEPTH = 3            -- 外部存储最多下钻 3 层目录(/mnt/sda1、/mnt/sda1/音乐、/mnt/sda1/音乐/专辑)
+local BEAT_DAEMON = 20          -- 守护心跳超时(秒)
+local BEAT_MIC = 8              -- 麦克风监测心跳超时(秒)
+local STEP_MS = 50              -- 电平桶宽
+local RING = 200                -- 环形缓冲桶数
+local RATE, CH = 44100, 2
+local BPS = RATE * CH * 2       -- 176400 字节 / 秒
+local LEAD = 61740              -- 管线提前量 0.35 秒
+local EXTS = { mp3 = 1, wav = 1, flac = 1, ogg = 1, oga = 1, m4a = 1, aac = 1, wma = 1, opus = 1 }
+local TONE_SEC = 3
+local TEST_ID = "t00000000"
+
+------------------------------------------------------------------------------
+-- 通用小工具
+------------------------------------------------------------------------------
+local function now_ms()
+	local s, u = nixio.gettimeofday()
+	return s * 1000 + floor(u / 1000)
+end
+
+local function readfile(p)
+	local f = io.open(p, "rb")
+	if not f then return nil end
+	local d = f:read("*a")
+	f:close()
+	return d
+end
+
+local function writefile(p, d)
+	local f = io.open(p, "wb")
+	if not f then return false end
+	f:write(d)
+	f:close()
+	return true
+end
+
+-- 先写临时文件再 rename, 读的一方永远看到完整内容
+local function writefile_atomic(p, d)
+	local t = p .. ".tmp" .. nixio.getpid()
+	if not writefile(t, d) then return false end
+	if not fs.rename(t, p) then fs.remove(t); return false end
+	return true
+end
+
+local function mtime(p) return fs.stat(p, "mtime") or 0 end
+
+local function touch(p)
+	local t = os.time()
+	if not fs.utimes(p, t, t) then writefile(p, "") end
+end
+
+local function mkdirp(p)
+	local acc = ""
+	for seg in p:gmatch("[^/]+") do
+		acc = acc .. "/" .. seg
+		if not fs.stat(acc) then fs.mkdir(acc, 755) end
+	end
+end
+
+local function which(c)
+	if c:find("/", 1, true) then return fs.access(c, "x") and c or nil end
+	for d in (nixio.getenv("PATH") or "/usr/sbin:/usr/bin:/sbin:/bin"):gmatch("[^:]+") do
+		local p = d .. "/" .. c
+		if fs.access(p, "x") then return p end
+	end
+	return nil
+end
+
+-- UTF-8 合法性: 非法字节换成 "?"(曲名来自外部存储, 可能是乱码)
+local function utf8_clean(s)
+	local out, i, n = {}, 1, #s
+	while i <= n do
+		local c = byte(s, i)
+		local len = 0
+		if c < 0x80 then len = 1
+		elseif c >= 0xC2 and c <= 0xDF then len = 2
+		elseif c >= 0xE0 and c <= 0xEF then len = 3
+		elseif c >= 0xF0 and c <= 0xF4 then len = 4 end
+		local ok = len > 0 and i + len - 1 <= n
+		if ok then
+			for k = 1, len - 1 do
+				local b = byte(s, i + k)
+				if b < 0x80 or b > 0xBF then ok = false; break end
+			end
+		end
+		if ok then out[#out + 1] = s:sub(i, i + len - 1); i = i + len
+		else out[#out + 1] = "?"; i = i + 1 end
+	end
+	return concat(out)
+end
+
+local ARRMT = {}
+local function arr(t) return setmetatable(t or {}, ARRMT) end
+
+local function jstr(s)
+	s = utf8_clean(tostring(s))
+	s = s:gsub('[%c"\\]', function(c)
+		if c == '"' then return '\\"' elseif c == "\\" then return "\\\\" end
+		return string.format("\\u%04x", byte(c))
+	end)
+	return '"' .. s .. '"'
+end
+
+local function jenc(v)
+	local t = type(v)
+	if t == "nil" then return "null"
+	elseif t == "boolean" then return v and "true" or "false"
+	elseif t == "number" then
+		if v ~= v or v == math.huge or v == -math.huge then return "0" end
+		if v == floor(v) and abs(v) < 1e15 then return string.format("%.0f", v) end
+		return string.format("%.2f", v)
+	elseif t == "string" then return jstr(v)
+	elseif t == "table" then
+		local o = {}
+		if getmetatable(v) == ARRMT then
+			for i = 1, #v do o[i] = jenc(v[i]) end
+			return "[" .. concat(o, ",") .. "]"
+		end
+		local ks = {}
+		for k in pairs(v) do ks[#ks + 1] = k end
+		table.sort(ks)
+		for _, k in ipairs(ks) do o[#o + 1] = jstr(k) .. ":" .. jenc(v[k]) end
+		return "{" .. concat(o, ",") .. "}"
+	end
+	return "null"
+end
+
+local function out(t) io.write(jenc(t), "\n") end
+local function fail(msg) out({ ok = false, err = msg }) end
+
+-- 命令 / 曲目 id / 数字的白名单校验
+local function is_id(s) return type(s) == "string" and s:match("^[tus]%x%x%x%x%x%x%x%x$") ~= nil end
+local function is_int(s) return type(s) == "string" and #s <= 9 and s:match("^%d+$") ~= nil end
+
+------------------------------------------------------------------------------
+-- 子进程: fork + exec(参数数组, 不经 shell)
+------------------------------------------------------------------------------
+local OPEN = {}   -- 守护 / 一次性命令自己持有的文件对象; 子进程启动时统统关掉, 不让声卡管线互相漏 fd
+local function track(f) if f then OPEN[#OPEN + 1] = f end return f end
+local function untrack_close(f)
+	if not f then return end
+	for i = #OPEN, 1, -1 do if OPEN[i] == f then table.remove(OPEN, i) end end
+	pcall(f.close, f)
+end
+local function mkpipe()
+	local r, w = nixio.pipe()
+	if not r then return nil end
+	return track(r), track(w)
+end
+
+local DEVNULL
+local function devnull()
+	if not DEVNULL then DEVNULL = track(nixio.open("/dev/null", "r+")) end
+	return DEVNULL
+end
+
+-- argv[1] 是可执行文件(绝对路径或 PATH 里的名字); fin/fout/ferr 是要接到 0/1/2 的文件对象(缺省 /dev/null)
+local function spawn(argv, fin, fout, ferr)
+	local exe = which(argv[1])
+	if not exe then return nil end
+	local pid = nixio.fork()
+	if pid == nil then return nil end
+	if pid == 0 then
+		fin = fin or devnull(); fout = fout or devnull(); ferr = ferr or devnull()
+		nixio.dup(fin, nixio.stdin)
+		nixio.dup(fout, nixio.stdout)
+		nixio.dup(ferr, nixio.stderr)
+		for _, f in ipairs(OPEN) do pcall(f.close, f) end
+		nixio.signal(13, "dfl")
+		local a = {}
+		for i = 2, #argv do a[#a + 1] = argv[i] end
+		nixio.exec(exe, unpack(a))
+		os.exit(127)
+	end
+	return pid
+end
+
+-- 非阻塞收尸: 活着返回 nil, 已退出返回 true, code
+local function reaped(pid)
+	if not pid then return true end
+	local p, how, code = nixio.waitpid(pid, "nohang")
+	if p == false then return nil end
+	return true, code
+end
+
+-- 停进程并收尸: TERM -> 最多等 ms 毫秒 -> KILL
+local function kill_wait(pid, ms)
+	if not pid then return end
+	nixio.kill(pid, 15)
+	local waited = 0
+	while waited < (ms or 800) do
+		if reaped(pid) then return end
+		nixio.nanosleep(0, 10000000)
+		waited = waited + 10
+	end
+	nixio.kill(pid, 9)
+	nixio.waitpid(pid)
+end
+
+-- 跑一个短命令并收集输出(merge=true 时 stderr 也进来), 超时杀掉。返回 输出, 退出码(超时为 nil)
+local function run_capture(argv, ms, merge)
+	local r, w = mkpipe()
+	if not r then return nil end
+	local pid = spawn(argv, nil, w, merge and w or nil)
+	untrack_close(w)
+	if not pid then untrack_close(r); return nil end
+	local buf, deadline = {}, now_ms() + (ms or 3000)
+	r:setblocking(false)
+	local done = false
+	while true do
+		local left = deadline - now_ms()
+		if left <= 0 then break end
+		local n = nixio.poll({ { fd = r, events = nixio.poll_flags("in") } }, min(left, 200))
+		if n then
+			local d = r:read(65536)
+			if d == "" then done = true; break end
+			if d then buf[#buf + 1] = d end
+		end
+	end
+	untrack_close(r)
+	if not done then kill_wait(pid, 300); return concat(buf), nil end
+	local _, code
+	for _ = 1, 50 do
+		local ok, c = reaped(pid)
+		if ok then code = c; break end
+		nixio.nanosleep(0, 10000000)
+	end
+	if not code then kill_wait(pid, 300) end
+	return concat(buf), code
+end
+
+------------------------------------------------------------------------------
+-- 声卡与混音器
+------------------------------------------------------------------------------
+local function tools()
+	return { alsa = (which(APLAY) and which(ARECORD) and which(AMIXER)) and true or false,
+		ffmpeg = which(FFMPEG) and true or false }
+end
+
+-- 只列 USB 声卡(板载的不管)。card 号、id、名称来自 /proc/asound/cards, 是否 USB 看 sysfs 设备链接。
+local function list_cards()
+	local cards = {}
+	local txt = readfile(PROC .. "/asound/cards") or ""
+	for line in txt:gmatch("[^\n]+") do
+		local n, id, rest = line:match("^%s*(%d+)%s+%[(.-)%s*%]:%s*(.*)$")
+		if n then
+			local real = fs.realpath(SYS .. "/class/sound/card" .. n .. "/device")
+			if real and real:find("/usb", 1, true) then
+				local name = rest:match("^.-%s+%-%s+(.+)$") or rest
+				local busid = real:match("/usb%d+/.*/(%d+%-[%d%.]+):") or real:match("/usb%d+/(%d+%-[%d%.]+)") or ""   -- s91: 取声卡所在的那一级设备(集线器后面是 1-1.2), 与 mwrt-usbinfo 的总线位置同形
+				local play, cap = false, false
+				for _ in fs.glob(PROC .. "/asound/card" .. n .. "/pcm*p") do play = true; break end
+				for _ in fs.glob(PROC .. "/asound/card" .. n .. "/pcm*c") do cap = true; break end
+				cards[#cards + 1] = { card = tonumber(n), id = id, name = name, busid = busid, play = play, cap = cap }
+			end
+		end
+	end
+	return cards
+end
+
+local function find_card(cards, n)
+	for _, c in ipairs(cards) do if c.card == n then return c end end
+end
+
+local function first_card(cards, kind)
+	for _, c in ipairs(cards) do if c[kind] then return c end end
+end
+
+-- 软件音量文件: 无硬件音量 / 静音控件时用
+local function soft_read()
+	local pct, mute = 100, { play = false, cap = false }
+	for line in (readfile(SOFTF) or ""):gmatch("[^\n]+") do
+		local k, v = line:match("^(%a+)=(%d+)$")
+		if k == "pct" then pct = min(100, tonumber(v)) end
+		if k == "mute" then mute.play = (v == "1") end
+	end
+	return pct, mute.play
+end
+
+local function soft_write(pct, mute)
+	mkdirp(RUN)
+	writefile_atomic(SOFTF, "pct=" .. floor(pct) .. "\nmute=" .. (mute and 1 or 0) .. "\n")
+end
+
+-- amixer 控件: 名字只从 amixer scontrols 的输出里取, 传回去时用引号包住(不转义, 见 ctl_arg)
+local PREF = {
+	play = { "pcm", "speaker", "headphone", "headset", "master" },
+	cap = { "mic", "microphone", "capture" },
+}
+
+-- 真 amixer(alsa-utils 1.2.11 的 parse_simple_id)在引号里只找下一个相同的引号, 不认反斜杠转义,
+-- 名字缓冲区只有 128 字节。所以: 名字里没有 ' 就用单引号包, 有 ' 没有 " 就用双引号包, 两种都有的名字没法安全传回去,
+-- mixer_list 里直接丢弃; 超过 127 字节的也丢弃。
+local function ctl_arg(c)
+	local q = c.name:find("'", 1, true) and '"' or "'"
+	return q .. c.name .. q .. "," .. c.idx
+end
+
+local function mixer_list(card)
+	local o = run_capture({ AMIXER, "-c", tostring(card), "scontrols" }, 3000)
+	local list = {}
+	for line in (o or ""):gmatch("[^\n]+") do
+		local name, idx = line:match("^Simple mixer control '(.*)',(%d+)%s*$")
+		-- 控制字符的名字不可信; 同时含单双引号、或太长(amixer 只收 127 字节)的名字没法安全传回, 都不要
+		if name and #name <= 127 and not name:find("%c") and not (name:find("'", 1, true) and name:find('"', 1, true)) then
+			list[#list + 1] = { name = name, idx = idx }
+		end
+	end
+	return list
+end
+
+-- 读一个控件: 返回 { pct, mute, vol, sw } 或 nil。kind=play|cap 决定看 Playback 还是 Capture 的行和能力
+local function mixer_get(card, c, kind)
+	local o = run_capture({ AMIXER, "-c", tostring(card), "sget", ctl_arg(c) }, 3000)
+	if not o or o == "" then return nil end
+	local caps = " " .. (o:match("Capabilities:%s*([^\n]*)") or "") .. " "
+	local pfx = kind == "play" and "p" or "c"
+	local function has(w) return caps:find(" " .. w .. " ", 1, true) ~= nil end
+	local r = { vol = has(pfx .. "volume"), sw = has(pfx .. "switch") or has(pfx .. "switch-joined") }
+	local label = kind == "play" and "Playback" or "Capture"
+	for line in o:gmatch("[^\n]+") do
+		if line:find(label, 1, true) then
+			local pct = line:match("%[(%d+)%%%]")
+			if pct and not r.pct then r.pct = tonumber(pct) end
+			if line:find("%[off%]") then r.mute = true end
+		end
+	end
+	if not r.vol and not r.sw then return nil end
+	r.pct = r.pct or 0
+	return r
+end
+
+-- 选控件: 先按偏好顺序找名字完全相等的(不分大小写), 再找以偏好名加空格开头的(如 "Speaker Playback"),
+-- 并确认有对应的音量能力
+local function mixer_pick(card, kind)
+	local list = mixer_list(card)
+	for pass = 1, 2 do
+		for _, want in ipairs(PREF[kind]) do
+			for _, c in ipairs(list) do
+				local ln = c.name:lower()
+				if (pass == 1 and ln == want) or (pass == 2 and ln:sub(1, #want + 1) == want .. " ") then
+					local g = mixer_get(card, c, kind)
+					if g and g.vol then g.ctl = c; return g end
+				end
+			end
+		end
+	end
+	return nil
+end
+
+-- 混音器读数缓存: 每次 state 都 fork 几次 amixer 太费(每次还要加载 alsa-lib 配置), 读数缓存 MX_TTL 秒;
+-- 改音量 / 静音后 mixer_set 会清掉缓存, 所以界面看到的是自己刚设的值。文件 RUN/mx.<卡号>.<play|cap>,
+-- 一行: 音量百分比 TAB 静音 TAB 有开关 TAB 控件序号 TAB 控件名; 没有可用控件记 "-"。
+local MX_TTL = 5
+
+local function mx_file(card, kind) return RUN .. "/mx." .. card .. "." .. kind end
+
+local function mx_clear()
+	for f in fs.glob(RUN .. "/mx.*") do fs.remove(f) end
+end
+
+local function mixer_pick_cached(card, kind)
+	local f = mx_file(card, kind)
+	local d = (os.time() - mtime(f) <= MX_TTL) and readfile(f) or nil
+	if d then
+		if d == "-" then return nil end
+		local pct, mute, sw, idx, name = d:match("^(%d+)\t([01])\t([01])\t(%d+)\t(.+)$")
+		if pct then
+			return { vol = true, pct = tonumber(pct), mute = mute == "1", sw = sw == "1",
+				ctl = { name = name, idx = idx } }
+		end
+	end
+	local g = mixer_pick(card, kind)
+	mkdirp(RUN)
+	if g then
+		writefile_atomic(f, table.concat({ g.pct, g.mute and 1 or 0, g.sw and 1 or 0, g.ctl.idx, g.ctl.name }, "\t"))
+	else
+		writefile_atomic(f, "-")
+	end
+	return g
+end
+
+-- 该声卡的 播放 / 采集 音量信息(给 state 和 daemon 用)
+local function vol_info(c, kind)
+	if kind == "play" then
+		if not c.play then return nil end
+		local g = mixer_pick_cached(c.card, "play")
+		local spct, smute = soft_read()
+		if g then
+			local mute = g.sw and g.mute or (not g.sw and smute) or false
+			return { pct = g.pct, mute = mute and true or false, hw = true, sw = g.sw, ctl = g.ctl }
+		end
+		return { pct = spct, mute = smute, hw = false, sw = false }
+	end
+	if not c.cap then return nil end
+	local g = mixer_pick_cached(c.card, "cap")
+	if not g then return nil end
+	return { pct = g.pct, mute = g.mute and true or false, hw = true, sw = g.sw, ctl = g.ctl }
+end
+
+local function vol_json(v)
+	if not v then return nil end
+	return { pct = v.pct, mute = v.mute, hw = v.hw }
+end
+
+------------------------------------------------------------------------------
+-- 曲目
+------------------------------------------------------------------------------
+local function ext_of(name)
+	local e = name:match("%.([%w]+)$")
+	if e and EXTS[e:lower()] then return e:lower() end
+end
+
+-- djb2, 全程在 2^32 以内取模, 双精度不丢精度
+local function hash8(s)
+	local h = 5381
+	for i = 1, #s do h = (h * 33 + byte(s, i)) % 4294967296 end
+	-- 这份 Lua 的 string.format 只收 int32 范围的整数, 高低 16 位分开格式化
+	return string.format("%04x%04x", floor(h / 65536), h % 65536)
+end
+
+local function sorted_dir(p, limit)
+	local names = {}
+	local it = fs.dir(p)
+	if it then
+		for n in it do
+			names[#names + 1] = n
+			if limit and #names >= limit then break end
+		end
+	end
+	table.sort(names)
+	return names
+end
+
+local function title_of(name)
+	return (name:gsub("%.[%w]+$", ""))
+end
+
+local function scan_upload()
+	local list = {}
+	for _, n in ipairs(sorted_dir(MUSIC)) do
+		if n:sub(1, 1) ~= "." and ext_of(n) then
+			local p = MUSIC .. "/" .. n
+			local st = fs.lstat(p)
+			if st and st.type == "reg" then
+				list[#list + 1] = { id = "u" .. hash8(n), title = title_of(n), src = "up", size = st.size, path = p }
+			end
+		end
+	end
+	return list
+end
+
+-- 外部存储扫描: 插满照片 / 文档的硬盘不能每次 state 都全盘 lstat。做法:
+--   1) 先看扩展名再 lstat: 音频扩展名的才确认是不是普通文件; 带别的扩展名(jpg、txt 之类)的直接跳过;
+--      没有扩展名的才当作可能的目录去 lstat 下钻;
+--   2) 全程最多读 SCAN_VISIT 个目录项名字(只是比对字符串, 便宜), 其中最多 SCAN_STAT 次 lstat(真正的系统调用);
+--   3) 结果缓存 SCAN_TTL 秒(RUN/scan.cache, 每行: id TAB 标题 TAB 大小 TAB 路径); 找不到曲目时 find_track 会强制重扫。
+local SCAN_VISIT = 20000
+local SCAN_STAT = 2000
+local SCAN_TTL = 30
+local SCANF = RUN .. "/scan.cache"
+
+local function looks_like_file(n)
+	local e = n:match("%.(%w+)$")
+	return e ~= nil and #e <= 5 and e:find("%a") ~= nil
+end
+
+local function scan_ext_walk()
+	local list, visited, stats = {}, 0, 0
+	local function walk(dir, rel, depth)
+		for _, n in ipairs(sorted_dir(dir, SCAN_VISIT)) do
+			if #list >= SCAN_MAX or visited >= SCAN_VISIT or stats >= SCAN_STAT then return end
+			visited = visited + 1
+			-- 带控制字符的名字不可信(也会弄乱缓存文件), 直接不要
+			if n:sub(1, 1) ~= "." and not n:find("%c") then
+				local audio = ext_of(n) ~= nil
+				if audio or not looks_like_file(n) then
+					local p = dir .. "/" .. n
+					stats = stats + 1
+					local st = fs.lstat(p)
+					if st then
+						if st.type == "reg" and audio then
+							local r = rel .. n
+							list[#list + 1] = { id = "s" .. hash8(r), title = title_of(n), src = "ext", size = st.size, path = p }
+						elseif st.type == "dir" and not audio and depth + 1 <= SCAN_DEPTH then
+							walk(p, rel .. n .. "/", depth + 1)
+						end
+					end
+				end
+			end
+		end
+	end
+	walk(SCAN, "", 0)
+	return list
+end
+
+local function scan_ext(force)
+	if not force and os.time() - mtime(SCANF) <= SCAN_TTL then
+		local d = readfile(SCANF)
+		local head, body = nil, nil
+		if d then head, body = d:match("^([^\n]*)\n(.*)$") end
+		if head == SCAN then
+			local list = {}
+			for id, title, size, path in body:gmatch("([^\t\n]+)\t([^\t\n]*)\t(%d+)\t([^\t\n]+)\n") do
+				list[#list + 1] = { id = id, title = title, src = "ext", size = tonumber(size), path = path }
+			end
+			return list
+		end
+	end
+	local list = scan_ext_walk()
+	local buf = { SCAN .. "\n" }
+	for _, t in ipairs(list) do buf[#buf + 1] = t.id .. "\t" .. t.title .. "\t" .. t.size .. "\t" .. t.path .. "\n" end
+	mkdirp(RUN)
+	writefile_atomic(SCANF, concat(buf))
+	return list
+end
+
+-- 全部曲目(测试音 + 上传 + 外部存储); id 撞了就加盐重算, 同一份目录内容结果稳定
+local function all_tracks(force)
+	local list = { { id = TEST_ID, title = "测试音", src = "test", size = 0 } }
+	local seen = { [TEST_ID] = true }
+	local function add(l)
+		for _, t in ipairs(l) do
+			local k = 0
+			while seen[t.id] do
+				k = k + 1
+				t.id = t.id:sub(1, 1) .. hash8(t.path .. "#" .. k)
+			end
+			seen[t.id] = true
+			list[#list + 1] = t
+		end
+	end
+	add(scan_upload())
+	add(scan_ext(force))
+	return list
+end
+
+local function find_track(id)
+	if not is_id(id) then return nil end
+	if id == TEST_ID then return { id = id, title = "测试音", src = "test", size = 0 } end
+	for _, t in ipairs(all_tracks()) do if t.id == id then return t end end
+	-- 缓存可能是旧的(刚插上的盘 / 刚拔掉的盘): 没找到就强制重扫一次
+	for _, t in ipairs(all_tracks(true)) do if t.id == id then return t end end
+end
+
+local function meminfo_avail()
+	local m = readfile(PROC .. "/meminfo") or ""
+	local kb = m:match("MemAvailable:%s*(%d+)")
+	return kb and tonumber(kb) * 1024 or nil
+end
+
+local function upload_used()
+	local used = 0
+	for _, n in ipairs(sorted_dir(MUSIC)) do
+		local st = fs.lstat(MUSIC .. "/" .. n)
+		if st and st.type == "reg" then used = used + st.size end
+	end
+	return used
+end
+
+-- 还能放多少字节: 取 总量余额 与 (可用内存 - 40MB) 的较小值
+local function upload_free()
+	local f = max(0, TOTAL_MAX - upload_used())
+	local av = meminfo_avail()
+	if av then f = min(f, max(0, av - MEM_KEEP)) end
+	return f
+end
+
+------------------------------------------------------------------------------
+-- 安全文件名
+------------------------------------------------------------------------------
+-- 取最后一段(去掉任何目录部分), 控制字符删除, 引号 / 反引号 / $ / 路径分隔等替换成 "_",
+-- 首尾空格与点去掉, 限 96 字节(不截断 UTF-8 字符), 扩展名必须在白名单里。失败返回 nil, 原因。
+local function safe_name(raw)
+	if type(raw) ~= "string" or raw == "" then return nil, "文件名为空" end
+	local n = raw:match("[^/\\]*$") or ""
+	n = n:gsub("[%z\1-\31\127]", "")
+	n = utf8_clean(n)
+	n = n:gsub("[\"'`$<>|*?:;&%%#!{}%[%]()^~=,]", "_")
+	n = n:gsub("^[%s%.]+", ""):gsub("[%s%.]+$", "")
+	local e = ext_of(n)
+	if not e then return nil, "不支持的格式，仅支持 mp3 wav flac ogg oga m4a aac wma opus" end
+	local stem = n:sub(1, #n - #e - 1):gsub("[%s%.]+$", "")
+	if stem == "" then return nil, "文件名无效" end
+	local room = 96 - #e - 1
+	if #stem > room then
+		stem = stem:sub(1, room)
+		-- 截断点落在 UTF-8 字符中间时, 把残缺的那个字符整个去掉
+		local i = #stem
+		while i > 0 and byte(stem, i) >= 0x80 and byte(stem, i) < 0xC0 do i = i - 1 end
+		if i > 0 and byte(stem, i) >= 0xC0 then
+			local lead = byte(stem, i)
+			local len = lead >= 0xF0 and 4 or lead >= 0xE0 and 3 or 2
+			if #stem - i + 1 < len then stem = stem:sub(1, i - 1) end
+		end
+		stem = stem:gsub("[%s%.]+$", "")
+		if stem == "" then return nil, "文件名无效" end
+	end
+	return stem .. "." .. e
+end
+
+------------------------------------------------------------------------------
+-- 守护存活 / 启动
+------------------------------------------------------------------------------
+local function daemon_pid()
+	local p = tonumber((readfile(PIDF) or ""):match("^%d+"))
+	if not p or p < 2 then return nil end
+	-- 进程校验永远读真 /proc: pid 被别的进程复用时, 命令行里不会有 mwrt-audio daemon
+	local c = readfile("/proc/" .. p .. "/cmdline")
+	if c and c ~= "" and c:find("mwrt-audio", 1, true) and c:find("daemon", 1, true) then return p end
+	return nil
+end
+
+local SELF = arg and arg[0] or "/usr/libexec/mwrt-audio"
+if SELF:sub(1, 1) ~= "/" then SELF = (nixio.getcwd() or "") .. "/" .. SELF end
+
+local function ensure_daemon()
+	mkdirp(RUN)
+	touch(BEAT)
+	if daemon_pid() then return true end
+	local lua = fs.readlink("/proc/self/exe") or "lua"
+	local pid = nixio.fork()
+	if pid == 0 then
+		nixio.setsid()
+		nixio.chdir("/")
+		local nul = nixio.open("/dev/null", "r+")
+		nixio.dup(nul, nixio.stdin); nixio.dup(nul, nixio.stdout); nixio.dup(nul, nixio.stderr)
+		for _, f in ipairs(OPEN) do pcall(f.close, f) end
+		nixio.exec(lua:sub(1, 1) == "/" and lua or (which(lua) or lua), SELF, "daemon")
+		os.exit(127)
+	end
+	if not pid then return false end
+	-- 等守护写出 pid 文件(单实例由它自己的文件锁保证, 并发拉起的多余进程会自己退出)
+	for _ = 1, 40 do
+		if daemon_pid() then return true end
+		nixio.nanosleep(0, 10000000)
+	end
+	return daemon_pid() ~= nil
+end
+
+local function send_cmd(line)
+	mkdirp(RUN)
+	local f = nixio.open(CMD, "a")
+	if not f then return false end
+	f:write(line .. "\n")
+	f:close()
+	return true
+end
+
+local function read_state()
+	local d = readfile(STATEF)
+	if not d or not daemon_pid() then return nil end
+	return d
+end
+
+-- 极简取值: state.json 是自己写的固定格式, 只抠几个字段
+local function sj(d, key, pat)
+	return d and d:match('"' .. key .. '":' .. pat) or nil
+end
+
+local function player_default()
+	return { state = "idle", track = "", title = "", pos = 0, dur = 0, card = -1, err = "" }
+end
+
+------------------------------------------------------------------------------
+-- 一次性子命令
+------------------------------------------------------------------------------
+local function cmd_state()
+	ensure_daemon()
+	local cards = list_cards()
+	local cj = arr()
+	for _, c in ipairs(cards) do
+		cj[#cj + 1] = { card = c.card, id = c.id, name = c.name, busid = c.busid, play = c.play, cap = c.cap,
+			pvol = vol_json(vol_info(c, "play")), cvol = vol_json(vol_info(c, "cap")) }
+	end
+	local tj = arr()
+	for _, t in ipairs(all_tracks()) do
+		tj[#tj + 1] = { id = t.id, title = t.title, src = t.src, size = t.size }
+	end
+	-- 播放器 / 麦克风状态: 守护写的 state.json 里直接带两段现成的 JSON 子串
+	local d = read_state()
+	local player_s = d and d:match('"player":(%b{})') or nil
+	local mic_s = d and d:match('"mic":(%b{})') or nil
+	local o = jenc({ ok = true, v = 1, now = os.time(), tools = tools(), cards = cj, tracks = tj,
+		free = upload_free(), limits = { file = FILE_MAX, total = TOTAL_MAX } })
+	-- 把现成的 player / mic 段拼进去(这两段是守护用 jenc 写的, 已经转义过)
+	local extra = ',"mic":' .. (mic_s or jenc({ on = false, card = -1 }))
+		.. ',"player":' .. (player_s or jenc(player_default()))
+	io.write(o:sub(1, -2), extra, "}\n")
+end
+
+local function cmd_wave(seq)
+	local ok_daemon = ensure_daemon()
+	local cur_seq = tonumber(seq)
+	local res = { ok = true, seq = cur_seq or 0, step = STEP_MS, out = arr(), mic = arr(), micon = false, pstate = "idle" }
+	local d = read_state()
+	local ol = ok_daemon and readfile(OUTLV) or nil
+	local ml = ok_daemon and readfile(MICLV) or nil
+	if d then
+		res.micon = sj(d, "on", "(%a+)") == "true"
+		res.pstate = d:match('"player":{.-"state":"(%a+)"') or "idle"
+	end
+	if ol and ml then
+		local os_, ov = ol:match("^(%d+)\n([^\n]*)")
+		local ms_, mv = ml:match("^(%d+)\n([^\n]*)")
+		local cs = tonumber(os_)
+		if cs and ms_ == os_ then
+			local ovals, mvals = {}, {}
+			for v in ov:gmatch("%d+") do ovals[#ovals + 1] = tonumber(v) end
+			for v in mv:gmatch("%d+") do mvals[#mvals + 1] = tonumber(v) end
+			local have = min(#ovals, #mvals)
+			local want
+			if not cur_seq or cur_seq > cs or cs - cur_seq > RING then want = 20
+			else want = min(cs - cur_seq, 40) end
+			want = min(want, have)
+			for i = have - want + 1, have do
+				res.out[#res.out + 1] = ovals[i]
+				res.mic[#res.mic + 1] = mvals[i]
+			end
+			res.seq = cs
+		end
+	end
+	out(res)
+end
+
+local function parse_pct(s)
+	if type(s) ~= "string" or not s:match("^%-?%d+%.?%d*$") then return nil end
+	local n = floor(tonumber(s) + 0.5)
+	if n < 0 then n = 0 elseif n > 100 then n = 100 end
+	return n
+end
+
+local function pick_card(kind)
+	local cards = list_cards()
+	if #cards == 0 then return nil, "请先接入 USB 声卡" end
+	local c = first_card(cards, kind)
+	if not c then return nil, kind == "cap" and "这块声卡没有麦克风输入" or "这块声卡不支持播放" end
+	return c
+end
+
+local function mixer_set(card, g, args)
+	local argv = { AMIXER, "-q", "-c", tostring(card), "sset", ctl_arg(g.ctl) }
+	for _, a in ipairs(args) do argv[#argv + 1] = a end
+	local _, code = run_capture(argv, 3000, true)
+	mx_clear()
+	return code == 0
+end
+
+local function cmd_vol(kind, pcts)
+	if kind ~= "play" and kind ~= "cap" then return fail("参数不正确") end
+	local pct = parse_pct(pcts)
+	if not pct then return fail("音量必须是 0 到 100 的数字") end
+	local c, e = pick_card(kind)
+	if not c then return fail(e) end
+	local g = mixer_pick(c.card, kind)
+	if not g then
+		if kind == "cap" then return fail("这块声卡不支持调节麦克风音量") end
+		local _, m = soft_read()
+		soft_write(pct, m)                 -- 无硬件音量控件: 守护播放时对 PCM 乘增益
+		return out({ ok = true })
+	end
+	local label = kind == "play" and "playback" or "capture"
+	if not mixer_set(c.card, g, { label, pct .. "%" }) then return fail("设置音量失败，请重试") end
+	out({ ok = true })
+end
+
+local function cmd_mute(kind, on)
+	if kind ~= "play" and kind ~= "cap" then return fail("参数不正确") end
+	if on ~= "0" and on ~= "1" then return fail("参数不正确") end
+	local mute = on == "1"
+	local c, e = pick_card(kind)
+	if not c then return fail(e) end
+	local g = mixer_pick(c.card, kind)
+	if g and g.sw then
+		local a
+		if kind == "play" then a = { "playback", mute and "mute" or "unmute" }
+		else a = { "capture", mute and "nocap" or "cap" } end
+		if not mixer_set(c.card, g, a) then return fail("设置静音失败，请重试") end
+		return out({ ok = true })
+	end
+	if kind == "cap" then return fail("这块声卡不支持麦克风静音") end
+	-- 播放口没有硬件静音开关: 软件静音(守护对 PCM 乘 0)
+	local p = soft_read()
+	soft_write(p, mute)
+	out({ ok = true })
+end
+
+local function cmd_play(id, cards_s)
+	if not is_id(id) then return fail("曲目不存在或已被删除") end
+	local cards = list_cards()
+	if #cards == 0 then return fail("请先接入 USB 声卡") end
+	local c
+	if cards_s and cards_s ~= "" then
+		if not is_int(cards_s) then return fail("声卡参数不正确") end
+		c = find_card(cards, tonumber(cards_s))
+		if not c then return fail("找不到这块声卡，可能已被拔出") end
+		if not c.play then return fail("这块声卡不支持播放") end
+	else
+		c = first_card(cards, "play")
+		if not c then return fail("这块声卡不支持播放") end
+	end
+	local t = find_track(id)
+	if not t then return fail("曲目不存在或已被删除") end
+	local tl = tools()
+	if not tl.alsa then return fail("固件缺少播放组件（alsa-utils）") end
+	if t.src ~= "test" and not tl.ffmpeg then return fail("固件缺少播放组件（ffmpeg）") end
+	if not ensure_daemon() then return fail("音频守护启动失败") end
+	send_cmd("play " .. id .. " " .. c.card)
+	out({ ok = true })
+end
+
+local function cmd_ctl(act)
+	if act ~= "pause" and act ~= "resume" and act ~= "stop" then return fail("参数不正确") end
+	local d = read_state()
+	local st = d and d:match('"player":{.-"state":"(%a+)"') or "idle"
+	-- 守护每 50-100ms 才处理一次 cmd 文件: 连点暂停 / 恢复时 state.json 还是旧的,
+	-- 所以把尚未处理的命令按顺序套上去, 得到「处理完之后」的状态再校验
+	if d then
+		for line in (readfile(CMD) or ""):gmatch("[^\n]+") do
+			local a = line:match("^(%a+)")
+			if a == "play" then st = "playing"
+			elseif a == "pause" and st == "playing" then st = "paused"
+			elseif a == "resume" and st == "paused" then st = "playing"
+			elseif a == "stop" then st = "idle" end
+		end
+	end
+	if act == "stop" then
+		if d then send_cmd("stop") end
+		return out({ ok = true })
+	end
+	if act == "pause" and st ~= "playing" then return fail("当前没有在播放") end
+	if act == "resume" and st ~= "paused" then return fail("当前没有已暂停的曲目") end
+	touch(BEAT)
+	send_cmd(act)
+	out({ ok = true })
+end
+
+local function cmd_mic(on)
+	if on ~= "0" and on ~= "1" then return fail("参数不正确") end
+	if on == "0" then
+		if read_state() then send_cmd("mic 0") end
+		return out({ ok = true })
+	end
+	local c, e = pick_card("cap")
+	if not c then return fail(e) end
+	if not which(ARECORD) then return fail("固件缺少播放组件（alsa-utils）") end
+	if not ensure_daemon() then return fail("音频守护启动失败") end
+	send_cmd("mic 1 " .. c.card)
+	out({ ok = true })
+end
+
+local function cmd_del(id)
+	if not is_id(id) or id:sub(1, 1) ~= "u" then return fail("只能删除上传的曲目") end
+	local t
+	for _, x in ipairs(scan_upload()) do if x.id == id then t = x break end end
+	if not t then return fail("曲目不存在或已被删除") end
+	-- 正在播这首就先停
+	local d = read_state()
+	if d and d:find('"track":"' .. id .. '"', 1, true) then send_cmd("stop") end
+	if not fs.remove(t.path) then return fail("删除失败") end
+	out({ ok = true })
+end
+
+local function cleanup_stale_up()
+	local now = os.time()
+	for _, n in ipairs(sorted_dir(MUSIC)) do
+		if n:match("^%.up%d") and now - mtime(MUSIC .. "/" .. n) > 600 then fs.remove(MUSIC .. "/" .. n) end
+	end
+end
+
+local function quota_err(size)
+	if size > FILE_MAX then return "文件太大，单个文件不能超过 30 MB" end
+	local av = meminfo_avail()
+	if av and av - size < MEM_KEEP then return "设备可用内存不足，暂时不能上传" end
+	if upload_used() + size > TOTAL_MAX then return "上传空间已满（总量上限 80 MB），请先删除一些曲目" end
+	return nil
+end
+
+local function cmd_quota(sz)
+	if not is_int(sz) then return fail("文件大小参数不正确") end
+	mkdirp(MUSIC)
+	cleanup_stale_up()
+	local size = tonumber(sz)
+	local e = quota_err(size)
+	if e then return fail(e) end
+	out({ ok = true, free = upload_free() })
+end
+
+local function cmd_ingest(num)
+	if not is_int(num) then return fail("参数不正确") end
+	local tmp = MUSIC .. "/.up" .. num
+	local namef = tmp .. ".name"
+	local function bad(msg) fs.remove(tmp); fs.remove(namef); fail(msg) end
+	local st = fs.lstat(tmp)
+	if not st or st.type ~= "reg" then return bad("上传失败，请重试") end
+	if st.size == 0 then return bad("文件是空的") end
+	local safe, why = safe_name(readfile(namef) or "")
+	if not safe then return bad(why) end
+	-- 此刻临时文件已经占着内存, quota_err 里再扣一次会重复计算: 这里只比总量与单文件, 内存另判
+	if st.size > FILE_MAX then return bad("文件太大，单个文件不能超过 30 MB") end
+	local used = upload_used() - st.size
+	if used + st.size > TOTAL_MAX then return bad("上传空间已满（总量上限 80 MB），请先删除一些曲目") end
+	local av = meminfo_avail()
+	if av and av < MEM_KEEP then return bad("设备可用内存不足，暂时不能上传") end
+	if #scan_upload() >= SCAN_MAX then return bad("上传的曲目太多了，请先删除一些") end
+	-- 重名加序号
+	local stem, e = safe:match("^(.*)%.(%w+)$")
+	local final, k = safe, 1
+	while fs.lstat(MUSIC .. "/" .. final) do
+		k = k + 1
+		if k > 99 then return bad("同名文件太多") end
+		final = stem .. "-" .. k .. "." .. e
+	end
+	if not fs.rename(tmp, MUSIC .. "/" .. final) then return bad("保存失败") end
+	fs.remove(namef)
+	out({ ok = true, id = "u" .. hash8(final), title = title_of(final) })
+end
+
+------------------------------------------------------------------------------
+-- 守护
+------------------------------------------------------------------------------
+local function tone_chunk(pos_frames, nframes, g)
+	-- 440Hz + 880Hz, 带 10ms 淡入淡出, 幅度约 0.4
+	local total = TONE_SEC * RATE
+	local t, ti = {}, 0
+	local fade = 441
+	local sin, pi = math.sin, math.pi
+	for i = pos_frames, pos_frames + nframes - 1 do
+		local a = 0.4 * g
+		if i < fade then a = a * i / fade elseif i > total - fade then a = a * (total - i) / fade end
+		local ph = i / RATE
+		local v = floor(a * 32767 * (0.6 * sin(2 * pi * 440 * ph) + 0.4 * sin(2 * pi * 880 * ph)) + 0.5)
+		if v < 0 then v = v + 65536 end
+		local lo, hi = v % 256, floor(v / 256)
+		t[ti + 1], t[ti + 2], t[ti + 3], t[ti + 4] = lo, hi, lo, hi
+		ti = ti + 4
+	end
+	local parts = {}
+	for i = 1, ti, 1000 do parts[#parts + 1] = char(unpack(t, i, min(i + 999, ti))) end
+	return concat(parts)
+end
+
+-- 软件增益 + 峰值。s 长度是 4 的倍数。g==1 只抽样算峰值, 不改数据
+local function gain_peak(s, g)
+	local n = #s
+	local peak = 0
+	if g == 1 then
+		for i = 1, n - 3, 32 do
+			local a, b, c, d = byte(s, i, i + 3)
+			local l = a + b * 256; if l >= 32768 then l = 65536 - l end
+			local r = c + d * 256; if r >= 32768 then r = 65536 - r end
+			if l > peak then peak = l end
+			if r > peak then peak = r end
+		end
+		return s, peak
+	end
+	local parts = {}
+	local o = {}
+	for i = 1, n, 1000 do
+		local j = min(i + 999, n)
+		local b = { byte(s, i, j) }
+		local m = 0
+		for k = 1, #b - 1, 2 do
+			local v = b[k] + b[k + 1] * 256
+			if v >= 32768 then v = v - 65536 end
+			v = floor(v * g + 0.5)
+			if v > 32767 then v = 32767 elseif v < -32768 then v = -32768 end
+			local a = v < 0 and -v or v
+			if a > peak then peak = a end
+			if v < 0 then v = v + 65536 end
+			m = m + 1
+			o[m * 2 - 1] = v % 256
+			o[m * 2] = floor(v / 256)
+		end
+		parts[#parts + 1] = char(unpack(o, 1, m * 2))
+	end
+	return concat(parts), peak
+end
+
+local function daemon_main()
+	mkdirp(RUN)
+	mkdirp(MUSIC)
+	-- 单实例: 抢文件锁, 抢不到说明已有守护在跑, 静静退出。锁随进程结束自动释放。
+	local lk = nixio.open(LOCKF, "w")
+	if not lk or not lk:lock("tlock") then os.exit(0) end
+	track(lk)
+	nixio.signal(13, "ign")
+	writefile(PIDF, tostring(nixio.getpid()) .. "\n")
+	if now_ms() / 1000 - mtime(CMD) > 5 then fs.remove(CMD) end
+	fs.remove(CMD .. ".run")
+
+	local P = { state = "idle", id = "", title = "", err = "", card = -1, dur = 0 }
+	local MIC = { on = false, card = -1, err = "" }
+	local ff, ap, mic          -- ff={pid,r,eof} ap={pid,w,closing,t} mic={pid,r}
+	local pending, carry = "", ""
+	local fed, frames_done, elapsed = 0, 0, 0
+	local peaks = {}
+	local tone_pos, is_tone = 0, false
+	local soft_gain_on = false
+	local soft_pct, soft_mute = 100, false
+	local mic_buf, micq = "", {}
+	local out_ring, mic_ring = {}, {}
+	local seq = floor(now_ms() / STEP_MS)
+	local wrote_ring = true
+	local last, last_state_w, state_dirty = now_ms(), 0, true
+	local last_tick = floor(now_ms() / STEP_MS) - 1
+	local quit = false
+
+	local function gain_now()
+		-- 软件增益只在该声卡没有硬件音量(或没有静音开关)时才用; 音量按平方曲线更接近听感
+		if P.soft_mute_on and soft_mute then return 0 end
+		if soft_gain_on then local x = soft_pct / 100; return x * x end
+		return 1
+	end
+
+	local function write_state()
+		local pos = elapsed / 1000
+		if P.dur > 0 and pos > P.dur then pos = P.dur end
+		local s = jenc({ pid = nixio.getpid(), ts = os.time(), seq = seq,
+			mic = { on = MIC.on, card = MIC.card, err = MIC.err },
+			player = { state = P.state, track = P.id, title = P.title, pos = pos, dur = P.dur, card = P.card, err = P.err } })
+		writefile_atomic(STATEF, s)
+		state_dirty = false
+		last_state_w = now_ms()
+	end
+
+	local function stop_play(newstate, err)
+		if ff then
+			untrack_close(ff.r)
+			kill_wait(ff.pid, 300)
+			ff = nil
+		end
+		if ap then
+			untrack_close(ap.w)
+			kill_wait(ap.pid, 800)
+			ap = nil
+		end
+		pending, carry = "", ""
+		fed, frames_done, elapsed, tone_pos = 0, 0, 0, 0
+		peaks = {}
+		is_tone = false
+		P.state = newstate or "idle"
+		P.err = err or ""
+		if P.state == "idle" then P.id = ""; P.title = ""; P.dur = 0; P.card = -1 end
+		state_dirty = true
+	end
+
+	local function stop_mic(err)
+		if mic then
+			untrack_close(mic.r)
+			kill_wait(mic.pid, 500)
+			mic = nil
+		end
+		MIC.on = false; MIC.card = -1; MIC.err = err or ""
+		mic_buf, micq = "", {}
+		state_dirty = true
+	end
+
+	local function probe_dur(path)
+		local o = run_capture({ FFMPEG, "-nostdin", "-hide_banner", "-i", path }, 3000, true)
+		local h, m, s = (o or ""):match("Duration:%s*(%d+):(%d+):([%d%.]+)")
+		if h then return tonumber(h) * 3600 + tonumber(m) * 60 + tonumber(s) end
+		return 0
+	end
+
+	local function start_play(id, card)
+		stop_play("idle")
+		local t = find_track(id)
+		if not t then return stop_play("error", "曲目不存在或已被删除") end
+		P.id, P.title, P.card = t.id, t.title, card
+		local ar, aw = mkpipe()
+		if not ar then return stop_play("error", "无法创建播放管线") end
+		local apid = spawn({ APLAY, "-q", "-D", "plughw:" .. card, "-t", "raw", "-f", "S16_LE", "-r", tostring(RATE),
+			"-c", tostring(CH), "-" }, ar, nil, nil)
+		untrack_close(ar)
+		if not apid then untrack_close(aw); return stop_play("error", "固件缺少播放组件（alsa-utils）") end
+		aw:setblocking(false)
+		ap = { pid = apid, w = aw }
+		-- 该声卡有没有硬件音量 / 静音: 没有就由守护对 PCM 乘增益
+		local c = find_card(list_cards(), card)
+		local vi = c and vol_info(c, "play") or { hw = false, sw = false }
+		soft_gain_on = not vi.hw
+		P.soft_mute_on = not vi.sw
+		if t.src == "test" then
+			is_tone = true
+			P.dur = TONE_SEC
+		else
+			P.dur = probe_dur(t.path)
+			local fr, fw = mkpipe()
+			if not fr then return stop_play("error", "无法创建播放管线") end
+			local fpid = spawn({ FFMPEG, "-nostdin", "-loglevel", "quiet", "-i", t.path, "-vn", "-f", "s16le",
+				"-ar", tostring(RATE), "-ac", tostring(CH), "-" }, nil, fw, nil)
+			untrack_close(fw)
+			if not fpid then untrack_close(fr); return stop_play("error", "固件缺少播放组件（ffmpeg）") end
+			fr:setblocking(false)
+			ff = { pid = fpid, r = fr, eof = false }
+		end
+		P.state = "playing"
+		last = now_ms()
+		state_dirty = true
+	end
+
+	local function start_mic(card)
+		if mic then stop_mic() end
+		local r, w = mkpipe()
+		if not r then return end
+		local pid = spawn({ ARECORD, "-q", "-D", "plughw:" .. card, "-t", "raw", "-f", "S16_LE", "-r", "8000",
+			"-c", "1" }, nil, w, nil)
+		untrack_close(w)
+		if not pid then untrack_close(r); MIC.err = "固件缺少播放组件（alsa-utils）"; state_dirty = true; return end
+		r:setblocking(false)
+		mic = { pid = pid, r = r }
+		MIC.on, MIC.card, MIC.err = true, card, ""
+		mic_buf, micq = "", {}
+		state_dirty = true
+	end
+
+	local function handle_cmds()
+		if not fs.stat(CMD) then return end
+		fs.rename(CMD, CMD .. ".run")
+		local d = readfile(CMD .. ".run") or ""
+		fs.remove(CMD .. ".run")
+		for line in d:gmatch("[^\n]+") do
+			local a, b, c = line:match("^(%a+)%s*(%S*)%s*(%S*)$")
+			if a == "play" and is_id(b) and is_int(c) then start_play(b, tonumber(c))
+			elseif a == "pause" and P.state == "playing" then P.state = "paused"; state_dirty = true
+			elseif a == "resume" and P.state == "paused" then
+				P.state = "playing"
+				-- 暂停期间已送出的提前量照常播完了, 时钟对齐到已送出的位置, 立刻补满 0.35 秒
+				elapsed = fed * 1000 / BPS
+				last = now_ms()
+				state_dirty = true
+			elseif a == "stop" then stop_play("idle")
+			elseif a == "mic" and b == "1" and is_int(c) then start_mic(tonumber(c))
+			elseif a == "mic" and b == "0" then stop_mic()
+			elseif a == "quit" then quit = true end
+		end
+	end
+
+	-- 把一段 PCM(已按 4 字节对齐)过增益、记峰值、排进待写缓冲
+	local function absorb(data)
+		data = carry .. data
+		local usable = #data - #data % 4
+		carry = data:sub(usable + 1)
+		data = data:sub(1, usable)
+		local g = gain_now()
+		local pos, n = 1, #data
+		local outp = {}
+		while pos <= n do
+			-- 对齐 50ms 桶边界(2205 帧)
+			local room = (2205 - frames_done % 2205) * 4
+			local take = min(room, n - pos + 1)
+			local blk, pk = gain_peak(data:sub(pos, pos + take - 1), g)
+			outp[#outp + 1] = blk
+			local idx = floor(frames_done / 2205)
+			local lv = floor(pk * 100 / 32768 + 0.5)
+			if lv > (peaks[idx] or 0) then peaks[idx] = lv end
+			frames_done = frames_done + take / 4
+			pos = pos + take
+		end
+		pending = pending .. concat(outp)
+		fed = fed + n
+	end
+
+	local function flush_pending()
+		if #pending == 0 or not ap or ap.closing then return end
+		local n, errno = ap.w:write(pending)
+		if n then
+			pending = pending:sub(n + 1)
+		elseif errno ~= 11 then
+			stop_play("error", "播放设备已断开或被占用")
+		end
+	end
+
+	local function play_step(dt)
+		-- 每轮都读软件音量文件(几个字节的内存盘文件): mtime 只有秒级精度, 同一秒内连写两次会漏读
+		soft_pct, soft_mute = soft_read()
+		-- aplay 提前死了(设备被占用 / 被拔): 报错; 收尾阶段死了是正常曲终
+		if ap and reaped(ap.pid) then
+			ap.pid = nil
+			if ap.closing then return stop_play("idle") end
+			return stop_play("error", "播放失败，声卡可能被占用或已被拔出")
+		end
+		elapsed = elapsed + dt
+		flush_pending()
+		if P.state ~= "playing" or not ap then return end
+		if #pending > 0 then return end
+		local allowed = floor(elapsed * BPS / 1000) + LEAD - fed
+		if ap.closing then
+			if now_ms() - ap.t > 3000 then stop_play("idle") end
+			return
+		end
+		if allowed >= 3528 then
+			local want = min(allowed, 17640)
+			want = want - want % 4
+			if is_tone then
+				local total = TONE_SEC * RATE
+				if tone_pos >= total then
+					ff = { eof = true }
+				else
+					local nf = min(want / 4, total - tone_pos)
+					absorb(tone_chunk(tone_pos, nf, 1))
+					tone_pos = tone_pos + nf
+				end
+			elseif ff and not ff.eof then
+				local data = ff.r:read(want)
+				if data == "" then ff.eof = true
+				elseif data then absorb(data)
+				elseif nixio.errno() ~= 11 then ff.eof = true end
+			end
+		end
+		flush_pending()
+		if ff and ff.eof and #pending == 0 then
+			if fed == 0 then
+				return stop_play("error", "无法解码这个文件，格式不支持或文件已损坏")
+			end
+			-- 全部送完: 关 aplay 的输入, 让它把缓冲播完自己退出
+			untrack_close(ap.w)
+			ap.closing, ap.t = true, now_ms()
+		end
+	end
+
+	local function mic_step()
+		if not mic then return end
+		if reaped(mic.pid) then
+			mic.pid = nil
+			return stop_mic("麦克风被占用或已被拔出")
+		end
+		local data = mic.r:read(16000)
+		if data == "" then return stop_mic("麦克风被占用或已被拔出") end
+		if data then
+			mic_buf = mic_buf .. data
+			while #mic_buf >= 800 do
+				local pk = 0
+				for i = 1, 800, 2 do
+					local v = byte(mic_buf, i) + byte(mic_buf, i + 1) * 256
+					if v >= 32768 then v = 65536 - v end
+					if v > pk then pk = v end
+				end
+				mic_buf = mic_buf:sub(801)
+				micq[#micq + 1] = min(100, floor(pk * 100 / 32768 + 0.5))
+				if #micq > 8 then table.remove(micq, 1) end
+			end
+		end
+	end
+
+	local function push_ticks()
+		local cur = floor(now_ms() / STEP_MS)
+		-- 以墙钟推进: 每 50ms 一个桶, 过久没转(>10 桶)只补 10 个
+		local due = cur - last_tick
+		last_tick = cur
+		if due > 10 then due = 10 end
+		for _ = 1, due do
+			seq = seq + 1
+			local ov, mv = 0, 0
+			if P.state == "playing" then
+				local idx = floor(elapsed / STEP_MS)
+				ov = peaks[idx] or 0
+				peaks[idx - 40] = nil
+			end
+			if MIC.on then
+				mv = table.remove(micq, 1) or 0
+			end
+			out_ring[#out_ring + 1] = ov
+			mic_ring[#mic_ring + 1] = mv
+			if #out_ring > RING then table.remove(out_ring, 1); table.remove(mic_ring, 1) end
+			wrote_ring = false
+		end
+	end
+
+	local function write_rings()
+		if wrote_ring then return end
+		writefile_atomic(OUTLV, seq .. "\n" .. concat(out_ring, ",") .. "\n")
+		writefile_atomic(MICLV, seq .. "\n" .. concat(mic_ring, ",") .. "\n")
+		wrote_ring = true
+	end
+
+	write_state()
+	while not quit do
+		local t = now_ms()
+		local dt = t - last
+		if dt < 0 then dt = 0 elseif dt > 1000 then dt = 1000 end
+		last = t
+
+		handle_cmds()
+		local age = os.time() - mtime(BEAT)
+		if MIC.on and age > BEAT_MIC then stop_mic() end
+		if P.state == "playing" then play_step(dt) end
+		mic_step()
+		push_ticks()
+		write_rings()
+		if state_dirty or (t - last_state_w >= (P.state == "playing" and 400 or 1000)) then write_state() end
+
+		if age > BEAT_DAEMON and P.state ~= "playing" then break end
+
+		-- 睡到下一件事: 管线需要数据 / 待写 / 麦克风有数据 / 超时
+		local fds = {}
+		local pf = nixio.poll_flags
+		if P.state == "playing" and ap and not ap.closing then
+			if #pending > 0 then
+				fds[#fds + 1] = { fd = ap.w, events = pf("out") }
+			elseif ff and ff.r and not ff.eof then
+				local allowed = floor(elapsed * BPS / 1000) + LEAD - fed
+				if allowed >= 3528 then fds[#fds + 1] = { fd = ff.r, events = pf("in") } end
+			end
+		end
+		if mic then fds[#fds + 1] = { fd = mic.r, events = pf("in") } end
+		local tmo = 50
+		if P.state ~= "playing" and not mic then tmo = 100 end
+		if #fds > 0 then nixio.poll(fds, tmo) else nixio.nanosleep(0, tmo * 1000000) end
+	end
+
+	stop_play("idle")
+	stop_mic()
+	fs.remove(PIDF); fs.remove(STATEF); fs.remove(OUTLV); fs.remove(MICLV); fs.remove(CMD)
+	os.exit(0)
+end
+
+------------------------------------------------------------------------------
+-- 入口
+------------------------------------------------------------------------------
+local sub = arg and arg[1] or ""
+local a2, a3 = arg and arg[2], arg and arg[3]
+
+if sub == "daemon" then daemon_main()
+elseif sub == "state" then cmd_state()
+elseif sub == "wave" then cmd_wave(a2)
+elseif sub == "vol" then cmd_vol(a2, a3)
+elseif sub == "mute" then cmd_mute(a2, a3)
+elseif sub == "play" then cmd_play(a2, a3)
+elseif sub == "ctl" then cmd_ctl(a2)
+elseif sub == "mic" then cmd_mic(a2)
+elseif sub == "del" then cmd_del(a2)
+elseif sub == "quota" then cmd_quota(a2)
+elseif sub == "ingest" then cmd_ingest(a2)
+elseif sub == "quit" then
+	if daemon_pid() then send_cmd("quit") end
+	out({ ok = true })
+else
+	fail("用法: mwrt-audio state|wave|vol|mute|play|ctl|mic|del|quota|ingest|quit")
+	os.exit(1)
+end

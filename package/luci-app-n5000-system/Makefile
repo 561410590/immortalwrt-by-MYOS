@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-n5000-system
 PKG_VERSION:=1.0
-PKG_RELEASE:=7
+PKG_RELEASE:=8
 PKGARCH:=all
 PKG_LICENSE:=Apache-2.0
 
@@ -15,6 +15,13 @@ MYOS_DATA:=
 MWRT_EXEC:=usr/libexec/mwrt-usbinfo usr/libexec/rpcd/luci.mwrt-notice usr/libexec/rpcd/luci.mwrt-ota
 MWRT_DATA:=etc/config/mwrt etc/mwrt/ota-ca.pem usr/lib/lua/luci/model/mwrt_gate.lua usr/lib/lua/luci/controller/mwrt_hwinfo.lua usr/lib/lua/luci/controller/zz_mwrt_fancontrol.lua usr/share/rpcd/acl.d/luci-app-mwrt-notice.json usr/share/rpcd/acl.d/luci-app-mwrt-ota.json
 USB_NETWORK_DATA:=usr/share/luci/menu.d/myos-usb-network.json usr/share/rpcd/acl.d/myos-usb-network.json www/luci-static/resources/view/myos/usb-network.js
+PERIPHERAL_EXEC:=etc/init.d/mwfiles usr/bin/mwrt-portprobe usr/bin/mwrt-gen-translations usr/libexec/mwfiles-job usr/libexec/mwrt-audio usr/libexec/mwrt-camsnap
+PERIPHERAL_DATA:=etc/config/mwfiles \
+	usr/lib/lua/luci/controller/mwfiles.lua usr/lib/lua/luci/controller/myos_n5000_peripherals.lua \
+	$(addprefix usr/lib/lua/luci/mwfiles/,core.lua guard.lua net.lua xfer.lua) \
+	usr/lib/lua/luci/view/mwfiles/page.htm usr/share/rpcd/acl.d/luci-app-mwfiles.json \
+	$(addprefix www/luci-static/resources/mwfiles/,boot.js main.js main.css) \
+	www/luci-static/resources/view/myos/peripherals.js
 
 define Package/luci-app-n5000-system
   SECTION:=luci
@@ -26,6 +33,7 @@ endef
 
 define Package/luci-app-n5000-system/conffiles
 /etc/config/mwrt
+/etc/config/mwfiles
 endef
 
 define Build/Compile
@@ -37,6 +45,8 @@ define Package/luci-app-n5000-system/install
 	$(foreach f,$(MWRT_EXEC),$(INSTALL_DIR) $(1)/$(dir $(f)); $(INSTALL_BIN) $(MWRT_SOURCE)/$(f) $(1)/$(f);)
 	$(foreach f,$(MWRT_DATA),$(INSTALL_DIR) $(1)/$(dir $(f)); $(INSTALL_DATA) $(MWRT_SOURCE)/$(f) $(1)/$(f);)
 	$(foreach f,$(USB_NETWORK_DATA),$(INSTALL_DIR) $(1)/$(dir $(f)); $(INSTALL_DATA) ./root/$(f) $(1)/$(f);)
+	$(foreach f,$(PERIPHERAL_EXEC),$(INSTALL_DIR) $(1)/$(dir $(f)); $(INSTALL_BIN) ./root/$(f) $(1)/$(f);)
+	$(foreach f,$(PERIPHERAL_DATA),$(INSTALL_DIR) $(1)/$(dir $(f)); $(INSTALL_DATA) ./root/$(f) $(1)/$(f);)
 	$(INSTALL_DATA) ./root/usr/share/luci/menu.d/zzz-n5000-vantage.json $(1)/usr/share/luci/menu.d/
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
 	$(INSTALL_BIN) ./root/usr/libexec/rpcd/myos.usb-network $(1)/usr/libexec/rpcd/

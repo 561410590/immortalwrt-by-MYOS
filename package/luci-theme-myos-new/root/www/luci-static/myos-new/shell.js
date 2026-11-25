@@ -5,14 +5,21 @@
  const narrow=matchMedia('(max-width:1024px), (max-width:1200px) and (pointer:coarse)');
  const reduce=matchMedia('(prefers-reduced-motion:reduce)');
 
- try { const appearance=localStorage.getItem('myos-new-appearance');if(appearance==='light'||appearance==='dark')root.dataset.appearance=appearance; } catch (_) {}
+ const colors=matchMedia('(prefers-color-scheme: dark)');
+ const modes=['light','dark','system'];
+ const colorLabels={light:'浅色',dark:'深色',system:'跟随系统'};
+ let appearance='light';
+ try { const saved=localStorage.getItem('myos-new-appearance');if(modes.includes(saved))appearance=saved; } catch (_) {}
+ const applyAppearance=()=>{root.dataset.appearance=appearance==='system'?(colors.matches?'dark':'light'):appearance;};
+ applyAppearance();
+ colors.addEventListener('change',()=>{if(appearance==='system')applyAppearance();});
  const appearanceButton=document.querySelector('#m-appearance');
  const syncPluginAppearance=()=>{
   const dark=root.dataset.appearance==='dark';
   root.dataset.darkmode=String(dark);
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content',dark?'#090a0c':'#edf0f4');
   if(appearanceButton){
-   const label=dark?'切换至浅色':'切换至深色';
+   const label='外观：'+colorLabels[appearance]+'，切换至'+colorLabels[modes[(modes.indexOf(appearance)+1)%modes.length]];
    appearanceButton.title=label;appearanceButton.setAttribute('aria-label',label);
    appearanceButton.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(dark?'<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/>':'<path d="M20.9 13.2A9 9 0 0 1 10.8 3.1 9 9 0 1 0 20.9 13.2Z"/>')+'</svg>';
   }
@@ -25,9 +32,9 @@
  }
  themeDdnsto();window.addEventListener('load',themeDdnsto,{once:true});
  appearanceButton.addEventListener('click',()=>{
-  const dark=root.dataset.appearance==='dark';
-  root.dataset.appearance=dark?'light':'dark';
-  try { localStorage.setItem('myos-new-appearance',root.dataset.appearance); } catch (_) {}
+  appearance=modes[(modes.indexOf(appearance)+1)%modes.length];
+  applyAppearance();syncPluginAppearance();
+  try { localStorage.setItem('myos-new-appearance',appearance); } catch (_) {}
  });
  let open=false,drawerMotion=null,scrimMotion=null;
  function drawer(value,instant=false){

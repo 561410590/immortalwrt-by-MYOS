@@ -1,0 +1,21 @@
+#!/bin/sh /etc/rc.common
+# Mwrt 文件管理: 准备运行目录; 开机后台自动重新挂载用户选择"记住并自动挂载"的 SMB 共享(无凭据/无组件时什么都不做)
+START=99
+
+start() {
+	mkdir -p /tmp/mwfiles/jobs /tmp/mwfiles/cred
+	chmod 700 /tmp/mwfiles/cred
+	[ -x /usr/bin/lua ] || return 0
+	[ "$(uci -q get mwfiles.main.enabled)" = 0 ] && return 0
+	(
+		# 等网络起来再挂, 最多约 90 秒; 挂不上不影响开机
+		i=0
+		while [ $i -lt 9 ]; do
+			sleep 10
+			lua -e 'os.exit(require("luci.mwfiles.net").automount() == 0 and 0 or 1)' >/dev/null 2>&1 && break
+			i=$((i + 1))
+		done
+	) &
+}
+
+stop() { :; }

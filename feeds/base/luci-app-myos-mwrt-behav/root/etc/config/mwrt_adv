@@ -1,0 +1,4 @@
+config global 'global'
+	option enabled '0'
+	option default_action 'allow'
+	option default_log '0'

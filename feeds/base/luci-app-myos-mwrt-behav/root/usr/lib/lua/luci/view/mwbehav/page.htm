@@ -1,0 +1,21 @@
+<%+header%>
+<% local _fs = require('nixio.fs'); local _v = ''
+for _, _f in ipairs({'main.js', 'adv.js', 'main.css'}) do
+	local _st = _fs.stat('/www/luci-static/resources/mwbehav/' .. _f) or {}
+	_v = _v .. (_v ~= '' and '-' or '') .. tostring(_st.size or 0) .. '.' .. tostring(_st.mtime or 0)
+end %>
+<style>
+#mwbehav-page { margin: 0 0 8px; min-height: 640px; }
+#mwbehav-page > .bm-boot { padding: 60px 0; text-align: center; color: #8a94a8; }
+</style>
+<div id="mwbehav-page"><div class="bm-boot">行为管理加载中…</div></div>
+<script>//<![CDATA[
+(function() {
+	var s = document.createElement('script');
+	s.src = '<%=resource%>/mwbehav/main.js?v=<%=_v%>';
+	s.onload = function() { if (window.MwrtBehav) window.MwrtBehav.mount(document.getElementById('mwbehav-page')); };
+	s.onerror = function() { document.getElementById('mwbehav-page').innerHTML = '<div class="bm-boot">页面脚本加载失败，请刷新重试</div>'; };
+	document.head.appendChild(s);
+})();
+//]]></script>
+<%+footer%>

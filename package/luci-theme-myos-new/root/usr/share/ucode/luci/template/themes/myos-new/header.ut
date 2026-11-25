@@ -3,6 +3,10 @@
  const model = replace(lc(board.model ?? ''), /[^a-z0-9]/g, '');
  const device = replace(lc(board.board_name ?? ''), /[^a-z0-9]/g, '');
  const color = uci.get('myos_appearance', 'main', 'background_color') ?? '';
+ const stat = require('fs').stat;
+ const translations = `${resource}/trans-${dispatcher.lang}.js`;
+ const translated = device == 'nradion5000' ? stat(`/www${translations}`) : null;
+ const packages_modified = stat('/usr/lib/opkg/status')?.mtime ?? 0;
  let login_video = '';
  if (model in ['c2000ultra', 'nradioc2000ultra'] || device == 'nradioc2000ultra')
   login_video = 'c2000-ultra-promo.mp4';
@@ -27,17 +31,18 @@
 document.documentElement.dataset.glass = matchMedia('(prefers-contrast:more), (prefers-reduced-transparency:reduce)').matches ? 'solid' : 'frosted';
 document.documentElement.dataset.appearance = 'light';
 try {
- if (localStorage.getItem('myos-new-appearance') === 'dark')
+ const preference = localStorage.getItem('myos-new-appearance');
+ if (preference === 'dark' || (preference === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
   document.documentElement.dataset.appearance = 'dark';
 } catch (_) {}
 document.querySelector('meta[name="theme-color"]').content = document.documentElement.dataset.appearance === 'dark' ? '#090a0c' : '#edf0f4';
 </script>
 <link rel="stylesheet" href="{{ media }}/style.css?v=20261111-allmodels1">
 <link rel="stylesheet" href="{{ media }}/liquid.css?v=20261105-black-frost">
-<link rel="stylesheet" href="{{ media }}/refine.css?v=n5000-r8-sidebar1-20261114-connection-ui1-wan-quality2{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-home-density1-tablet1-outlet1-readout1' : '' }}{{ !blank_page ? '-submenu1' : '' }}{{ !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-views20261120-nav3' : '' }}{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-iface-links1' : '' }}-page-polish2{{ !blank_page ? '-status-system1' : '' }}">
+<link rel="stylesheet" href="{{ media }}/refine.css?v=n5000-r8-sidebar1-20261114-connection-ui1-wan-quality2{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-home-density1-tablet1-outlet1-readout1' : '' }}{{ !blank_page ? '-submenu1' : '' }}{{ !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-views20261120-nav3' : '' }}{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-iface-links1' : '' }}-page-polish2{{ !blank_page ? '-status-system1' : '' }}{{ join('/', ctx.path ?? []) in ['admin/status/realtime/load', 'admin/status/realtime/connections', 'admin/status/realtime/wireless', 'admin/system/mounts'] ? '-realtime-mounts1' : '' }}">
 {% if (node?.css): %}<link rel="stylesheet" href="{{ resource }}/{{ node.css }}">{% endif %}
 {% if (css): %}<style>{{ css }}</style>{% endif %}
-<script src="{{ dispatcher.build_url('admin/translations', dispatcher.lang) }}"></script>
+<script src="{{ translated && translated.mtime >= packages_modified ? translations : dispatcher.build_url('admin/translations', dispatcher.lang) }}"></script>
 <script src="{{ resource }}/cbi.js"></script>
 </head>
 <body class="myos-new{% if (!blank_page): %} m-submenu-compact{% endif %}{% if (blank_page): %} m-auth{% endif %}" data-home="{{ dispatcher.build_url('admin/myos') }}" data-device-model="{{ entityencode(board.model ?? '', true) }}" data-background-color="{{ entityencode(color, true) }}" data-device-board="{{ entityencode(board.board_name ?? '', true) }}"{% if (login_video): %} data-login-video="{{ login_video }}" data-login-video-enabled="{{ uci.get('myos_appearance', 'main', 'login_video') == '1' ? '1' : '0' }}"{% endif %}>

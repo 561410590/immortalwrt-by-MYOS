@@ -1,0 +1,31 @@
+<%+header%>
+<% local _fs = require('nixio.fs'); local _v = ''
+for _, _f in ipairs({'main.js', 'main.css'}) do
+	local _st = _fs.stat('/www/luci-static/resources/mwfiles/' .. _f) or {}
+	_v = _v .. (_v ~= '' and '-' or '') .. tostring(_st.size or 0) .. '.' .. tostring(_st.mtime or 0)
+end %>
+<style>
+#mwfiles-page { margin: 0 0 8px; padding: 80px 0; text-align: center; color: #6e6e73; }
+#mwfiles-page b { display: block; font-size: 17px; color: #1d1d1f; margin-bottom: 6px; }
+#mwfiles-page button { margin-top: 16px; height: 36px; padding: 0 22px; border-radius: 999px; border: 0; background: #0071e3; color: #fff; font-size: 14px; cursor: pointer; }
+html[data-darkmode="true"] #mwfiles-page b { color: #f5f5f7; }
+</style>
+<div id="mwfiles-page">
+	<b>文件管理</b>
+	<span id="mwfiles-msg">正在加载文件管理…</span><br>
+	<button type="button" id="mwfiles-reopen" hidden>打开文件管理</button>
+</div>
+<script>//<![CDATA[
+(function() {
+	var msg = document.getElementById('mwfiles-msg');
+	var btn = document.getElementById('mwfiles-reopen');
+	function open() { if (window.MwrtFiles) window.MwrtFiles.open({ landing: true }); }
+	btn.onclick = open;
+	var s = document.createElement('script');
+	s.src = '<%=resource%>/mwfiles/main.js?v=<%=_v%>';
+	s.onload = function() { msg.textContent = '文件管理已在浮窗中打开。关闭浮窗后可在此重新打开。'; btn.hidden = false; open(); };
+	s.onerror = function() { msg.textContent = '文件管理脚本加载失败，请刷新页面重试'; };
+	document.head.appendChild(s);
+})();
+//]]></script>
+<%+footer%>

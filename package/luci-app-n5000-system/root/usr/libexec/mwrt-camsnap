@@ -1,0 +1,221 @@
+#!/bin/sh
+# /usr/libexec/mwrt-camsnap —— 首页设备图「USB 摄像头悬停预览」的抓帧后端。
+#   start  找摄像头、后台起 ffmpeg 持续写 /tmp/mwrt-cam.jpg, 立即返回
+#   stop   杀掉抓帧并清掉帧文件和心跳
+#   beat   刷新心跳(camframe 读帧时 LuCI 也会顺手刷新)
+#   status 当前是否在抓、有没有帧
+#   list   列出可用摄像头
+# 每个子命令只向 stdout 输出一行 JSON。全局单实例, 心跳超过 6 秒没刷新就自己退出
+# (浏览器关页、断网、忘了发 stop 都靠这条兜底, 不会让 ffmpeg 一直占着摄像头)。
+# 内部子命令 run 由 start 拉起, 不要手工调用。
+
+SELF=/usr/libexec/mwrt-camsnap
+JPG=/tmp/mwrt-cam.jpg
+BEAT=/tmp/mwrt-cam.beat
+PIDF=/tmp/mwrt-cam.pid
+FFPID=/tmp/mwrt-cam.ffpid
+DEVF=/tmp/mwrt-cam.dev
+ERR=/tmp/mwrt-cam.err
+LOCK=/tmp/mwrt-cam.lock
+BEAT_MAX=6
+JPG_MAX=2097152
+
+# 只释放自己持有的锁(同 mwrt-fun 的写法)。持有者已死的陈旧锁直接清掉。
+lock() {
+	local i=0 p
+	while ! mkdir "$LOCK" 2>/dev/null; do
+		p=$(cat "$LOCK/pid" 2>/dev/null)
+		if [ -n "$p" ] && ! kill -0 "$p" 2>/dev/null; then rm -rf "$LOCK"; continue; fi
+		i=$((i + 1))
+		[ "$i" -gt 5 ] && return 1
+		sleep 1
+	done
+	echo $$ > "$LOCK/pid"
+	return 0
+}
+unlock() { [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$LOCK"; return 0; }
+
+# $1=pid 文件 $2=命令行里必须出现的字样(防 pid 被别的进程复用)。活着返回 0
+alive() {
+	local p c
+	p=$(cat "$1" 2>/dev/null)
+	case "$p" in ''|*[!0-9]*) return 1 ;; esac
+	kill -0 "$p" 2>/dev/null || return 1
+	c=$(tr '\000' ' ' < "/proc/$p/cmdline" 2>/dev/null)
+	case "$c" in *"$2"*) return 0 ;; esac
+	return 1
+}
+
+mtime() { stat -c %Y "$1" 2>/dev/null || echo 0; }
+
+json_str() { printf '%s' "$1" | tr -d '"\\' | tr -d '\000-\037'; }
+
+# 摄像头发现: video4linux 里非 Dummy、挂在 USB 上、index 为 0 的节点。
+# UVC 一个摄像头有 index0(采集)和 index1(元数据)两个节点, 只取 index 0。
+# 输出 "/dev/videoN|名称", 一台一行。
+cams() {
+	local v n idx real
+	for v in /sys/class/video4linux/video*; do
+		[ -r "$v/name" ] || continue
+		n=$(tr -d '\000-\037|' < "$v/name" 2>/dev/null)
+		case "$n" in *[Dd]ummy*) continue ;; esac
+		idx=$(cat "$v/index" 2>/dev/null)
+		[ -z "$idx" ] || [ "$idx" = 0 ] || continue
+		real=$(readlink -f "$v/device" 2>/dev/null)
+		case "$real" in */usb*) ;; *) continue ;; esac
+		echo "/dev/${v##*/}|$n"
+	done
+}
+
+dev_ok() {
+	case "$1" in
+		/dev/video[0-9]|/dev/video[0-9][0-9]|/dev/video[0-9][0-9][0-9]) [ -c "$1" ] ;;
+		*) return 1 ;;
+	esac
+}
+
+ff_run() {
+	# $1=设备 $2=方案(1=MJPEG 直通, 2=YUYV 转码)
+	if [ "$2" = 1 ]; then
+		ffmpeg -nostdin -loglevel error -f v4l2 -input_format mjpeg -video_size 640x480 \
+			-framerate 5 -i "$1" -c:v copy -f image2 -update 1 -atomic_writing 1 -y "$JPG" \
+			</dev/null >/dev/null 2>"$ERR" &
+	else
+		ffmpeg -nostdin -loglevel error -f v4l2 -input_format yuyv422 -video_size 320x240 \
+			-framerate 2 -i "$1" -q:v 8 -f image2 -update 1 -atomic_writing 1 -y "$JPG" \
+			</dev/null >/dev/null 2>"$ERR" &
+	fi
+	echo $! > "$FFPID"
+}
+
+kill_ff() {
+	local p i=0
+	p=$(cat "$FFPID" 2>/dev/null)
+	case "$p" in ''|*[!0-9]*) return 0 ;; esac
+	if kill -0 "$p" 2>/dev/null; then
+		kill "$p" 2>/dev/null
+		# 摄像头被拔出时 ffmpeg 会卡在 ioctl 里不理 TERM, 等一会儿就 -9
+		while kill -0 "$p" 2>/dev/null && [ "$i" -lt 5 ]; do sleep 1; i=$((i + 1)); done
+		kill -0 "$p" 2>/dev/null && kill -9 "$p" 2>/dev/null
+	fi
+	rm -f "$FFPID"
+}
+
+clean_all() { rm -f "$JPG" "$JPG.tmp" "$BEAT" "$PIDF" "$FFPID" "$DEVF"; }
+
+# 后台常驻: 拉起 ffmpeg, 每秒看一次心跳和帧大小, 心跳过期或 ffmpeg 退出就收尾。
+do_run() {
+	local dev=$1 mode=1 t0 now sz
+	dev_ok "$dev" || exit 1
+	echo $$ > "$PIDF"
+	ff_run "$dev" 1
+	t0=$(date +%s)
+	while :; do
+		sleep 1
+		now=$(date +%s)
+		[ $((now - $(mtime "$BEAT"))) -gt "$BEAT_MAX" ] && break
+		if ! alive "$FFPID" ffmpeg; then
+			# 直通方案还没出过帧就退了: 多半摄像头不出 MJPEG, 退化到 YUYV 再试一次
+			if [ "$mode" = 1 ] && [ ! -s "$JPG" ]; then
+				mode=2; ff_run "$dev" 2; continue
+			fi
+			break
+		fi
+		if [ -f "$JPG" ]; then
+			sz=$(stat -c %s "$JPG" 2>/dev/null || echo 0)
+			[ "$sz" -gt "$JPG_MAX" ] && rm -f "$JPG"
+		fi
+	done
+	kill_ff
+	# 出错信息留给 status 读, 其余全清
+	rm -f "$JPG" "$JPG.tmp" "$BEAT" "$PIDF" "$DEVF"
+	exit 0
+}
+
+do_start() {
+	local first dev
+	if ! lock; then echo '{"ok":false,"error":"busy"}'; return; fi
+	if alive "$PIDF" mwrt-camsnap; then
+		touch "$BEAT"
+		echo "{\"ok\":true,\"dev\":\"$(json_str "$(cat "$DEVF" 2>/dev/null)")\"}"
+		unlock; return
+	fi
+	if ! command -v ffmpeg >/dev/null 2>&1; then
+		echo '{"ok":false,"error":"nobin"}'; unlock; return
+	fi
+	first=$(cams | head -n 1)
+	dev=${first%%|*}
+	if [ -z "$dev" ] || ! dev_ok "$dev"; then
+		echo '{"ok":false,"error":"nocam"}'; unlock; return
+	fi
+	rm -f "$JPG" "$JPG.tmp" "$ERR"
+	echo "$dev" > "$DEVF"
+	touch "$BEAT"
+	# 后台脱离 CGI 的管道, 否则 uhttpd 会等到它退出才结束响应
+	"$SELF" run "$dev" </dev/null >/dev/null 2>&1 &
+	sleep 1
+	if alive "$PIDF" mwrt-camsnap; then
+		echo "{\"ok\":true,\"dev\":\"$dev\"}"
+	else
+		clean_all
+		case "$(cat "$ERR" 2>/dev/null)" in
+			*[Bb]usy*) echo '{"ok":false,"error":"busy"}' ;;
+			*) echo '{"ok":false,"error":"fail"}' ;;
+		esac
+	fi
+	unlock
+}
+
+do_stop() {
+	local p
+	lock
+	p=$(cat "$PIDF" 2>/dev/null)
+	case "$p" in
+		''|*[!0-9]*) ;;
+		*) alive "$PIDF" mwrt-camsnap && kill -9 "$p" 2>/dev/null ;;
+	esac
+	kill_ff
+	clean_all
+	rm -f "$ERR"
+	echo '{"ok":true}'
+	unlock
+}
+
+do_beat() {
+	if alive "$PIDF" mwrt-camsnap; then
+		touch "$BEAT"; echo '{"ok":true}'
+	else
+		echo '{"ok":false,"error":"fail"}'
+	fi
+}
+
+do_status() {
+	local run=false fr=false age=0 now
+	alive "$PIDF" mwrt-camsnap && run=true
+	if [ -s "$JPG" ]; then
+		fr=true; now=$(date +%s); age=$((now - $(mtime "$JPG")))
+	fi
+	echo "{\"running\":$run,\"frame\":$fr,\"age\":$age,\"dev\":\"$(json_str "$(cat "$DEVF" 2>/dev/null)")\"}"
+}
+
+do_list() {
+	local out
+	out=$(cams | {
+		sep=""
+		while IFS='|' read -r d n; do
+			printf '%s{"dev":"%s","name":"%s"}' "$sep" "$(json_str "$d")" "$(json_str "$n")"
+			sep=","
+		done
+	})
+	echo "{\"cams\":[$out]}"
+}
+
+case "$1" in
+	start) do_start ;;
+	stop) do_stop ;;
+	beat) do_beat ;;
+	status) do_status ;;
+	list) do_list ;;
+	run) do_run "$2" ;;
+	*) echo '{"ok":false,"error":"fail"}'; exit 1 ;;
+esac

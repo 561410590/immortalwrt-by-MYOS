@@ -7,6 +7,10 @@ function index()
     entry({"admin", "myos", "data"}, call("snapshot")).leaf = true
     entry({"admin", "myos", "fast"}, call("fast_snapshot")).leaf = true
     entry({"admin", "myos", "link_quality"}, call("link_quality")).leaf = true
+    entry({"admin", "myos", "outlet_diagnostics"}, post("outlet_diagnostics")).leaf = true
+    if require("nixio.fs").access("/usr/bin/mwrt-portprobe", "x") then
+        entry({"admin", "myos", "port_peer"}, post("port_peer")).leaf = true
+    end
     entry({"admin", "myos", "ping_target"}, post("save_ping_target")).leaf = true
     entry({"admin", "myos", "login_video"}, post("save_login_video")).leaf = true
     entry({"admin", "myos", "appearance"}, call("appearance_settings")).leaf = true
@@ -98,6 +102,10 @@ function notices()
         local carrier=tonumber(fs.readfile(base.."/carrier") or "")
         if carrier==0 or carrier==1 then result.ports[#result.ports+1]={name=name,label=port_label(profile,name),carrier=carrier,
             count=tonumber(fs.readfile(base.."/carrier_up_count") or ""),speed=tonumber(fs.readfile(base.."/speed") or "")} end
+    end
+    if profile == "n5000" then
+        local usb = call("myos.usb-network", "devices")
+        if usb then result.usb_devices = usb.devices or {} end
     end
     if bus then bus:close() end
     luci.http.prepare_content("application/json")
@@ -1012,6 +1020,81 @@ function link_quality()
     output(sample)
 end
 
+function port_peer()
+    local device = luci.http.formvalue("device")
+    local fs = require "nixio.fs"
+    local perf = require "luci.model.myos_liquid"
+    local meta = perf.cached("portmeta")
+    if meta.profile == "n5000" and valid_link_device(device) then
+        for _, port in ipairs(meta.ports or {}) do
+            if port.name == device then
+                if not ((fs.readfile("/sys/class/net/"..device.."/carrier") or ""):match("^1")) then
+                    return output({state="nolink"})
+                end
+                local argument = require("luci.util").shellquote(device)
+                require("luci.sys").call("/usr/bin/mwrt-portprobe "..argument.." --per-port >/dev/null 2>&1")
+                local body = fs.readfile("/tmp/mwrt-portprobe."..device..".json")
+                return output(body and require("luci.jsonc").parse(body) or {state="error"})
+            end
+        end
+    end
+    output({state="error"})
+end
+
+function outlet_diagnostics()
+    local device = luci.http.formvalue("device")
+    local perf = require "luci.model.myos_liquid"
+    local selected
+    for _, uplink in ipairs(perf.cached("portmeta").uplinks or {}) do
+        if uplink.name == device and valid_link_device(device) then
+            selected = uplink
+            break
+        end
+    end
+    local family = selected and link_families({selected})[device]
+    if not family then return output({error="所选出口当前没有可用默认路由"}) end
+
+    local fs = require "nixio.fs"
+    if not fs.access("/usr/bin/curl", "x") then
+        return output({error="设备未安装 curl"})
+    end
+    local util = require "luci.util"
+    local exec = require("luci.sys").exec
+    local command = "exec /usr/bin/curl --silent --noproxy '*' --interface "
+        .. util.shellquote("if!" .. device) .. " " .. family
+    local result = {device=device, targets={}}
+    for _, host in ipairs({"www.baidu.com", "www.qq.com"}) do
+        local raw = exec(command .. " --connect-timeout 2 --max-time 3 --head -o /dev/null"
+            .. " -w '%{http_code} %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{remote_ip}'"
+            .. " " .. util.shellquote("https://" .. host .. "/")) or ""
+        local code, dns, connected, tls, first, address =
+            raw:match("^(%d+)%s+([%d.]+)%s+([%d.]+)%s+([%d.]+)%s+([%d.]+)%s+(%S+)")
+        local target = {host=host}
+        if tonumber(connected) and tonumber(connected) > 0 then
+            local function millis(number) return math.floor(number*1000+0.5) end
+            local samples = {math.max(0, tonumber(connected)-tonumber(dns))}
+            local endpoint = address:find(":", 1, true) and "["..address.."]" or address
+            for _=1,2 do
+                local elapsed = tonumber(exec(command .. " --connect-timeout 1 --max-time 1 -o /dev/null"
+                    .. " -w '%{time_connect}' " .. util.shellquote("telnet://" .. endpoint .. ":443")))
+                if elapsed and elapsed > 0 then samples[#samples+1]=elapsed end
+            end
+            table.sort(samples)
+            local lower, upper = math.floor((#samples+1)/2), math.ceil((#samples+1)/2)
+            target.tcp_ms = millis((samples[lower]+samples[upper])/2)
+            target.samples = #samples
+            target.dns_ms = millis(tonumber(dns))
+            if tonumber(tls) > 0 then target.tls_ms=millis(math.max(0,tonumber(tls)-tonumber(connected))) end
+            if tonumber(first) > 0 then target.ttfb_ms=millis(tonumber(first)) end
+            target.code = tonumber(code)
+        else
+            target.error = "连接未建立"
+        end
+        result.targets[#result.targets+1] = target
+    end
+    output(result)
+end
+
 local function read_acceleration()
     local p=require "luci.model.myos_liquid"
     local old=p.cached("acceleration")
@@ -1209,7 +1292,7 @@ function snapshot()
             clients[key]={mac=key,ip=ip,name=lease.name,kind="DHCP",state="租约记录",lease_expires=expires}
         end
     end
-    local lan_port_by_number, lan_port_by_mac = {}, {}
+    local lan_port_by_number, lan_port_by_mac, lan_port_age = {}, {}, {}
     for _, port in ipairs(result.ports) do
         if port.role == "LAN" and port.carrier == true then
             local number = tonumber(rd("/sys/class/net/" .. port.name .. "/brport/port_no"))
@@ -1222,9 +1305,14 @@ function snapshot()
     if next(lan_port_by_number) and fs.access("/usr/sbin/brctl") then
         local forwarding = require("luci.sys").exec("/usr/sbin/brctl showmacs br-lan 2>/dev/null") or ""
         for row in forwarding:gmatch("[^\n]+") do
-            local number, mac = row:match("^%s*(%d+)%s+([%x:]+)%s+no%s")
+            local number, mac, age = row:match("^%s*(%d+)%s+([%x:]+)%s+no%s+([%d.]+)")
             local port = lan_port_by_number[tonumber(number)]
-            if port then lan_port_by_mac[mac:lower()] = port end
+            if port then
+                local key, seconds = mac:lower(), tonumber(age)
+                if seconds and (not lan_port_age[key] or seconds < lan_port_age[key]) then
+                    lan_port_by_mac[key], lan_port_age[key] = port, seconds
+                end
+            end
         end
     end
     -- Do not treat ARP cache entries or DHCP leases as proof of present reachability.
@@ -1240,6 +1328,17 @@ function snapshot()
             clients[key]={mac=key,ip=ip,name=n.name,kind="LAN",state="邻居记录",device=dev,lease_expires=n.expires}
             local port = dev == "br-lan" and lan_port_by_mac[key]
             if port then append(port.client_ipv4, ip) end
+        end
+    end
+    if profile == "n5000" then
+        for key, port in pairs(lan_port_by_mac) do
+            local client, lease = clients[key], names[key]
+            local trusted = lease and client and client.ip == lease.ip
+            if lan_port_age[key] <= (trusted and 280 or 180) then
+                client = client or {mac=key}
+                client.kind,client.state,client.device = "LAN","有线在线",port.name
+                clients[key] = client
+            end
         end
     end
     for _, port in pairs(lan_port_by_number) do table.sort(port.client_ipv4) end

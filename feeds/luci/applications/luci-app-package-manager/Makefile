@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
 PKG_LICENSE:=Apache-2.0
 
 LUCI_TITLE:=Package management application
-LUCI_DEPENDS:=+luci-base
+LUCI_DEPENDS:=+luci-base +curl +flock +jshn +jsonfilter
 
 PKG_MAINTAINER:=Jo-Philipp Wich <jo@mein.io>
 

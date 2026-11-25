@@ -3618,8 +3618,12 @@ define Device/nradio_n5000
   BOARD_NAME := nradio,n5000
   SUPPORTED_DEVICES += nradio,n5000 HCMT7987-SNSD
   DEVICE_PACKAGES := \
-	kmod-nft-queue \
+	kmod-nft-queue kmod-dummy luci-app-myos-mwrt-pbr luci-app-myos-mwrt-behav \
 	luci-theme-myos-new luci-app-n5000-system \
+	cifsmount ksmbd-server dosfstools exfat-mkfs ntfs-3g-utils \
+	kmod-video-core kmod-video-uvc kmod-usb-audio ffmpeg alsa-utils \
+	luci-app-qmodem-next luci-i18n-qmodem-next-zh-cn luci-app-qmodem-ttl kmod-usb-net-cdc-mbim \
+	btop htop ndisc6 rdisc6 partx-utils sgdisk \
 	-luci-app-ssr-plus -luci-i18n-ssr-plus-zh-cn \
 	luci-app-vantage luci-i18n-vantage-zh-cn \
 	libip4tc libip6tc iptables-mod-extra kmod-ipt-extra \

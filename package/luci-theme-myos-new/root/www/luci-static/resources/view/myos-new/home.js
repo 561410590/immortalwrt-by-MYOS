@@ -699,9 +699,10 @@ return view.extend({
    return {device:u.name,name:u.label||alias(d,u.name),networks:nets.map(n=>n.name).join(' / '),ip:addresses[0],addresses,gateways,carrier:u.carrier,mainRoutes:u.main_routes};
   });
   this.uplinkLabels=new Map(rows.map(row=>[row.device,row.name]));
-  this.replace('uplinks',rows,()=>this.renderCompactUplinks(rows));
+  const ports=d.profile==='n5000'?list(d.ports):[];
+  this.replace('uplinks',{rows,ports},()=>this.renderCompactUplinks(rows,ports));
  },
- renderCompactUplinks:function(rows){
+ renderCompactUplinks:function(rows,ports){
   const mainMetrics=routes=>[...list(routes)].sort((a,b)=>Number(!!a.source)-Number(!!b.source)).map(route=>
    (route.metric??'—')+(route.source?'（源前缀 '+route.source+'）':'')
   ).join(' · ')||'—';
@@ -720,19 +721,90 @@ return view.extend({
    ]))));
   const trigger=E('button',{
    type:'button',class:'m-copy-button','data-uplink-details':'','aria-haspopup':'dialog',
-   click:()=>this.uplinkDialog.showModal()
+   click:()=>this.openUplinkDetails(rows,ports)
   },'线路详情');
   return card('当前出口','↗',summary,trigger);
+ },
+ openUplinkDetails:function(rows,ports){
+  const old=this.diagnosticDevice.value;
+  this.diagnosticDevice.replaceChildren(...rows.map(row=>E('option',{value:row.device},row.name)));
+  if(rows.some(row=>row.device===old))this.diagnosticDevice.value=old;
+  this.diagnosticResult.textContent=rows.length?'':'当前没有可用出口';
+  this.diagnosticButton.disabled=!rows.length;
+  this.peerDevice.replaceChildren(...ports.map(port=>E('option',{value:port.name},port.label||port.name)));
+  this.peerActions.hidden=!ports.length;
+  this.peerResult.replaceChildren();
+  this.uplinkDialog.showModal();
+ },
+ runOutletDiagnostics:async function(){
+  const controller=new AbortController();
+  this.diagnosticRequest=controller;
+  this.diagnosticButton.disabled=true;
+  this.diagnosticResult.textContent='正在检测当前出口…';
+  try{
+   const body=new URLSearchParams({token:L.env.token,device:this.diagnosticDevice.value});
+   const response=await fetch(L.url('admin','myos','outlet_diagnostics'),{method:'POST',body,signal:controller.signal});
+   const data=await response.json();
+   if(controller.signal.aborted)return;
+   if(!response.ok||data.error)throw new Error(data.error||'HTTP '+response.status);
+   const ms=value=>Number.isFinite(value)?value+' ms':'—';
+   const rows=list(data.targets).map(target=>node('div','',[
+    node('strong','',target.host),
+    target.error?node('p','m-muted',target.error):kv([
+     ['TCP 往返',E('span',{style:'color:'+(target.tcp_ms<=80?'var(--m-good,#237b53)':target.tcp_ms<=200?'var(--m-warn,#946000)':'var(--m-bad,#b03535)')},ms(target.tcp_ms)+'（'+target.samples+' 次）')],
+     ['DNS 解析',ms(target.dns_ms)],['TLS 握手',ms(target.tls_ms)],['HTTPS 首包',ms(target.ttfb_ms)]
+    ])
+   ]));
+   this.diagnosticResult.replaceChildren(node('div','m-uplink-detail-rows',rows),
+    node('small','m-muted','TCP 连接通过所选出口，DNS 使用系统解析器。HTTPS 首包含前面的阶段。'));
+  }catch(error){
+   if(!controller.signal.aborted)this.diagnosticResult.textContent=error.message;
+  }finally{
+   if(this.diagnosticRequest===controller){this.diagnosticRequest=null;this.diagnosticButton.disabled=false;}
+  }
+ },
+ runPortPeer:async function(){
+  const controller=new AbortController();
+  this.peerRequest=controller;
+  this.peerButton.disabled=true;
+  this.peerResult.textContent='正在查询 DHCP / PPPoE 对端…';
+  try{
+   const body=new URLSearchParams({token:L.env.token,device:this.peerDevice.value});
+   const response=await fetch(L.url('admin','myos','port_peer'),{method:'POST',body,signal:controller.signal});
+   const data=await response.json();
+   if(controller.signal.aborted)return;
+   const protocols={dhcp:'检测到 DHCP 服务',pppoe:'检测到 PPPoE 接入服务器',both:'检测到 DHCP 服务和 PPPoE 接入服务器'};
+   const state={none:'未收到应答',nolink:'网口未连接',probing:'检测正在进行',error:'无法检测此网口'};
+   this.peerResult.textContent=[protocols[data.kind]||state[data.state]||state.error,data.gw,data.ac].filter(Boolean).join(' · ');
+  }catch(error){
+   if(!controller.signal.aborted)this.peerResult.textContent='网口检测失败';
+  }finally{
+   if(this.peerRequest===controller){this.peerRequest=null;this.peerButton.disabled=false;}
+  }
  },
  initUplinkDialog:function(){
   const title=E('h2',{id:'m-uplink-dialog-title'},'线路详情');
   const close=E('button',{type:'button',class:'m-icon-button','aria-label':'关闭线路详情',autofocus:''},'×');
   this.uplinkDetailRows=node('div','m-uplink-detail-rows');
+  this.diagnosticDevice=E('select',{'aria-label':'检测出口'});
+  this.diagnosticButton=E('button',{type:'button',class:'cbi-button',click:()=>this.runOutletDiagnostics()},'检测连通性');
+  this.diagnosticResult=E('div',{role:'status','aria-live':'polite'});
+  this.peerDevice=E('select',{'aria-label':'检测物理网口'});
+  this.peerButton=E('button',{type:'button',class:'cbi-button',click:()=>this.runPortPeer()},'识别网口对端');
+  this.peerActions=node('div','m-background-actions',[this.peerDevice,this.peerButton]);
+  this.peerResult=E('div',{role:'status','aria-live':'polite'});
   this.uplinkDialog=E('dialog',{class:'m-client-dialog m-uplink-dialog','aria-labelledby':'m-uplink-dialog-title'},[
-   node('div','m-background-heading',[title,close]),this.uplinkDetailRows
+   node('div','m-background-heading',[title,close]),this.uplinkDetailRows,
+   node('div','m-background-actions',[this.diagnosticDevice,this.diagnosticButton]),this.diagnosticResult,
+   this.peerActions,this.peerResult
   ]);
   close.addEventListener('click',()=>this.uplinkDialog.close());
   this.uplinkDialog.addEventListener('close',()=>{
+   this.diagnosticRequest?.abort();
+   this.diagnosticRequest=null;
+   this.peerRequest?.abort();
+   this.peerRequest=null;
+   this.peerButton.disabled=false;
    this.parts.uplinks.querySelector('button[data-uplink-details]')?.focus({preventScroll:true});
   });
   this.root.append(this.uplinkDialog);
@@ -786,7 +858,7 @@ return view.extend({
   this.homeStatus={};
   const metrics=[
    ['ports','网口已连接','ports'],
-   ['wired','LAN 邻居','clients','lan'],
+   ['wired','有线在线','clients','wired'],
    ['wifi','无线关联','clients','wifi']
   ];
   return E('div',{class:'m-home-status',role:'group','aria-label':'接口和终端状态'},metrics.map(([key,label,section,filter])=>{
@@ -801,7 +873,7 @@ return view.extend({
   const ports=list(d.ports),clients=list(d.clients);
   const values={
    ports:ports.length&&ports.every(p=>typeof p.carrier==='boolean')?ports.filter(p=>p.carrier).length+'/'+ports.length:'—',
-   wired:Array.isArray(d.clients)&&d.client_sources?.arp!==false?clients.filter(c=>c.kind==='LAN').length:'—',
+   wired:Array.isArray(d.clients)?clients.filter(c=>c.state==='有线在线').length:'—',
    wifi:Array.isArray(d.clients)&&!d.errors?.['network.wireless']?clients.filter(c=>c.state==='无线已关联').length:'—'
   };
   for(const [key,{button,reading,section}] of Object.entries(this.homeStatus)){
@@ -1369,7 +1441,7 @@ return view.extend({
   this.clients=[];this.clientPage=0;this.clientPageSize=12;
   this.clientSearch=E('input',{type:'search',placeholder:'搜索设备名称、IP、MAC 或 SSID','aria-label':'搜索终端'});
   this.clientFilter=E('select',{'aria-label':'筛选接入方式'},[
-   E('option',{value:'all'},'全部终端'),E('option',{value:'wifi'},'无线关联'),E('option',{value:'lan'},'LAN 邻居'),E('option',{value:'dhcp'},'仅租约记录')
+   E('option',{value:'all'},'全部终端'),E('option',{value:'wifi'},'无线关联'),E('option',{value:'wired'},'有线在线'),E('option',{value:'lan'},'全部 LAN 终端'),E('option',{value:'dhcp'},'仅租约记录')
   ]);
   this.clientSearch.addEventListener('input',()=>{this.clientPage=0;this.drawClients();});
   this.clientFilter.addEventListener('change',()=>{this.clientPage=0;this.drawClients();});
@@ -1462,7 +1534,7 @@ return view.extend({
     if(!terms.every(term=>values.some(value=>value.includes(term))))return false;
    }
    if(filter.startsWith('wifi:'))return c.state==='无线已关联'&&c.device===filter.slice(5);
-   return filter==='all'||(filter==='wifi'&&c.state==='无线已关联')||(filter==='lan'&&c.kind==='LAN')||(filter==='dhcp'&&c.kind==='DHCP');
+   return filter==='all'||(filter==='wifi'&&c.state==='无线已关联')||(filter==='wired'&&c.state==='有线在线')||(filter==='lan'&&c.kind==='LAN')||(filter==='dhcp'&&c.kind==='DHCP');
   });
  },
  drawClients:function(){

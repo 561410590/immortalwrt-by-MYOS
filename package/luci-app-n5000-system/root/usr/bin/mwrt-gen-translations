@@ -1,0 +1,97 @@
+#!/bin/sh
+#
+# mwrt-gen-translations —— 把 LuCI 的翻译字典预渲染成 /www 下的静态文件
+#
+# 为什么:
+#   /cgi-bin/luci/admin/translations/<lang> 这个端点由 ucode CGI 提供,所以每次
+#   翻页都要 fork 一个全新解释器、import 整套 dispatcher、把字典重新序列化一遍
+#   —— zh-cn 是 223KB / 约 58ms。更糟的是它回的是
+#       cache-control: no-cache
+#       expires: 0
+#   浏览器被明确禁止复用,于是**每一次导航都重下 223KB**,而且这一发请求卡在
+#   <head> 里,首屏必须等它。
+#
+#   把同样的字节落成普通文件后:uhttpd 的文件通道 0.7ms 送出,并且支持
+#   If-None-Match —— 第二次以后是 304 / 0 字节。实测 md5 与端点输出完全一致
+#   (eed5ff5972b9458329a55c5e0e30aeda),因为就是同一段 action_translations
+#   代码产出的,只是把 stdout 接到文件而不是 socket。
+#
+# 什么时候要重跑:
+#   字典是从 /usr/lib/lua/luci/i18n/*.lmo 汇出来的,所以装/删任何带翻译的包之后
+#   都要重跑。install-luci-perf.sh 的 cron 自愈会带上 --if-stale 定期检查。
+#   模板那边有存在性判断,文件缺失会自动回退到原端点,所以"漏跑"只是退回今天的
+#   行为,不会把界面弄坏。
+#
+# 用法:  mwrt-gen-translations              强制重新生成
+#        mwrt-gen-translations --if-stale   只在 .lmo 比产物新时才生成
+
+set -u
+
+RES=/www/luci-static/resources
+CGI=/www/cgi-bin/luci
+I18N=/usr/lib/lua/luci/i18n
+
+[ -x "$CGI" ] || { echo "错误: 找不到 $CGI" >&2; exit 1; }
+
+# 要生成哪些语言:uci 里 lang='auto' 时由 Accept-Language 协商,浏览器要哪个就得
+# 有哪个,所以按 .lmo 实际存在的语言全生成。en 额外补上 —— 英文是源语言、没有
+# .lmo,字典是空的 window.TR={} (13 字节),但协商到 en 时同样要有这个文件。
+langs="en $(ls "$I18N"/*.lmo 2>/dev/null \
+	| sed -n 's/.*\.\([a-z][a-z]\(-[a-z]*\)\?\)\.lmo$/\1/p' \
+	| sort -u)"
+
+# --if-stale:拿最新的 .lmo 跟最旧的产物比。223KB 写一次就是一次 flash 擦写,
+# cron 每小时无脑重写不合适。
+if [ "${1:-}" = "--if-stale" ]; then
+	newest=0
+	for f in "$I18N"/*.lmo; do
+		[ -f "$f" ] || continue
+		m=$(( $(date -r "$f" +%s 2>/dev/null || echo 0) ))
+		[ "$m" -gt "$newest" ] && newest=$m
+	done
+
+	oldest=""
+	for L in $langs; do
+		out="$RES/trans-$L.js"
+		[ -f "$out" ] || { oldest=0; break; }
+		m=$(( $(date -r "$out" +%s 2>/dev/null || echo 0) ))
+		{ [ -z "$oldest" ] || [ "$m" -lt "$oldest" ]; } && oldest=$m
+	done
+
+	[ -n "$oldest" ] && [ "$oldest" -ge "$newest" ] && exit 0
+	shift
+fi
+
+rc=0
+for L in $langs; do
+	out="$RES/trans-$L.js"
+	tmp="$out.new"
+
+	# 用 CGI 环境变量直接驱动 /www/cgi-bin/luci,取 action_translations 的输出。
+	# 响应头和正文之间是一个空行,sed 把头切掉只留 window.TR={...}。
+	GATEWAY_INTERFACE=CGI/1.1 \
+	SERVER_PROTOCOL=HTTP/1.1 \
+	REQUEST_METHOD=GET \
+	SCRIPT_NAME=/cgi-bin/luci \
+	PATH_INFO="/admin/translations/$L" \
+	DOCUMENT_ROOT=/www \
+	CONTENT_LENGTH=0 \
+	HTTP_HOST=127.0.0.1 \
+	REMOTE_ADDR=127.0.0.1 \
+	QUERY_STRING= \
+		"$CGI" 2>/dev/null | sed '1,/^\r*$/d' > "$tmp"
+
+	# 覆盖一个能用的文件之前,先确认新产物长得像字典。CGI 出错时会吐 HTML 错误页
+	# 或者空文件,那种东西不能盖上去。
+	if [ -s "$tmp" ] && head -c 11 "$tmp" | grep -q '^window.TR='; then
+		mv "$tmp" "$out"
+		chmod 644 "$out"
+		echo "$L: $(wc -c < "$out") 字节"
+	else
+		rm -f "$tmp"
+		echo "$L: 生成失败,保留原文件" >&2
+		rc=1
+	fi
+done
+
+exit $rc
