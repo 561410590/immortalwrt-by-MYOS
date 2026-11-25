@@ -1757,3 +1757,100 @@ body.myos-new.m-solid-background {background:var(--m-solid-background)}
     font-size: 16px;
   }
 }
+
+/* Realtime load, connections and radio metrics use the native graph and readouts. */
+.myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view .cbi-section:has(:is(#lb_load01_cur,#lb_udp_cur,#rssi_bw_cur,#rate_bw_cur)) > .right:has(> :is(#scale,#scale2)) {
+  margin-block: 6px 8px;
+  color: var(--m-muted);
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view .cbi-section:has(:is(#lb_load01_cur,#lb_udp_cur,#rssi_bw_cur,#rate_bw_cur)) > .right:has(> :is(#scale,#scale2)) + br {
+  display: none;
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view table.table:has(:is(#lb_load01_cur,#lb_udp_cur,#rssi_bw_cur,#rate_bw_cur)) {
+  display: table;
+  margin-block-end: 8px;
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view table.table:has(:is(#lb_load01_cur,#lb_udp_cur,#rssi_bw_cur,#rate_bw_cur)) td {
+  padding: 7px 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view table.table:has(:is(#lb_load01_cur,#lb_udp_cur,#rssi_bw_cur,#rate_bw_cur)) td:nth-child(odd) {
+  color: var(--m-muted);
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view table.table:has(:is(#lb_load01_cur,#lb_udp_cur,#rssi_bw_cur,#rate_bw_cur)) td:nth-child(even) {
+  font-weight: 650;
+}
+
+/* Keep the connection controls and long table values readable at narrow widths. */
+.myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view #settings-row {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view #settings-row > .filter {
+  min-inline-size: min(100%,18rem);
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view #filter-connections {
+  margin: 0;
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view #connections td,
+.myos-new.m-submenu-compact[data-myos-page="admin/system/mounts"] #cbi-fstab table.table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view #connections .table-titles > th,
+.myos-new.m-submenu-compact[data-myos-page="admin/system/mounts"] #cbi-fstab #cbi-fstab-global table.table .table-titles > th {
+  background: var(--m-inset);
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view #connections .table-titles > th[data-sort-direction],
+.myos-new.m-submenu-compact[data-myos-page="admin/system/mounts"] #cbi-fstab #cbi-fstab-global table.table .table-titles > th[data-sort-direction] {
+  color: var(--m-blue);
+  background: var(--m-blue-soft);
+}
+.myos-new.m-submenu-compact[data-myos-page="admin/system/mounts"] #cbi-fstab #cbi-fstab-global h3 + table {
+  margin-block-start: 8px;
+}
+@media (max-width: 760px) {
+  .myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view table.table:has(:is(#lb_load01_cur,#lb_udp_cur,#rssi_bw_cur,#rate_bw_cur)),
+  .myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view table.table:has(:is(#lb_load01_cur,#lb_udp_cur,#rssi_bw_cur,#rate_bw_cur)) tbody {
+    display: block;
+  }
+  .myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view table.table:has(:is(#lb_load01_cur,#lb_udp_cur,#rssi_bw_cur,#rate_bw_cur)) tr.tr {
+    display: grid;
+    grid-template-columns: repeat(3,minmax(0,1fr));
+    border-block-end: 1px solid var(--m-line);
+  }
+  .myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view table.table:has(:is(#lb_load01_cur,#lb_udp_cur,#rssi_bw_cur,#rate_bw_cur)) tr.tr > td {
+    min-inline-size: 0;
+    border: 0;
+    padding: 4px 8px;
+    text-align: start;
+    overflow-wrap: anywhere;
+  }
+  .myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view table.table:has(:is(#lb_load01_cur,#lb_udp_cur,#rssi_bw_cur,#rate_bw_cur)) td:nth-child(odd) {
+    grid-row: 1;
+    font-size: 12px;
+  }
+  .myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view table.table:has(:is(#lb_load01_cur,#lb_udp_cur,#rssi_bw_cur,#rate_bw_cur)) td:nth-child(even) {
+    grid-row: 2;
+    padding-block-start: 0;
+  }
+  .myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view #connections,
+  .myos-new.m-submenu-compact[data-myos-page="admin/system/mounts"] #cbi-fstab #cbi-fstab-global table.table {
+    display: block;
+    max-inline-size: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+  .myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view #connections :is(td,th):is(:nth-child(3),:nth-child(4)),
+  .myos-new.m-submenu-compact[data-myos-page="admin/system/mounts"] #cbi-fstab #cbi-fstab-global table.table :is(td,th):is(:nth-child(1),:nth-child(2)) {
+    min-inline-size: 8.5rem;
+  }
+}
+@media (pointer: coarse) {
+  .myos-new.m-submenu-compact[data-myos-page="admin/status/realtime"] #view #settings-row :is(input,button) {
+    min-block-size: 44px;
+  }
+}

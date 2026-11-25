@@ -1,0 +1,188 @@
+#!/usr/bin/ucode
+'use strict';
+// mwrt-wans:出口发现,以及出口顺序/运行模式/别名/启用开关的唯一读写入口(SPEC §2.5、§13.5)。
+// 业务逻辑都在 mwrt.wans 里,这里只解析参数和输出;除 list 外,stdout 恒为单个 JSON 对象,失败时 {"ok":false,"error":"…"} 且退出码 1。
+
+import { snapshot, effective_order, get_order, set_order, get_mode, set_mode, set_alias, set_enabled } from 'mwrt.wans';
+
+const USAGE = '用法: mwrt-wans snapshot [--json] [--no-health] | list | order get | order set <wan_id>... | mode get | mode set pair|multi | alias set <wan_id> <文本> | enable set <wan_id> 0|1';
+
+const STATE_TEXT = { online: '在线', offline: '离线', absent: '设备不存在', disabled: '已停用' };
+
+function err(msg) {
+	return { ok: false, error: msg };
+}
+
+function out_json(o) {
+	print(sprintf('%J', o), "\n");
+}
+
+// 终端显示宽度:汉字按 2 列算(按 UTF-8 字节判断,不依赖 locale)
+function dispw(s) {
+	let w = 0;
+	for (let i = 0; i < length(s); i++) {
+		let c = ord(s, i);
+		if (c < 0x80)
+			w += 1;
+		else if (c >= 0xe0)
+			w += 2;
+		else if (c >= 0xc0)
+			w += 1;
+	}
+	return w;
+}
+
+function pad(s, n) {
+	let out = s;
+	for (let k = n - dispw(s); k > 0; k--)
+		out += ' ';
+	return out;
+}
+
+function health_text(h) {
+	if (h == null || h.source != 'probe')
+		return '未探测';
+	let t = '探测中';
+	if (h.state == 'up')
+		t = '正常';
+	else if (h.state == 'down')
+		t = '不可达';
+	if (h.rtt_ms != null)
+		t += sprintf(' %dms', h.rtt_ms);
+	return t;
+}
+
+function cmd_snapshot(rest) {
+	let health = true;
+	for (let a in rest) {
+		if (a == '--json')
+			continue;
+		if (a == '--no-health')
+			health = false;
+		else
+			return err('未知参数: ' + a);
+	}
+	let snap = snapshot({ health: health });
+	let out = { ok: true };
+	for (let k, v in snap)
+		out[k] = v;
+	return out;
+}
+
+function cmd_list() {
+	let snap = snapshot({ health: true });
+	let heads = ['优先级', '名称', '类型', '设备', '状态', '探测', '默认', '策略', '网关', '前缀', '标识'];
+	let rows = [];
+	for (let w in snap.wans) {
+		let gw = (w.gw4 != '') ? w.gw4 : w.gw6;
+		let name = (w.alias != '') ? w.alias + '(' + w.name + ')' : w.name;
+		push(rows, [
+			sprintf('%d', w.prio), name, w.kind_label, (w.dev != '') ? w.dev : '-',
+			STATE_TEXT[w.state] ?? w.state, health_text(w.health), w.is_default ? '是' : '-',
+			w.enabled ? '允许' : '停用', (gw != '') ? gw : '-', (w.prefix6 != null) ? w.prefix6 : '-', w.wan_id
+		]);
+	}
+	if (length(rows) == 0) {
+		print("没有发现可用的出口\n");
+	}
+	else {
+		let widths = [];
+		for (let h in heads)
+			push(widths, dispw(h));
+		for (let r in rows) {
+			for (let i = 0; i < length(r); i++) {
+				if (dispw(r[i]) > widths[i])
+					widths[i] = dispw(r[i]);
+			}
+		}
+		let line = '';
+		for (let i = 0; i < length(heads); i++)
+			line += pad(heads[i], widths[i] + 2);
+		print(trim(line), "\n");
+		for (let r in rows) {
+			line = '';
+			for (let i = 0; i < length(r); i++)
+				line += pad(r[i], widths[i] + 2);
+			print(trim(line), "\n");
+		}
+	}
+	if (snap.default_dev != '')
+		printf("系统默认出口设备: %s\n", snap.default_dev);
+	if (snap.lan_prefix6 != null)
+		printf("LAN 的 IPv6 前缀: %s\n", snap.lan_prefix6);
+	for (let e in snap.errors)
+		printf("提示: %s\n", e);
+	return null;
+}
+
+function cmd_order(rest) {
+	if (length(rest) > 0 && rest[0] == 'get') {
+		let snap = snapshot({ health: false });
+		let saved = get_order(null);
+		return { ok: true, mode: get_mode(null), order: effective_order(snap, saved), saved: saved, errors: snap.errors };
+	}
+	if (length(rest) > 0 && rest[0] == 'set')
+		return set_order(slice(rest, 1));
+	return err(USAGE);
+}
+
+function cmd_mode(rest) {
+	if (length(rest) == 1 && rest[0] == 'get')
+		return { ok: true, mode: get_mode(null) };
+	if (length(rest) == 2 && rest[0] == 'set')
+		return set_mode(rest[1]);
+	return err(USAGE);
+}
+
+function cmd_alias(rest) {
+	if (length(rest) < 2 || rest[0] != 'set')
+		return err(USAGE);
+	return set_alias(rest[1], join(' ', slice(rest, 2)));
+}
+
+function cmd_enable(rest) {
+	if (length(rest) != 3 || rest[0] != 'set')
+		return err(USAGE);
+	if (rest[2] != '0' && rest[2] != '1')
+		return err('启用开关只能是 0 或 1');
+	return set_enabled(rest[1], rest[2] == '1');
+}
+
+function main(args) {
+	let cmd = (length(args) > 0) ? args[0] : '';
+	let rest = slice(args, 1);
+	if (cmd == 'snapshot')
+		return cmd_snapshot(rest);
+	if (cmd == 'list')
+		return cmd_list();
+	if (cmd == 'order')
+		return cmd_order(rest);
+	if (cmd == 'mode')
+		return cmd_mode(rest);
+	if (cmd == 'alias')
+		return cmd_alias(rest);
+	if (cmd == 'enable')
+		return cmd_enable(rest);
+	return err(USAGE);
+}
+
+let args = [];
+for (let a in ARGV)
+	push(args, a);
+
+let res = null;
+try {
+	res = main(args);
+}
+catch (e) {
+	res = err('内部错误: ' + sprintf('%s', (e != null && e.message != null) ? e.message : e));
+}
+
+let rc = 0;
+if (res != null) {
+	out_json(res);
+	if (res.ok == false)
+		rc = 1;
+}
+if (rc != 0)
+	exit(rc);

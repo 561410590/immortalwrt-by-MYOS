@@ -3492,12 +3492,12 @@ const UIMenu = baseclass.singleton(/** @lends LuCI.ui.menu.prototype */ {
 	 */
 	load(fresh = false) {
 		if (this.menu == null)
-			this.menu = fresh ? null : session.getLocalData('menu');
+			this.menu = fresh ? null : session.getLocalData('menu-oaf1166');
 
 		if (fresh || !L.isObject(this.menu)) {
 			this.menu = request.get(L.url('admin/menu'), { cache: false }).then(L.bind((menu) => {
 				this.menu = scrubMenu(menu.json());
-				session.setLocalData('menu', this.menu);
+				session.setLocalData('menu-oaf1166', this.menu);
 
 				return this.menu;
 			}, this));
@@ -3511,7 +3511,7 @@ const UIMenu = baseclass.singleton(/** @lends LuCI.ui.menu.prototype */ {
 	 * next page load.
 	 */
 	flushCache() {
-		session.setLocalData('menu', null);
+		session.setLocalData('menu-oaf1166', null);
 	},
 
 	/**

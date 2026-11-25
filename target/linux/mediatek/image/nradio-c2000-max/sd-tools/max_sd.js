@@ -58,8 +58,10 @@ return view.extend({
     E('tr',{'class':'tr'},[E('td',{'class':'td'},'SD 卡容量'),E('td',{'class':'td'},capacity(data.sd_bytes))]),
     E('tr',{'class':'tr'},[E('td',{'class':'td'},'系统分区容量'),E('td',{'class':'td'},capacity(data.data_bytes || data.p7_bytes))]),
     E('tr',{'class':'tr'},[E('td',{'class':'td'},'Overlay 容量 / 可用'),E('td',{'class':'td'},capacity(data.overlay_bytes)+' / '+capacity(data.available_bytes))]),
-    E('tr',{'class':'tr'},[E('td',{'class':'td'},'启动状态'),E('td',{'class':'td'},data.ok?(data.mode==='stock'?'官方':data.mode==='myos'?'MYOS':'未知'):(errors[data.error] || '状态不可用'))])
+    E('tr',{'class':'tr'},[E('td',{'class':'td'},'启动状态'),E('td',{'class':'td'},data.ok?(data.mode==='stock'?'官方':data.mode==='myos'?'MYOS':'未知'):(errors[data.error] || '状态不可用'))]),
+    E('tr',{'class':'tr'},[E('td',{'class':'td'},'原厂 NROS 版本'),E('td',{'class':'td'},data.nros_version || '—')])
    ]),
+   data.nros_update_needed ? E('p',{'class':'alert-message warning'},'请把官方固件更新至2.3.9') : '',
    E('p',{},E('a',{'href':'/myos-max-recovery.tar','download':'myos-max-recovery.tar'},'下载回 MYOS 恢复工具与说明')),
    E('p',{},nativeLayout?'官方存储管理支持直接选择第二系统优先。':'恢复工具同时保存在 SD 数据分区的 myos-recovery 目录。'),
    button

@@ -35,7 +35,7 @@ document.querySelector('meta[name="theme-color"]').content = document.documentEl
 </script>
 <link rel="stylesheet" href="{{ media }}/style.css?v=20261111-allmodels1">
 <link rel="stylesheet" href="{{ media }}/liquid.css?v=20261105-black-frost">
-<link rel="stylesheet" href="{{ media }}/refine.css?v=20261114-c8-feedback2-wan-quality2{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-home-density1-tablet1-outlet1-readout1' : '' }}{{ !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-views20261120-nav3' : '' }}{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-iface-links1' : '' }}-page-polish2{{ submenu ? '-status-system1' : '' }}">
+<link rel="stylesheet" href="{{ media }}/refine.css?v=20261114-c8-feedback2-wan-quality2{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-home-density1-tablet1-outlet1-readout1' : '' }}{{ !(join('/', ctx.path ?? []) in ['admin/embedded/simcard', 'admin/modem/qmodem/sim_switch']) ? '-views20261120-nav3' : '' }}{{ join('/', ctx.path ?? []) == 'admin/myos' ? '-iface-links1' : '' }}-page-polish2{{ submenu ? '-status-system1' : '' }}{{ join('/', ctx.path ?? []) in ['admin/status/realtime/load', 'admin/status/realtime/connections', 'admin/status/realtime/wireless', 'admin/system/mounts'] ? '-realtime-mounts1' : '' }}">
 {% if (node?.css): %}<link rel="stylesheet" href="{{ resource }}/{{ node.css }}">{% endif %}
 {% if (css): %}<style>{{ css }}</style>{% endif %}
 <script src="{{ dispatcher.build_url('admin/translations', dispatcher.lang) }}"></script>

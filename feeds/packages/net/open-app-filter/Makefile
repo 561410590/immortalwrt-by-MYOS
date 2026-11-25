@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
 
 PKG_NAME:=open-app-filter
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_SOURCE_URL:=https://github.com/destan19/OpenAppFilter.git
 PKG_SOURCE_PROTO:=git
@@ -22,7 +22,7 @@ define KernelPackage/oaf
   SUBMENU:=Netfilter Extensions
   TITLE:=open app filter kernel module
   FILES:=$(PKG_BUILD_DIR)/oaf/src/oaf.ko
-  DEPENDS:=+kmod-ipt-conntrack
+  DEPENDS:=+kmod-ipt-conntrack +kmod-nf-reject
   AUTOLOAD:=$(call AutoLoad,0,oaf)
 endef
 
@@ -36,6 +36,12 @@ endef
 MAKE_PATH:=open-app-filter/src
 TARGET_CFLAGS += -I$(STAGING_DIR)/usr/include
 MAKE_VARS+= LIBS="-L$(STAGING_DIR)/usr/lib -lm -lpthread -lubox -luci -lubus -ljson-c -lblobmsg_json"
+
+define Build/Prepare
+	$(PKG_UNPACK)
+	sed -i 's/\r//g' $(PKG_BUILD_DIR)/open-app-filter/src/appfilter_ubus.c
+	$(Build/Patch)
+endef
 
 define Build/Compile
 	+$(KERNEL_MAKE) $(PKG_JOBS) \
@@ -53,11 +59,11 @@ define Package/appfilter/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/open-app-filter/src/oafd $(1)/usr/bin/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/open-app-filter/files/gen_class.sh $(1)/usr/bin/
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/open-app-filter/files/hnat.sh $(1)/usr/bin/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/open-app-filter/files/oaf_rule $(1)/usr/bin/
 
 	$(INSTALL_DIR) $(1)/etc/appfilter
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/open-app-filter/files/feature_cn.cfg $(1)/etc/appfilter/
+	$(INSTALL_DATA) ./files/mwrt1166-feature.cfg $(1)/etc/appfilter/feature_cn.cfg
+	ln -s feature_cn.cfg $(1)/etc/appfilter/feature.cfg
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/open-app-filter/files/feature_en.cfg $(1)/etc/appfilter/
 
 	$(INSTALL_DIR) $(1)/etc/config $(1)/etc/init.d

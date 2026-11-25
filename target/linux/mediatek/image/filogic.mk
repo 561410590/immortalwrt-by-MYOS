@@ -143,7 +143,7 @@ C2000MAX_ROOTFS_ID := $(VERSION_NUMBER)-$(REVISION)
 C2000MAX_EXTRA_IPK_PACKAGES := \
 	flock ip6tables-nft iptables-mod-socket kmod-ipt-socket kmod-ipt-nat-extra iptables-mod-nat-extra python3-ctypes luci-app-uugamebooster mt5700-web-go luci-app-mt5700-web \
 	luci-theme-myos-new luci-app-myos-system luci-light cgi-io bc jq libreadline8 libncurses6 terminfo \
-	luci-base luci-mod-system luci-app-package-manager dnsmasq-full nftables-json libnettle8 libgmp10 \
+	luci-base luci-mod-system luci-app-package-manager luci-app-myos-mwrt-pbr luci-app-myos-mwrt-behav dnsmasq-full nftables-json libnettle8 libgmp10 \
 	resize2fs fstools block-mount losetup libsmartcols1 libblkid1 libuuid1 f2fsck mkf2fs libf2fs6 \
 	luci-app-store taskd luci-lib-taskd luci-lib-xterm \
 	quickfile luci-app-quickfile luci-i18n-quickfile-zh-cn luci-nginx nginx-ssl nginx-mod-luci nginx-mod-ubus nginx-ssl-util uwsgi uwsgi-cgi-plugin uwsgi-syslog-plugin uwsgi-luci-support \
@@ -526,6 +526,8 @@ define Build/prepare-c2000max-rootfs
 	sed -i 's/require "luci.util"/require "luci.model.c2000max_oaf"/g' $(C2000MAX_MYOS_ROOTFS_DIR)/usr/lib/lua/luci/controller/oaf*.lua
 	mkdir -p $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d
 	ln -sf ../init.d/appfilter $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S96appfilter
+	ln -sf ../init.d/myos-mwrt-ac $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S96myos-mwrt-ac
+	ln -sf ../init.d/mwrt-pbr $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S97mwrt-pbr
 	ln -sf ../init.d/c2000max-oaf-stats $(C2000MAX_MYOS_ROOTFS_DIR)/etc/rc.d/S99c2000max-oaf-stats
 	install -m 0644 -D $(TOPDIR)/target/linux/mediatek/image/nradio-c2000-max/c2000max-upnpd.config \
 		$(C2000MAX_MYOS_ROOTFS_DIR)/etc/config/upnpd
@@ -3592,7 +3594,7 @@ define Device/nradio_c2000-max
   BOARD_NAME := HCMT7987-EMMC
   SUPPORTED_DEVICES += nradio,c2000-max HCMT7987-EMMC HCMT7987-SNSD
   DEVICE_PACKAGES := \
-	kmod-nft-queue \
+	kmod-nft-queue kmod-dummy luci-app-myos-mwrt-pbr luci-app-myos-mwrt-behav \
 	luci-theme-myos-new luci-app-myos-system flock ip6tables-nft iptables-mod-socket kmod-ipt-socket kmod-ipt-nat-extra iptables-mod-nat-extra python3-ctypes luci-app-uugamebooster mt5700-web-go luci-app-mt5700-web \
 	libip4tc libip6tc iptables-mod-extra kmod-ipt-extra \
 	ca-certificates tini btrfs-progs \
