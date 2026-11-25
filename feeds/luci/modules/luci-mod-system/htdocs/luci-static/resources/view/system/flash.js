@@ -5,6 +5,7 @@
 'require rpc';
 'require fs';
 'require ui';
+'require myos-upgrade as upgradeUI';
 
 var isReadonlyView = !L.hasViewPermission();
 
@@ -19,36 +20,6 @@ var callKeepItems = rpc.declare({ object: 'myos.update', method: 'status' });
 var callPackLocal = rpc.declare({
 	object: 'myos.update', method: 'pack_local', params: [ 'keep_items' ]
 });
-var keepLabels = {
-	wifi: _('Wi-Fi 名称、加密方式和密码'), sim: _('SIM 卡槽设置'),
-	fan: _('风扇设置'), led: _('指示灯设置')
-};
-
-function keepOptions(items) {
-	var mode = E('select', { 'class': 'cbi-input-select' }, [
-		E('option', { value: 'keep' }, _('完整保留配置')),
-		E('option', { value: 'discard' }, _('不保留配置')),
-		E('option', { value: 'select' }, _('按项保留配置'))
-	]);
-	var choices = items.map(function(item) {
-		var input = E('input', { type: 'checkbox' });
-		return { item: item, input: input,
-			label: E('label', {}, [ input, ' ', keepLabels[item] ]) };
-	});
-	var fields = E('div', { hidden: true }, choices.map(function(choice) {
-		return E('div', {}, choice.label);
-	}).concat(E('p', {}, _('仅保留勾选的内容，其余配置恢复默认。'))));
-	mode.addEventListener('change', function() { fields.hidden = mode.value !== 'select'; });
-	return {
-		mode: mode,
-		element: E('div', {}, [ E('label', {}, [ _('配置保留方式'), ' ', mode ]), fields ]),
-		selected: function() {
-			return choices.filter(function(choice) { return choice.input.checked; })
-				.map(function(choice) { return choice.item; });
-		}
-	};
-}
-
 function findStorageSize(procmtd, procpart) {
 	var kernsize = 0, rootsize = 0, wholesize = 0;
 
@@ -242,7 +213,7 @@ return view.extend({
 					if (!reply[1].allow_backup) return reply;
 					return callKeepItems().then(function(status) {
 						reply.push((status.keep_items || []).filter(function(item) {
-							return Object.hasOwn(keepLabels, item);
+							return upgradeUI.supports(item);
 						}));
 						return reply;
 					}, function() { return reply; });
@@ -261,7 +232,7 @@ return view.extend({
 				    allow_backup = res[1].allow_backup,
 				    is_too_big = (storage_size > 0 && res[0].size > storage_size),
 				    body = [];
-			var selection = res[3] && res[3].length ? keepOptions(res[3]) : null;
+			var selection = allow_backup && res[3] && res[3].length ? upgradeUI.keepOptions(res[3]) : null;
 
 				body.push(E('p', _("The flash image was uploaded. Below is the checksum and file size listed, compare them with the original file to ensure data integrity. <br /> Click 'Continue' below to start the flash procedure.")));
 				body.push(E('ul', {}, [
@@ -353,15 +324,22 @@ return view.extend({
 					opts.backup_pkgs[0].disabled = !ev.target.checked;
 
 				});
-			if (selection) selection.mode.addEventListener('change', function() {
-				var full = selection.mode.value === 'keep';
-				opts.keep[0].checked = full;
-				opts.skip_orig[0].disabled = opts.backup_pkgs[0].disabled = !full;
-			});
+			if (selection) {
+				var syncKeepMode = function() {
+					var full = selection.mode.value === 'keep';
+					opts.keep[0].checked = full;
+					opts.skip_orig[0].disabled = opts.backup_pkgs[0].disabled = !full;
+				};
+				selection.mode.addEventListener('change', syncKeepMode);
+				syncKeepMode();
+			}
 
 				ui.showModal(_('Flash image?'), body);
 			}, this, ev.target))
-			.catch(function(e) { ui.addNotification(null, E('p', e.message)) })
+			.catch(function(e) {
+				ui.hideModal();
+				ui.addNotification(null, E('p', e.message));
+			})
 			.finally(L.bind(function(btn) {
 				btn.firstChild.data = _('Flash image...');
 			}, this, ev.target));
@@ -383,9 +361,7 @@ return view.extend({
 	startSysupgrade: function(btn, opts, archive) {
 		btn.firstChild.data = _('Flashing…');
 
-		ui.showModal(_('Flashing…'), [
-			E('p', { 'class': 'spinning' }, _('The system is flashing now.<br /> DO NOT POWER OFF THE DEVICE!<br /> Wait a few minutes before you try to reconnect. It might be necessary to renew the address of your computer to reach the device again, depending on your settings.'))
-		]);
+		ui.showModal(_('Flashing…'), [ upgradeUI.flashStatus() ]);
 
 		var args = [];
 

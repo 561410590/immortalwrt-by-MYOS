@@ -1,0 +1,29 @@
+#!/bin/sh
+
+# Restore the ROM modes of system directories carried by a sysupgrade backup.
+# Leave overlay-only directories and regular files at their restored modes.
+myos_restore_directory_modes() {
+	local archive path mode
+	for archive in /sysupgrade.tgz /tmp/sysupgrade.tar; do
+		[ -f "$archive" ] || continue
+		if [ "$archive" = /sysupgrade.tgz ]; then
+			tar -tzf "$archive"
+		else
+			tar -tf "$archive"
+		fi 2>/dev/null | while IFS= read -r path; do
+			case "$path" in */) ;; *) continue ;; esac
+			path="${path#./}"
+			path="/${path#/}"
+			path="${path%/}"
+			case "$path/" in
+				//|*/../*|*/./*) continue ;;
+			esac
+			[ -d "$path" ] && [ ! -L "$path" ] && [ -d "/rom$path" ] || continue
+			mode="$(stat -c %a "/rom$path" 2>/dev/null)" || continue
+			chmod "$mode" "$path" 2>/dev/null
+		done
+	done
+	return 0
+}
+
+[ "$INITRAMFS" = 1 ] || boot_hook_add preinit_main myos_restore_directory_modes

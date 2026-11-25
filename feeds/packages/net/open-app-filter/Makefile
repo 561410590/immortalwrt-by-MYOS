@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
 
 PKG_NAME:=open-app-filter
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 
 PKG_SOURCE_URL:=https://github.com/destan19/OpenAppFilter.git
 PKG_SOURCE_PROTO:=git
@@ -22,7 +22,7 @@ define KernelPackage/oaf
   SUBMENU:=Netfilter Extensions
   TITLE:=open app filter kernel module
   FILES:=$(PKG_BUILD_DIR)/oaf/src/oaf.ko
-  DEPENDS:=+kmod-ipt-conntrack
+  DEPENDS:=+kmod-ipt-conntrack +kmod-nf-reject
   AUTOLOAD:=$(call AutoLoad,0,oaf)
 endef
 
@@ -34,7 +34,14 @@ define Package/appfilter
 endef
 
 MAKE_PATH:=open-app-filter/src
-MAKE_VARS+= LIBS="-lm -lpthread -lubox -luci -lubus -ljson-c -lblobmsg_json"
+TARGET_CFLAGS += -I$(STAGING_DIR)/usr/include
+MAKE_VARS+= LIBS="-L$(STAGING_DIR)/usr/lib -lm -lpthread -lubox -luci -lubus -ljson-c -lblobmsg_json"
+
+define Build/Prepare
+	$(PKG_UNPACK)
+	sed -i 's/\r//g' $(PKG_BUILD_DIR)/open-app-filter/src/appfilter_ubus.c
+	$(Build/Patch)
+endef
 
 define Build/Compile
 	+$(KERNEL_MAKE) $(PKG_JOBS) \
@@ -52,18 +59,16 @@ define Package/appfilter/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/open-app-filter/src/oafd $(1)/usr/bin/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/open-app-filter/files/gen_class.sh $(1)/usr/bin/
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/open-app-filter/files/hnat.sh $(1)/usr/bin/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/open-app-filter/files/oaf_rule $(1)/usr/bin/
 	$(SED) 's/local user_mode=`uci get appfilter.global.user_mode`/local user_mode; config_get user_mode global user_mode 0/' $(1)/usr/bin/oaf_rule
 
 	$(INSTALL_DIR) $(1)/etc/appfilter
-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/open-app-filter/files/feature_cn.cfg $(1)/etc/appfilter/
+	$(INSTALL_DATA) ./files/mwrt1166-feature.cfg $(1)/etc/appfilter/feature_cn.cfg
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/open-app-filter/files/feature_en.cfg $(1)/etc/appfilter/
 	$(LN) feature_cn.cfg $(1)/etc/appfilter/feature.cfg
 
 	$(INSTALL_DIR) $(1)/etc/config $(1)/etc/init.d
 	$(INSTALL_CONF) $(PKG_BUILD_DIR)/open-app-filter/files/appfilter.config $(1)/etc/config/appfilter
-	$(SED) "/option work_mode/a\\\toption user_mode '0'" $(1)/etc/config/appfilter
 	$(INSTALL_CONF) $(PKG_BUILD_DIR)/open-app-filter/files/user_info.config $(1)/etc/config/user_info
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/open-app-filter/files/appfilter.init $(1)/etc/init.d/appfilter
 endef

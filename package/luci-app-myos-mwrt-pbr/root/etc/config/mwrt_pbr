@@ -1,0 +1,17 @@
+config global 'global'
+	# 总开关;关闭时不改任何路由、不生成任何规则
+	option enabled '0'
+	# 是否处理 IPv6
+	option ipv6 '1'
+	# 域名规则是否用 DNS 解析集合
+	option dns_sets '1'
+	# DNS 集合元素寿命,须不小于 dnsmasq 的缓存时间
+	option dns_ttl '1d'
+	# 应用识别学到的目的地址寿命
+	option learn_ttl '30m'
+	# 哪些防火墙区域的流量参与策略路由
+	option src_zones 'lan'
+	# 应用后是否清空硬件加速绑定表
+	option flush_accel '0'
+	# 对账周期(秒),只用于展示;cron 固定每分钟一次
+	option reconcile_sec '60'

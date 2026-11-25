@@ -1,0 +1,402 @@
+--- a/oaf/src/app_filter.c
++++ b/oaf/src/app_filter.c
+@@ -1242,154 +1242,110 @@
+ 	return ret;
+ }
+ 
++#define AF_GATEWAY_FLOWS 4096
++#define AF_GATEWAY_TIMEOUT (120 * HZ)
++
++struct af_gateway_flow {
++	const struct nf_conn *ct;
++	u32 id;
++	unsigned long seen;
++	u16 app_id;
++	u8 packets;
++	u8 client_hello;
++};
++
++static struct af_gateway_flow af_gateway_flows[AF_GATEWAY_FLOWS];
++static DEFINE_SPINLOCK(af_gateway_lock);
++
++/* Never store application IDs or verdicts in the routing/conntrack marks. */
+ u_int32_t app_filter_hook_gateway_handle(struct sk_buff *skb, struct net_device *dev)
+ {
+-	unsigned long long total_packets = 0;
+-	flow_info_t flow;
+-	u_int8_t smac[ETH_ALEN];
+ 	enum ip_conntrack_info ctinfo;
+-	struct nf_conn *ct = NULL;
+-	struct nf_conn_acct *acct;
+-	af_client_info_t *client = NULL;
+-	u_int32_t ret = NF_ACCEPT;
+-	u_int32_t app_id = 0;
+-	u_int8_t drop = 0;
+-	u_int8_t malloc_data = 0;
+-
+-	if (!strstr(dev->name, g_lan_ifname))
++	struct nf_conn *ct;
++	struct af_gateway_flow *entry;
++	af_client_info_t *client;
++	flow_info_t flow = {};
++	u8 smac[ETH_ALEN], packets, client_hello;
++	u32 id;
++	u16 app_id;
++	bool drop;
++	unsigned char *payload = NULL;
++	unsigned int offset;
++
++	if ((!READ_ONCE(g_oaf_record_enable) && !READ_ONCE(g_oaf_filter_enable)) ||
++	    !dev || strcmp(dev->name, g_lan_ifname) ||
++	    !skb_mac_header_was_set(skb))
+ 		return NF_ACCEPT;
+ 
+-	memset((char *)&flow, 0x0, sizeof(flow_info_t));
+-	if (parse_flow_proto(skb, &flow) < 0)
++	ct = nf_ct_get(skb, &ctinfo);
++	if (!ct || ctinfo == IP_CT_UNTRACKED || CTINFO2DIR(ctinfo) != IP_CT_DIR_ORIGINAL ||
++	    !nf_ct_is_confirmed(ct))
+ 		return NF_ACCEPT;
+ 
+-	ct = nf_ct_get(skb, &ctinfo);
+-	if (ct == NULL)
++	id = nf_ct_get_id(ct);
++	entry = &af_gateway_flows[id % AF_GATEWAY_FLOWS];
++	spin_lock_bh(&af_gateway_lock);
++	if (entry->ct != ct || entry->id != id ||
++	    time_after(jiffies, entry->seen + AF_GATEWAY_TIMEOUT)) {
++		*entry = (struct af_gateway_flow){ .ct = ct, .id = id };
++	}
++	entry->seen = jiffies;
++	if (entry->packets < MAX_DPI_PKT_NUM)
++		entry->packets++;
++	packets = entry->packets;
++	app_id = entry->app_id;
++	client_hello = entry->client_hello;
++	spin_unlock_bh(&af_gateway_lock);
++
++	if (!app_id) {
++		if (packets == MAX_DPI_PKT_NUM || parse_flow_proto(skb, &flow) < 0 ||
++		    flow.l4_len <= 0 || flow.l4_len >= MAX_AF_SUPPORT_DATA_LEN)
++			return NF_ACCEPT;
++
++		offset = flow.l4_data - skb->data;
++		if (offset > skb->len || flow.l4_len > skb->len - offset)
++			return NF_ACCEPT;
++		if (offset + flow.l4_len > skb_headlen(skb)) {
++			payload = kmalloc(flow.l4_len, GFP_ATOMIC);
++			if (!payload)
++				return NF_ACCEPT;
++			if (skb_copy_bits(skb, offset, payload, flow.l4_len)) {
++				kfree(payload);
++				return NF_ACCEPT;
++			}
++			flow.l4_data = payload;
++		}
++		flow.client_hello = client_hello;
++		dpi_main(skb, &flow);
++		if (match_feature(&flow))
++			app_id = flow.app_id;
++
++		spin_lock_bh(&af_gateway_lock);
++		if (entry->ct == ct && entry->id == id) {
++			entry->client_hello = flow.client_hello;
++			if (app_id)
++				entry->app_id = app_id;
++		}
++		spin_unlock_bh(&af_gateway_lock);
++		kfree(payload);
++		if (!app_id)
++			return NF_ACCEPT;
++	}
++
++	ether_addr_copy(smac, eth_hdr(skb)->h_source);
++	AF_CLIENT_LOCK_W();
++	client = find_af_client(smac);
++	if (!client) {
++		AF_CLIENT_UNLOCK_W();
+ 		return NF_ACCEPT;
+-
+-	if (flow.l4_protocol == IPPROTO_TCP && !nf_ct_is_confirmed(ct)){
+-		return NF_ACCEPT;
+-	}
+-
+-	if (!flow.src)
+-		af_get_smac(skb, smac);
+-
+-	AF_CLIENT_LOCK_R();
+-	client = flow.src ? find_af_client_by_ip(flow.src) : find_af_client(smac);
+-	if (!client)
+-	{
+-		AF_CLIENT_UNLOCK_R();
+-		return NF_ACCEPT;
+-	}
++	}
++
+ 	client->update_jiffies = jiffies;
+-	AF_CLIENT_UNLOCK_R();
+-
+-	if (ct->mark != 0)
+-	{
+-		app_id = ct->mark & 0xffff;
+-		if (app_id > 1000 && app_id < 9999)
+-		{
+-			if (g_oaf_filter_enable) {
+-				if (NF_DROP_BIT == (ct->mark & NF_DROP_BIT))
+-					drop = 1; 
+-			}
+-			if (g_oaf_record_enable){
+-				AF_CLIENT_LOCK_W();
+-				af_update_client_app_info(client, app_id, drop);
+-				AF_CLIENT_UNLOCK_W();
+-			}
+-
+-			if (drop)
+-			{
+-				return NF_DROP;
+-			}
+-		}
+-		else {
+-			AF_LMT_DEBUG("ct->mark = %x\n", ct->mark);
+-			if (ct->mark & NF_CLIENT_HELLO_BIT) {
+-				AF_LMT_INFO("match ct client hello...\n");
+-				flow.client_hello = 1;
+-			}
+-		}
+-	}
+-	acct = nf_conn_acct_find(ct);
+-	if (!acct)
+-		return NF_ACCEPT;
+-	total_packets = (unsigned long long)atomic64_read(&acct->counter[IP_CT_DIR_ORIGINAL].packets) + (unsigned long long)atomic64_read(&acct->counter[IP_CT_DIR_REPLY].packets);
+-
+-	if (total_packets > MAX_DPI_PKT_NUM)
+-		return NF_ACCEPT;
+-
+-	if (skb_is_nonlinear(skb) && flow.l4_len < MAX_AF_SUPPORT_DATA_LEN)
+-	{
+-		flow.l4_data = read_skb(skb, flow.l4_data - skb->data, flow.l4_len);
+-		if (!flow.l4_data)
+-			return NF_ACCEPT;
+-		malloc_data = 1;
+-	}
+-	dpi_main(skb, &flow);
+-
+-	if (flow.client_hello) {
+-		ct->mark |= NF_CLIENT_HELLO_BIT;
+-	}
+-	else {
+-		ct->mark &= ~NF_CLIENT_HELLO_BIT;
+-	}
+-
+-	if (!match_feature(&flow))
+-		goto EXIT;
+-	
+-
+-	 if (TEST_MODE()){
+-		if (flow.l4_protocol == IPPROTO_UDP){
+-			if (flow.dport == 53 || flow.dport == 443){	
+-				printk(" %s %pI4(%d)--> %pI4(%d) len = %d, %d ,pkt num = %llu \n ", IPPROTO_TCP == flow.l4_protocol ? "tcp" : "udp",
+-					&flow.src, flow.sport, &flow.dst, flow.dport, skb->len, flow.app_id, total_packets);				
+-					print_hex_ascii(flow.l4_data, flow.l4_len > 64 ? 64 : flow.l4_len);
+-			}
+-		}
+-	}
+-	ct->mark = (ct->mark & 0xFFFF0000) | (flow.app_id & 0xFFFF);
+-
+-	
+-	if (g_oaf_filter_enable){
+-		if (match_app_filter_rule(flow.app_id, client))
+-		{
+-			ct->mark |= NF_DROP_BIT;
+-			flow.drop = 1;
+-			AF_LMT_INFO("##Drop app %s flow, appid is %d\n", flow.app_name, flow.app_id);
+-			if (skb->protocol == htons(ETH_P_IP) && g_tcp_rst){
+-			#if LINUX_VERSION_CODE > KERNEL_VERSION(5,10,197)
+-				nf_send_reset(&init_net, skb->sk, skb, NF_INET_PRE_ROUTING);
+-			#elif LINUX_VERSION_CODE > KERNEL_VERSION(4,4,1)
+-				nf_send_reset(&init_net, skb, NF_INET_PRE_ROUTING);
+-			#else
+-				nf_send_reset(skb, NF_INET_PRE_ROUTING);
+-			#endif
+-			}
+-			ret = NF_DROP;
+-		}
+-	}
+-
+-
+-	if (g_oaf_record_enable){
+-		AF_CLIENT_LOCK_W();
+-		af_update_client_app_info(client, flow.app_id, flow.drop);
+-		AF_CLIENT_UNLOCK_W();
+-		AF_LMT_INFO("match %s %pI4(%d)--> %pI4(%d) len = %d, %d\n ", IPPROTO_TCP == flow.l4_protocol ? "tcp" : "udp",
+-					&flow.src, flow.sport, &flow.dst, flow.dport, skb->len, flow.app_id);
+-	}
+-	
+-EXIT:
+-	if (malloc_data)
+-	{
+-		if (flow.l4_data)
+-		{
+-			kfree(flow.l4_data);
+-		}
+-	}
+-
+-	return ret;
++	drop = READ_ONCE(g_oaf_filter_enable) && match_app_filter_rule(app_id, client);
++	if (READ_ONCE(g_oaf_record_enable))
++		af_update_client_app_info(client, app_id, drop);
++	AF_CLIENT_UNLOCK_W();
++	return drop ? NF_DROP : NF_ACCEPT;
+ }
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)
+@@ -1406,8 +1362,6 @@
+ {
+ #endif
+ 
+-	if (AF_MODE_BYPASS == af_work_mode)
+-		return NF_ACCEPT;
+ 	return app_filter_hook_gateway_handle(skb, skb->dev);
+ }
+ 
+@@ -1424,9 +1378,7 @@
+ 										 int (*okfn)(struct sk_buff *))
+ {
+ #endif
+-	if (AF_MODE_GATEWAY == af_work_mode)
+-		return NF_ACCEPT;
+-	return app_filter_hook_bypass_handle(skb, skb->dev);
++	return NF_ACCEPT;
+ }
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 16, 0)
+--- a/open-app-filter/src/main.c
++++ b/open-app-filter/src/main.c
+@@ -45,7 +45,6 @@
+ af_run_time_status_t g_af_status;
+ int g_oaf_config_change = 1;
+ af_config_t g_af_config;
+-int g_hnat_init = 0;
+ int g_feature_update = 0;
+ void dev_list_timeout_handler(struct uloop_timeout *t);
+ 
+@@ -167,12 +166,6 @@
+     else
+         config->tcp_rst = ret;
+ 
+-    ret = af_uci_get_int_value(ctx, "appfilter.global.disable_hnat");
+-    if (ret < 0)
+-        config->disable_hnat = 1;
+-    else
+-        config->disable_hnat = ret;
+-
+     ret = af_uci_get_int_value(ctx, "appfilter.global.auto_load_engine");
+     if (ret < 0)
+         config->auto_load_engine = 0;
+@@ -180,7 +173,7 @@
+         config->auto_load_engine = ret;
+ 
+ 
+-    ret = af_uci_get_value(ctx, "appfilter.global.disable_hnat", lan_ifname, sizeof(lan_ifname));
++    ret = af_uci_get_value(ctx, "appfilter.global.lan_ifname", lan_ifname, sizeof(lan_ifname));
+ 	if (ret < 0)
+ 		strncpy(config->lan_ifname, "br-lan", sizeof(config->lan_ifname) - 1);
+ 	else
+@@ -370,18 +363,6 @@
+     }
+ }
+ 
+-void af_hnat_init(void){
+-    if (g_af_config.global.enable == 0){
+-        return;
+-    }
+-    if (g_hnat_init == 0){
+-        LOG_INFO("disable hnat...\n");
+-        system("/usr/bin/hnat.sh");
+-        g_hnat_init = 1;
+-    }
+-}
+-
+-
+ int af_nl_clean_feature(void){
+     af_msg_t msg;
+     if (appfilter_nl_fd.fd < 0){
+@@ -474,15 +455,13 @@
+         update_oaf_record_status();
+         g_oaf_config_change = 0;
+     }
+-    if (count > 10){ // delay init
+-        af_hnat_init();
+-    }
+-
+-
+     if (appfilter_nl_fd.fd < 0){
+         appfilter_nl_fd.fd = appfilter_nl_init();
+         if (appfilter_nl_fd.fd > 0){
+             uloop_fd_add(&appfilter_nl_fd, ULOOP_READ);
++            update_lan_ip();
++            update_oaf_status();
++            update_oaf_record_status();
+             system("oaf_rule reload &");
+             // /etc/init.d/appfilter reload
+             LOG_INFO("netlink connect success\n");
+--- a/open-app-filter/src/appfilter_ubus.c
++++ b/open-app-filter/src/appfilter_ubus.c
+@@ -873,7 +873,6 @@
+     struct json_object *req_obj = json_tokener_parse(msg_obj_str);
+     struct json_object *tcp_rst_obj = json_object_object_get(req_obj, "tcp_rst");
+     struct json_object *lan_ifname_obj = json_object_object_get(req_obj, "lan_ifname");
+-    struct json_object *disable_hnat_obj = json_object_object_get(req_obj, "disable_hnat");
+     struct json_object *auto_load_engine_obj = json_object_object_get(req_obj, "auto_load_engine");
+ 
+     struct uci_context *uci_ctx = uci_alloc_context();
+@@ -886,8 +885,6 @@
+         af_uci_set_int_value(uci_ctx, "appfilter.global.tcp_rst", json_object_get_int(tcp_rst_obj));
+     if (lan_ifname_obj)
+         af_uci_set_value(uci_ctx, "appfilter.global.lan_ifname", json_object_get_string(lan_ifname_obj));
+-    if (disable_hnat_obj)
+-        af_uci_set_int_value(uci_ctx, "appfilter.global.disable_hnat", json_object_get_int(disable_hnat_obj));
+     if (auto_load_engine_obj){
+         af_uci_set_int_value(uci_ctx, "appfilter.global.auto_load_engine", json_object_get_int(auto_load_engine_obj));
+         if (json_object_get_int(auto_load_engine_obj) == 0){
+@@ -899,7 +896,6 @@
+     af_uci_commit(uci_ctx, "appfilter");
+     g_oaf_config_change = 1;
+     reload_oaf_rule();
+-    system("/usr/bin/hnat.sh &");
+     uci_free_context(uci_ctx);
+     struct blob_buf b = {};
+     blob_buf_init(&b, 0);
+--- a/open-app-filter/files/appfilter.config
++++ b/open-app-filter/files/appfilter.config
+@@ -2,8 +2,8 @@
+ 	option enable '0'
+ 	option work_mode '0'
+ 	option record_enable '1'
+-	option disable_hnat '1'
+-	option tcp_rst '1'
++	option user_mode '1'
++	option tcp_rst '0'
+ 	option lan_ifname 'br-lan'
+ 	option auto_load_engine '1'
+ 	
+--- a/open-app-filter/files/appfilter.init
++++ b/open-app-filter/files/appfilter.init
+@@ -8,14 +8,12 @@
+ FEATURE_FILE="/tmp/feature.cfg"
+ 
+ stop_service(){
+-	killall -9 oafd
++	[ ! -w /proc/sys/oaf/enable ] || echo 0 >/proc/sys/oaf/enable
++	[ ! -w /proc/sys/oaf/record_enable ] || echo 0 >/proc/sys/oaf/record_enable
+ }
+ 
+ start_service(){
+-	test -f $FEATURE_FILE &&{
+-		rm $FEATURE_FILE
+-	}
+-	ln -s /etc/appfilter/feature.cfg $FEATURE_FILE
++	ln -sf /etc/appfilter/feature.cfg "$FEATURE_FILE"
+ 	procd_open_instance
+ 	procd_set_param respawn 60 5 5
+ 	procd_set_param stderr 1

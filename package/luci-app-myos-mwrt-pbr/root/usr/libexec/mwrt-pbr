@@ -1,0 +1,158 @@
+#!/usr/bin/ucode
+'use strict';
+// mwrt-pbr:策略路由引擎入口(SPEC §5.1、§13.9)。业务逻辑都在 mwrt.pbr 里,这里只解析参数和输出。
+// stdout 恒为单个 JSON 对象(preview 的 --nft 系列例外,输出原始 nft 文本);失败时 {"ok":false,"error":"…"} 且退出码 1。
+// --json 为兼容保留的空操作:默认就是 JSON,LuCI 控制器不带该参数调用。
+
+import { apply, reconcile, flush, status, counters, counters_reset, kick, kick_worker, validate_stdin, preview, diag, trace } from 'mwrt.pbr';
+
+const USAGE = '用法: mwrt-pbr apply [--dry-run] [--quiet] | reconcile [--quiet] | kick | flush | status [--json] | counters [--json] | counters-reset'
+	+ ' | validate(从标准输入读 {"rule":{…}} 或 {"group":{…}}) | trace --src <ip> --dst <ip> [--mac <mac>] [--proto tcp|udp] [--dport <n>] [--sport <n>] [--domain <域名>]'
+	+ ' | diag [--json] | preview [--input <json>] [--snapshot <json>] [--nft|--nft-rebuild|--nft-gc]';
+
+function err(msg) {
+	return { ok: false, error: msg };
+}
+
+function out_json(o) {
+	print(sprintf('%J', o), "\n");
+}
+
+// 取选项的值:下一个参数必须存在且不能又是一个选项
+function take(rest, i, name) {
+	if (i + 1 >= length(rest) || substr(rest[i + 1], 0, 2) == '--')
+		return null;
+	return rest[i + 1];
+}
+
+// flags:允许的无值开关;vals:允许的带值选项。返回 { f:{开关:true}, v:{选项:值}, error }
+function parse_opts(rest, flags, vals) {
+	let res = { f: {}, v: {}, error: null };
+	let i = 0;
+	while (i < length(rest)) {
+		let a = rest[i];
+		if (a in flags) {
+			res.f[a] = true;
+			i++;
+		}
+		else if (a in vals) {
+			let v = take(rest, i, a);
+			if (v == null) {
+				res.error = a + ' 需要一个值';
+				return res;
+			}
+			res.v[a] = v;
+			i += 2;
+		}
+		else {
+			res.error = '未知参数: ' + a;
+			return res;
+		}
+	}
+	return res;
+}
+
+function cmd_apply(rest) {
+	let p = parse_opts(rest, [ '--dry-run', '--quiet', '--json' ], []);
+	if (p.error != null)
+		return err(p.error);
+	let r = apply({ dry_run: p.f['--dry-run'] == true, quiet: p.f['--quiet'] == true });
+	return { res: r, quiet: p.f['--quiet'] == true };
+}
+
+function cmd_reconcile(rest) {
+	let p = parse_opts(rest, [ '--quiet', '--json' ], []);
+	if (p.error != null)
+		return err(p.error);
+	return { res: reconcile({ quiet: p.f['--quiet'] == true }), quiet: p.f['--quiet'] == true };
+}
+
+function cmd_trace(rest) {
+	let p = parse_opts(rest, [ '--json' ], [ '--src', '--dst', '--mac', '--proto', '--dport', '--sport', '--domain' ]);
+	if (p.error != null)
+		return err(p.error);
+	let params = {};
+	for (let k, v in p.v)
+		params[substr(k, 2)] = v;
+	if (params.src == null && params.mac == null && params.domain == null)
+		return err('trace 至少需要 --src、--mac、--domain 之一,通常还要 --dst');
+	return trace(params);
+}
+
+function cmd_preview(rest) {
+	let p = parse_opts(rest, [ '--nft', '--nft-rebuild', '--nft-gc', '--json' ], [ '--input', '--snapshot' ]);
+	if (p.error != null)
+		return err(p.error);
+	let r = preview({ input: p.v['--input'], snapshot: p.v['--snapshot'] });
+	let want = p.f['--nft'] ? 'nft' : (p.f['--nft-rebuild'] ? 'nft_rebuild' : (p.f['--nft-gc'] ? 'nft_gc' : null));
+	if (want == null)
+		return r;
+	if (r.ok != true || type(r[want]) != 'string')
+		return (r.ok == false && r.error != null) ? r : err('没有可输出的 nft 文本');
+	return { raw: r[want] };
+}
+
+function main(args) {
+	let cmd = (length(args) > 0) ? args[0] : '';
+	let rest = slice(args, 1);
+	if (cmd == 'apply')
+		return cmd_apply(rest);
+	if (cmd == 'reconcile')
+		return cmd_reconcile(rest);
+	if (cmd == 'flush')
+		return flush({});
+	if (cmd == 'kick')
+		return kick();
+	if (cmd == 'kick-worker')
+		return { res: kick_worker(), silent: true };
+	if (cmd == 'status')
+		return status();
+	if (cmd == 'counters')
+		return counters({});
+	if (cmd == 'counters-reset')
+		return counters_reset();
+	if (cmd == 'validate')
+		return validate_stdin();
+	if (cmd == 'trace')
+		return cmd_trace(rest);
+	if (cmd == 'diag')
+		return diag();
+	if (cmd == 'preview')
+		return cmd_preview(rest);
+	return err(USAGE);
+}
+
+let args = [];
+for (let a in ARGV)
+	push(args, a);
+
+let res = null;
+try {
+	res = main(args);
+}
+catch (e) {
+	res = err('内部错误: ' + sprintf('%s', (e != null && e.message != null) ? e.message : e));
+}
+
+// cmd_apply/cmd_reconcile/kick-worker 返回 { res, quiet|silent } 包装:静默模式下成功不输出
+let quiet = false;
+let silent = false;
+if (type(res) == 'object' && type(res.res) == 'object' && (res.quiet != null || res.silent != null)) {
+	quiet = (res.quiet == true);
+	silent = (res.silent == true);
+	res = res.res;
+}
+
+let rc = 0;
+if (type(res) == 'object' && res.raw != null && type(res.raw) == 'string' && length(res) == 1) {
+	print(res.raw);
+}
+else if (res != null) {
+	// status 里的 ok=false 是"上次应用失败"这一业务状态,不是本次查询失败,退出码保持 0
+	if (res.ok == false && res.error != null && args[0] != 'status')
+		rc = 1;
+	if (!silent && !(quiet && rc == 0))
+		out_json(res);
+}
+if (rc != 0)
+	exit(rc);

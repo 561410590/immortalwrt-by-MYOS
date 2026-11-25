@@ -248,6 +248,8 @@ define Build/prepare-c2000ultra-app-rootfs
 	ln -sf ../init.d/qmodem_ttl $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/S95qmodem_ttl
 	ln -sf ../init.d/mwrt-swapfile $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/S12mwrt-swapfile
 	ln -sf ../init.d/mwrt-pktsteer $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/S99mwrt-pktsteer
+	ln -sf ../init.d/myos-mwrt-ac $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/S96myos-mwrt-ac
+	ln -sf ../init.d/mwrt-pbr $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/S97mwrt-pbr
 	ln -sf ../init.d/uuplugin $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/S99uuplugin
 	ln -sf ../init.d/openclash $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/K15openclash
 	ln -sf ../init.d/passwall $(KDIR)/root-c2000ultra-$(1)-app/etc/rc.d/K15passwall
@@ -3499,7 +3501,7 @@ define Device/nradio_c2000-ultra
   BOARD_NAME := nradio,c2000-ultra
   SUPPORTED_DEVICES += nradio,c2000-ultra HCMT7987-SNSD
   DEVICE_PACKAGES := \
-	kmod-nft-queue \
+	kmod-nft-queue kmod-dummy luci-app-myos-mwrt-pbr luci-app-myos-mwrt-behav \
 	-luci-app-ssr-plus -luci-i18n-ssr-plus-zh-cn \
 	-luci-app-shadowsocks-libev \
 	luci-theme-myos-new luci-app-myos-ultra luci-app-vantage luci-i18n-vantage-zh-cn \
