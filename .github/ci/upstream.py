@@ -108,14 +108,17 @@ class Merger:
         return self.replace(tree, path, mode + b' blob ' + blob)
 
     def prepare_feed(self, name, base, local, incoming, publication_branch):
-        if publication_branch == 'main':
-            # The MYOS LuCI app and OAF patches use the source revision in the local recipe.
-            path = {'luci': APPFILTER, 'packages': OAF}.get(name)
-            if path:
-                entry = self.entry(local, path)
-                base = self.replace(base, path, entry)
-                incoming = self.replace(incoming, path, entry)
-                self.retained.append('feeds/' + name + ':' + path)
+        path = None
+        if name == 'luci' and publication_branch == 'main':
+            path = APPFILTER
+        elif name == 'packages' and self.entry(local, OAF + '/patches/100-myos-routing-isolation.patch'):
+            # Keep the source recipe paired with the MYOS routing patches.
+            path = OAF
+        if path:
+            entry = self.entry(local, path)
+            base = self.replace(base, path, entry)
+            incoming = self.replace(incoming, path, entry)
+            self.retained.append('feeds/' + name + ':' + path)
         if name == 'luci':
             path = OPENCLASH + '/Makefile'
             versions = [
