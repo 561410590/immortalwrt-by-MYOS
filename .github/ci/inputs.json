@@ -1,6 +1,6 @@
 {
   "repository": "561410590/MYOS-build-inputs",
-  "commit": "5321ed44ac2349b3bf223f9f43da448ee686e973",
+  "commit": "7378bb1a2bde6077988e7ae8402d146736c6813d",
   "firmware_version": "3.1.47",
   "source_snapshots": {
     "C2000MAX": "c3128a787fd643f01847c9fe1068b60de58fceaa",
