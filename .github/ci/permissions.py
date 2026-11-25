@@ -36,6 +36,7 @@ def main():
             args.source / 'target/linux/mediatek/image/nradio-c8-688/packages',
             args.source / 'target/linux/mediatek/image/nradio-nbcpe-688/vantage/packages',
             args.source / 'target/linux/mediatek/image/nradio-c5800-688/vantage/packages',
+            args.source / 'target/linux/mediatek/image/nradio-c5800-688/adguardhome/packages',
             *args.package_input):
         for path in directory.rglob('*.ipk'):
             with tarfile.open(path) as outer:
