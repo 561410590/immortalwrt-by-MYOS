@@ -68,7 +68,7 @@ def main():
     image = args.output / 'final-root.squashfs'
     with tarfile.open(args.firmware) as archive:
         save('sysupgrade-metadata.json', [member(m) for m in archive])
-        root = next(m for m in archive.getmembers() if m.name.endswith('/root'))
+        root = next(m for m in archive.getmembers() if m.isfile() and Path(m.name).name == 'root')
         with image.open('wb') as output:
             import shutil
             shutil.copyfileobj(archive.extractfile(root), output)
