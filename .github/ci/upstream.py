@@ -35,6 +35,7 @@ QUICKSTART = 'luci/luci-app-quickstart/luasrc/controller/quickstart.lua'
 ISTORE_ENHANCE = 'luci/luci-app-istoreenhance/Makefile'
 OPENCLASH = 'applications/luci-app-openclash'
 APPFILTER = 'applications/luci-app-appfilter'
+OAF = 'net/open-app-filter'
 UPNP_VIEW = 'applications/luci-app-upnp/htdocs/luci-static/resources/view/upnp/upnp.js'
 
 
@@ -107,13 +108,15 @@ class Merger:
         return self.replace(tree, path, mode + b' blob ' + blob)
 
     def prepare_feed(self, name, base, local, incoming, publication_branch):
+        if publication_branch == 'main':
+            # The MYOS LuCI app and OAF patches use the source revision in the local recipe.
+            path = {'luci': APPFILTER, 'packages': OAF}.get(name)
+            if path:
+                entry = self.entry(local, path)
+                base = self.replace(base, path, entry)
+                incoming = self.replace(incoming, path, entry)
+                self.retained.append('feeds/' + name + ':' + path)
         if name == 'luci':
-            if publication_branch == 'main':
-                # Use the MYOS LuCI app with its bundled OAF and policy routing.
-                entry = self.entry(local, APPFILTER)
-                base = self.replace(base, APPFILTER, entry)
-                incoming = self.replace(incoming, APPFILTER, entry)
-                self.retained.append('feeds/luci:' + APPFILTER)
             path = OPENCLASH + '/Makefile'
             versions = [
                 tuple(map(int, re.search(r'^PKG_VERSION:=(\d+(?:\.\d+)+)', self.file(tree, path), re.M)[1].split('.')))
