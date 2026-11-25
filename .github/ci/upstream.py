@@ -34,6 +34,7 @@ TAKE_UPSTREAM = {
 QUICKSTART = 'luci/luci-app-quickstart/luasrc/controller/quickstart.lua'
 ISTORE_ENHANCE = 'luci/luci-app-istoreenhance/Makefile'
 OPENCLASH = 'applications/luci-app-openclash'
+APPFILTER = 'applications/luci-app-appfilter'
 UPNP_VIEW = 'applications/luci-app-upnp/htdocs/luci-static/resources/view/upnp/upnp.js'
 
 
@@ -105,8 +106,14 @@ class Merger:
         blob = self.git('hash-object', '-w', '--stdin', data=content.encode()).stdout.strip()
         return self.replace(tree, path, mode + b' blob ' + blob)
 
-    def prepare_feed(self, name, base, local, incoming):
+    def prepare_feed(self, name, base, local, incoming, publication_branch):
         if name == 'luci':
+            if publication_branch == 'main':
+                # Use the MYOS LuCI app with its bundled OAF and policy routing.
+                entry = self.entry(local, APPFILTER)
+                base = self.replace(base, APPFILTER, entry)
+                incoming = self.replace(incoming, APPFILTER, entry)
+                self.retained.append('feeds/luci:' + APPFILTER)
             path = OPENCLASH + '/Makefile'
             versions = [
                 tuple(map(int, re.search(r'^PKG_VERSION:=(\d+(?:\.\d+)+)', self.file(tree, path), re.M)[1].split('.')))
@@ -228,7 +235,7 @@ class Merger:
             latest = self.fetch(name, url, branch, old)
             local = self.text('rev-parse', tree + ':feeds/' + name)
             old_tree, new_tree = self.prepare_feed(name, self.text('rev-parse', old + '^{tree}'),
-                local, self.text('rev-parse', latest + '^{tree}'))
+                local, self.text('rev-parse', latest + '^{tree}'), snapshot['publication_branch'])
             merged = self.merge(old_tree, local, new_tree, 'feeds/' + name)
             tree = self.replace(tree, 'feeds/' + name, b'040000 tree ' + merged.encode())
             sources[name] = {'repository': url, 'branch': branch, 'base': old, 'commit': latest}
